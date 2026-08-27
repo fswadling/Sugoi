@@ -139,13 +139,13 @@ already provides the minimal `ig*` layer; grow it per milestone.
 - **Phase 2** — workspace shell (docking, viewport, Outliner, Inspector, Asset
   Browser), selection, gizmo movement, spawn, delete, duplicate, and the
   command/undo core. Adds the `DebugDraw` line primitive for gizmos + overlays.
-- **Phase 4** — accurate physics raycast picking (replaces the minimal raycast).
-- **Phase 6** — cue editor as a dockable window (recursive tree list) using the
+- **Phase 6** — accurate physics raycast picking (replaces the minimal raycast).
+- **Phase 9** — cue editor as a dockable window (recursive tree list) using the
   template/runtime split.
-- **Phase 7** — waypoints/triggers/advent/cast as dockable panels; trigger→cue
+- **Phase 10** — waypoints/triggers/advent/cast as dockable panels; trigger→cue
   wiring inline in the Inspector.
-- **Phase 8** — scenario editor (library + cue + scene tabs).
-- **Phase 10** — zone registry editor.
+- **Phase 11** — scenario editor (library + cue + scene tabs).
+- **Phase 12** — zone registry editor.
 
 ## Module map (`editor/`)
 
