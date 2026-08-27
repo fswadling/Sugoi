@@ -35,7 +35,7 @@ contort code to avoid allocation in cold paths — clarity first, then measure.
 - Language: F#
 - Build: .NET (`dotnet`)
 - Windowing/Graphics: SDL3 (via the `SDL3-CS` .NET bindings)
-- Editor UI: Dear ImGui (via the `ImGui.NET` bindings)
+- Editor UI: Dear ImGui (via a custom cimgui binding + SDL_gpu backend, `ImGui.fs`/`ImGuiSdl3.fs` + native `libcimgui.so`)
 - Physics: Box3D (via the `Box3D` (Happypig375) .NET bindings)
 - Spec workflow: Spec Kit ("speckit")
 
