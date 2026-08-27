@@ -1,5 +1,19 @@
 # AGENTS.md
 
+## Guiding Documents
+
+These docs are the source of truth for the project; consult them before making
+structural or large changes:
+
+- `docs/ARCHITECTURE.md` — the target data model (slot map, entities, zones,
+  cues/scenarios, persistence) and F# port decisions.
+- `docs/PROJECT_STRUCTURE.md` — the target directory layout and `.fsproj`
+  compile order. New modules go in their domain cluster (`core`/`render`/
+  `screen`/`editor`) and are inserted at the correct point in the compile list.
+- `docs/ROADMAP.md` — the phase-by-phase plan (working-at-each-step).
+- `docs/EDITOR_DESIGN.md` — the editor workspace, interaction model, and
+  command/undo model.
+
 ## Code Style
 
 - Minimalism is favoured. Write only what is needed.
