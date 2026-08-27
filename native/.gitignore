@@ -1,0 +1,5 @@
+# Vendored imgui source (cloned by build.sh)
+imgui/
+
+# Build output
+libcimgui_sdl3.so

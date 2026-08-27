@@ -7,8 +7,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="ImGuiSdl3.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
+
+  <!-- Native ImGui backend, built by native/build.sh. Copied next to the
+       apphost so `DllImport("cimgui_sdl3")` resolves it at runtime. -->
+  <Target Name="CopyImGuiBackend" AfterTargets="Build" Condition="Exists('native/libcimgui_sdl3.so')">
+    <Copy SourceFiles="native/libcimgui_sdl3.so" DestinationFolder="$(OutDir)" />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Box3D" Version="0.1.0.20260813" />

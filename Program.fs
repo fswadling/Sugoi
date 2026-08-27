@@ -1,34 +1,16 @@
-﻿// Minimal wiring spike: validate that the three bindings resolve and build,
-// and that the SDL3 + Box3D native libraries load and run.
+﻿// SDL3 + Dear ImGui wiring spike.
 //
-// ImGui.NET is referenced by the project but intentionally not exercised here:
-// it is a thin P/Invoke wrapper over a native `cimgui` that is not yet wired up.
+// Opens an SDL3 window/renderer, initialises Dear ImGui through the
+// SDL3 + SDL_Renderer backends (see ImGuiSdl3.fs and native/), and renders the
+// ImGui demo window until the window is closed.
 
 open System
+open Microsoft.FSharp.NativeInterop
 open SDL3
-
-// Box3D's C API lives in the static class `Box3D.Box3D` (namespace and class
-// share a name). F# cannot resolve the qualified `Box3D.Box3D` form because the
-// name collides, so we `open Box3D` (the namespace) and then reference the
-// static class by its short name `Box3D`.
-open Box3D
+open ImGuiNET
 
 [<EntryPoint>]
 let main _argv =
-    // --- Box3D: create a world, step it, tear it down (exercises the native
-    //     `libbox3d` load and the function-pointer-carrying `b3WorldDef`). ---
-    let mutable worldDef = Box3D.b3DefaultWorldDef()
-    let worldId = Box3D.b3CreateWorld(&&worldDef)
-    printfn "Box3D: world created"
-
-    for _ in 1 .. 60 do
-        Box3D.b3World_Step(worldId, 1.0f / 60.0f, 4)
-
-    printfn "Box3D: world stepped 60 frames"
-    Box3D.b3DestroyWorld(worldId)
-    printfn "Box3D: world destroyed"
-
-    // --- SDL3: init video, open a window + renderer, pump events until quit. ---
     if not (SDL.Init(SDL.InitFlags.Video)) then
         eprintfn "SDL_Init failed: %s" (SDL.GetError())
         1
@@ -41,20 +23,42 @@ let main _argv =
             SDL.Quit()
             1
         else
-            let mutable running = true
-            let mutable ev = SDL.Event()
+            ImGui.CreateContext() |> ignore
 
-            while running do
-                while SDL.PollEvent(&ev) do
-                    if ev.Type = uint32 SDL.EventType.Quit then
-                        running <- false
+            if not (ImGuiSdl3.init(window, renderer)) then
+                eprintfn "ImGui backend init failed: %s" (SDL.GetError())
+                ImGui.DestroyContext()
+                SDL.DestroyRenderer(renderer)
+                SDL.DestroyWindow(window)
+                SDL.Quit()
+                1
+            else
+                let mutable running = true
+                let mutable ev = SDL.Event()
 
-                SDL.SetRenderDrawColor(renderer, 16uy, 16uy, 24uy, 255uy) |> ignore
-                SDL.RenderClear(renderer) |> ignore
-                SDL.RenderPresent(renderer) |> ignore
+                while running do
+                    while SDL.PollEvent(&ev) do
+                        if ev.Type = uint32 SDL.EventType.Quit then
+                            running <- false
 
-            SDL.DestroyRenderer(renderer)
-            SDL.DestroyWindow(window)
-            SDL.Quit()
-            printfn "SDL3: clean shutdown"
-            0
+                        ImGuiSdl3.processEvent(NativePtr.toNativeInt (&&ev)) |> ignore
+
+                    SDL.SetRenderDrawColor(renderer, 16uy, 16uy, 24uy, 255uy) |> ignore
+                    SDL.RenderClear(renderer) |> ignore
+
+                    ImGuiSdl3.newFrame()
+                    ImGui.NewFrame()
+                    ImGui.ShowDemoWindow()
+                    ImGui.Render()
+                    let drawData = ImGui.GetDrawData()
+                    ImGuiSdl3.renderDrawData(NativePtr.toNativeInt drawData.NativePtr, renderer)
+
+                    SDL.RenderPresent(renderer) |> ignore
+
+                ImGuiSdl3.shutdown()
+                ImGui.DestroyContext()
+                SDL.DestroyRenderer(renderer)
+                SDL.DestroyWindow(window)
+                SDL.Quit()
+                printfn "SDL3 + ImGui: clean shutdown"
+                0
