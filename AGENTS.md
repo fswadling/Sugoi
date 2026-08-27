@@ -11,6 +11,40 @@
 - Prefer exceptions/asserts over silently returning defaults for unexpected
   behaviour or state. Use `Result`/`Option` for *expected* failure paths and
   `failwith`/`invalidOp`/`assert` for programming bugs.
+- Prefer a flat indentation style that reads top-to-bottom, left-to-right. Use
+  early-return guard clauses so the happy path stays at a single indentation
+  level. A guard that escapes is written with `then` handling the failure and
+  the continuation at the same indentation as the `if`, using a bare `else`
+  followed by a blank line:
+
+  ```fsharp
+  if not (Sdl.Init()) then
+      eprintfn "init failed"
+      1
+  else
+
+  let window = Sdl.CreateWindow(...)
+  if window = IntPtr.Zero then
+      eprintfn "create failed"
+      1
+  else
+
+  // happy path, flat
+  ...
+  ```
+
+- `match` is used the same way for early returns: let the escape cases `raise`
+  or return, bind the successful value, and continue flat:
+
+  ```fsharp
+  let value =
+      match tryParse input with
+      | Some v -> v
+      | None -> failwith "bad input"
+
+  // continue flat using value
+  ```
+
 - Bind before matching. Prefer binding a call's result to a variable, then
   `match`ing the variable, over matching an inline call:
 
