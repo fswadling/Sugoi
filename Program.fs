@@ -59,8 +59,17 @@ let main _argv =
 
     let mutable running = true
     let mutable ev = SDL.Event()
+    let nowNs () = float (SDL.GetTicksNS())
+    let mutable prevTicks = nowNs ()
+    let mutable lastTimingLog = 0.0
+    let targetFrameNs = 1_000_000_000.0 / 60.0
 
     while running do
+        let now = nowNs ()
+        let dtMs = (now - prevTicks) / 1e6
+        prevTicks <- now
+        let tStart = now
+
         while SDL.PollEvent(&ev) do
             if ev.Type = uint32 SDL.EventType.Quit then
                 running <- false
@@ -97,6 +106,17 @@ let main _argv =
             SDL.EndGPURenderPass(renderPass)
 
         SDL.SubmitGPUCommandBuffer(cmd) |> ignore
+
+        // log frame time once per second
+        if now - lastTimingLog >= 1_000_000_000.0 then
+            printfn "frame %.2fms" dtMs
+            lastTimingLog <- now
+
+        // software cap to 60 fps (the swapchain present mode does not pace on
+        // this driver, so without this the loop runs uncapped)
+        let sleepNs = targetFrameNs - (nowNs () - tStart)
+        if sleepNs > 0.0 then
+            SDL.DelayNS(uint64 sleepNs) |> ignore
 
     SDL.WaitForGPUIdle(device) |> ignore
     ImGuiSdl3.shutdown()
