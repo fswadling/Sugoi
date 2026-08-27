@@ -6,6 +6,14 @@ module ImGui
 
 open System.Runtime.InteropServices
 
+// cimgui's `ImVec2_c` (see native/cimgui/cimgui.h): a blittable 8-byte pair of
+// floats passed by value into widget calls.
+[<Struct>]
+type ImVec2 =
+    val mutable x : float32
+    val mutable y : float32
+    new (x: float32, y: float32) = { x = x; y = y }
+
 [<DllImport("cimgui", EntryPoint = "igCreateContext", CallingConvention = CallingConvention.Cdecl)>]
 extern nativeint createContext(nativeint sharedFontAtlas)
 
@@ -23,3 +31,15 @@ extern nativeint getDrawData()
 
 [<DllImport("cimgui", EntryPoint = "igShowDemoWindow", CallingConvention = CallingConvention.Cdecl)>]
 extern void showDemoWindow(nativeint pOpen)
+
+[<DllImport("cimgui", EntryPoint = "igBegin", CallingConvention = CallingConvention.Cdecl)>]
+extern bool beginWindow(string name, nativeint pOpen, int flags)
+
+[<DllImport("cimgui", EntryPoint = "igEnd", CallingConvention = CallingConvention.Cdecl)>]
+extern void endWindow()
+
+[<DllImport("cimgui", EntryPoint = "igButton", CallingConvention = CallingConvention.Cdecl)>]
+extern bool button(string label, ImVec2 size)
+
+[<DllImport("cimgui", EntryPoint = "igText", CallingConvention = CallingConvention.Cdecl)>]
+extern void text(string fmt)

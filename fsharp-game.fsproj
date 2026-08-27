@@ -7,8 +7,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="ImGui.fs" />
-    <Compile Include="ImGuiSdl3.fs" />
+    <Compile Include="render/ImGui.fs" />
+    <Compile Include="render/ImGuiSdl3.fs" />
+    <Compile Include="screen/Screen.fs" />
+    <Compile Include="screen/SharedState.fs" />
+    <Compile Include="screen/GameplayState.fs" />
+    <Compile Include="screen/MainMenuScreen.fs" />
+    <Compile Include="screen/GameplayScreen.fs" />
+    <Compile Include="screen/ScreenManager.fs" />
+    <Compile Include="Engine.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
