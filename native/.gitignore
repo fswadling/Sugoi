@@ -1,5 +1,5 @@
-# Vendored imgui source (cloned by build.sh)
-imgui/
+# Vendored cimgui source (cloned by build.sh, incl. imgui submodule)
+cimgui/
 
 # Build output
-libcimgui_sdl3.so
+libcimgui.so

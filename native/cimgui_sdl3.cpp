@@ -1,39 +1,47 @@
-// Thin C ABI over Dear ImGui's SDL3 + SDL_Renderer backends, so they can be
-// P/Invoked from F#.
+// Thin C ABI over Dear ImGui's SDL3 platform backend + SDL_gpu renderer
+// backend, so they can be P/Invoked from F#.
 //
-// Compiled into `libcimgui_sdl3.so` and linked against the `libcimgui.so`
-// bundled by ImGui.NET (which provides the `ImGui::*` symbols). Because that
-// library's SONAME is `cimgui.so`, the dynamic linker reuses the already-loaded
-// core instead of loading a second copy, so ImGui.NET and this backend share
-// one ImGui context.
+// Compiled into `libcimgui.so` alongside cimgui itself (see build.sh). All
+// functions use C linkage; pointers are passed opaquely as void* / handles.
+
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_gpu.h>
 
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
-#include "imgui_impl_sdlrenderer3.h"
+#include "imgui_impl_sdlgpu3.h"
 
 extern "C" {
 
-// Initialise both the platform (SDL3) and renderer (SDL_Renderer) backends.
-bool cimgui_sdl3_init(SDL_Window* window, SDL_Renderer* renderer)
+// Initialise both the platform (SDL3) and renderer (SDL_gpu) backends. The
+// swapchain color-target format is queried from the device, so the caller only
+// needs the window and GPU device handles.
+bool cimgui_sdl3_init(SDL_Window* window, SDL_GPUDevice* device)
 {
-    if (!ImGui_ImplSDL3_InitForSDLRenderer(window, renderer))
+    if (!ImGui_ImplSDL3_InitForSDLGPU(window))
         return false;
-    if (!ImGui_ImplSDLRenderer3_Init(renderer))
-        return false;
-    return true;
+
+    ImGui_ImplSDLGPU3_InitInfo init_info = {};
+    init_info.Device = device;
+    init_info.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(device, window);
+    init_info.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
+    init_info.SwapchainComposition = SDL_GPU_SWAPCHAINCOMPOSITION_SDR;
+    init_info.PresentMode = SDL_GPU_PRESENTMODE_VSYNC;
+
+    return ImGui_ImplSDLGPU3_Init(&init_info);
 }
 
 void cimgui_sdl3_shutdown()
 {
-    ImGui_ImplSDLRenderer3_Shutdown();
+    // Match the official example: platform backend first, then renderer.
     ImGui_ImplSDL3_Shutdown();
+    ImGui_ImplSDLGPU3_Shutdown();
 }
 
 // Prepare the backends for a new frame. Call before ImGui::NewFrame().
 void cimgui_sdl3_new_frame()
 {
-    ImGui_ImplSDLRenderer3_NewFrame();
+    ImGui_ImplSDLGPU3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
 }
 
@@ -43,10 +51,16 @@ bool cimgui_sdl3_process_event(const SDL_Event* event)
     return ImGui_ImplSDL3_ProcessEvent(event);
 }
 
-// Submit ImGui's draw data to the SDL_Renderer. Call after ImGui::Render().
-void cimgui_sdl3_render_draw_data(ImDrawData* draw_data, SDL_Renderer* renderer)
+// Upload ImGui's vertex/index buffers. MUST be called before the render pass.
+void cimgui_sdl3_prepare_draw_data(ImDrawData* draw_data, SDL_GPUCommandBuffer* command_buffer)
 {
-    ImGui_ImplSDLRenderer3_RenderDrawData(draw_data, renderer);
+    ImGui_ImplSDLGPU3_PrepareDrawData(draw_data, command_buffer);
+}
+
+// Emit ImGui draw commands. MUST be called inside the render pass.
+void cimgui_sdl3_render_draw_data(ImDrawData* draw_data, SDL_GPUCommandBuffer* command_buffer, SDL_GPURenderPass* render_pass)
+{
+    ImGui_ImplSDLGPU3_RenderDrawData(draw_data, command_buffer, render_pass, nullptr);
 }
 
 } // extern "C"

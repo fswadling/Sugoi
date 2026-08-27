@@ -1,42 +1,41 @@
 #!/usr/bin/env bash
-# Builds the native SDL3 + SDL_Renderer Dear ImGui backend (libcimgui_sdl3.so).
+# Builds the native Dear ImGui library (libcimgui.so) with:
+#   - cimgui C API (`ig*` wrappers)
+#   - imgui core (docking branch)
+#   - SDL3 platform backend (imgui_impl_sdl3)
+#   - SDL_gpu renderer backend (imgui_impl_sdlgpu3 + shaders)
+#   - our F#-facing C shim (cimgui_sdl3.cpp)
 #
-# Links against the libcimgui.so bundled by the ImGui.NET NuGet package. That
-# library is built from cimgui's `docking_inter` branch with:
-#   - imgui's docking branch source (IMGUI_HAS_DOCK / IMGUI_HAS_VIEWPORT)
-#   - IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1
-# We must match those exactly, or ImGui aborts on a struct-layout mismatch.
+# cimgui's generated `cimgui.cpp` must match its bundled imgui submodule, so we
+# vendor the whole cimgui repo (with submodule) rather than imgui alone.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-IMGUI_TAG="v1.91.6-docking"
+CIMGUI_URL="https://github.com/cimgui/cimgui.git"
+CIMGUI_BRANCH="docking_inter"
 CXX="${CXX:-g++}"
 
-# Vendor the imgui docking source (headers + backends).
-if [ ! -d imgui ]; then
-    git clone --depth 1 --branch "$IMGUI_TAG" https://github.com/ocornut/imgui.git imgui
+# Vendor cimgui (with its imgui docking submodule) if not already present.
+if [ ! -d cimgui ]; then
+    git clone --depth 1 --branch "$CIMGUI_BRANCH" --recurse-submodules "$CIMGUI_URL" cimgui
 fi
 
-# Locate the libcimgui.so shipped with ImGui.NET in the NuGet cache. This is a
-# linux-x64 development build; adjust for other RIDs.
-CIMGUI_SO="$(find "${HOME}/.nuget/packages/imgui.net" -path '*linux-x64*' -name 'libcimgui.so' | sort -V | tail -n 1)"
-if [ -z "$CIMGUI_SO" ]; then
-    echo "error: could not find libcimgui.so in the ImGui.NET NuGet cache" >&2
-    echo "       run 'dotnet restore' first" >&2
-    exit 1
-fi
+echo "Building libcimgui.so ..."
 
-echo "Using libcimgui.so: $CIMGUI_SO"
-
-"$CXX" -shared -fPIC -O2 -std=c++11 -DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1 \
-    -Iimgui -Iimgui/backends \
-    imgui/backends/imgui_impl_sdl3.cpp \
-    imgui/backends/imgui_impl_sdlrenderer3.cpp \
+"$CXX" -shared -fPIC -O2 -std=c++17 \
+    -Icimgui -Icimgui/imgui -Icimgui/imgui/backends \
+    cimgui/cimgui.cpp \
+    cimgui/imgui/imgui.cpp \
+    cimgui/imgui/imgui_draw.cpp \
+    cimgui/imgui/imgui_demo.cpp \
+    cimgui/imgui/imgui_tables.cpp \
+    cimgui/imgui/imgui_widgets.cpp \
+    cimgui/imgui/backends/imgui_impl_sdl3.cpp \
+    cimgui/imgui/backends/imgui_impl_sdlgpu3.cpp \
     cimgui_sdl3.cpp \
-    "$CIMGUI_SO" \
     -lSDL3 \
-    -o libcimgui_sdl3.so
+    -o libcimgui.so
 
-echo "Built libcimgui_sdl3.so"
+echo "Built libcimgui.so"

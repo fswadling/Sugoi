@@ -1,32 +1,34 @@
-# Native ImGui backend
+# Native ImGui library
 
-`cimgui_sdl3.cpp` is a thin `extern "C"` shim over Dear ImGui's
-`imgui_impl_sdl3` + `imgui_impl_sdlrenderer3` backends, so they can be
-P/Invoked from F# (`ImGuiSdl3.fs`).
+`cimgui_sdl3.cpp` is a thin `extern "C"` shim over Dear ImGui's SDL3 platform
+backend (`imgui_impl_sdl3`) and SDL_gpu renderer backend (`imgui_impl_sdlgpu3`),
+so both can be P/Invoked from F#.
 
-It compiles to `libcimgui_sdl3.so`, linked against the `libcimgui.so` that
-ships with the `ImGui.NET` NuGet package. That library's SONAME is `cimgui.so`,
-so the dynamic linker reuses the already-loaded ImGui core instead of loading a
-second copy — `ImGuiNET.ImGui` and this backend share one ImGui context.
+`build.sh` compiles a single `libcimgui.so` containing:
+
+- cimgui's C API (`ig*` wrappers, from the `cimgui` repo)
+- imgui core (docking branch)
+- the SDL3 platform + SDL_gpu renderer backends (+ shaders)
+- the `cimgui_sdl3.cpp` shim
+
+The F# side P/Invokes `ig*` (`ImGui.fs`) and the shim (`ImGuiSdl3.fs`) against
+this one library.
 
 ## Build
 
 Prerequisites: `git`, a C++ compiler (`g++`/`clang++`), and SDL3 development
-headers (`/usr/include/SDL3/SDL.h`).
+headers (`/usr/include/SDL3/SDL.h`, `SDL_gpu.h`).
 
 ```sh
 ./native/build.sh
 ```
 
-The result is `native/libcimgui_sdl3.so`. The project's `.fsproj` copies it next
-to the apphost at build time so `DllImport("cimgui_sdl3")` resolves it.
+The result is `native/libcimgui.so`. The project's `.fsproj` copies it next to
+the apphost at build time so `DllImport("cimgui")` resolves it.
 
 ## Version pinning
 
-The shim must be compiled against the **same imgui configuration** as the
-bundled `libcimgui.so`, or ImGui aborts on a struct-layout mismatch:
-
-- imgui **docking** branch, tag `v1.91.6-docking`
-- `IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1`
-
-Both are enforced by `build.sh`.
+`cimgui.cpp` is generated against cimgui's bundled imgui submodule, so the two
+must move together. `build.sh` vendors the whole `cimgui` repo (branch
+`docking_inter`) with its submodule for this reason. Pin to a specific commit
+when the stack stabilises.
