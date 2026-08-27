@@ -1,0 +1,23 @@
+# .NET build outputs
+bin/
+obj/
+
+# NuGet
+*.nupkg
+packages/
+
+# dotnet tooling
+.dotnet/
+
+# IDE / editor
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
