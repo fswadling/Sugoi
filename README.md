@@ -1,11 +1,12 @@
 # fsharp-game
 
-A game written in F# using SDL3 and Box2D, structured after `odin-game`.
+A game written in F# using SDL3, ImGui, and Box3D, structured after `odin-game`.
 
 ## Prerequisites
 
 - .NET 10 SDK
 - SDL3 native library (for the `SDL3-CS` bindings)
+- `cimgui` native library (for the `ImGui.NET` bindings)
 
 ## Build
 
