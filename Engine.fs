@@ -8,6 +8,7 @@ open Microsoft.FSharp.NativeInterop
 open SDL3
 
 let run () : int =
+    // ── Initialise SDL and create the window ──
     if not (SDL.Init(SDL.InitFlags.Video)) then
         eprintfn "SDL_Init failed: %s" (SDL.GetError())
         1
@@ -21,6 +22,7 @@ let run () : int =
         1
     else
 
+    // ── Create and claim the GPU device ──
     let shaderFormats : SDL.GPUShaderFormat =
         LanguagePrimitives.EnumOfValue
             (uint32 SDL.GPUShaderFormat.SPIRV ||| uint32 SDL.GPUShaderFormat.DXIL
@@ -41,6 +43,7 @@ let run () : int =
         1
     else
 
+    // ── Wire up the swapchain and Dear ImGui ──
     SDL.SetGPUSwapchainParameters(device, window, SDL.GPUSwapchainComposition.SDR, SDL.GPUPresentMode.VSync) |> ignore
 
     ImGui.createContext(IntPtr.Zero) |> ignore
@@ -55,6 +58,7 @@ let run () : int =
         1
     else
 
+    // ── Set up the screen manager and frame timing ──
     let manager = ScreenManager.init()
 
     let mutable running = true
@@ -64,24 +68,29 @@ let run () : int =
     let mutable lastTimingLog = 0.0
     let targetFrameNs = 1_000_000_000.0 / 60.0
 
+    // ── Main loop ──
     while running do
         let now = nowNs ()
         let dtMs = (now - prevTicks) / 1e6
         prevTicks <- now
         let tStart = now
 
+        // ── Poll input events ──
         while SDL.PollEvent(&ev) do
             if ev.Type = uint32 SDL.EventType.Quit then
                 running <- false
 
             ImGuiSdl3.processEvent(NativePtr.toNativeInt (&&ev)) |> ignore
 
+        // ── Begin a new ImGui frame ──
         ImGuiSdl3.newFrame()
         ImGui.newFrame()
 
+        // ── Advance and draw the active screen ──
         ScreenManager.update manager
         ScreenManager.draw manager
 
+        // ── Render ImGui and submit the frame ──
         ImGui.render()
 
         let drawData = ImGui.getDrawData()
@@ -110,21 +119,21 @@ let run () : int =
 
         SDL.SubmitGPUCommandBuffer(cmd) |> ignore
 
-        // apply the frame's transition (Next switches, Quit exits the loop)
+        // ── Apply the frame's navigation request ──
         if ScreenManager.applyTransition manager then
             running <- false
 
-        // log frame time once per second
+        // ── Report frame time once per second ──
         if now - lastTimingLog >= 1_000_000_000.0 then
             printfn "frame %.2fms" dtMs
             lastTimingLog <- now
 
-        // software cap to 60 fps (the swapchain present mode does not pace on
-        // this driver, so without this the loop runs uncapped)
+        // ── Cap to 60 fps (vsync does not pace on this driver) ──
         let sleepNs = targetFrameNs - (nowNs () - tStart)
         if sleepNs > 0.0 then
             SDL.DelayNS(uint64 sleepNs) |> ignore
 
+    // ── Shut down ──
     SDL.WaitForGPUIdle(device) |> ignore
     ImGuiSdl3.shutdown()
     ImGui.destroyContext(IntPtr.Zero)
