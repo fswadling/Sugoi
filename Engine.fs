@@ -67,6 +67,7 @@ let run () : int =
     let mutable prevTicks = nowNs ()
     let mutable lastTimingLog = 0.0
     let targetFrameNs = 1_000_000_000.0 / 60.0
+    let mutable fps = 60.0
 
     // ── Main loop ──
     while running do
@@ -74,6 +75,10 @@ let run () : int =
         let dtMs = (now - prevTicks) / 1e6
         prevTicks <- now
         let tStart = now
+
+        // smooth the frame rate shown in the debug overlay
+        let instFps = if dtMs > 0.0 then 1000.0 / dtMs else 0.0
+        fps <- fps * 0.9 + instFps * 0.1
 
         // ── Poll input events ──
         while SDL.PollEvent(&ev) do
@@ -89,6 +94,7 @@ let run () : int =
         // ── Advance and draw the active screen ──
         ScreenManager.update manager
         ScreenManager.draw manager
+        DebugOverlay.draw fps
 
         // ── Render ImGui and submit the frame ──
         ImGui.render()

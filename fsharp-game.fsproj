@@ -15,6 +15,7 @@
     <Compile Include="screen/MainMenuScreen.fs" />
     <Compile Include="screen/GameplayScreen.fs" />
     <Compile Include="screen/ScreenManager.fs" />
+    <Compile Include="screen/DebugOverlay.fs" />
     <Compile Include="Engine.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
