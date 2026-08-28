@@ -7,43 +7,43 @@ module ScreenManager
 open Screen
 
 type ScreenManager =
-    { mutable active : ScreenKind
-      mutable transition : ScreenTransition
-      shared : SharedState.SharedState
-      mutable gameplay : GameplayState.GameplayState }
+    { mutable Active : ScreenKind
+      mutable Transition : ScreenTransition
+      Shared : SharedState.SharedState
+      mutable Gameplay : GameplayState.GameplayState }
 
 let init () : ScreenManager =
-    { active = ScreenKind.MainMenu
-      transition = ScreenTransition.None
-      shared = SharedState.SharedState()
-      gameplay = GameplayState.GameplayState() }
+    { Active = ScreenKind.MainMenu
+      Transition = ScreenTransition.None
+      Shared = SharedState.SharedState()
+      Gameplay = GameplayState.GameplayState() }
 
 // Advance the active screen; may set a transition.
 let update (m: ScreenManager) =
-    match m.active with
+    match m.Active with
     | ScreenKind.MainMenu ->
-        m.transition <- MainMenuScreen.update m.shared
+        m.Transition <- MainMenuScreen.update m.Shared
     | ScreenKind.Gameplay ->
-        let nextState, transition = GameplayScreen.update m.gameplay m.shared
-        m.gameplay <- nextState
-        m.transition <- transition
+        let nextState, transition = GameplayScreen.update m.Gameplay m.Shared
+        m.Gameplay <- nextState
+        m.Transition <- transition
 
 // Draw the active screen; may set a transition.
 let draw (m: ScreenManager) =
-    match m.active with
+    match m.Active with
     | ScreenKind.MainMenu ->
-        m.transition <- MainMenuScreen.draw m.shared
+        m.Transition <- MainMenuScreen.draw m.Shared
     | ScreenKind.Gameplay ->
-        m.transition <- GameplayScreen.draw m.gameplay m.shared
+        m.Transition <- GameplayScreen.draw m.Gameplay m.Shared
 
 // Apply a pending transition at end of frame. Returns true when the app should
 // quit; otherwise the requested screen (if any) becomes active.
 let applyTransition (m: ScreenManager) : bool =
     let quit =
-        match m.transition with
+        match m.Transition with
         | ScreenTransition.Quit -> true
-        | ScreenTransition.Next next -> m.active <- next; false
+        | ScreenTransition.Next next -> m.Active <- next; false
         | ScreenTransition.None -> false
 
-    m.transition <- ScreenTransition.None
+    m.Transition <- ScreenTransition.None
     quit

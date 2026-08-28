@@ -78,6 +78,7 @@ structural or large changes:
 - F# compiles files in the order they are listed in the `.fsproj`; a file can
   only reference symbols defined in earlier files. Keep dependencies
   one-directional.
+- Record fields start with a capital letter (PascalCase): `{ Active : …; Transition : … }`, never `{ active : … }`.
 - Prefer `[<Struct>]` records (and struct tuples) for hot-path data created and
   consumed every frame. Reserve classes for long-lived, shared state.
 - This is primarily a data-driven project. Favour mutable data structures that
