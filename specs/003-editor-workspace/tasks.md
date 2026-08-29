@@ -80,7 +80,7 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T012 Run `quickstart.md` validation end-to-end (launch → Play → navigate → assets → quit).
+- [X] T012 Run `quickstart.md` validation end-to-end (launch → Play → navigate → assets → quit).
 - [X] T013 Confirm `dotnet build` is clean (2 expected native-pointer warnings).
 
 ---
@@ -114,4 +114,4 @@ Then US2 and US3 incrementally, each independently testable.
 ## Phase 7: Convergence
 
 - [X] T014 Eliminate per-frame allocations in the render/draw hot path — `DebugDraw.writeMatrix` (16-float array), `DebugDraw.draw` (`[| binding |]`), and `Engine.fs` (`[| ti |]` × 2) allocate each frame, contradicting `plan.md` "no per-frame allocation" and Constitution V (contradicts)
-- [ ] T015 Capture the backtick play/edit toggle in `spec.md` (or remove it) — `GameplayScreen` toggles `Editing` and shows the grid in play mode, but the spec's Assumptions and `data-model.md` state the editor is always in edit mode this milestone (unrequested)
+- [X] T015 Capture the backtick play/edit toggle in `spec.md` (or remove it) — `GameplayScreen` toggles `Editing` and shows the grid in play mode, but the spec's Assumptions and `data-model.md` state the editor is always in edit mode this milestone (unrequested)

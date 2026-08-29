@@ -50,7 +50,9 @@ The viewport maps input to three camera ops (matching `ocaml-game` and
   - `DebugDraw : DebugDraw` — the viewport's line accumulator + GPU line pipeline
     (created once, reused every frame; gameplay-screen specific).
   - `Editor : EditorState`
-  - `Editing : bool` (always `true` this milestone).
+  - `Editing : bool` — whether the editor workspace is shown. Defaults to
+    `true`; toggled by the backtick (`` ` ``) key in `GameplayScreen`. In play
+    mode the workspace is hidden but the viewport grid is still rendered.
   - `DockingInitialized : bool` — the dock layout is built once, remembered here.
   - `PrevMouseX`/`PrevMouseY`/`PrevBacktick` — input edge-detection state for
     mouse deltas and backtick presses (re-synced by `activate` on switch-in).

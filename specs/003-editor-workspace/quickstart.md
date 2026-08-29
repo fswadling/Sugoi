@@ -23,10 +23,14 @@ dotnet run
    orbit (pitch/yaw) and pan/zoom.
 3. **Browse assets** — the Asset Browser lists assets under `assets/` (empty list
    if none).
-4. **Quit** — close the window; expect a clean exit.
+4. **Toggle edit/play** — press the backtick (`` ` ``) key; expect the editor
+   workspace (menu bar + panels) to hide/show while the viewport grid stays
+   visible.
+5. **Quit** — close the window; expect a clean exit.
 
 ## Expected outcome
 
 - Play opens the dockable editor workspace (US1).
 - The viewport shows a grid and responds to camera input (US2).
 - The asset browser lists discovered assets (US3).
+- Backtick toggles the editor workspace on/off while the grid stays visible.

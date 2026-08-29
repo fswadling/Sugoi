@@ -124,7 +124,7 @@ every later phase builds on (no visible result yet; verified by tests).
 **Done when**: `test/SlotMapTests.fs` proves add/get/free, free-list reuse, and
 stale-handle rejection.
 
-### 2b · Editor workspace shell
+### 2b · Editor workspace shell ✅
 
 **Goal**: the editor window layout with an (empty) navigable 3D viewport and a
 populated asset browser.
@@ -137,10 +137,12 @@ populated asset browser.
 - Docking workspace: `editor/Editor.fs` (docking + menu bar + shortcuts),
   `editor/EditorState.fs`, `editor/Viewport.fs`, `editor/Outliner.fs`,
   `editor/Inspector.fs`, `editor/AssetBrowser.fs`.
+- Backtick (`` ` ``) play/edit toggle, hiding/showing the workspace while the
+  viewport grid stays visible.
 
 **Done when**: the editor opens with dockable Viewport (grid + orbit camera),
 Outliner, Inspector, and Asset Browser panels, and the browser lists discovered
-assets.
+assets. *(complete — `specs/003`)*
 
 ### 2c · Selection + transform
 

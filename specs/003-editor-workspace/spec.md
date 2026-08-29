@@ -93,6 +93,10 @@ name/kind); with none, it shows an empty list.
   directory.
 - **FR-006**: The Outliner and Inspector MUST be present and empty (no selection)
   this milestone.
+- **FR-007**: The editor MUST support toggling between edit and play modes with
+  the backtick (`` ` ``) key. In edit mode the docking workspace (menu bar +
+  panels) is shown; in play mode the workspace is hidden and only the 3D viewport
+  (grid) is shown.
 
 ### Key Entities
 
@@ -116,7 +120,9 @@ name/kind); with none, it shows an empty list.
 ## Assumptions
 
 - No entity spawning/selection yet (2c); the Outliner/Inspector are empty.
-- No play mode yet — the editor is always in edit mode this milestone.
+- There is no gameplay yet; the backtick (`` ` ``) key toggles edit/play mode. In
+  edit mode the editor workspace is shown; in play mode only the 3D viewport is
+  shown (the editor workspace is hidden). The grid stays visible in both modes.
 - The 3D scene renders directly to the window (not an offscreen texture).
 - Assets are scanned from `actors/`, `environments/`, and `props/` subdirectories
   with JSON manifests keyed by id.
