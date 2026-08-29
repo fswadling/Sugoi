@@ -47,13 +47,20 @@ The viewport maps input to three camera ops (matching `ocaml-game` and
   - `Selection : EntityRef option` (always `None` this milestone).
 - `GameplayState` (a `[<Struct>]`) owns the editor's data:
   - `Camera : Camera`
+  - `DebugDraw : DebugDraw` — the viewport's line accumulator + GPU line pipeline
+    (created once, reused every frame; gameplay-screen specific).
   - `Editor : EditorState`
   - `Editing : bool` (always `true` this milestone).
+  - `DockingInitialized : bool` — the dock layout is built once, remembered here.
+  - `PrevMouseX`/`PrevMouseY`/`PrevBacktick` — input edge-detection state for
+    mouse deltas and backtick presses (re-synced by `activate` on switch-in).
 
 ## Relationships
 
 - `GameplayState` owns the `Camera` and `EditorState` (data); `GameplayScreen`
-  (behaviour) invokes `Editor.draw`, which reads them and returns a quit flag.
+  (behaviour) invokes `Editor.draw`, which returns the updated state and a
+  `ScreenTransition` (File > Quit).
 - `Viewport` reads the `Camera` and draws through `DebugDraw`.
 - `AssetBrowser` reads the `Asset array` produced by `Assets.scan`.
-- `Engine` stays screen-agnostic and only calls `ScreenManager.update`/`draw`.
+- `Engine` stays screen-agnostic: it builds the per-frame `Frame` and calls
+  `ScreenManager.update`/`draw`/`renderScene`/`applyTransition`.

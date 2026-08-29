@@ -1,9 +1,9 @@
 module SharedState
 
 // Cross-screen state owned by ScreenManager: the asset list (and later cues,
-// cast, zone registry). A struct so it can be stored inline.
+// cast, zone registry). A reference type so screens can write shared values
+// back (e.g. the selected scenario) instead of threading struct copies.
 
-[<Struct>]
 type SharedState =
     { Assets : Assets.Asset array }
 

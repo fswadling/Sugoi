@@ -8,10 +8,20 @@ open System.Numerics
 [<Struct>]
 type GameplayState =
     { Camera : Camera.Camera
+      DebugDraw : DebugDraw.DebugDraw
       Editor : EditorState.EditorState
-      Editing : bool }
+      Editing : bool
+      DockingInitialized : bool
+      PrevMouseX : float32
+      PrevMouseY : float32
+      PrevBacktick : bool }
 
-let create () : GameplayState =
-    { Camera = Camera.create (Vector3(5.0f, 5.0f, 5.0f)) Vector3.Zero
+let create (debugDraw: DebugDraw.DebugDraw) : GameplayState =
+    { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
+      DebugDraw = debugDraw
       Editor = EditorState.create ()
-      Editing = true }
+      Editing = true
+      DockingInitialized = false
+      PrevMouseX = 0.0f
+      PrevMouseY = 0.0f
+      PrevBacktick = false }

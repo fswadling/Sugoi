@@ -98,7 +98,8 @@ name/kind); with none, it shows an empty list.
 
 - **Editor Workspace**: the dockable layout (menu bar + dock space + panels).
 - **Viewport**: the central 3D scene area with a reference grid.
-- **Camera**: an orbit camera (target + pitch/yaw/distance) producing the view.
+- **Camera**: a look-at orbit camera (`Position` + `Target` + `Up`) producing
+  the view-projection; orbit/pan/dolly update `Position`/`Target`.
 - **Outliner / Inspector / Asset Browser**: dockable panels (empty / no-selection
   / asset list).
 - **Asset**: a discovered asset (id, name, kind) from disk.

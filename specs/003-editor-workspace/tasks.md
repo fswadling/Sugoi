@@ -50,8 +50,14 @@
 ### Implementation for User Story 2
 
 - [X] T007 [US2] Create `render/Camera.fs` (look-at orbit camera: `Position`/`Target`/`Up` + `orbit`/`dolly`/`pan`, → view-projection via `System.Numerics`).
-- [ ] T008 [US2] Create `render/DebugDraw.fs` (line-only GPU path + grid).
-- [ ] T009 [US2] Fill `editor/Viewport.fs`: render the grid and handle orbit input.
+- [X] T008a [US2] Write the line shader (`shaders/line.vert` + `shaders/line.frag`) and compile to SPIR-V with `glslc`.
+- [X] T008b [US2] Create `render/DebugDraw.fs` GPU resources: line pipeline (`GPUPrimitiveType.LineList`), vertex/staging/uniform buffers.
+- [X] T008c [US2] Implement the `DebugDraw` CPU accumulator: `clear`/`line`/`drawGrid` (pre-allocated buffer, no per-frame allocation).
+- [X] T008d [US2] Implement `DebugDraw.upload` (copy pass) + `draw` (bind pipeline, push view-projection, draw).
+- [X] T009a [US2] Gather SDL input in `Engine.fs` (mouse pos/buttons/wheel + held keys) and forward it to `GameplayScreen.update`.
+- [X] T009b [US2] Fill `editor/Viewport.fs`: emit the grid each frame and apply orbit/dolly/fly to the camera.
+- [X] T009c [US2] Render the grid to the swapchain before `ImGui.renderDrawData` in `Engine.fs`.
+- [X] T009d [US2] Load the line shader SPIR-V from disk at startup and add the `shaders/*.spv` copy step to `fsharp-game.fsproj`.
 
 **Checkpoint**: viewport shows the grid and responds to pitch/yaw/pan/zoom.
 
@@ -102,3 +108,10 @@
 1. T001 → T002–T004 (foundation) → T005–T006 (US1) → validate launch-to-workspace.
 
 Then US2 and US3 incrementally, each independently testable.
+
+---
+
+## Phase 7: Convergence
+
+- [X] T014 Eliminate per-frame allocations in the render/draw hot path — `DebugDraw.writeMatrix` (16-float array), `DebugDraw.draw` (`[| binding |]`), and `Engine.fs` (`[| ti |]` × 2) allocate each frame, contradicting `plan.md` "no per-frame allocation" and Constitution V (contradicts)
+- [ ] T015 Capture the backtick play/edit toggle in `spec.md` (or remove it) — `GameplayScreen` toggles `Editing` and shows the grid in play mode, but the spec's Assumptions and `data-model.md` state the editor is always in edit mode this milestone (unrequested)

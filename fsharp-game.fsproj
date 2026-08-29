@@ -13,6 +13,7 @@
     <Compile Include="render/ImGui.fs" />
     <Compile Include="render/ImGuiSdl3.fs" />
     <Compile Include="render/Camera.fs" />
+    <Compile Include="render/DebugDraw.fs" />
     <Compile Include="screen/Screen.fs" />
     <Compile Include="screen/SharedState.fs" />
     <Compile Include="editor/EditorState.fs" />
@@ -34,6 +35,12 @@
        apphost so `DllImport("cimgui")` resolves it at runtime. -->
   <Target Name="CopyImGuiBackend" AfterTargets="Build" Condition="Exists('native/libcimgui.so')">
     <Copy SourceFiles="native/libcimgui.so" DestinationFolder="$(OutDir)" />
+  </Target>
+
+  <!-- Compiled line shader SPIR-V, loaded from disk at startup. Copied to the
+       output dir so the shaders/ path resolves regardless of working dir. -->
+  <Target Name="CopyShaders" AfterTargets="Build">
+    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv" DestinationFolder="$(OutDir)shaders" />
   </Target>
 
   <ItemGroup>

@@ -6,9 +6,10 @@ module ImGui
 
 open System.Runtime.InteropServices
 
-// ImGuiDockNodeFlags_PassthruCentralNode (1 << 2): the central node is
+// ImGuiDockNodeFlags_PassthruCentralNode (1 << 3): the central node is
 // transparent so the 3D viewport drawn behind ImGui shows through it.
-let passthruCentralNode = 4
+// (NoDockingOverCentralNode is 1 << 2 — don't confuse the two.)
+let passthruCentralNode = 8
 
 // cimgui's `ImVec2_c` (see native/cimgui/cimgui.h): a blittable 8-byte pair of
 // floats passed by value into widget calls.

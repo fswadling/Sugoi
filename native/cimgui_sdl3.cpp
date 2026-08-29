@@ -80,7 +80,10 @@ void cimgui_enable_docking()
 void cimgui_setup_dock_layout(ImGuiID dockspace_id)
 {
     ImGui::DockBuilderRemoveNode(dockspace_id);
-    ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+    // Keep the passthru flag so the central (viewport) node stays transparent
+    // from frame 1; DockBuilderAddNode otherwise re-creates the node with
+    // KeepAliveOnly and drops the flag DockSpaceOverViewport set.
+    ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace | ImGuiDockNodeFlags_PassthruCentralNode);
     ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
 
     ImGuiID main = dockspace_id;

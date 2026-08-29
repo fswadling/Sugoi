@@ -6,6 +6,7 @@ module Engine
 open System
 open Microsoft.FSharp.NativeInterop
 open SDL3
+open Screen
 
 let run () : int =
     // ── Initialise SDL and create the window ──
@@ -68,8 +69,10 @@ let run () : int =
         1
     else
 
-    // ── Set up the screen manager and frame timing ──
-    let mutable manager = ScreenManager.init()
+    // ── Create the debug-draw line pipeline and set up the screen manager ──
+    let swapchainFormat = SDL.GetGPUSwapchainTextureFormat(device, window)
+    let debugDraw = DebugDraw.create device swapchainFormat
+    let mutable manager = ScreenManager.init debugDraw
 
     let mutable running = true
     let mutable ev = SDL.Event()
@@ -79,8 +82,21 @@ let run () : int =
     let targetFrameNs = 1_000_000_000.0 / 60.0
     let mutable fps = 60.0
 
+    // Reused color-target arrays for the scene + ImGui render passes (no
+    // per-frame allocation). Invariant fields are set once here; only the
+    // swapchain texture is refreshed per frame. The ImGui pass has its own
+    // array, so the array lent to the screen's scene pass is never mutated.
+    let sceneTargets = Array.zeroCreate<SDL.GPUColorTargetInfo> 1
+    sceneTargets.[0].ClearColor <- SDL.FColor(0.13f, 0.15f, 0.18f, 1.0f)
+    sceneTargets.[0].LoadOp <- SDL.GPULoadOp.Clear
+    sceneTargets.[0].StoreOp <- SDL.GPUStoreOp.Store
+
+    let imguiTargets = Array.zeroCreate<SDL.GPUColorTargetInfo> 1
+    imguiTargets.[0].LoadOp <- SDL.GPULoadOp.Load
+    imguiTargets.[0].StoreOp <- SDL.GPUStoreOp.Store
+
     // ── Main loop ──
-    while running do
+    while running && not manager.ShouldQuit do
         let now = nowNs ()
         let dtMs = (now - prevTicks) / 1e6
         prevTicks <- now
@@ -90,22 +106,26 @@ let run () : int =
         let instFps = if dtMs > 0.0 then 1000.0 / dtMs else 0.0
         fps <- fps * 0.9 + instFps * 0.1
 
-        // ── Poll input events ──
+        // ── Poll events (forward to ImGui; accumulate the wheel for the frame) ──
+        let mutable wheel = 0.0f
         while SDL.PollEvent(&ev) do
             if ev.Type = uint32 SDL.EventType.Quit then
                 running <- false
 
+            if ev.Type = uint32 SDL.EventType.MouseWheel then
+                wheel <- wheel + ev.Wheel.Y
+
             do ImGuiSdl3.processEvent(NativePtr.toNativeInt (&&ev)) |> ignore
+
+        // ── Build the frame: dt plus the event-only input accumulated above ──
+        let frame = { Dt = float32 (dtMs / 1000.0); Wheel = wheel }
 
         // ── Begin a new ImGui frame ──
         do ImGuiSdl3.newFrame()
         do ImGui.newFrame()
 
         // ── Advance and draw the active screen ──
-        manager <-
-            manager
-            |> ScreenManager.update
-            |> ScreenManager.draw
+        manager <- manager |> ScreenManager.update frame |> ScreenManager.draw
 
         do DebugOverlay.draw fps
 
@@ -123,27 +143,20 @@ let run () : int =
         if swapchainTexture <> IntPtr.Zero then
             do ImGuiSdl3.prepareDrawData(drawData, cmd)
 
-            let mutable ti = SDL.GPUColorTargetInfo()
-            ti.Texture <- swapchainTexture
-            ti.ClearColor <- SDL.FColor(0.45f, 0.55f, 0.60f, 1.0f)
-            ti.LoadOp <- SDL.GPULoadOp.Clear
-            ti.StoreOp <- SDL.GPUStoreOp.Store
-            ti.MipLevel <- 0u
-            ti.LayerOrDepthPlane <- 0u
+            // Scene pass: clear + draw the active screen's scene.
+            sceneTargets.[0].Texture <- swapchainTexture
+            do ScreenManager.renderScene manager { Cmd = cmd; ColorTargets = sceneTargets }
 
-            let mutable colorTargets = [| ti |]
-            let renderPass = SDL.BeginGPURenderPass(cmd, &colorTargets, 1u, IntPtr.Zero)
-            do ImGuiSdl3.renderDrawData(drawData, cmd, renderPass)
-            do SDL.EndGPURenderPass(renderPass)
+            // ImGui pass: load (preserves the scene) + draw ImGui on top.
+            imguiTargets.[0].Texture <- swapchainTexture
+            let imguiPass = SDL.BeginGPURenderPass(cmd, &imguiTargets, 1u, IntPtr.Zero)
+            do ImGuiSdl3.renderDrawData(drawData, cmd, imguiPass)
+            do SDL.EndGPURenderPass(imguiPass)
 
         do SDL.SubmitGPUCommandBuffer(cmd) |> ignore
 
         // ── Apply the frame's navigation request ──
-        let nextManager, quit = ScreenManager.applyTransition manager
-        manager <- nextManager
-
-        if quit then
-            running <- false
+        manager <- ScreenManager.applyTransition manager
 
         // ── Report frame time once per second ──
         if now - lastTimingLog >= 1_000_000_000.0 then

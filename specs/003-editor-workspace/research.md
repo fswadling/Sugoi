@@ -66,3 +66,18 @@ Decisions resolving the open technical choices for this feature.
   what ocaml-game's editor uses.
 - **Alternatives considered**: spherical pitch/yaw/distance camera (rejected —
   cannot express fly, and diverges from the ocaml-game reference).
+
+## Decision: read viewport input at the SDL level, not through ImGui
+
+- **Decision**: camera input is read at the SDL level rather than through
+  ImGui's IO. Engine forwards only a per-frame `Frame` (dt + accumulated wheel
+  — event-only input) to `ScreenManager.update`; the gameplay screen reads
+  pollable input (mouse position/buttons, held keys) from SDL state itself.
+- **Rationale**: the viewport is the dock space's passthru central node, not an
+  ImGui window, so ImGui does not capture mouse/keyboard there. SDL input is also
+  what the later play-mode systems (phase 7) will consume, so this establishes
+  the input seam early.
+- **Alternatives considered**: expand the ImGui binding to expose `io.MousePos`/
+  `io.MouseDown`/`io.MouseWheel`/`io.KeysDown` (rejected — adds binding surface
+  for something only the passthru viewport needs, and ImGui's `WantCapture*`
+  gating would complicate camera drag vs. panel interaction).
