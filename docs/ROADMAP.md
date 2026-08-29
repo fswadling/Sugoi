@@ -43,10 +43,12 @@ box/BVH props), and a full **in-engine editor** to author all of it.
 
 ## Current state
 
-- SDL3 window + SDL_gpu device + swapchain loop with a software 60 FPS cap
-  (`Program.fs`).
+- Phase 1 (screens + main menu) is complete: `Engine.fs` run loop, `screen/`
+  screen manager + main menu + gameplay placeholder, and an on-screen frame rate
+  counter (`screen/DebugOverlay.fs`).
+- SDL3 window + SDL_gpu device + swapchain loop with a software 60 FPS cap.
 - Dear ImGui wired through the SDL_gpu backend, docking-enabled
-  (`ImGui.fs`, `ImGuiSdl3.fs`, `native/`).
+  (`render/ImGui.fs`, `render/ImGuiSdl3.fs`, `native/`).
 - Box3D referenced (Happypig375 bindings) but not yet used.
 - Target data architecture documented in `docs/ARCHITECTURE.md`.
 
@@ -60,7 +62,10 @@ content-authoring and polish on top.
 | # | Phase | Result | Reference |
 |---|-------|--------|-----------|
 | **1** | **Screens + main menu** | screen manager, main menu ↔ gameplay (UI-only shell) | `odin-game/src/{screen,main_menu_screen,gameplay_screen}.odin`; `ocaml-game` M4 |
-| **2** | **Entity store + editor** | select/edit/spawn entities in an editor | `odin-game/src/{slot_map,entity,editor*}.odin`; `ocaml-game/lib/core/{slot_map,entity,zone}.ml` |
+| **2a** | **Entity store** | generational slot map + entity model, verified by tests | `odin-game/src/{slot_map,entity}.odin`; `ocaml-game/lib/core/{slot_map,entity}.ml` |
+| **2b** | **Editor workspace shell** | docking, viewport, outliner, inspector, asset browser (empty scene) | `odin-game/src/editor*.odin`; `ocaml-game` M5 |
+| **2c** | **Selection + transform** | raycast select, move/rotate/scale gizmos, spawn/delete/duplicate | `odin-game/src/editor*.odin`; `ocaml-game` M5 |
+| **2d** | **Command/undo** | undo/redo for every editor mutation | `ocaml-game` D-011; `editor/Command.fs` |
 | **3** | **Animated character on screen** | an animated actor in a 3D viewport | `odin-game` IQM loading; `ocaml-game/lib/core/{iqm,actor,assets}.ml` |
 | **4** | **Environment + props** | a static environment + prop assets you can see | `odin-game/src/{environment,environment_gltf,environment_render}.odin`; `ocaml-game/lib/core/gltf.ml` |
 | **5** | **PBR + lighting** | metallic-roughness shading (GGX), materials, sun/directional light | `odin-game/src/environment_render.odin`, `docs/PBR_PLAN.md`; `ocaml-game` M13 |
@@ -78,12 +83,271 @@ content-authoring and polish on top.
 The phases are **dependency-ordered**, but several are intentionally parallel
 after the core (e.g. 10/11 vs 12, and the sub-features of 14).
 
+## Phase details
+
+Each phase lists the concrete **deliverables** (modules + behaviour) and the
+**"done when"** acceptance criteria. Phase 1 is complete.
+
+### 1 · Screens + main menu ✅
+
+**Goal**: the app shell — screen manager, main menu, and a UI-only gameplay
+screen on the existing ImGui + SDL_gpu loop.
+
+**Deliverables**
+- `screen/Screen.fs` — `ScreenKind` + `ScreenTransition`.
+- `screen/ScreenManager.fs` — owns the active screen, dispatches update/draw,
+  applies the transition at frame end.
+- `screen/MainMenuScreen.fs` (Play/Quit) and `screen/GameplayScreen.fs`
+  (UI-only placeholder).
+- `screen/SharedState.fs` / `screen/GameplayState.fs` — empty state seams for
+  later phases.
+- `Engine.fs` (run loop) split out of `Program.fs`, which becomes a thin entry
+  point. Move `ImGui.fs`/`ImGuiSdl3.fs` into `render/`.
+
+**Done when**: launch lands on the menu; Play switches to the gameplay
+placeholder; Quit (or window close) exits cleanly. *(complete — `specs/001`)*
+
+### 2a · Entity store
+
+**Goal**: the data core — generational slot map + entity model, the foundation
+every later phase builds on (no visible result yet; verified by tests).
+
+**Deliverables**
+- `core/SlotMap.fs` — generational slot map: fixed slot array (`{ entity,
+  generation, alive, next_free }`), free-list, generation counter; O(1)
+  add/get/free with stale-reference detection.
+- `core/Entity.fs` — `Entity_Kind` (`Actor|Environment|Prop|Waypoint|Trigger`),
+  `Entity_Ref { kind, index }` + `NO_ENTITY`, base `Entity` (`name`, `transform`,
+  `enabled`, `visible`, `selectable`, `draggable`), and the specialized entities
+  (each embeds a nested `Entity`; no struct inheritance in F#).
+
+**Done when**: `test/SlotMapTests.fs` proves add/get/free, free-list reuse, and
+stale-handle rejection.
+
+### 2b · Editor workspace shell
+
+**Goal**: the editor window layout with an (empty) navigable 3D viewport and a
+populated asset browser.
+
+**Deliverables**
+- `core/Assets.fs` — asset manager: scan `actors/`/`environments/`/`props/` + JSON
+  manifests, keyed by `id`.
+- `render/DebugDraw.fs` — line/wireframe primitive (grid; later gizmos/overlays).
+- `render/Camera.fs` — editor camera (pitch/yaw/pan/zoom).
+- Docking workspace: `editor/Editor.fs` (docking + menu bar + shortcuts),
+  `editor/EditorState.fs`, `editor/Viewport.fs`, `editor/Outliner.fs`,
+  `editor/Inspector.fs`, `editor/AssetBrowser.fs`.
+
+**Done when**: the editor opens with dockable Viewport (grid + orbit camera),
+Outliner, Inspector, and Asset Browser panels, and the browser lists discovered
+assets.
+
+### 2c · Selection + transform
+
+**Goal**: interact with entities in the viewport.
+
+**Deliverables**
+- `editor/Raycast.fs` — minimal screen-ray → sphere/box selection.
+- Selection + focus (`F`), delete (`Del`), duplicate (`Ctrl+D`).
+- Translate/rotate/scale gizmos (axis picking reuses the raycast).
+- Spawn from the Asset Browser into the active zone.
+
+**Done when**: you can spawn an entity, select it, and move/rotate/scale it with
+gizmos (rendered as debug-draw markers).
+
+### 2d · Command/undo
+
+**Goal**: make every editor mutation undoable/redoable.
+
+**Deliverables**
+- `editor/Command.fs` — value-storing commands (`apply`/`undo`), not closures;
+  `EntityRef`-based entity commands survive deletion.
+- Undo/redo stack + `Ctrl+Z` / `Ctrl+Shift+Z`.
+- Continuous-edit coalescing (a gizmo/slider drag = one undo step).
+
+**Done when**: spawn/delete/duplicate/transform are all undoable and redoable,
+and a gizmo drag coalesces into a single undo step.
+
+### 3 · Animated character on screen
+
+**Goal**: the first real 3D result — an animated actor in a 3D viewport. This is
+the hard plumbing step (SDL_gpu has no `LoadModel`/`DrawMesh` helper).
+
+**Deliverables**
+- `render/Gpu.fs` — device/swapchain/pass wrapper; vertex+index buffers, one
+  graphics pipeline, one shader.
+- `render/Mesh.fs` — GPU buffers + draw path.
+- `core/Iqm.fs` — IQM binary parser emitting flat struct-of-arrays
+  (`System.IO.BinaryReader`, little-endian, `float32` data).
+- `core/Actor.fs` — IQM model + animation/morph state.
+- `render/ActorRender.fs` — skinned actor rendering.
+
+**Done when**: an animated character (e.g. Akane) is visible and animating in
+the viewport via the asset manifest.
+
+### 4 · Environment + props
+
+**Goal**: static world geometry, reusing the phase-3 mesh-draw path.
+
+**Deliverables**
+- `core/Gltf.fs` — scoped glTF parser (environments/props).
+- `core/Zone.fs` — the world container: `actors`, `environment` (owning its own
+  `props` slot map), `waypoints`, `triggers`, plus inline global settings.
+- `core/Entity.fs` — `Environment_Entity` / `Prop_Entity`.
+- `render/EnvironmentRender.fs` — static environment + prop rendering.
+
+**Done when**: a static environment and prop assets are visible in the viewport.
+
+### 5 · PBR + lighting
+
+**Goal**: establish the real visual baseline before any content authoring.
+
+**Deliverables**
+- Upgrade the phase-3 pipeline/shader to metallic-roughness GGX.
+- glTF material mapping (metallic-roughness) onto SDL_gpu pipelines.
+- Directional (sun) light parameters + the SPIR-V/GLSL shader.
+
+**Done when**: environment/character render with PBR materials under a
+directional light.
+
+### 6 · Physics + picking
+
+**Goal**: physical world plus accurate selection.
+
+**Deliverables**
+- `physics/Physics.fs` — Box3D adapter: world, capsule character body, box/hull
+  prop colliders, `b3World_Step`.
+- Collider↔render transform sync.
+- Accurate raycast picking (screen-ray → collider/BVH), replacing the phase-2
+  minimal raycast.
+
+**Done when**: character/props have colliders and click-select hits physical
+shapes.
+
+### 7 · Walk around
+
+**Goal**: the playable backbone — walk the character around an environment with
+physics.
+
+**Deliverables**
+- Player input system (movement + camera).
+- Gravity system.
+- Camera follow.
+- Start the fixed-order system chain: `player_input → gravity → physics →
+  camera_follow` (grows in phase 13).
+
+**Done when**: you can walk the character around the environment with collisions
+and a following camera.
+
+### 8 · Zones
+
+**Goal**: multiple zones and switching between them.
+
+**Deliverables**
+- `core/ZoneMap.fs` — runtime slot map of zones + an `active` index.
+- Zone switch path.
+
+**Done when**: multiple zones exist and you can switch between them at runtime.
+
+### 9 · Cue engine + editor
+
+**Goal**: author and run a scripted sequence.
+
+**Deliverables**
+- `core/Cue.fs` — `Cue_Op` template union (`Sequence|Parallel|Fork|If` + leaf
+  ops) and a separate `CueState` runtime union + `state_map`.
+- Runtime cue execution.
+- `editor/CueEditor.fs` + `editor/CueTree.fs` — recursive tree-list editor (not a
+  node graph).
+- Enforce the template/runtime split (D-010) so undo targets the immutable
+  template while the runtime re-derives from it.
+
+**Done when**: you can author and run a scripted sequence in the cue editor.
+
+### 10 · Story primitives
+
+**Goal**: waypoints, triggers, adventure flags, and cast.
+
+**Deliverables**
+- `Waypoint` / `Trigger` entities in `core/Entity.fs` (or `core/Zone.fs`).
+- `core/Advent.fs` — named flag set.
+- `core/Cast.fs` — name → asset id map.
+- `editor/CastPanel.fs` / `editor/AdventPanel.fs` docked panels.
+- Trigger→cue wiring inline in the Inspector.
+
+**Done when**: you can place waypoints/triggers, wire triggers to cues, set
+adventure flags, and manage the cast.
+
+### 11 · Scenario editor
+
+**Goal**: assemble scenarios from zones + cast + cues.
+
+**Deliverables**
+- `core/Scenario.fs` — scenario library; a scenario = zones + cast + `cue_root`
+  (immutable at runtime).
+- `editor/ScenarioEditor.fs` — library + cue/scene Inspector tabs.
+
+**Done when**: you can assemble and run a scenario.
+
+### 12 · Zone registry + editor
+
+**Goal**: author zone templates/settings.
+
+**Deliverables**
+- `core/ZoneRegistry.fs` — editor zone templates (environment asset id, settings,
+  prop templates, splat maps, `template_saved`).
+- `editor/ZoneEditor.fs`.
+
+**Done when**: you can author zone templates/settings in the editor.
+
+### 13 · Systems + fixed timestep + immutable cue (refactor)
+
+**Goal**: deterministic stepping and a clean systems seam — a refactor on top of
+the working game, not a rewrite.
+
+**Deliverables**
+- `core/Systems.fs` — named play-mode systems chained in the fixed order.
+- Fixed-timestep loop (accumulator + fixed `dt`), decoupling simulation from
+  render (replaces the software 60 FPS cap).
+- Formalise the immutable-cue-template guarantee from phase 9.
+
+**Done when**: systems are named/chained, simulation steps at a fixed `dt`, and
+cues stay live-edit-safe.
+
+### 14 · Advanced rendering
+
+**Goal**: visual polish — each sub-feature is its own runnable increment/spec.
+
+**Deliverables** (in order): shadows → water → grass → sky → ocean → sway →
+cel-shading.
+- `render/Shadow.fs`, `render/Water.fs`, `render/Grass.fs`, `render/Skydome.fs`,
+  `render/Ocean.fs`, `render/Terrain.fs`, `render/TerrainSplat.fs`,
+  `render/SceneTarget.fs` (offscreen FBO), `render/Exr.fs` (OpenEXR).
+
+**Done when**: each sub-feature lands as a visible, committable increment.
+
+### 15 · Persistence + perf
+
+**Goal**: save/load and performance.
+
+**Deliverables**
+- `core/Project.fs` — `Project_DTO`/`Project_Zone`/`Project_Prop`/
+  `Project_Scenario` DTOs (`System.Text.Json`), separate from the runtime model.
+- Atomic save/load (`project.json`, `.tmp` + rename); missing file is not an error.
+- Async asset loading + LRU model cache.
+
+**Done when**: cast, zone-registry templates, and the scenario library round-trip
+through `project.json`; assets load async with an LRU cache.
+
 ## Sequencing
 
 ```mermaid
 graph TD
-    P1[1 screens] --> P2[2 entity store + editor]
-    P2 --> P3[3 character]
+    P1[1 screens] --> P2a[2a entity store]
+    P2a --> P2b[2b editor workspace]
+    P2b --> P2c[2c selection + transform]
+    P2c --> P2d[2d command/undo]
+    P2d --> P3[3 character]
     P3 --> P4[4 environment + props]
     P4 --> P5[5 PBR + lighting]
     P5 --> P6[6 physics + picking]
@@ -100,10 +364,11 @@ graph TD
     P13 --> P15[15 persistence + perf]
 ```
 
-The **playable-and-visible spine** is `1 → 2 → 3 → 4 → 5 → 6 → 7` (screens →
-editor → character → environment/props → PBR → physics → walk around). After
-that, the content-authoring path is `8 → 9 → 10 → 11 → 12 → 13`, and `14`/`15`
-are polish.
+The **playable-and-visible spine** is
+`1 → 2a → 2b → 2c → 2d → 3 → 4 → 5 → 6 → 7` (screens → entity store → editor
+workspace → selection/transform → command/undo → character → environment/props →
+PBR → physics → walk around). After that, the content-authoring path is
+`8 → 9 → 10 → 11 → 12 → 13`, and `14`/`15` are polish.
 
 ## F#-specific notes
 
@@ -116,11 +381,13 @@ are polish.
   glTF parser (environments/props). The IQM parser already emits flat
   struct-of-arrays, which feeds SDL_gpu buffers directly. Use `System.IO.BinaryReader`
   for little-endian reads; keep the data as `float32`/`single`, not `float`.
-- **Math** — small hand-rolled `[<Struct>]` `Vec3`/`Quat`/`Mat4` (matches the
-  data-oriented ethos; avoids a dependency).
+- **Math** — use `System.Numerics` (`Vector3`/`Quaternion`/`Matrix4x4`) rather
+  than hand-rolling. It ships in the BCL (no dependency), is SIMD-accelerated,
+  and its types are value types (no GC). Watch the convention: `Matrix4x4` is
+  row-major/row-vector, so keep it consistent with SDL_gpu (transpose as needed).
 - **Asset manifests** — port `ocaml-game/lib/core/assets.ml` (scan
   `actors/`/`environments/`/`props/` + JSON manifests) as the asset manager
-  (needed by phases 2 and 4).
+  (needed by phase 2b and phase 4).
 - **Physics** — `Box3D` (Happypig375) behind `physics/Physics.fs`, starting with
   capsule bodies (character) + box/hull shapes (props) and `b3World_Step`.
 - **PBR** — glTF materials (metallic-roughness) map directly onto SDL_gpu
@@ -143,7 +410,6 @@ are polish.
 
 ## Next step
 
-**Phase 1 — screens + main menu** (`/speckit-specify`): a screen manager, a main
-menu, and a UI-only gameplay screen on the existing ImGui + SDL_gpu loop. This is
-cheap (no 3D yet) and establishes the app shell that phases 2–7 build on, with
-phase 3 (animated Akane on screen) being the first real 3D plumbing step.
+**Phase 2a — entity store** (`/speckit-specify`): the generational slot map and
+the entity model, verified by unit tests. Phase 2 then proceeds through 2b
+(editor workspace shell) → 2c (selection + transform) → 2d (command/undo).

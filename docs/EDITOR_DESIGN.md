@@ -136,9 +136,10 @@ already provides the minimal `ig*` layer; grow it per milestone.
 
 ## Phasing (mapped to `docs/ROADMAP.md`)
 
-- **Phase 2** — workspace shell (docking, viewport, Outliner, Inspector, Asset
-  Browser), selection, gizmo movement, spawn, delete, duplicate, and the
-  command/undo core. Adds the `DebugDraw` line primitive for gizmos + overlays.
+- **Phase 2b** — workspace shell (docking, viewport, Outliner, Inspector, Asset
+  Browser) plus the `DebugDraw` line primitive and editor camera.
+- **Phase 2c** — selection, gizmo movement, spawn, delete, duplicate.
+- **Phase 2d** — command/undo core.
 - **Phase 6** — accurate physics raycast picking (replaces the minimal raycast).
 - **Phase 9** — cue editor as a dockable window (recursive tree list) using the
   template/runtime split.
