@@ -6,6 +6,10 @@ module ImGui
 
 open System.Runtime.InteropServices
 
+// ImGuiDockNodeFlags_PassthruCentralNode (1 << 2): the central node is
+// transparent so the 3D viewport drawn behind ImGui shows through it.
+let passthruCentralNode = 4
+
 // cimgui's `ImVec2_c` (see native/cimgui/cimgui.h): a blittable 8-byte pair of
 // floats passed by value into widget calls.
 [<Struct>]
@@ -46,6 +50,12 @@ extern void text(string fmt)
 
 [<DllImport("cimgui", EntryPoint = "igDockSpaceOverViewport", CallingConvention = CallingConvention.Cdecl)>]
 extern uint32 dockSpaceOverViewport(uint32 dockspaceId, nativeint viewport, int flags, nativeint windowClass)
+
+[<DllImport("cimgui", EntryPoint = "cimgui_enable_docking", CallingConvention = CallingConvention.Cdecl)>]
+extern void enableDocking()
+
+[<DllImport("cimgui", EntryPoint = "cimgui_setup_dock_layout", CallingConvention = CallingConvention.Cdecl)>]
+extern void setupDockLayout(uint32 dockspaceId)
 
 [<DllImport("cimgui", EntryPoint = "igBeginMainMenuBar", CallingConvention = CallingConvention.Cdecl)>]
 extern bool beginMainMenuBar()

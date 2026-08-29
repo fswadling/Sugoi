@@ -1,9 +1,5 @@
 module Viewport
 
-// 3D viewport panel. Empty this step; the grid + orbit camera land in the
-// DebugDraw render step.
-
-let draw (_state: GameplayState.GameplayState) =
-    do ImGui.beginWindow("Viewport", System.IntPtr.Zero, 0) |> ignore
-    do ImGui.text("3D viewport (grid next)")
-    do ImGui.endWindow()
+// The 3D viewport is the docking workspace's central (passthru) node, not an
+// ImGui window. The grid + orbit camera land here in the DebugDraw render step
+// (T008/T009): render to the swapchain before ImGui and read mouse input.

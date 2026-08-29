@@ -44,9 +44,19 @@ let run () : int =
     else
 
     // ── Wire up the swapchain and Dear ImGui ──
-    SDL.SetGPUSwapchainParameters(device, window, SDL.GPUSwapchainComposition.SDR, SDL.GPUPresentMode.VSync) |> ignore
+    // Uncapped present mode so the editor isn't locked to the display refresh
+    // rate (vsync held it at 30 fps, flickering 30<->60). Prefer mailbox (no
+    // tearing); fall back to immediate when mailbox isn't supported.
+    let presentMode =
+        if SDL.WindowSupportsGPUPresentMode(device, window, SDL.GPUPresentMode.Mailbox) then
+            SDL.GPUPresentMode.Mailbox
+        else
+            SDL.GPUPresentMode.Immediate
 
-    ImGui.createContext(IntPtr.Zero) |> ignore
+    do SDL.SetGPUSwapchainParameters(device, window, SDL.GPUSwapchainComposition.SDR, presentMode) |> ignore
+
+    do ImGui.createContext(IntPtr.Zero) |> ignore
+    do ImGui.enableDocking()
 
     if not (ImGuiSdl3.init(window, device)) then
         do eprintfn "ImGui backend init failed: %s" (SDL.GetError())

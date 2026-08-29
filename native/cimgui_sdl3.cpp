@@ -8,6 +8,7 @@
 #include <SDL3/SDL_gpu.h>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlgpu3.h"
 
@@ -61,6 +62,41 @@ void cimgui_sdl3_prepare_draw_data(ImDrawData* draw_data, SDL_GPUCommandBuffer* 
 void cimgui_sdl3_render_draw_data(ImDrawData* draw_data, SDL_GPUCommandBuffer* command_buffer, SDL_GPURenderPass* render_pass)
 {
     ImGui_ImplSDLGPU3_RenderDrawData(draw_data, command_buffer, render_pass, nullptr);
+}
+
+// Enable docking + keyboard nav and disable layout persistence. Call once,
+// right after the ImGui context is created, so the default dock layout is
+// rebuilt deterministically each run (see cimgui_setup_dock_layout).
+void cimgui_enable_docking()
+{
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.IniFilename = nullptr; // no persistent layout
+}
+
+// Build the default editor dock layout: Outliner (left), Inspector (right),
+// Asset Browser (bottom), and a passthru central node for the 3D viewport.
+void cimgui_setup_dock_layout(ImGuiID dockspace_id)
+{
+    ImGui::DockBuilderRemoveNode(dockspace_id);
+    ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
+
+    ImGuiID main = dockspace_id;
+    ImGuiID left = ImGui::DockBuilderSplitNode(main, ImGuiDir_Left, 0.20f, nullptr, &main);
+    ImGuiID right = ImGui::DockBuilderSplitNode(main, ImGuiDir_Right, 0.25f, nullptr, &main);
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(main, ImGuiDir_Down, 0.25f, nullptr, &main);
+
+    // Mark the remaining center node as the central (passthru) node so the 3D
+    // viewport, rendered to the swapchain behind ImGui, shows through it.
+    if (ImGuiDockNode* center = ImGui::DockBuilderGetNode(main))
+        center->SetLocalFlags(center->LocalFlags | ImGuiDockNodeFlags_CentralNode);
+
+    ImGui::DockBuilderDockWindow("Outliner", left);
+    ImGui::DockBuilderDockWindow("Inspector", right);
+    ImGui::DockBuilderDockWindow("Asset Browser", bottom);
+    ImGui::DockBuilderFinish(dockspace_id);
 }
 
 } // extern "C"
