@@ -17,31 +17,33 @@ A pending navigation request produced by a screen and consumed by the manager.
 - `Next of ScreenKind` — switch to the given screen.
 - `Quit` — exit the application.
 
-## ScreenManager (record)
+## ScreenManager ([<Struct>])
 
 Owns the active screen and its state; the single source of truth for "which
-screen is active" (FR-007).
+screen is active" (FR-007). Immutable — `update`/`draw` return a new value via
+copy-and-update.
 
-- `active : ScreenKind`
-- `transition : ScreenTransition`
-- `shared : SharedState`
-- `gameplay : GameplayState`
+- `Active : ScreenKind`
+- `Transition : ScreenTransition`
+- `Shared : SharedState`
+- `Gameplay : GameplayState`
 
-`update`/`draw` dispatch on `active`; a transition is applied at the end of the
-frame.
+`update`/`draw` dispatch on `Active`; a pending transition is applied at the end
+of the frame via `applyTransition`.
 
-## GameplayState (record)
+## GameplayState ([<Struct>])
 
-The gameplay screen's per-screen state. Empty in this milestone (no 3D world).
+The gameplay screen's per-screen state. Grows in later phases; currently owns
+the editor's data (`Camera`, `Editor`, `Editing : bool`).
 
-## SharedState (record)
+## SharedState ([<Struct>])
 
-Cross-screen state owned by the manager. Empty in this milestone; populated by
-later phases (assets, cues, cast, zone registry) per `docs/ARCHITECTURE.md`.
+Cross-screen state owned by the manager. Currently holds the scanned `Assets`;
+later phases add cues, cast, and the zone registry per `docs/ARCHITECTURE.md`.
 
 ## Relationships
 
 - `ScreenManager` owns one active `ScreenKind` at a time and holds `GameplayState`
   plus `SharedState`.
-- A screen's `update`/`draw` may set the manager's `transition` field; the manager
-  applies it at the end of the frame.
+- A screen's `update`/`draw` return a `ScreenTransition`; the manager stores it
+  and applies it at the end of the frame.

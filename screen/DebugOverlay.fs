@@ -4,6 +4,6 @@ module DebugOverlay
 // Grows as more readouts are needed (frame time, draw calls, …).
 
 let draw (fps: float) =
-    ImGui.beginWindow("Debug", System.IntPtr.Zero, 0) |> ignore
-    ImGui.text(sprintf "%.0f fps" fps)
-    ImGui.endWindow()
+    do ImGui.beginWindow("Debug", System.IntPtr.Zero, 0) |> ignore
+    do ImGui.text(sprintf "%.0f fps" fps)
+    do ImGui.endWindow()

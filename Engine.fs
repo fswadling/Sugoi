@@ -10,15 +10,15 @@ open SDL3
 let run () : int =
     // ── Initialise SDL and create the window ──
     if not (SDL.Init(SDL.InitFlags.Video)) then
-        eprintfn "SDL_Init failed: %s" (SDL.GetError())
+        do eprintfn "SDL_Init failed: %s" (SDL.GetError())
         1
     else
 
     let window = SDL.CreateWindow("fsharp-game", 1280, 720, SDL.WindowFlags.Resizable)
 
     if window = IntPtr.Zero then
-        eprintfn "SDL_CreateWindow failed: %s" (SDL.GetError())
-        SDL.Quit()
+        do eprintfn "SDL_CreateWindow failed: %s" (SDL.GetError())
+        do SDL.Quit()
         1
     else
 
@@ -31,15 +31,15 @@ let run () : int =
     let device = SDL.CreateGPUDevice(shaderFormats, true, null)
 
     if device = IntPtr.Zero then
-        eprintfn "SDL_CreateGPUDevice failed: %s" (SDL.GetError())
-        SDL.DestroyWindow(window)
-        SDL.Quit()
+        do eprintfn "SDL_CreateGPUDevice failed: %s" (SDL.GetError())
+        do SDL.DestroyWindow(window)
+        do SDL.Quit()
         1
     else if not (SDL.ClaimWindowForGPUDevice(device, window)) then
-        eprintfn "SDL_ClaimWindowForGPUDevice failed: %s" (SDL.GetError())
-        SDL.DestroyGPUDevice(device)
-        SDL.DestroyWindow(window)
-        SDL.Quit()
+        do eprintfn "SDL_ClaimWindowForGPUDevice failed: %s" (SDL.GetError())
+        do SDL.DestroyGPUDevice(device)
+        do SDL.DestroyWindow(window)
+        do SDL.Quit()
         1
     else
 
@@ -49,17 +49,17 @@ let run () : int =
     ImGui.createContext(IntPtr.Zero) |> ignore
 
     if not (ImGuiSdl3.init(window, device)) then
-        eprintfn "ImGui backend init failed: %s" (SDL.GetError())
-        ImGui.destroyContext(IntPtr.Zero)
-        SDL.ReleaseWindowFromGPUDevice(device, window)
-        SDL.DestroyGPUDevice(device)
-        SDL.DestroyWindow(window)
-        SDL.Quit()
+        do eprintfn "ImGui backend init failed: %s" (SDL.GetError())
+        do ImGui.destroyContext(IntPtr.Zero)
+        do SDL.ReleaseWindowFromGPUDevice(device, window)
+        do SDL.DestroyGPUDevice(device)
+        do SDL.DestroyWindow(window)
+        do SDL.Quit()
         1
     else
 
     // ── Set up the screen manager and frame timing ──
-    let manager = ScreenManager.init()
+    let mutable manager = ScreenManager.init()
 
     let mutable running = true
     let mutable ev = SDL.Event()
@@ -85,19 +85,22 @@ let run () : int =
             if ev.Type = uint32 SDL.EventType.Quit then
                 running <- false
 
-            ImGuiSdl3.processEvent(NativePtr.toNativeInt (&&ev)) |> ignore
+            do ImGuiSdl3.processEvent(NativePtr.toNativeInt (&&ev)) |> ignore
 
         // ── Begin a new ImGui frame ──
-        ImGuiSdl3.newFrame()
-        ImGui.newFrame()
+        do ImGuiSdl3.newFrame()
+        do ImGui.newFrame()
 
         // ── Advance and draw the active screen ──
-        ScreenManager.update manager
-        ScreenManager.draw manager
-        DebugOverlay.draw fps
+        manager <-
+            manager
+            |> ScreenManager.update
+            |> ScreenManager.draw
+
+        do DebugOverlay.draw fps
 
         // ── Render ImGui and submit the frame ──
-        ImGui.render()
+        do ImGui.render()
 
         let drawData = ImGui.getDrawData()
         let cmd = SDL.AcquireGPUCommandBuffer(device)
@@ -105,10 +108,10 @@ let run () : int =
         let mutable swapchainTexture = IntPtr.Zero
         let mutable w = 0u
         let mutable h = 0u
-        SDL.WaitAndAcquireGPUSwapchainTexture(cmd, window, &swapchainTexture, &w, &h) |> ignore
+        do SDL.WaitAndAcquireGPUSwapchainTexture(cmd, window, &swapchainTexture, &w, &h) |> ignore
 
         if swapchainTexture <> IntPtr.Zero then
-            ImGuiSdl3.prepareDrawData(drawData, cmd)
+            do ImGuiSdl3.prepareDrawData(drawData, cmd)
 
             let mutable ti = SDL.GPUColorTargetInfo()
             ti.Texture <- swapchainTexture
@@ -120,32 +123,35 @@ let run () : int =
 
             let mutable colorTargets = [| ti |]
             let renderPass = SDL.BeginGPURenderPass(cmd, &colorTargets, 1u, IntPtr.Zero)
-            ImGuiSdl3.renderDrawData(drawData, cmd, renderPass)
-            SDL.EndGPURenderPass(renderPass)
+            do ImGuiSdl3.renderDrawData(drawData, cmd, renderPass)
+            do SDL.EndGPURenderPass(renderPass)
 
-        SDL.SubmitGPUCommandBuffer(cmd) |> ignore
+        do SDL.SubmitGPUCommandBuffer(cmd) |> ignore
 
         // ── Apply the frame's navigation request ──
-        if ScreenManager.applyTransition manager then
+        let nextManager, quit = ScreenManager.applyTransition manager
+        manager <- nextManager
+
+        if quit then
             running <- false
 
         // ── Report frame time once per second ──
         if now - lastTimingLog >= 1_000_000_000.0 then
-            printfn "frame %.2fms" dtMs
+            do printfn "frame %.2fms" dtMs
             lastTimingLog <- now
 
         // ── Cap to 60 fps (vsync does not pace on this driver) ──
         let sleepNs = targetFrameNs - (nowNs () - tStart)
         if sleepNs > 0.0 then
-            SDL.DelayNS(uint64 sleepNs) |> ignore
+            do SDL.DelayNS(uint64 sleepNs) |> ignore
 
     // ── Shut down ──
-    SDL.WaitForGPUIdle(device) |> ignore
-    ImGuiSdl3.shutdown()
-    ImGui.destroyContext(IntPtr.Zero)
-    SDL.ReleaseWindowFromGPUDevice(device, window)
-    SDL.DestroyGPUDevice(device)
-    SDL.DestroyWindow(window)
-    SDL.Quit()
-    printfn "SDL3 + ImGui (SDL_gpu): clean shutdown"
+    do SDL.WaitForGPUIdle(device) |> ignore
+    do ImGuiSdl3.shutdown()
+    do ImGui.destroyContext(IntPtr.Zero)
+    do SDL.ReleaseWindowFromGPUDevice(device, window)
+    do SDL.DestroyGPUDevice(device)
+    do SDL.DestroyWindow(window)
+    do SDL.Quit()
+    do printfn "SDL3 + ImGui (SDL_gpu): clean shutdown"
     0

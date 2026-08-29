@@ -1,7 +1,11 @@
 module SharedState
 
-// Cross-screen state owned by `ScreenManager`. Empty this milestone; populated
-// by later phases (assets, cues, cast, zone registry) per docs/ARCHITECTURE.md.
-// A class rather than a record because it is long-lived, shared, mutable state.
+// Cross-screen state owned by ScreenManager: the asset list (and later cues,
+// cast, zone registry). A struct so it can be stored inline.
 
-type SharedState() = class end
+[<Struct>]
+type SharedState =
+    { Assets : Assets.Asset array }
+
+let create () : SharedState =
+    { Assets = Assets.scan "assets" }

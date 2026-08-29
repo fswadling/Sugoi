@@ -43,3 +43,21 @@ extern bool button(string label, ImVec2 size)
 
 [<DllImport("cimgui", EntryPoint = "igText", CallingConvention = CallingConvention.Cdecl)>]
 extern void text(string fmt)
+
+[<DllImport("cimgui", EntryPoint = "igDockSpaceOverViewport", CallingConvention = CallingConvention.Cdecl)>]
+extern uint32 dockSpaceOverViewport(uint32 dockspaceId, nativeint viewport, int flags, nativeint windowClass)
+
+[<DllImport("cimgui", EntryPoint = "igBeginMainMenuBar", CallingConvention = CallingConvention.Cdecl)>]
+extern bool beginMainMenuBar()
+
+[<DllImport("cimgui", EntryPoint = "igEndMainMenuBar", CallingConvention = CallingConvention.Cdecl)>]
+extern void endMainMenuBar()
+
+[<DllImport("cimgui", EntryPoint = "igBeginMenu", CallingConvention = CallingConvention.Cdecl)>]
+extern bool beginMenu(string label, bool enabled)
+
+[<DllImport("cimgui", EntryPoint = "igEndMenu", CallingConvention = CallingConvention.Cdecl)>]
+extern void endMenu()
+
+[<DllImport("cimgui", EntryPoint = "igMenuItem_Bool", CallingConvention = CallingConvention.Cdecl)>]
+extern bool menuItem(string label, string shortcut, bool selected, bool enabled)
