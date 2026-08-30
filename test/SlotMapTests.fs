@@ -133,3 +133,18 @@ let ``removeByIndex on an already-dead slot raises`` () =
     with :? System.InvalidOperationException ->
         raised <- true
     Assert.True(raised)
+
+[<Fact>]
+let ``iteriAlive yields only alive slots with their indices`` () =
+    let map0 = SlotMap.create<TestPayload> 4u
+    let map1, _ = SlotMap.add map0 { Value = 10 }
+    let map2, h1 = SlotMap.add map1 { Value = 20 }
+    let map3, _ = SlotMap.add map2 { Value = 30 }
+    let map4 = SlotMap.free map3 h1
+
+    let mutable seen : (uint32 * int) list = []
+    SlotMap.iteriAlive map4 (fun i v -> seen <- (i, v.Value) :: seen)
+    let seen = seen |> List.sortBy fst
+
+    Assert.Equal<uint32 list>([ 0u; 2u ], List.map fst seen)
+    Assert.Equal<int list>([ 10; 30 ], List.map snd seen)

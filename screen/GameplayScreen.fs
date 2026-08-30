@@ -43,15 +43,22 @@ let private computeHeld (keys: ReadOnlySpan<bool>) : KeyMask =
 let activate (_shared: SharedState.SharedState) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
     let mutable mx = 0.0f
     let mutable my = 0.0f
-    do SDL.GetMouseState(&mx, &my) |> ignore
+    let buttons = SDL.GetMouseState(&mx, &my)
 
     let mutable numKeys = 0
     let keys = SDL.GetKeyboardState(&numKeys)
 
+    let size = ImGui.displaySize()
+    let aspect = if size.y > 0.0f then size.x / size.y else state.Camera.Aspect
+
     { state with
         PrevMouseX = mx
         PrevMouseY = my
-        PrevHeld = computeHeld keys }
+        PrevHeld = computeHeld keys
+        PrevLeftDown = (int buttons &&& int SDL.MouseButtonFlags.Left) <> 0
+        WindowW = size.x
+        WindowH = size.y
+        Camera = { state.Camera with Aspect = aspect } }
 
 // Gather this frame's input from SDL state plus the frame's event data, and
 // advance the edge-detection fields (Prev*) in the returned state.
@@ -65,17 +72,37 @@ let private gatherInput (state: GameplayState.GameplayState) (frame: Frame) : st
 
     let held = computeHeld keys
     let pressed = held &&& ~~~state.PrevHeld
+    let leftDown = (int buttons &&& int SDL.MouseButtonFlags.Left) <> 0
+    let leftPressed = leftDown && not state.PrevLeftDown
+    let leftReleased = (not leftDown) && state.PrevLeftDown
 
     let input =
-        { MouseDX = mx - state.PrevMouseX
+        { MouseX = mx
+          MouseY = my
+          MouseDX = mx - state.PrevMouseX
           MouseDY = my - state.PrevMouseY
           Wheel = frame.Wheel
+          LeftDown = leftDown
+          LeftPressed = leftPressed
+          LeftReleased = leftReleased
           RightDown = (int buttons &&& int SDL.MouseButtonFlags.Right) <> 0
           Held = held
           Pressed = pressed }
 
+    // window size from ImGui (drives the raycast + keeps the camera aspect in
+    // sync so the grid and picking agree on resize).
+    let size = ImGui.displaySize()
+    let aspect = if size.y > 0.0f then size.x / size.y else state.Camera.Aspect
+
     let state =
-        { state with PrevMouseX = mx; PrevMouseY = my; PrevHeld = held }
+        { state with
+            PrevMouseX = mx
+            PrevMouseY = my
+            PrevHeld = held
+            PrevLeftDown = leftDown
+            WindowW = size.x
+            WindowH = size.y
+            Camera = { state.Camera with Aspect = aspect } }
 
     struct (state, input)
 
@@ -121,6 +148,11 @@ let update (_shared: SharedState.SharedState) (state: GameplayState.GameplayStat
 
     let struct (state, transition) = Editor.handleShortcuts state input
 
+    // viewport selection + gizmo drag (editor mode only)
+    let state =
+        if state.Editing then Editor.interact state input
+        else state
+
     let state =
         if state.Editing then applyCamera state input frame.Dt
         else state
@@ -136,6 +168,7 @@ let draw (shared: SharedState.SharedState) (state: GameplayState.GameplayState) 
         else struct (state, ScreenTransition.None)
 
     let state = Viewport.drawGrid state
+    let state = if state.Editing then Viewport.buildLines state else state
 
     struct (state, transition)
 

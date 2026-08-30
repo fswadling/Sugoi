@@ -29,7 +29,10 @@ type EntityKind =
 
 // A lightweight handle to an entity: its kind plus its slot-map index. Absence
 // ("no entity") is represented with `EntityRef option`, so there is no sentinel
-// value — the odin reference needed one because it has no option type.
+// value — the odin reference needed one because it has no option type. A value
+// type, so the per-frame selection check in `Viewport.buildLines` and the pick
+// fold stay allocation-free.
+[<Struct>]
 type EntityRef =
     { Kind : EntityKind
       Index : uint32 }

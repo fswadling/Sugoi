@@ -79,9 +79,14 @@ module Key =
 // Lives here (not in a screen) so the editor can read it without a cycle.
 [<Struct>]
 type Input =
-    { MouseDX : float32
+    { MouseX : float32
+      MouseY : float32
+      MouseDX : float32
       MouseDY : float32
       Wheel : float32
+      LeftDown : bool
+      LeftPressed : bool
+      LeftReleased : bool
       RightDown : bool
       Held : KeyMask
       Pressed : KeyMask }

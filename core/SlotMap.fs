@@ -82,6 +82,29 @@ let free (map: SlotMap<'T>) (handle: Handle) : SlotMap<'T> =
 let count (map: SlotMap<'T>) : uint32 =
     map.Count
 
+// Iterate the alive slots, applying `f` to each (index, value). A plain loop —
+// no per-slot allocation. `[<InlineIfLambda>]` lets the compiler inline a
+// statically-known lambda at the call site (no closure allocation or indirect
+// call); it falls back to a normal closure when the lambda can't be inlined.
+let inline iteriAlive (map: SlotMap<'T>) ([<InlineIfLambda>] f: uint32 -> 'T -> unit) : unit =
+    let slots = map.Slots
+    for i in 0 .. slots.Length - 1 do
+        let slot = slots.[i]
+        if slot.Alive then f (uint32 i) slot.Value
+
+// Fold over the alive slots, threading an accumulator. Mirrors `iteriAlive`:
+// `[<InlineIfLambda>]` inlines a statically-known lambda (no closure or indirect
+// call), falling back to a normal closure otherwise. The accumulator is passed
+// as a value, so the lambda stays pure and inlinable (unlike capturing a
+// `mutable` from the caller).
+let inline foldiAlive (map: SlotMap<'T>) (state: 'State) ([<InlineIfLambda>] f: 'State -> uint32 -> 'T -> 'State) : 'State =
+    let slots = map.Slots
+    let mutable acc = state
+    for i in 0 .. slots.Length - 1 do
+        let slot = slots.[i]
+        if slot.Alive then acc <- f acc (uint32 i) slot.Value
+    acc
+
 // ── Editor-facing, index-based access (no generation check) ──
 
 // The editor addresses entities by `EntityRef { kind; index }` — an index with

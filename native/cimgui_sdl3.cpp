@@ -84,6 +84,22 @@ bool cimgui_want_text_input()
     return ImGui::GetIO().WantTextInput;
 }
 
+// True while any ImGui control has captured the mouse (io.WantCaptureMouse).
+// Context-safe: returns false when ImGui has no current context.
+bool cimgui_want_capture_mouse()
+{
+    if (ImGui::GetCurrentContext() == nullptr) return false;
+    return ImGui::GetIO().WantCaptureMouse;
+}
+
+// The main viewport (window) size in display pixels (io.DisplaySize).
+// Context-safe: returns (0, 0) when ImGui has no current context.
+ImVec2 cimgui_display_size()
+{
+    if (ImGui::GetCurrentContext() == nullptr) return ImVec2(0.0f, 0.0f);
+    return ImGui::GetIO().DisplaySize;
+}
+
 // Focus a docked panel window by name.
 void cimgui_set_window_focus(const char* name)
 {

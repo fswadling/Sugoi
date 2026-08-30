@@ -16,7 +16,10 @@ type GameplayState =
       DockingInitialized : bool
       PrevMouseX : float32
       PrevMouseY : float32
-      PrevHeld : KeyMask }
+      PrevHeld : KeyMask
+      PrevLeftDown : bool
+      WindowW : float32
+      WindowH : float32 }
 
 let create (debugDraw: DebugDraw.DebugDraw) : GameplayState =
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
@@ -27,4 +30,7 @@ let create (debugDraw: DebugDraw.DebugDraw) : GameplayState =
       DockingInitialized = false
       PrevMouseX = 0.0f
       PrevMouseY = 0.0f
-      PrevHeld = KeyMask.zero }
+      PrevHeld = KeyMask.zero
+      PrevLeftDown = false
+      WindowW = 1280.0f
+      WindowH = 720.0f }

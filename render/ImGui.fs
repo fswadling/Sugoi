@@ -81,3 +81,13 @@ extern void setWindowFocus(string name)
 
 [<DllImport("cimgui", EntryPoint = "cimgui_is_window_active", CallingConvention = CallingConvention.Cdecl)>]
 extern bool isWindowActive(string name)
+
+// True while any ImGui control has captured the mouse (io.WantCaptureMouse).
+// Context-safe (false with no current context).
+[<DllImport("cimgui", EntryPoint = "cimgui_want_capture_mouse", CallingConvention = CallingConvention.Cdecl)>]
+extern bool wantCaptureMouse()
+
+// Main viewport (window) size in display pixels (io.DisplaySize). Context-safe
+// ((0, 0) with no current context).
+[<DllImport("cimgui", EntryPoint = "cimgui_display_size", CallingConvention = CallingConvention.Cdecl)>]
+extern ImVec2 displaySize()
