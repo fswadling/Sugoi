@@ -88,6 +88,10 @@ structural or large changes:
 - Impure functions that return `unit` are fine; call them with `do` rather than
   forcing a value. Functional style (and the garbage collector) are welcome off
   the hot path, but per-frame code should avoid unnecessary allocations.
+- Serialize human-authored data (asset manifests, text config) with Prime's
+  symbolic-expression syntax (`scvalue`/`scstring`) rather than JSON. It maps
+  F# records/unions/maps directly, supports `;` comments, and matches Nu's
+  conventions. Mark manifest records `[<SymbolicExpansion>]` for named fields.
 - Use intention-block comments. Annotate a logical block with a short comment
   stating its *intent* (what it accomplishes / why), not a restatement of the
   code. Use the `// ── … ──` banner style so sections are easy to scan.

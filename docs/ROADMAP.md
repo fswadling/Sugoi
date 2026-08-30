@@ -130,7 +130,7 @@ stale-handle rejection.
 populated asset browser.
 
 **Deliverables**
-- `core/Assets.fs` — asset manager: scan `actors/`/`environments/`/`props/` + JSON
+- `core/Assets.fs` — asset manager: scan `actors/`/`environments/`/`props/` + s-syntax
   manifests, keyed by `id`.
 - `render/DebugDraw.fs` — line/wireframe primitive (grid; later gizmos/overlays).
 - `render/Camera.fs` — editor camera (pitch/yaw/pan/zoom).
@@ -388,7 +388,7 @@ PBR → physics → walk around). After that, the content-authoring path is
   and its types are value types (no GC). Watch the convention: `Matrix4x4` is
   row-major/row-vector, so keep it consistent with SDL_gpu (transpose as needed).
 - **Asset manifests** — port `ocaml-game/lib/core/assets.ml` (scan
-  `actors/`/`environments/`/`props/` + JSON manifests) as the asset manager
+  `actors/`/`environments/`/`props/` + s-syntax manifests) as the asset manager
   (needed by phase 2b and phase 4).
 - **Physics** — `Box3D` (Happypig375) behind `physics/Physics.fs`, starting with
   capsule bodies (character) + box/hull shapes (props) and `b3World_Step`.

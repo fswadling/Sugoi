@@ -99,7 +99,7 @@ persisted.
 
 `Asset_Manager` holds `actors`, `environments`, `props` (dynamic arrays) plus an
 LRU model cache and async loader. Assets are scanned from disk at startup and
-parsed from JSON manifests, keyed by `id`.
+parsed from s-syntax manifests, keyed by `id`.
 
 ## Scenario & Cue (template/runtime split)
 

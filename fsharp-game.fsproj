@@ -45,6 +45,7 @@
 
   <ItemGroup>
     <PackageReference Include="Box3D" Version="0.1.0.20260813" />
+    <PackageReference Include="Prime" Version="11.5.2" />
     <PackageReference Include="SDL3-CS" Version="3.4.14.1" />
   </ItemGroup>
 
