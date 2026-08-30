@@ -72,3 +72,12 @@ extern void endMenu()
 
 [<DllImport("cimgui", EntryPoint = "igMenuItem_Bool", CallingConvention = CallingConvention.Cdecl)>]
 extern bool menuItem(string label, string shortcut, bool selected, bool enabled)
+
+[<DllImport("cimgui", EntryPoint = "cimgui_want_text_input", CallingConvention = CallingConvention.Cdecl)>]
+extern bool wantTextInput()
+
+[<DllImport("cimgui", EntryPoint = "cimgui_set_window_focus", CallingConvention = CallingConvention.Cdecl)>]
+extern void setWindowFocus(string name)
+
+[<DllImport("cimgui", EntryPoint = "cimgui_is_window_active", CallingConvention = CallingConvention.Cdecl)>]
+extern bool isWindowActive(string name)

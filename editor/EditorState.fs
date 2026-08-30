@@ -7,7 +7,9 @@ module EditorState
 open Entity
 
 type EditorState =
-    { Selection : EntityRef option }
+    { Selection : EntityRef option
+      PendingFocus : string option }
 
 let create () : EditorState =
-    { Selection = None }
+    { Selection = None
+      PendingFocus = None }

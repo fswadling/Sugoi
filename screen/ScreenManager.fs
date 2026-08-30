@@ -5,7 +5,9 @@ module ScreenManager
 // applies a pending transition at the end of the frame. Immutable — update/draw
 // return a new value (copy-and-update), so no mutable fields are needed.
 
+open System
 open Screen
+open SDL3
 
 [<Struct>]
 type ScreenManager =
@@ -43,11 +45,19 @@ let draw (m: ScreenManager) : ScreenManager =
         let struct (nextState, transition) = GameplayScreen.draw m.Shared m.Gameplay
         { m with Gameplay = nextState; Transition = Transition.orElse m.Transition transition }
 
-// Render the active screen's 3D scene (upload + scene pass). UI-only screens
-// are a no-op; the engine's scene color target still clears the swapchain.
+// A clear-only render pass for screens that draw nothing in the 3D scene.
+// Begins the render pass (GPULoadOp.Clear) and ends it without drawing, so the
+// swapchain is reset before ImGui draws on top of it.
+let private clearOnly (pass: ScenePass) : unit =
+    let scenePass = SDL.BeginGPURenderPass(pass.Cmd, ReadOnlySpan<SDL.GPUColorTargetInfo>(pass.ColorTargets), 1u, IntPtr.Zero)
+    do SDL.EndGPURenderPass(scenePass)
+
+// Render the active screen's 3D scene. UI-only screens have no scene, but the
+// swapchain must still be cleared every frame — otherwise the previous frame's
+// pixels linger and ImGui layers over them (window trails, stale screens).
 let renderScene (m: ScreenManager) (pass: ScenePass) : unit =
     match m.Active with
-    | ScreenKind.MainMenu -> ()
+    | ScreenKind.MainMenu -> clearOnly pass
     | ScreenKind.Gameplay -> GameplayScreen.renderScene m.Gameplay pass
 
 // Apply a pending transition at end of frame. Switching activates the new

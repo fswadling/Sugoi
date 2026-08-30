@@ -75,6 +75,30 @@ void cimgui_enable_docking()
     io.IniFilename = nullptr; // no persistent layout
 }
 
+// True only while a text field has keyboard focus (io.WantTextInput).
+// Context-safe: returns false when ImGui has no current context, so it can be
+// called from headless unit tests that never initialise ImGui.
+bool cimgui_want_text_input()
+{
+    if (ImGui::GetCurrentContext() == nullptr) return false;
+    return ImGui::GetIO().WantTextInput;
+}
+
+// Focus a docked panel window by name.
+void cimgui_set_window_focus(const char* name)
+{
+    ImGui::SetWindowFocus(name);
+}
+
+// True when a window with the given name exists and is active (used by panel
+// cycling). Context-safe: returns false when ImGui has no current context.
+bool cimgui_is_window_active(const char* name)
+{
+    if (ImGui::GetCurrentContext() == nullptr) return false;
+    ImGuiWindow* window = ImGui::FindWindowByName(name);
+    return window != nullptr && window->Active;
+}
+
 // Build the default editor dock layout: Outliner (left), Inspector (right),
 // Asset Browser (bottom), and a passthru central node for the 3D viewport.
 void cimgui_setup_dock_layout(ImGuiID dockspace_id)
