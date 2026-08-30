@@ -15,6 +15,8 @@ let draw (state: GameplayState.GameplayState) =
         | Some e ->
             do ImGui.text(sprintf "Name: %s" e.Name)
             do ImGui.text(sprintf "Position: %A" e.Transform.Position)
+            do ImGui.text(sprintf "Rotation: %A" (eulerDegrees e.Transform.Rotation))
+            do ImGui.text(sprintf "Scale: %A" e.Transform.Scale)
         | None ->
             do ImGui.text("(no selection)")
     | None ->

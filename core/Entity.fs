@@ -3,6 +3,7 @@ module Entity
 // Entity vocabulary: kinds, references, and the shared base composed by
 // specialised entities. Math uses System.Numerics (value types, no GC).
 
+open System
 open System.Numerics
 open SlotMap
 
@@ -17,6 +18,15 @@ let transformIdentity : Transform =
     { Position = Vector3.Zero
       Rotation = Quaternion.Identity
       Scale = Vector3.One }
+
+// Convert a rotation quaternion to ZYX Euler angles in degrees (for display).
+let eulerDegrees (q: Quaternion) : Vector3 =
+    let x, y, z, w = q.X, q.Y, q.Z, q.W
+    let roll = MathF.Atan2(2.0f * (w * x + y * z), 1.0f - 2.0f * (x * x + y * y))
+    let pitch = MathF.Asin(Math.Clamp(2.0f * (w * y - z * x), -1.0f, 1.0f))
+    let yaw = MathF.Atan2(2.0f * (w * z + x * y), 1.0f - 2.0f * (y * y + z * z))
+    let deg = 180.0f / MathF.PI
+    Vector3(roll * deg, pitch * deg, yaw * deg)
 
 // Editor-only handles. These aren't hot-path data (systems scan slot maps
 // directly), so plain reference types are fine here.

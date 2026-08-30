@@ -120,3 +120,4 @@ verifiable, building toward the full spawn → select → transform loop.
 ## Phase 7: Convergence
 
 - [X] T022 Add Delete/Duplicate buttons to `editor/Outliner.fs` for the current selection (the panel lists + click-selects only; the `Del`/`Ctrl+D` keyboard shortcuts already work) per T014 (partial)
+- [X] T023 Reorganise `editor/Outliner.fs` into collapsible sections (Actors, Props, Triggers, Waypoints) with inline Del/Dup buttons per row (via `Selection.deleteRef`/`duplicateRef` and new `ImGui.collapsingHeader`/`smallButton`/`sameLine` bindings), replacing the bottom buttons; Triggers/Waypoints are empty `(none)` placeholders until the zone stores those kinds

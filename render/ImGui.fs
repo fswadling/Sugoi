@@ -46,8 +46,17 @@ extern void endWindow()
 [<DllImport("cimgui", EntryPoint = "igButton", CallingConvention = CallingConvention.Cdecl)>]
 extern bool button(string label, ImVec2 size)
 
+[<DllImport("cimgui", EntryPoint = "igSmallButton", CallingConvention = CallingConvention.Cdecl)>]
+extern bool smallButton(string label)
+
+[<DllImport("cimgui", EntryPoint = "igSameLine", CallingConvention = CallingConvention.Cdecl)>]
+extern void sameLine(float32 offsetFromStartX, float32 spacing)
+
 [<DllImport("cimgui", EntryPoint = "igText", CallingConvention = CallingConvention.Cdecl)>]
 extern void text(string fmt)
+
+[<DllImport("cimgui", EntryPoint = "igCollapsingHeader_TreeNodeFlags", CallingConvention = CallingConvention.Cdecl)>]
+extern bool collapsingHeader(string label, int flags)
 
 [<DllImport("cimgui", EntryPoint = "igDockSpaceOverViewport", CallingConvention = CallingConvention.Cdecl)>]
 extern uint32 dockSpaceOverViewport(uint32 dockspaceId, nativeint viewport, int flags, nativeint windowClass)

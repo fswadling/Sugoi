@@ -4,7 +4,6 @@ module GameplayScreen
 // input model and gathering — each screen defines its own input system.
 
 open System
-open System.Numerics
 open SDL3
 open Screen
 
@@ -106,58 +105,11 @@ let private gatherInput (state: GameplayState.GameplayState) (frame: Frame) : st
 
     struct (state, input)
 
-// Apply orbit/dolly/fly to the camera from this frame's input. Fly speed is
-// per second (dt-scaled); orbit and dolly are event-driven and unscaled.
-let private applyCamera (state: GameplayState.GameplayState) (input: Input) (dt: float32) : GameplayState.GameplayState =
-    let camera =
-        if not input.RightDown then state.Camera else
-        let c = Camera.orbit state.Camera (-input.MouseDX * 0.01f) (-input.MouseDY * 0.01f)
-        let moving =
-            Input.isHeld Key.W input || Input.isHeld Key.A input || Input.isHeld Key.S input
-            || Input.isHeld Key.D input || Input.isHeld Key.Q input || Input.isHeld Key.E input
-        if not moving then c else
-        let f = Camera.forward c
-        let r = Camera.right c
-        let up = Vector3.UnitY
-        let speed = 6.0f * dt
-        let mutable delta = Vector3.Zero
-        if Input.isHeld Key.W input then delta <- delta + f * speed
-        if Input.isHeld Key.S input then delta <- delta - f * speed
-        if Input.isHeld Key.D input then delta <- delta + r * speed
-        if Input.isHeld Key.A input then delta <- delta - r * speed
-        if Input.isHeld Key.E input then delta <- delta + up * speed
-        if Input.isHeld Key.Q input then delta <- delta - up * speed
-        Camera.pan c delta
-
-    let camera =
-        if input.Wheel = 0.0f then camera else
-        Camera.dolly camera (MathF.Pow(0.9f, input.Wheel))
-
-    { state with Camera = camera }
-
-// Advance non-render logic: gather input, toggle the editor on backtick, apply
-// editor shortcuts (Escape -> menu, Ctrl+Tab panel cycling), then the camera.
+// Advance non-render logic: gather input, then hand the frame to the editor,
+// which owns the edit/play toggle, shortcuts, nudge, interaction, and camera.
 let update (_shared: SharedState.SharedState) (state: GameplayState.GameplayState) (frame: Frame) : struct (GameplayState.GameplayState * ScreenTransition) =
     let struct (state, input) = gatherInput state frame
-
-    // Backtick toggles edit/play, unless the user is typing in a text field.
-    let state =
-        if Input.isPressed Key.Backtick input && not (ImGui.wantTextInput()) then
-            { state with Editing = not state.Editing }
-        else state
-
-    let struct (state, transition) = Editor.handleShortcuts state input
-
-    // viewport selection + gizmo drag (editor mode only)
-    let state =
-        if state.Editing then Editor.interact state input
-        else state
-
-    let state =
-        if state.Editing then applyCamera state input frame.Dt
-        else state
-
-    struct (state, transition)
+    Editor.update state input frame.Dt
 
 // Draw the editor workspace (when editing) and always emit the reference grid
 // so the scene stays visible in both edit and play modes.
