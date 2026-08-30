@@ -120,11 +120,11 @@ let buildLines (state: GameplayState.GameplayState) : GameplayState.GameplayStat
 
 // ── Picking ──
 
-let ray (state: GameplayState.GameplayState) (x: float32) (y: float32) : Ray =
-    Raycast.rayFromScreen state.Camera state.WindowW state.WindowH x y
+let ray (camera: Camera.Camera) (w: float32) (h: float32) (x: float32) (y: float32) : Ray =
+    Raycast.rayFromScreen camera w h x y
 
-let pick (state: GameplayState.GameplayState) (x: float32) (y: float32) : EntityRef option =
-    let r = ray state x y
+let pick (state: GameplayState.GameplayState) (w: float32) (h: float32) (x: float32) (y: float32) : EntityRef option =
+    let r = ray state.Camera w h x y
 
     // Keep the nearest hit in a value-type accumulator: a struct tuple of
     // (distance, entity) inside a `voption`. No `Some`/tuple/`EntityRef` boxes,

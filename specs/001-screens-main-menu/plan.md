@@ -66,7 +66,7 @@ specs/001-screens-main-menu/
 
 ```text
 screen/
-├── Screen.fs           # Screen_Kind, Screen_Transition, input types
+├── Screen.fs           # Screen_Kind, Screen_Transition
 ├── ScreenManager.fs    # active screen + dispatch
 ├── MainMenuScreen.fs   # main menu
 ├── GameplayScreen.fs   # UI-only gameplay placeholder

@@ -3,7 +3,7 @@
 The public surfaces added by this feature. Signatures are illustrative F#, not
 the implementation.
 
-## Key (`screen/Screen.fs`)
+## Key (`core/Input.fs`)
 
 ```fsharp
 type Key =
@@ -29,7 +29,7 @@ setWindowFocus : string -> unit
 isWindowActive : string -> bool
 ```
 
-## Input gather (`screen/GameplayScreen.fs`)
+## Input gather (`core/Input.fs` + `Engine.fs`)
 
 ```fsharp
 // Per-frame input: mouse deltas + wheel + button state, plus the derived
@@ -57,10 +57,11 @@ handleShortcuts : GameplayState.GameplayState -> Input -> struct (GameplayState.
 
 ## Rules
 
-- `Screen.fs` stays SDL-free; the SDL scancode→`Key` mapping lives in
-  `GameplayScreen`.
-- `pressed = held &&& ~~~PrevHeld`; `PrevHeld` is re-synced by `GameplayScreen.activate`
-  on screen switch-in.
+- The SDL scancode→`Key` mapping and `Input.gather` live in `core/Input.fs`
+  (which opens `SDL3`); `Engine.fs` calls `gather` once per frame.
+- `pressed = held &&& ~~~PrevHeld`; the previous-frame state (`PrevInput`) is
+  engine-owned and advances every frame, so no per-screen `activate` re-sync is
+  needed.
 - App shortcuts check `ImGui.wantTextInput()` before firing; `WantCaptureKeyboard`
   is not used (nav-enable makes it unreliable).
 - `SetWindowFocus` is applied at the start of `draw` (after `ImGui.NewFrame`),

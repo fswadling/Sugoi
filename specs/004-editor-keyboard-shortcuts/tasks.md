@@ -18,12 +18,12 @@
 
 **Purpose**: The key abstraction + input gather + the text-input guard every story builds on.
 
-- [X] T002 Add the `Key` discriminated union to `screen/Screen.fs` (`Escape`, `Tab`, `Backtick`, `Delete`, `W/A/S/D/Q/E/F/Z`, `Digit of int`, `LeftCtrl/RightCtrl`, `LeftShift/RightShift`) plus `Key.mask : Key -> uint32` (`1u <<< case-index`).
+- [X] T002 Add the `Key` discriminated union to `core/Input.fs` (`Escape`, `Tab`, `Backtick`, `Delete`, `W/A/S/D/Q/E/F/Z`, `Digit of int`, `LeftCtrl/RightCtrl`, `LeftShift/RightShift`) plus `Key.mask : Key -> uint32` (`1u <<< case-index`).
 - [X] T003 Add the context-safe `cimgui_want_text_input()` getter to `native/cimgui_sdl3.cpp` (return `false` when `ImGui::GetCurrentContext() == nullptr`, else `io.WantTextInput`) and rebuild `libcimgui.so` via `native/build.sh`.
 - [X] T004 Bind `ImGui.wantTextInput()` in `render/ImGui.fs` (P/Invoke against `cimgui_want_text_input`).
-- [X] T005 Replace `GameplayState.PrevBacktick : bool` with `PrevHeld : uint32` in `screen/GameplayState.fs` (default `0u`).
-- [X] T006 Add the SDL scancode→mask mapping and generalize input gather in `screen/GameplayScreen.fs`: replace the per-key bool fields with `Held : uint32` and `Pressed : uint32` (`pressed = held &&& ~~~PrevHeld`), plus `isHeld`/`isPressed`/`isCtrl`/`isShift` helpers.
-- [X] T007 Re-sync `PrevHeld` in `GameplayScreen.activate` (fold in the removed `PrevBacktick` re-sync) so a key held across a screen switch doesn't register as a fresh press.
+- [X] T005 Add `PrevInput` (with `Held : uint32`) to `core/Input.fs`, owned by the engine (replaces `GameplayState.PrevBacktick : bool`).
+- [X] T006 Add the SDL scancode→mask mapping and `Input.gather` in `core/Input.fs` (called once per frame by `Engine.fs`): `Held : uint32` and `Pressed : uint32` (`pressed = held &&& ~~~PrevInput.Held`), plus `isHeld`/`isPressed`/`isCtrl`/`isShift` helpers.
+- [X] T007 Confirm no per-screen `activate` re-sync is needed: `PrevInput` advances every frame, so a key held across a screen switch doesn't register as a fresh press.
 
 **Checkpoint**: the shell compiles with the new `Key` + input-state model; existing camera controls still work off the same `Held` set.
 
@@ -90,8 +90,8 @@
 ## Phase 7: Polish & Cross-Cutting Concerns
 
 - [ ] T014 Run `quickstart.md` validation end-to-end (launch → toggle → cycle → escape → typing guard → quit).
-- [X] T015 Confirm `dotnet build` is clean (the 2 expected native-pointer warnings), `dotnet test` still passes, and `gatherInput` performs no per-frame allocation (the `uint32` bitmask path).
-- [X] T016 Add optional unit tests for the pure helpers (`Key.mask` uniqueness, `isCtrl`/`isShift`, `pressed = held &&& ~~~PrevHeld`) in `test/InputTests.fs` and register it in `test/fsharp-game.Tests.fsproj`.
+- [X] T015 Confirm `dotnet build` is clean (the 2 expected native-pointer warnings), `dotnet test` still passes, and `Input.gather` performs no per-frame allocation (the `uint32` bitmask path).
+- [X] T016 Add optional unit tests for the pure helpers (`Key.mask` uniqueness, `isCtrl`/`isShift`, `pressed = held &&& ~~~PrevInput.Held`) in `test/InputTests.fs` and register it in `test/fsharp-game.Tests.fsproj`.
 
 ---
 
@@ -130,4 +130,4 @@ Then US3 and US4 incrementally, each independently testable.
 ## Phase 8: Convergence
 
 - [ ] T017 Run the interactive `quickstart.md` validation end-to-end (launch → toggle edit/play → cycle panels → escape to menu → typing guard → quit) and confirm each scenario passes per SC-001/SC-003 (partial)
-- [ ] T018 Remove the unused `KeyMask.add` helper in `screen/Screen.fs` (or add a test exercising it) per Constitution I (unrequested)
+- [ ] T018 Remove the unused `KeyMask.add` helper in `core/Input.fs` (or add a test exercising it) per Constitution I (unrequested)

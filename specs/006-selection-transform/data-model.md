@@ -17,25 +17,35 @@ raySegmentDistance  : Ray -> Vector3 -> Vector3 -> float32          // a, b
   `aspect = camera.Aspect` (kept in sync with `w/h` each frame).
 - `intersectAabb`: slab test; returns the nearest entry `t ≥ 0`, or `None`.
 
-## Input (`screen/Screen.fs`)
+## Input (`core/Input.fs`) + Frame (`screen/Screen.fs`)
 
-Adds three fields to `Input`:
+Adds three fields to `Input` and, to `Frame`, the window size plus the gathered
+`Input` itself:
 
 ```fsharp
-{ ... existing ...
-  MouseX : float32
-  MouseY : float32
-  LeftDown : bool }
+type Input =
+    { ... existing ...
+      MouseX : float32
+      MouseY : float32
+      LeftDown : bool }
+
+type Frame =
+    { ... existing ...
+      WindowW : float32
+      WindowH : float32
+      Input : Input }   // gathered once by the engine
 ```
+
+Input is gathered once per frame by the engine (`Input.gather`), not by any
+screen; the previous-frame state (`PrevInput`) lives beside `Input` in
+`core/Input.fs` and is owned by the engine.
 
 ## Gameplay state (`screen/GameplayState.fs`)
 
-```fsharp
-{ ... existing ...
-  PrevLeftDown : bool
-  WindowW : float32
-  WindowH : float32 }
-```
+No new fields: selection/transform state lives on `EditorState` (selection,
+`Tool`/`Snap`/`Drag`), and input edge-detection state (`PrevLeftDown`, …) now
+lives engine-side in `PrevInput` — not on `GameplayState`. The viewport reads
+window size from `Frame` (see above), threaded to `ray`/`pick` as `(w, h)`.
 
 ## Zone helpers (`core/Zone.fs`, temporary)
 
@@ -56,8 +66,10 @@ spawnProp    : Zone -> Entity -> Zone * EntityRef
 ```fsharp
 buildLines    : GameplayState -> DebugDraw -> DebugDraw   // markers + gizmo
 drawGizmo     : GameplayState -> DebugDraw -> Vector3 -> DebugDraw
-ray           : GameplayState -> float32 -> float32 -> Ray
-pick          : GameplayState -> float32 -> float32 -> EntityRef option
+ray           : Camera -> float32 -> float32 -> float32 -> float32 -> Ray
+                      // camera, w, h, x, y
+pick          : GameplayState -> float32 -> float32 -> float32 -> float32 -> EntityRef option
+                      // state, w, h, x, y
 gizmoAxisAt   : GameplayState -> Ray -> Vector3 -> GizmoAxis option
 axisDir       : GizmoAxis -> Vector3
 basis         : GizmoAxis -> Vector3 * Vector3
@@ -67,8 +79,8 @@ basis         : GizmoAxis -> Vector3 * Vector3
 
 ```fsharp
 handleShortcuts : GameplayState -> Input -> struct (GameplayState * ScreenTransition)
-interact        : GameplayState -> Input -> GameplayState   // gizmo drag / selection
-applyDrag       : GameplayState -> float32 -> float32 -> GameplayState
+interact        : GameplayState -> Input -> float32 -> float32 -> GameplayState   // + viewport w/h
+applyDrag       : GameplayState -> float32 -> float32 -> float32 -> float32 -> GameplayState
 finishDrag      : GameplayState -> GameplayState
 ```
 

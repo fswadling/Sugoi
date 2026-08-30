@@ -81,6 +81,7 @@ let run () : int =
     let mutable lastTimingLog = 0.0
     let targetFrameNs = 1_000_000_000.0 / 60.0
     let mutable fps = 60.0
+    let mutable prevInput = Input.PrevInput.zero
 
     // Reused color-target arrays for the scene + ImGui render passes (no
     // per-frame allocation). Invariant fields are set once here; only the
@@ -117,11 +118,19 @@ let run () : int =
 
             do ImGuiSdl3.processEvent(NativePtr.toNativeInt (&&ev)) |> ignore
 
-        // ── Build the frame: dt plus the event-only input accumulated above ──
-        let frame = { Dt = float32 (dtMs / 1000.0); Wheel = wheel }
+        // ── Gather input (mouse + keyboard + edge detection) once per frame ──
+        let struct (nextPrev, input) = Input.gather prevInput wheel
+        prevInput <- nextPrev
 
         // ── Begin a new ImGui frame ──
+        // The backend NewFrame runs first so io.DisplaySize (window size) is
+        // valid before the frame is built.
         do ImGuiSdl3.newFrame()
+
+        // ── Build the frame: dt, window size, and the gathered input ──
+        let size = ImGui.displaySize()
+        let frame = { Dt = float32 (dtMs / 1000.0); WindowW = size.x; WindowH = size.y; Input = input }
+
         do ImGui.newFrame()
 
         // ── Advance and draw the active screen ──

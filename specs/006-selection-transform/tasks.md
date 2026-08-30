@@ -21,8 +21,8 @@ validated manually via `quickstart.md`.
 
 - [X] T002 Add the `cimgui_display_size()` and `cimgui_want_capture_mouse()` shims to `native/cimgui_sdl3.cpp` and rebuild `libcimgui.so` via `native/build.sh`.
 - [X] T003 Bind `ImGui.displaySize` and `ImGui.wantCaptureMouse` in `render/ImGui.fs`.
-- [X] T004 Add `MouseX`/`MouseY`/`LeftDown` to `Input` in `screen/Screen.fs`.
-- [X] T005 Add `PrevLeftDown`/`WindowW`/`WindowH` to `screen/GameplayState.fs`; in `screen/GameplayScreen.fs`, gather mouse/size and set `Camera.Aspect = w/h` from `ImGui.displaySize`.
+- [X] T004 Add `MouseX`/`MouseY`/`LeftDown` to `Input` in `core/Input.fs`.
+- [X] T005 Add `PrevLeftDown` to `PrevInput` in `core/Input.fs` and `WindowW`/`WindowH`/`Input` to `Frame` in `screen/Screen.fs`; in `Engine.fs`, gather input (`Input.gather`) and read `ImGui.displaySize` after the backend `NewFrame` into the frame, and in `screen/GameplayScreen.fs`, set `Camera.Aspect = w/h` from `frame.WindowW`/`frame.WindowH`.
 - [X] T006 [P] Add `entityAt`/`setEntity`/`removeEntity`/`spawnActor`/`spawnProp` to `core/Zone.fs` (marked temporary — migrate to `editor/Command.fs` in 2d).
 - [X] T007 [P] Create `editor/Raycast.fs` (`Ray`, `rayFromScreen`, `intersectAabb`, `planeIntersect`, `raySegmentDistance`) and insert it in `fsharp-game.fsproj` before `editor/Viewport.fs`.
 - [X] T008 [P] Add `test/RaycastTests.fs` (ray-through-centre, box hit/miss, plane hit/miss, segment distance) to `test/fsharp-game.Tests.fsproj`.

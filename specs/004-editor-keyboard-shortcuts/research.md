@@ -5,7 +5,7 @@ Port of `ocaml-game`'s shortcut handling (`lib/screen/screen.ml`,
 
 ## Decision 1 — Key representation: a `Key` DU surfaced as a `uint` bitmask
 
-- **Decision**: add a `Key` discriminated union to `screen/Screen.fs` (`Escape`,
+- **Decision**: add a `Key` discriminated union to `core/Input.fs` (`Escape`,
   `Tab`, `Backtick`, `Delete`, `W/A/S/D/Q/E/F/Z`, `Digit of int`, `LeftCtrl`,
   `RightCtrl`, `LeftShift`, `RightShift`) plus a `Key.mask : Key -> uint32` that
   assigns each case a unique bit (`1u <<< case-index`). Gathered state is a
@@ -19,14 +19,15 @@ Port of `ocaml-game`'s shortcut handling (`lib/screen/screen.ml`,
   modifier support); `Set<Key>` (rejected — allocates once per frame and would
   leave SC-004 unmet). The bitmask was chosen as the final approach.
 
-## Decision 2 — SDL scancode → Key mapping lives in `GameplayScreen`
+## Decision 2 — SDL scancode → Key mapping lives in `core/Input.fs`
 
-- **Decision**: a fixed `(int * Key) array` in `screen/GameplayScreen.fs`, one
-  entry per scancode of interest, iterated each frame to build `held`.
-- **Rationale**: matches `ocaml-game`'s `engine.ml` `key_map`; keeps `Screen.fs`
-  SDL-free. An array is chosen over `readOnlyDict` because the gather path scans
-  the *whole* map each frame (no random access), so a dictionary adds indirection
-  without benefit.
+- **Decision**: a fixed `(int * Key) array` in `core/Input.fs` (inside the
+  `Input` module), one entry per scancode of interest, iterated each frame to
+  build `held`. `Engine.fs` calls `Input.gather` once per frame.
+- **Rationale**: matches `ocaml-game`'s `engine.ml` `key_map`; centralising
+  gathering in `core/Input.fs` shares one input source across all screens. An array
+  is chosen over `readOnlyDict` because the gather path scans the *whole* map
+  each frame (no random access), so a dictionary adds indirection without benefit.
 - **Scancode names (verified against SDL3-CS 3.4.14.1)**: `Escape`, `Tab`,
   `Grave`, `Delete`, `W/A/S/D/Q/E/F/Z`, `Alpha1`/`Alpha2`/`Alpha3` (the top-row
   digits), `LCtrl`/`RCtrl`/`LShift`/`RShift`.
@@ -44,14 +45,16 @@ Port of `ocaml-game`'s shortcut handling (`lib/screen/screen.ml`,
   `ocaml-game/docs/IMGUI_NOTES.md` ("capture-flag gotcha").
 - **Alternatives considered**: `WantCaptureKeyboard` (rejected — the gotcha).
 
-## Decision 4 — Edge detection via `PrevHeld` in `GameplayState`
+## Decision 4 — Edge detection via an engine-owned `PrevInput`
 
-- **Decision**: replace `GameplayState.PrevBacktick : bool` with
-  `PrevHeld : Set<Screen.Key>`; compute `pressed = held - PrevHeld`.
+- **Decision**: keep the previous frame's raw poll (`MouseX`/`MouseY`/`Held`/
+  `LeftDown`) in a `PrevInput` struct in `core/Input.fs`, owned by the engine;
+  `Input.gather` derives `Pressed` as `held &&& ~~~prev.Held` and advances it
+  every frame.
 - **Rationale**: generalizes the existing backtick edge detection to every
-  mapped key, and keeps the functional "return updated state" style. `activate`
-  re-syncs `PrevHeld` so a key held across a screen switch doesn't register as a
-  fresh press (the existing `PrevBacktick` re-sync is folded in).
+  mapped key. Because `PrevInput` advances every frame regardless of screen, a
+  key held across a screen switch doesn't register as a fresh press — no
+  per-screen `activate` re-sync is needed.
 - **Timing note**: `WantTextInput` is updated during `ImGui::NewFrame()`; since
   `update` runs before `newFrame()` it reflects the previous frame — a one-frame
   lag that is fine for gating, and the same ordering `ocaml-game` uses.

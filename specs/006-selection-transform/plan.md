@@ -72,9 +72,9 @@ specs/006-selection-transform/
 ```text
 render/ImGui.fs          # + displaySize + wantCaptureMouse bindings
 native/cimgui_sdl3.cpp   # + cimgui_display_size() + cimgui_want_capture_mouse() shims (rebuild libcimgui.so)
-screen/Screen.fs         # + Input.MouseX / MouseY / LeftDown
-screen/GameplayState.fs  # + PrevLeftDown : bool, WindowW / WindowH : float32
-screen/GameplayScreen.fs # gather mouse/left/size; call Editor.update
+core/Input.fs           # + Input.MouseX / MouseY / LeftDown / PrevInput
+screen/Screen.fs         # + Frame.WindowW / WindowH / Input
+screen/GameplayScreen.fs # consume frame.Input; set Camera.Aspect from frame; call Editor.update
 core/Zone.fs             # + entityAt / setEntity / removeEntity / spawn* (temporary)
 editor/Raycast.fs        # NEW: ray + intersect_aabb + plane_intersect + ray_segment_distance
 editor/Viewport.fs       # + buildLines / drawGizmo / ray / pick / gizmoAxisAt

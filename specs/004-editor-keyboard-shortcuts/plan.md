@@ -12,7 +12,7 @@ shortcuts on "not typing in a text field", and wire the in-scope shortcuts
 (backtick edit/play toggle, `Ctrl+Tab`/`Ctrl+Shift+Tab` panel cycling, `Escape`
 to menu). Ports the approach from `ocaml-game` (`lib/editor/editor.ml`,
 `lib/engine.ml`, `lib/screen/screen.ml`) onto fsharp-game's existing per-frame
-poll in `screen/GameplayScreen.fs`.
+poll in `core/Input.fs` (via `Engine.fs`).
 
 ## Technical Context
 
@@ -72,19 +72,19 @@ specs/004-editor-keyboard-shortcuts/
 ### Source Code (repository root)
 
 ```text
-screen/Screen.fs           # add `Key` DU (leaf module, no deps)
-screen/GameplayState.fs    # replace `PrevBacktick` with `PrevHeld : Set<Key>`
-screen/GameplayScreen.fs   # key map + gather held/pressed + dispatch shortcut intent
+core/Input.fs             # add `Key` DU + Input/PrevInput + Input.gather (key map + held/pressed)
+screen/GameplayScreen.fs   # consume frame.Input; dispatch shortcut intent
 editor/Editor.fs           # shortcut handlers (cycle panel, escape) + want-text-input gate
 render/ImGui.fs            # bind `wantTextInput` (and setWindowFocus/isWindowActive)
 native/cimgui_sdl3.cpp     # add `cimgui_want_text_input` context-safe getter
 ```
 
-**Structure Decision**: `Screen.fs` is already the leaf shared-type module (it
-holds `ScreenKind`/`ScreenTransition`/`Frame`), so `Key` lives there to avoid a
-screen↔editor cycle. The key map and gather stay in `GameplayScreen` (the
-behaviour that owns input), matching `ocaml-game`'s `engine.ml` key map +
-`editor.ml` shortcut dispatch.
+**Structure Decision**: `core/Input.fs` is a leaf module holding the input
+model (`Key`, `KeyMask`, `Input`, `PrevInput`) plus `Input.gather`, so every
+screen and the editor can see it without a cycle. `screen/Screen.fs` keeps the
+screen-only types (`ScreenKind`, `ScreenTransition`, `Frame`). Input gathering
+is called once per frame by `Engine.fs`, so all screens share one input source
+rather than each owning its own.
 
 ## Complexity Tracking
 
@@ -98,8 +98,8 @@ No constitution violations to justify.
   shim returning `false` when `ImGui::GetCurrentContext()` is null.
 - Represent held/pressed as a `uint32` bitmask over a small `Key` DU
   (`Key.mask`), keeping the gather path allocation-free; derive `pressed` as
-  `held &&& ~~~PrevHeld`. Re-sync `PrevHeld` on screen switch-in (`activate`) so
-  a key held across a transition doesn't read as a fresh press.
+  `held &&& ~~~PrevInput.Held`. `PrevInput` is engine-owned and advances every
+  frame, so a key held across a transition doesn't read as a fresh press.
 - Reuse the existing `SDL.GetKeyboardState` poll rather than event-driven key
   delivery; edge detection mirrors the current `BacktickPressed` pattern,
   generalized to all mapped keys.

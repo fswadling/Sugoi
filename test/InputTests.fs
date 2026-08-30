@@ -1,7 +1,7 @@
 module InputTests
 
 open Xunit
-open Screen
+open Input
 
 // All Key cases must map to distinct bits so the held/pressed bitmask can't
 // confuse two keys.

@@ -11,6 +11,7 @@
     <Compile Include="core/Entity.fs" />
     <Compile Include="core/Zone.fs" />
     <Compile Include="core/Assets.fs" />
+    <Compile Include="core/Input.fs" />
     <Compile Include="render/ImGui.fs" />
     <Compile Include="render/ImGuiSdl3.fs" />
     <Compile Include="render/Camera.fs" />

@@ -45,6 +45,7 @@ The viewport maps input to three camera ops (matching `ocaml-game` and
 
 - `EditorState` (immutable record) — transient editor UI state:
   - `Selection : EntityRef option` (always `None` this milestone).
+  - `DockingInitialized : bool` — the dock layout is built once, remembered here.
 - `GameplayState` (a `[<Struct>]`) owns the editor's data:
   - `Camera : Camera`
   - `DebugDraw : DebugDraw` — the viewport's line accumulator + GPU line pipeline
@@ -53,9 +54,6 @@ The viewport maps input to three camera ops (matching `ocaml-game` and
   - `Editing : bool` — whether the editor workspace is shown. Defaults to
     `true`; toggled by the backtick (`` ` ``) key in `GameplayScreen`. In play
     mode the workspace is hidden but the viewport grid is still rendered.
-  - `DockingInitialized : bool` — the dock layout is built once, remembered here.
-  - `PrevMouseX`/`PrevMouseY`/`PrevBacktick` — input edge-detection state for
-    mouse deltas and backtick presses (re-synced by `activate` on switch-in).
 
 ## Relationships
 

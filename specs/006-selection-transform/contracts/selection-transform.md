@@ -26,15 +26,15 @@ spawnProp    : Zone -> Entity -> Zone * EntityRef
 ## Viewport picking (`editor/Viewport.fs`)
 
 ```fsharp
-pick        : GameplayState -> float32 -> float32 -> EntityRef option
+pick        : GameplayState -> float32 -> float32 -> float32 -> float32 -> EntityRef option
 gizmoAxisAt : GameplayState -> Ray -> Vector3 -> GizmoAxis option
 ```
 
 ## Editor interaction (`editor/Editor.fs`)
 
 ```fsharp
-interact   : GameplayState -> Input -> GameplayState
-applyDrag  : GameplayState -> float32 -> float32 -> GameplayState
+interact   : GameplayState -> Input -> float32 -> float32 -> GameplayState
+applyDrag  : GameplayState -> float32 -> float32 -> float32 -> float32 -> GameplayState
 finishDrag : GameplayState -> GameplayState
 ```
 

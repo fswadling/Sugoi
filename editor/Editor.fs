@@ -104,14 +104,14 @@ let private dragTransform (state: GameplayState.GameplayState) (t: Transform) (r
         Some { d.Start with Rotation = Quaternion.Concatenate(rotQ, d.Start.Rotation) }
 
 // Apply one frame of an in-progress gizmo drag.
-let private applyDrag (state: GameplayState.GameplayState) (x: float32) (y: float32) : GameplayState.GameplayState =
+let private applyDrag (state: GameplayState.GameplayState) (viewportW: float32) (viewportH: float32) (x: float32) (y: float32) : GameplayState.GameplayState =
     match (state.Editor.Selection, state.Editor.Drag) with
     | Some _, Some d ->
         let sel = selectedTransform state
         match sel with
         | None -> state
         | Some (_, t) ->
-        let r = Viewport.ray state x y
+        let r = Viewport.ray state.Camera viewportW viewportH x y
         let a = Viewport.axisDir d.Axis
         let result = dragTransform state t r d a
         match result with
@@ -128,14 +128,14 @@ let private finishDrag (state: GameplayState.GameplayState) : GameplayState.Game
 // A camera-relative nudge direction mapped from a held key.
 type private NudgeDir = Forward | Back | Left | Right | Up | Down
 
-let private nudgeDirOfKey (key: Screen.Key) : NudgeDir option =
+let private nudgeDirOfKey (key: Input.Key) : NudgeDir option =
     match key with
-    | Screen.Key.W -> Some Forward
-    | Screen.Key.S -> Some Back
-    | Screen.Key.A -> Some Left
-    | Screen.Key.D -> Some Right
-    | Screen.Key.Q -> Some Down
-    | Screen.Key.E -> Some Up
+    | Input.Key.W -> Some Forward
+    | Input.Key.S -> Some Back
+    | Input.Key.A -> Some Left
+    | Input.Key.D -> Some Right
+    | Input.Key.Q -> Some Down
+    | Input.Key.E -> Some Up
     | _ -> None
 
 // Per-frame nudge steps (snap in parentheses), mirroring ocaml-game.
@@ -191,11 +191,11 @@ let private nudgeTransform (camera: Camera.Camera) (tool: Tool) (snap: bool) (t:
 
 // Apply one frame of keyboard nudge to the selection (Shift + WASD/QE); a no-op
 // with no selection, a drag in progress, or text input focused.
-let updateNudge (state: GameplayState.GameplayState) (input: Screen.Input) : GameplayState.GameplayState =
+let updateNudge (state: GameplayState.GameplayState) (input: Input.Input) : GameplayState.GameplayState =
     let dirs =
-        if Screen.Input.isShift input && not (ImGui.wantTextInput()) && state.Editor.Drag = None then
-            List.choose (fun k -> if Screen.Input.isHeld k input then nudgeDirOfKey k else None)
-                [ Screen.Key.W; Screen.Key.A; Screen.Key.S; Screen.Key.D; Screen.Key.Q; Screen.Key.E ]
+        if Input.isShift input && not (ImGui.wantTextInput()) && state.Editor.Drag = None then
+            List.choose (fun k -> if Input.isHeld k input then nudgeDirOfKey k else None)
+                [ Input.Key.W; Input.Key.A; Input.Key.S; Input.Key.D; Input.Key.Q; Input.Key.E ]
         else []
 
     match dirs with
@@ -214,7 +214,7 @@ let updateNudge (state: GameplayState.GameplayState) (input: Screen.Input) : Gam
 
 // Apply one frame of app-level shortcuts. No-ops while a text field has focus.
 // Returns the updated state and any navigation request (Escape → menu).
-let handleShortcuts (state: GameplayState.GameplayState) (input: Screen.Input) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
+let handleShortcuts (state: GameplayState.GameplayState) (input: Input.Input) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
     if ImGui.wantTextInput() then
         struct (state, Screen.ScreenTransition.None)
     else
@@ -225,27 +225,27 @@ let handleShortcuts (state: GameplayState.GameplayState) (input: Screen.Input) :
     // editor-only shortcuts (tool/snap/focus/delete/duplicate)
     if state.Editing then
         // tool switch: 1/2/3
-        if Screen.Input.isPressed (Screen.Key.Digit 1) input then state <- { state with Editor = { state.Editor with Tool = Move } }
-        if Screen.Input.isPressed (Screen.Key.Digit 2) input then state <- { state with Editor = { state.Editor with Tool = Rotate } }
-        if Screen.Input.isPressed (Screen.Key.Digit 3) input then state <- { state with Editor = { state.Editor with Tool = Scale } }
+        if Input.isPressed (Input.Key.Digit 1) input then state <- { state with Editor = { state.Editor with Tool = Move } }
+        if Input.isPressed (Input.Key.Digit 2) input then state <- { state with Editor = { state.Editor with Tool = Rotate } }
+        if Input.isPressed (Input.Key.Digit 3) input then state <- { state with Editor = { state.Editor with Tool = Scale } }
 
         // snap toggle: Q (not while right-dragging — reserves Q for camera fly —
         // or while Shift is held — reserves Q for keyboard nudge)
-        if Screen.Input.isPressed Screen.Key.Q input && not input.RightDown && not (Screen.Input.isShift input) then
+        if Input.isPressed Input.Key.Q input && not input.RightDown && not (Input.isShift input) then
             state <- { state with Editor = { state.Editor with Snap = not state.Editor.Snap } }
 
         // focus / delete / duplicate
-        if Screen.Input.isPressed Screen.Key.F input then state <- focus state
-        if Screen.Input.isPressed Screen.Key.Delete input then state <- Selection.delete state
-        if Screen.Input.isCtrl input && Screen.Input.isPressed Screen.Key.D input then state <- Selection.duplicate state
+        if Input.isPressed Input.Key.F input then state <- focus state
+        if Input.isPressed Input.Key.Delete input then state <- Selection.delete state
+        if Input.isCtrl input && Input.isPressed Input.Key.D input then state <- Selection.duplicate state
 
     // Escape returns to the main menu
-    if Screen.Input.isPressed Screen.Key.Escape input then
+    if Input.isPressed Input.Key.Escape input then
         transition <- Screen.ScreenTransition.Next Screen.ScreenKind.MainMenu
 
     // Ctrl+Tab / Ctrl+Shift+Tab cycle docked panel focus
-    if Screen.Input.isCtrl input && Screen.Input.isPressed Screen.Key.Tab input then
-        let next = nextPanelIndex (not (Screen.Input.isShift input))
+    if Input.isCtrl input && Input.isPressed Input.Key.Tab input then
+        let next = nextPanelIndex (not (Input.isShift input))
         state <- { state with Editor = { state.Editor with PendingFocus = Some panelNames.[next] } }
 
     struct (state, transition)
@@ -254,15 +254,15 @@ let handleShortcuts (state: GameplayState.GameplayState) (input: Screen.Input) :
 
 // On a left press (not ImGui-captured): begin a gizmo drag when the cursor hits
 // a handle on the selection, otherwise pick an entity (a miss clears the selection).
-let private beginDragOrPick (state: GameplayState.GameplayState) (input: Screen.Input) : GameplayState.GameplayState =
+let private beginDragOrPick (state: GameplayState.GameplayState) (input: Input.Input) (viewportW: float32) (viewportH: float32) : GameplayState.GameplayState =
     let sel = selectedTransform state
     match sel with
-    | None -> { state with Editor.Selection = Viewport.pick state input.MouseX input.MouseY }
+    | None -> { state with Editor.Selection = Viewport.pick state viewportW viewportH input.MouseX input.MouseY }
     | Some (center, transform) ->
 
-    let r = Viewport.ray state input.MouseX input.MouseY
+    let r = Viewport.ray state.Camera viewportW viewportH input.MouseX input.MouseY
     match Viewport.gizmoAxisAt state r center with
-    | None -> { state with Editor.Selection = Viewport.pick state input.MouseX input.MouseY }
+    | None -> { state with Editor.Selection = Viewport.pick state viewportW viewportH input.MouseX input.MouseY }
     | Some axis ->
 
     let normal = if state.Editor.Tool = Rotate then Viewport.axisDir axis else Camera.forward state.Camera
@@ -271,11 +271,11 @@ let private beginDragOrPick (state: GameplayState.GameplayState) (input: Screen.
 
 // Handle one frame of left-button interaction: begin a drag/pick on press, apply
 // the drag while held, and finish on release.
-let interact (state: GameplayState.GameplayState) (input: Screen.Input) : GameplayState.GameplayState =
+let interact (state: GameplayState.GameplayState) (input: Input.Input) (viewportW: float32) (viewportH: float32) : GameplayState.GameplayState =
     if input.LeftPressed && not (ImGui.wantCaptureMouse()) then
-        beginDragOrPick state input
+        beginDragOrPick state input viewportW viewportH
     else if state.Editor.Drag <> None && input.LeftDown then
-        applyDrag state input.MouseX input.MouseY
+        applyDrag state viewportW viewportH input.MouseX input.MouseY
     else if state.Editor.Drag <> None && input.LeftReleased then
         finishDrag state
     else
@@ -285,26 +285,26 @@ let interact (state: GameplayState.GameplayState) (input: Screen.Input) : Gamepl
 
 // Apply orbit/dolly/fly to the camera from this frame's input. Fly speed is
 // per second (dt-scaled); orbit and dolly are event-driven and unscaled.
-let private updateCamera (state: GameplayState.GameplayState) (input: Screen.Input) (dt: float32) : GameplayState.GameplayState =
+let private updateCamera (state: GameplayState.GameplayState) (input: Input.Input) (dt: float32) : GameplayState.GameplayState =
     let camera =
         if not input.RightDown then state.Camera else
         let c = Camera.orbit state.Camera (-input.MouseDX * 0.01f) (-input.MouseDY * 0.01f)
         let moving =
-            not (Screen.Input.isShift input)
-            && (Screen.Input.isHeld Screen.Key.W input || Screen.Input.isHeld Screen.Key.A input || Screen.Input.isHeld Screen.Key.S input
-                || Screen.Input.isHeld Screen.Key.D input || Screen.Input.isHeld Screen.Key.Q input || Screen.Input.isHeld Screen.Key.E input)
+            not (Input.isShift input)
+            && (Input.isHeld Input.Key.W input || Input.isHeld Input.Key.A input || Input.isHeld Input.Key.S input
+                || Input.isHeld Input.Key.D input || Input.isHeld Input.Key.Q input || Input.isHeld Input.Key.E input)
         if not moving then c else
         let f = Camera.forward c
         let r = Camera.right c
         let up = Vector3.UnitY
         let speed = 6.0f * dt
         let mutable delta = Vector3.Zero
-        if Screen.Input.isHeld Screen.Key.W input then delta <- delta + f * speed
-        if Screen.Input.isHeld Screen.Key.S input then delta <- delta - f * speed
-        if Screen.Input.isHeld Screen.Key.D input then delta <- delta + r * speed
-        if Screen.Input.isHeld Screen.Key.A input then delta <- delta - r * speed
-        if Screen.Input.isHeld Screen.Key.E input then delta <- delta + up * speed
-        if Screen.Input.isHeld Screen.Key.Q input then delta <- delta - up * speed
+        if Input.isHeld Input.Key.W input then delta <- delta + f * speed
+        if Input.isHeld Input.Key.S input then delta <- delta - f * speed
+        if Input.isHeld Input.Key.D input then delta <- delta + r * speed
+        if Input.isHeld Input.Key.A input then delta <- delta - r * speed
+        if Input.isHeld Input.Key.E input then delta <- delta + up * speed
+        if Input.isHeld Input.Key.Q input then delta <- delta - up * speed
         Camera.pan c delta
 
     let camera =
@@ -317,22 +317,22 @@ let private updateCamera (state: GameplayState.GameplayState) (input: Screen.Inp
 
 // Advance the editor for one frame: the edit/play toggle, shortcuts, nudge,
 // viewport interaction, and the camera. Called by GameplayScreen each frame.
-let update (state: GameplayState.GameplayState) (input: Screen.Input) (dt: float32) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
+let update (state: GameplayState.GameplayState) (frame: Screen.Frame) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
     // Backtick toggles edit/play, unless the user is typing in a text field.
     let state =
-        if Screen.Input.isPressed Screen.Key.Backtick input && not (ImGui.wantTextInput()) then
+        if Input.isPressed Input.Key.Backtick frame.Input && not (ImGui.wantTextInput()) then
             { state with Editing = not state.Editing }
         else state
 
-    let struct (state, transition) = handleShortcuts state input
+    let struct (state, transition) = handleShortcuts state frame.Input
 
     let state =
         if not state.Editing then state else
         // keyboard nudge (editor mode only)
-        let state = updateNudge state input
+        let state = updateNudge state frame.Input
         // viewport selection + gizmo drag (editor mode only)
-        let state = interact state input
-        let state = updateCamera state input dt
+        let state = interact state frame.Input frame.WindowW frame.WindowH
+        let state = updateCamera state frame.Input frame.Dt
         state
 
     struct (state, transition)
@@ -350,9 +350,9 @@ let draw (state: GameplayState.GameplayState) (shared: SharedState.SharedState) 
     let dockspaceId = ImGui.dockSpaceOverViewport(0u, IntPtr.Zero, ImGui.passthruCentralNode, IntPtr.Zero)
 
     let state =
-        if state.DockingInitialized then state else
+        if state.Editor.DockingInitialized then state else
         do ImGui.setupDockLayout(dockspaceId)
-        { state with DockingInitialized = true }
+        { state with Editor = { state.Editor with DockingInitialized = true } }
 
     let mutable transition = Screen.ScreenTransition.None
 

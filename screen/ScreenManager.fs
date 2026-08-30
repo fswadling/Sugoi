@@ -24,8 +24,8 @@ let init (debugDraw: DebugDraw.DebugDraw) : ScreenManager =
       ShouldQuit = false
       Gameplay = GameplayState.create debugDraw }
 
-// Advance the active screen; may set a transition. The frame carries dt plus
-// event-only input (wheel); pollable input is read from SDL state by screens.
+// Advance the active screen; may set a transition. The frame carries the frame
+// time, window size, and the engine-gathered input.
 let update (frame: Frame) (m: ScreenManager) : ScreenManager =
     match m.Active with
     | ScreenKind.MainMenu ->

@@ -1,6 +1,6 @@
 # Data Model: Editor Keyboard Shortcuts
 
-## Key (`screen/Screen.fs`)
+## Key (`core/Input.fs`)
 
 A leaf discriminated union — the editor's key abstraction, independent of SDL.
 
@@ -18,31 +18,32 @@ type Key =
 // mask : Key -> uint32 — each case maps to a unique bit (1u <<< case-index).
 ```
 
-`Screen.fs` already owns `ScreenKind`/`ScreenTransition`/`Frame`; adding `Key`
-here keeps the type where every screen and the editor can see it without a cycle.
+`Input` lives in `core/Input.fs`, a leaf module every screen and the editor can
+see without a cycle.
 
-## Keyboard input state (`screen/GameplayScreen.fs`)
+## Keyboard input state (`core/Input.fs`)
 
-Derived once per frame from `SDL.GetKeyboardState`; stored transiently.
+Derived once per frame by the engine (`Input.gather`) from
+`SDL.GetKeyboardState`; the per-frame `Input` and the engine-owned `PrevInput`
+(previous frame's raw poll) both live here.
 
 - **Key map** — `(int * uint32) array`, one entry per mapped scancode holding the
   key's bit mask, iterated each frame (no random access; hence an array, not a
   dictionary).
-- **`Key.mask : Key -> uint32`** (in `screen/Screen.fs`) — maps each `Key` case
+- **`Key.mask : Key -> uint32`** (in `core/Input.fs`) — maps each `Key` case
   to a unique bit (`1u <<< case-index`), so the `Key` DU stays the readable
   surface and masks stay an implementation detail.
 - **`held : uint32`** — a bitmask of currently-down keys (OR of the mapped
   scancodes' masks).
-- **`pressed : uint32`** — `held &&& ~~~PrevHeld` (edge-triggered).
+- **`pressed : uint32`** — `held &&& ~~~PrevInput.Held` (edge-triggered).
 - **modifiers** — derived checks: `ctrl = held &&& (mask LeftCtrl ||| mask RightCtrl) <> 0u`,
   `shift = held &&& (mask LeftShift ||| mask RightShift) <> 0u`.
 
 ## GameplayState (`screen/GameplayState.fs`)
 
-- `PrevHeld : uint32` replaces `PrevBacktick : bool` — the previous frame's held
-  bitmask, re-synced by `activate` on switch-in. This generalizes the existing
-  backtick edge detection. A `uint32` (not a `Set`) keeps the gather path
-  allocation-free, satisfying SC-004.
+No input edge-detection state here: the previous frame's held bitmask
+(`PrevInput.Held`, a `uint32`) is engine-owned in `core/Input.fs` and
+advances every frame, so no `activate` re-sync is needed.
 
 ## ImGui capture guard (`render/ImGui.fs` + native shim)
 

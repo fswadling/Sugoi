@@ -31,11 +31,13 @@ type EditorState =
       PendingFocus : string option
       Tool : Tool
       Snap : bool
-      Drag : Drag option }
+      Drag : Drag option
+      DockingInitialized : bool }
 
 let create () : EditorState =
     { Selection = None
       PendingFocus = None
       Tool = Move
       Snap = false
-      Drag = None }
+      Drag = None
+      DockingInitialized = false }

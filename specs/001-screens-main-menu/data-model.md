@@ -49,9 +49,8 @@ manager.
 ## GameplayState ([<Struct>])
 
 The gameplay screen's per-screen state. Grows in later phases; currently owns
-the editor's data (`Camera`, `Editor`, `Editing : bool`) plus input
-edge-detection state (`PrevMouseX`/`PrevMouseY`/`PrevBacktick`) and the
-one-time `DockingInitialized` flag.
+the editor's data (`Camera`, `Editor`, `Editing : bool`). Input is gathered once
+by the engine and delivered via `Frame`, so no input state lives here.
 
 ## SharedState (reference type)
 

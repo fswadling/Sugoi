@@ -4,7 +4,6 @@ module GameplayState
 // state + editing flag) and grows the world in later phases.
 
 open System.Numerics
-open Screen
 
 [<Struct>]
 type GameplayState =
@@ -12,25 +11,11 @@ type GameplayState =
       DebugDraw : DebugDraw.DebugDraw
       Zone : Zone.Zone
       Editor : EditorState.EditorState
-      Editing : bool
-      DockingInitialized : bool
-      PrevMouseX : float32
-      PrevMouseY : float32
-      PrevHeld : KeyMask
-      PrevLeftDown : bool
-      WindowW : float32
-      WindowH : float32 }
+      Editing : bool }
 
 let create (debugDraw: DebugDraw.DebugDraw) : GameplayState =
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
       DebugDraw = debugDraw
       Zone = Zone.create ()
       Editor = EditorState.create ()
-      Editing = true
-      DockingInitialized = false
-      PrevMouseX = 0.0f
-      PrevMouseY = 0.0f
-      PrevHeld = KeyMask.zero
-      PrevLeftDown = false
-      WindowW = 1280.0f
-      WindowH = 720.0f }
+      Editing = true }

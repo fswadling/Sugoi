@@ -6,20 +6,24 @@ Decisions for the 2c viewport interaction, ported from `ocaml-game`'s
 ## Decision 1 — Window size comes from `io.DisplaySize`
 
 - **Decision**: add a context-safe `cimgui_display_size()` shim returning the
-  main viewport size, bind it as `ImGui.displaySize`, and read it each frame in
-  `GameplayScreen.gatherInput` (storing `WindowW`/`WindowH` on `GameplayState`).
+  main viewport size, bind it as `ImGui.displaySize`, and read it once per frame
+  in `Engine.run` — after the ImGui backend `NewFrame` sets `io.DisplaySize` —
+  into `Frame.WindowW`/`Frame.WindowH` (`screen/Screen.fs`). Screens consume it
+  from `Frame`; the editor threads it as `(w, h)` to `Viewport.ray`/`pick`.
 - **Rationale**: ImGui already tracks the window size and keeps it correct on
   resize (resize events already flow through the backend); no need to thread the
   SDL window handle into state. It also lets us fix the hard-coded
   `Camera.Aspect` by setting `aspect = w/h`.
 - **Alternatives considered**: `SDL.GetWindowSize` (rejected — needs the window
   handle exposed from `Engine`); hard-coding `1280x720` (rejected — breaks on
-  resize).
+  resize); storing `WindowW`/`WindowH` on `GameplayState` (rejected — presentation
+  state doesn't belong on per-screen gameplay state).
 
 ## Decision 2 — Left-button edge detection is `PrevLeftDown : bool`
 
-- **Decision**: add `LeftDown` to `Input` and `PrevLeftDown : bool` to
-  `GameplayState`; pressed/released are derived from the two.
+- **Decision**: add `LeftDown` to `Input` and `PrevLeftDown : bool` to the
+  engine-owned `PrevInput` (in `core/Input.fs`); pressed/released are derived
+  from the two.
 - **Rationale**: only the left button needs edge detection (selection + gizmo
   drag). A single bool is minimal and mirrors the existing `PrevHeld` pattern.
 - **Alternatives considered**: a full `PrevButtons : int` bitmask (rejected —
