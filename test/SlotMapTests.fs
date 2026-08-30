@@ -11,7 +11,7 @@ type TestPayload =
 let ``add returns a handle and increments count`` () =
     let map0 = SlotMap.create<TestPayload> 4u
     let map1, handle = SlotMap.add map0 { Value = 1 }
-    Assert.Equal(1, SlotMap.count map1)
+    Assert.Equal(1u, SlotMap.count map1)
     Assert.Equal(0u, handle.Index)
     Assert.Equal(0u, handle.Generation)
 
@@ -26,7 +26,7 @@ let ``free decrements count`` () =
     let map0 = SlotMap.create<TestPayload> 2u
     let map1, handle = SlotMap.add map0 { Value = 1 }
     let map2 = SlotMap.free map1 handle
-    Assert.Equal(0, SlotMap.count map2)
+    Assert.Equal(0u, SlotMap.count map2)
 
 [<Fact>]
 let ``freed slots are reused without reindexing`` () =
@@ -38,7 +38,7 @@ let ``freed slots are reused without reindexing`` () =
     let map3 = SlotMap.free map2 h0
     let map4, h2 = SlotMap.add map3 { Value = 3 }
     Assert.Equal(0u, h2.Index)
-    Assert.Equal(2, SlotMap.count map4)
+    Assert.Equal(2u, SlotMap.count map4)
 
 [<Fact>]
 let ``add to a full map raises`` () =

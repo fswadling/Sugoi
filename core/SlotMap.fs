@@ -23,7 +23,7 @@ type Handle =
 [<Struct>]
 type SlotMap<'T when 'T : struct> =
     { Slots : Slot<'T> array
-      Count : int
+      Count : uint32
       FreeHead : uint32 }
 
 // "No slot" sentinel for free-list links and FreeHead.
@@ -43,7 +43,7 @@ let create<'T when 'T : struct> (capacity: uint) : SlotMap<'T> =
         slots.[i] <- { slots.[i] with NextFree = uint32 (i + 1) }
 
     { Slots = slots
-      Count = 0
+      Count = 0u
       FreeHead = if n > 0 then 0u else noneIndex }
 
 let add (map: SlotMap<'T>) (value: 'T) : SlotMap<'T> * Handle =
@@ -53,7 +53,7 @@ let add (map: SlotMap<'T>) (value: 'T) : SlotMap<'T> * Handle =
     let index = int map.FreeHead
     let slot = map.Slots.[index]
     map.Slots.[index] <- { slot with Value = value; Alive = true; NextFree = noneIndex }
-    { map with Count = map.Count + 1; FreeHead = slot.NextFree },
+    { map with Count = map.Count + 1u; FreeHead = slot.NextFree },
     { Index = map.FreeHead; Generation = slot.Generation }
 
 let get (map: SlotMap<'T>) (handle: Handle) : 'T =
@@ -77,7 +77,7 @@ let free (map: SlotMap<'T>) (handle: Handle) : SlotMap<'T> =
 
     // bump the generation so old handles go stale, then push onto the free list
     map.Slots.[index] <- { slot with Generation = slot.Generation + 1u; Alive = false; NextFree = map.FreeHead }
-    { map with Count = map.Count - 1; FreeHead = handle.Index }
+    { map with Count = map.Count - 1u; FreeHead = handle.Index }
 
-let count (map: SlotMap<'T>) : int =
+let count (map: SlotMap<'T>) : uint32 =
     map.Count
