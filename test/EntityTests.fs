@@ -3,6 +3,7 @@ module EntityTests
 open Xunit
 open System.Numerics
 open Entity
+open SlotMap
 
 let baseEntity name =
     { Name = name
@@ -20,7 +21,7 @@ let ``Actor composes the shared Entity base`` () =
 
 [<Fact>]
 let ``Environment composes the shared Entity base`` () =
-    let environment : Environment = { Base = baseEntity "forest" }
+    let environment : Environment = { Base = baseEntity "forest"; Props = SlotMap.create<Prop> 0u }
     Assert.Equal("forest", environment.Base.Name)
     Assert.True(environment.Base.Visible)
 
@@ -36,9 +37,3 @@ let ``Waypoint and Trigger are standalone`` () =
     let trigger : Trigger = { Position = Vector3.Zero }
     Assert.Equal(1.0f, waypoint.Position.X)
     Assert.Equal(Vector3.Zero, trigger.Position)
-
-[<Fact>]
-let ``NO_ENTITY is distinct from a valid ref`` () =
-    let validRef : EntityRef = { Kind = EntityKind.Actor; Index = 0 }
-    Assert.NotEqual(Entity.NO_ENTITY, validRef)
-    Assert.Equal(-1, Entity.NO_ENTITY.Index)

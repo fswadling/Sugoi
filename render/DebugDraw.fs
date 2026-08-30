@@ -156,6 +156,50 @@ let line (dd: DebugDraw) (a: Vector3) (b: Vector3) (c: Color) : DebugDraw =
     let dd = appendVertex dd a c
     appendVertex dd b c
 
+// 12-edge wireframe box from a center + half-extent (markers, scale gizmo tips).
+let wireframeBox (dd: DebugDraw) (center: Vector3) (half: Vector3) (c: Color) : DebugDraw =
+    let x0 = center.X - half.X
+    let x1 = center.X + half.X
+    let y0 = center.Y - half.Y
+    let y1 = center.Y + half.Y
+    let z0 = center.Z - half.Z
+    let z1 = center.Z + half.Z
+    let v x y z = Vector3(x, y, z)
+    let dd = line dd (v x0 y0 z0) (v x1 y0 z0) c
+    let dd = line dd (v x1 y0 z0) (v x1 y0 z1) c
+    let dd = line dd (v x1 y0 z1) (v x0 y0 z1) c
+    let dd = line dd (v x0 y0 z1) (v x0 y0 z0) c
+    let dd = line dd (v x0 y1 z0) (v x1 y1 z0) c
+    let dd = line dd (v x1 y1 z0) (v x1 y1 z1) c
+    let dd = line dd (v x1 y1 z1) (v x0 y1 z1) c
+    let dd = line dd (v x0 y1 z1) (v x0 y1 z0) c
+    let dd = line dd (v x0 y0 z0) (v x0 y1 z0) c
+    let dd = line dd (v x1 y0 z0) (v x1 y1 z0) c
+    let dd = line dd (v x1 y0 z1) (v x1 y1 z1) c
+    line dd (v x0 y0 z1) (v x0 y1 z1) c
+
+// Sphere outline as three orthogonal great circles (selection highlight, move
+// gizmo tips).
+let sphere (dd: DebugDraw) (center: Vector3) (radius: float32) (c: Color) : DebugDraw =
+    let segments = 24
+    let mutable dd = dd
+    for plane in 0 .. 2 do
+        let mutable prev = None
+        for i in 0 .. segments do
+            let a = 2.0f * MathF.PI * float32 i / float32 segments
+            let ca = MathF.Cos a
+            let sa = MathF.Sin a
+            let p =
+                match plane with
+                | 0 -> center + Vector3(radius * ca, radius * sa, 0.0f)
+                | 1 -> center + Vector3(radius * ca, 0.0f, radius * sa)
+                | _ -> center + Vector3(0.0f, radius * ca, radius * sa)
+            match prev with
+            | Some q -> dd <- line dd q p c
+            | None -> ()
+            prev <- Some p
+    dd
+
 let drawGrid (dd: DebugDraw) : DebugDraw =
     let minor = { R = 0.4f; G = 0.4f; B = 0.4f; A = 1.0f }
     let major = { R = 0.6f; G = 0.6f; B = 0.6f; A = 1.0f }

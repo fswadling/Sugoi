@@ -81,3 +81,56 @@ let free (map: SlotMap<'T>) (handle: Handle) : SlotMap<'T> =
 
 let count (map: SlotMap<'T>) : uint32 =
     map.Count
+
+// ── Editor-facing, index-based access (no generation check) ──
+
+// The editor addresses entities by `EntityRef { kind; index }` — an index with
+// no generation. These accessors mirror that: they read/write a slot by index
+// alone. Deletion bumps the generation, so a stale index could alias a reused
+// slot; the editor clears selection on delete and undo stores the full value, so
+// this is safe (and matches ocaml-game's index-based Slot_map.get/set/remove).
+
+// Read a slot by index (alive only), or None. Returns None for an out-of-range
+// or dead slot.
+let tryGetByIndex (map: SlotMap<'T>) (index: uint32) : 'T option =
+    if index >= uint32 map.Slots.Length then None else
+    let slot = map.Slots.[int index]
+    if slot.Alive then Some slot.Value else None
+
+// Write a value at an index. Overwrites an alive slot, or occupies a free slot
+// (rebuilding the free list) — the latter is how undo restores a deleted entity
+// at its original index. Raises on an out-of-range index.
+let setByIndex (map: SlotMap<'T>) (index: uint32) (value: 'T) : SlotMap<'T> =
+    if index >= uint32 map.Slots.Length then
+        invalidOp "slot map index is out of range"
+
+    let i = int index
+    let slot = map.Slots.[i]
+    if slot.Alive then
+        map.Slots.[i] <- { slot with Value = value }
+        map
+    else
+
+    // occupy this free slot, then rebuild the free list without it
+    map.Slots.[i] <- { slot with Value = value; Alive = true; NextFree = noneIndex }
+    let n = map.Slots.Length
+    let mutable head = noneIndex
+    for j = n - 1 downto 0 do
+        if not map.Slots.[j].Alive then
+            map.Slots.[j] <- { map.Slots.[j] with NextFree = head }
+            head <- uint32 j
+    { map with Count = map.Count + 1u; FreeHead = head }
+
+// Free a slot by index (bump generation, push onto the free list). Raises on an
+// out-of-range index or an already-dead slot.
+let removeByIndex (map: SlotMap<'T>) (index: uint32) : SlotMap<'T> =
+    if index >= uint32 map.Slots.Length then
+        invalidOp "slot map index is out of range"
+
+    let i = int index
+    let slot = map.Slots.[i]
+    if not slot.Alive then
+        invalidOp "slot map slot is already dead"
+
+    map.Slots.[i] <- { slot with Generation = slot.Generation + 1u; Alive = false; NextFree = map.FreeHead }
+    { map with Count = map.Count - 1u; FreeHead = index }

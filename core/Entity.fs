@@ -4,12 +4,19 @@ module Entity
 // specialised entities. Math uses System.Numerics (value types, no GC).
 
 open System.Numerics
+open SlotMap
 
 [<Struct>]
 type Transform =
     { Position : Vector3
       Rotation : Quaternion
       Scale : Vector3 }
+
+// Identity transform: at the origin, no rotation, unit scale.
+let transformIdentity : Transform =
+    { Position = Vector3.Zero
+      Rotation = Quaternion.Identity
+      Scale = Vector3.One }
 
 // Editor-only handles. These aren't hot-path data (systems scan slot maps
 // directly), so plain reference types are fine here.
@@ -20,13 +27,12 @@ type EntityKind =
     | Waypoint
     | Trigger
 
+// A lightweight handle to an entity: its kind plus its slot-map index. Absence
+// ("no entity") is represented with `EntityRef option`, so there is no sentinel
+// value — the odin reference needed one because it has no option type.
 type EntityRef =
     { Kind : EntityKind
-      Index : int }
-
-// "No entity" sentinel: any EntityRef with a negative Index. The Kind field is
-// meaningless for the sentinel.
-let NO_ENTITY : EntityRef = { Kind = EntityKind.Actor; Index = -1 }
+      Index : uint32 }
 
 [<Struct>]
 type Entity =
@@ -45,12 +51,13 @@ type Actor =
     { Base : Entity }
 
 [<Struct>]
-type Environment =
+type Prop =
     { Base : Entity }
 
 [<Struct>]
-type Prop =
-    { Base : Entity }
+type Environment =
+    { Base : Entity
+      Props : SlotMap<Prop> }
 
 [<Struct>]
 type Waypoint =

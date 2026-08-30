@@ -75,3 +75,61 @@ let ``get on a stale handle raises`` () =
         raised <- true
     Assert.True(raised)
     Assert.Equal(2, (SlotMap.get map3 h1).Value)
+
+// ── Index-based accessors (editor CRUD) ──
+
+[<Fact>]
+let ``tryGetByIndex returns Some for an alive slot`` () =
+    let map0 = SlotMap.create<TestPayload> 4u
+    let map1, h = SlotMap.add map0 { Value = 7 }
+    let got = SlotMap.tryGetByIndex map1 h.Index
+    Assert.Equal(7, got.Value.Value)
+
+[<Fact>]
+let ``tryGetByIndex returns None for a dead or out-of-range slot`` () =
+    let map0 = SlotMap.create<TestPayload> 2u
+    let map1, h = SlotMap.add map0 { Value = 1 }
+    let map2 = SlotMap.free map1 h
+    Assert.True(SlotMap.tryGetByIndex map2 h.Index |> Option.isNone)
+    Assert.True(SlotMap.tryGetByIndex map2 9u |> Option.isNone)
+
+[<Fact>]
+let ``setByIndex overwrites an alive slot`` () =
+    let map0 = SlotMap.create<TestPayload> 4u
+    let map1, h = SlotMap.add map0 { Value = 1 }
+    let map2 = SlotMap.setByIndex map1 h.Index { Value = 2 }
+    Assert.Equal(2, (SlotMap.tryGetByIndex map2 h.Index).Value.Value)
+    Assert.Equal(1u, SlotMap.count map2)
+
+[<Fact>]
+let ``setByIndex re-occupies a freed slot at the same index`` () =
+    let map0 = SlotMap.create<TestPayload> 2u
+    let map1, h = SlotMap.add map0 { Value = 1 }
+    let map2 = SlotMap.free map1 h
+    let map3 = SlotMap.setByIndex map2 h.Index { Value = 9 }
+    Assert.Equal(9, (SlotMap.tryGetByIndex map3 h.Index).Value.Value)
+    Assert.Equal(1u, SlotMap.count map3)
+
+[<Fact>]
+let ``removeByIndex frees a slot and bumps its generation`` () =
+    let map0 = SlotMap.create<TestPayload> 4u
+    let map1, h = SlotMap.add map0 { Value = 1 }
+    let map2 = SlotMap.removeByIndex map1 h.Index
+    Assert.True(SlotMap.tryGetByIndex map2 h.Index |> Option.isNone)
+    Assert.Equal(0u, SlotMap.count map2)
+    // re-adding the slot gives a fresh generation, so the old handle is stale
+    let map3, h2 = SlotMap.add map2 { Value = 2 }
+    Assert.Equal(h.Index, h2.Index)
+    Assert.NotEqual(h.Generation, h2.Generation)
+
+[<Fact>]
+let ``removeByIndex on an already-dead slot raises`` () =
+    let map0 = SlotMap.create<TestPayload> 2u
+    let map1, h = SlotMap.add map0 { Value = 1 }
+    let map2 = SlotMap.removeByIndex map1 h.Index
+    let mutable raised = false
+    try
+        SlotMap.removeByIndex map2 h.Index |> ignore
+    with :? System.InvalidOperationException ->
+        raised <- true
+    Assert.True(raised)

@@ -10,6 +10,7 @@ open Screen
 type GameplayState =
     { Camera : Camera.Camera
       DebugDraw : DebugDraw.DebugDraw
+      Zone : Zone.Zone
       Editor : EditorState.EditorState
       Editing : bool
       DockingInitialized : bool
@@ -20,6 +21,7 @@ type GameplayState =
 let create (debugDraw: DebugDraw.DebugDraw) : GameplayState =
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
       DebugDraw = debugDraw
+      Zone = Zone.create ()
       Editor = EditorState.create ()
       Editing = true
       DockingInitialized = false
