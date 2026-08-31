@@ -9,7 +9,7 @@ open Input
 let ``Key.mask assigns a unique bit to every key`` () =
     let keys =
         [ Key.Escape; Key.Tab; Key.Backtick; Key.Delete
-          Key.W; Key.A; Key.S; Key.D; Key.Q; Key.E; Key.F; Key.Z
+          Key.W; Key.A; Key.S; Key.D; Key.Q; Key.E; Key.F; Key.Z; Key.Y
           Key.Digit 1; Key.Digit 2; Key.Digit 3
           Key.LeftCtrl; Key.RightCtrl; Key.LeftShift; Key.RightShift ]
 

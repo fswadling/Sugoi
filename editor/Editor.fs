@@ -11,6 +11,7 @@ open System.Numerics
 open Entity
 open EditorState
 open Raycast
+open Command
 
 // ── Docked panel cycling (Ctrl+Tab / Ctrl+Shift+Tab) ──
 
@@ -23,8 +24,8 @@ let private nextPanelIndex (forward: bool) : int =
     let n = panelNames.Length
     let current = Array.tryFindIndex (fun (p: string) -> ImGui.isWindowActive p) panelNames
     match current with
-    | Option.None -> if forward then 0 else n - 1
-    | Option.Some i -> if forward then (i + 1) % n else (i - 1 + n) % n
+    | None -> if forward then 0 else n - 1
+    | Some i -> if forward then (i + 1) % n else (i - 1 + n) % n
 
 // Apply a queued panel-focus request (valid only after ImGui.NewFrame), then
 // clear it. Returns the updated state.
@@ -53,8 +54,12 @@ let private setSelectedTransform (state: GameplayState.GameplayState) (t: Transf
 
     let entity = Zone.entityAt state.Zone ref
     match entity with
-    | Some e -> { state with Zone = Zone.setEntity state.Zone ref { e with Transform = t } }
     | None -> state
+    | Some e ->
+
+    Zone.setEntity state.Zone ref { e with Transform = t }
+    state
+
 
 // Focus the camera on the selection (re-centre the target, preserve the offset).
 let private focus (state: GameplayState.GameplayState) : GameplayState.GameplayState =
@@ -119,9 +124,18 @@ let private applyDrag (state: GameplayState.GameplayState) (viewportW: float32) 
         | Some newT -> setSelectedTransform state newT
     | _ -> state
 
-// End a drag (2d will also push an undo command here using `Drag.Start`).
+// End a drag: push one Transform command for the whole gesture (coalesced by the
+// undo stack), using the pre-drag transform as `Before`.
 let private finishDrag (state: GameplayState.GameplayState) : GameplayState.GameplayState =
-    { state with Editor = { state.Editor with Drag = None } }
+    let undo =
+        match (state.Editor.Selection, state.Editor.Drag) with
+        | Some ref, Some d ->
+            match Zone.entityAt state.Zone ref with
+            | None -> state.Editor.Undo
+            | Some entity ->
+                UndoStack.push state.Editor.Undo (Transform (ref, d.Start, entity.Transform))
+        | _ -> state.Editor.Undo
+    { state with Editor = { state.Editor with Drag = None; Undo = undo } }
 
 // ── Keyboard nudge (Shift + WASD/QE) ──
 
@@ -189,8 +203,9 @@ let private nudgeTransform (camera: Camera.Camera) (tool: Tool) (snap: bool) (t:
                 | _ -> acc) 1.0f
         { t with Scale = t.Scale * factor }
 
-// Apply one frame of keyboard nudge to the selection (Shift + WASD/QE); a no-op
-// with no selection, a drag in progress, or text input focused.
+// Apply one frame of keyboard nudge to the selection (Shift + WASD/QE) and, on
+// release, commit the whole held nudge as a single undo step. A no-op with no
+// selection, a drag in progress, or text input focused.
 let updateNudge (state: GameplayState.GameplayState) (input: Input.Input) : GameplayState.GameplayState =
     let dirs =
         if Input.isShift input && not (ImGui.wantTextInput()) && state.Editor.Drag = None then
@@ -199,16 +214,38 @@ let updateNudge (state: GameplayState.GameplayState) (input: Input.Input) : Game
         else []
 
     match dirs with
-    | [] -> state
-    | _ ->
+    | _ :: _ ->
+        // First frame of a hold: capture the pre-nudge transform as the "before".
+        let state =
+            match state.Editor.NudgeBefore with
+            | Some _ -> state
+            | None ->
+            match selectedTransform state with
+            | None -> state
+            | Some (_, t) ->
+            { state with Editor = { state.Editor with NudgeBefore = Some t } }
 
-    let sel = selectedTransform state
-    match sel with
-    | None -> state
-    | Some (_, t) ->
+        let sel = selectedTransform state
+        match sel with
+        | None -> state
+        | Some (_, t) ->
 
-    let newT = nudgeTransform state.Camera state.Editor.Tool state.Editor.Snap t dirs
-    setSelectedTransform state newT
+        let newT = nudgeTransform state.Camera state.Editor.Tool state.Editor.Snap t dirs
+        setSelectedTransform state newT
+    | [] ->
+        // No nudge key held: push one Transform command for the whole hold.
+        match state.Editor.NudgeBefore with
+        | None -> state
+        | Some before ->
+            let undo =
+                match state.Editor.Selection with
+                | None -> state.Editor.Undo
+                | Some ref ->
+                    match Zone.entityAt state.Zone ref with
+                    | None -> state.Editor.Undo
+                    | Some entity ->
+                        UndoStack.push state.Editor.Undo (Transform (ref, before, entity.Transform))
+            { state with Editor = { state.Editor with NudgeBefore = None; Undo = undo } }
 
 // ── App-level shortcuts ──
 
@@ -238,6 +275,13 @@ let handleShortcuts (state: GameplayState.GameplayState) (input: Input.Input) : 
         if Input.isPressed Input.Key.F input then state <- focus state
         if Input.isPressed Input.Key.Delete input then state <- Selection.delete state
         if Input.isCtrl input && Input.isPressed Input.Key.D input then state <- Selection.duplicate state
+
+        // undo / redo (blocked mid-drag so an in-progress gesture isn't corrupted)
+        if state.Editor.Drag = None then
+            if Input.isCtrl input && Input.isPressed Input.Key.Z input && not (Input.isShift input) then
+                state <- { state with Editor = { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone } }
+            if Input.isCtrl input && Input.isPressed Input.Key.Y input then
+                state <- { state with Editor = { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone } }
 
     // Escape returns to the main menu
     if Input.isPressed Input.Key.Escape input then
@@ -343,16 +387,15 @@ let update (state: GameplayState.GameplayState) (frame: Screen.Frame) : struct (
 // and remembered in the state) and any navigation request (File > Quit).
 let draw (state: GameplayState.GameplayState) (shared: SharedState.SharedState) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
     // Apply any panel-focus request queued by update (valid only after NewFrame).
-    let state = applyPendingFocus state
+    let mutable state = applyPendingFocus state
 
     // Dockspace + (once) the default dock layout. The viewport is the central
     // passthru node; Outliner/Inspector/Asset Browser are docked around it.
     let dockspaceId = ImGui.dockSpaceOverViewport(0u, IntPtr.Zero, ImGui.passthruCentralNode, IntPtr.Zero)
 
-    let state =
-        if state.Editor.DockingInitialized then state else
+    if not state.Editor.DockingInitialized then
         do ImGui.setupDockLayout(dockspaceId)
-        { state with Editor = { state.Editor with DockingInitialized = true } }
+        state <- { state with Editor = { state.Editor with DockingInitialized = true } }
 
     let mutable transition = Screen.ScreenTransition.None
 
@@ -361,6 +404,17 @@ let draw (state: GameplayState.GameplayState) (shared: SharedState.SharedState) 
             if ImGui.menuItem("Quit", null, false, true) then
                 transition <- Screen.ScreenTransition.Quit
             do ImGui.endMenu()
+
+        // Edit menu: undo/redo mirror the keyboard shortcuts and are gated on the
+        // same conditions (not mid-drag, not typing, and a non-empty stack).
+        if ImGui.beginMenu("Edit", true) then
+            let idle = state.Editor.Drag = None && not (ImGui.wantTextInput())
+            if ImGui.menuItem("Undo", "Ctrl+Z", false, idle && not (List.isEmpty state.Editor.Undo.Applied)) then
+                state <- { state with Editor = { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone } }
+            if ImGui.menuItem("Redo", "Ctrl+Y", false, idle && not (List.isEmpty state.Editor.Undo.Redo)) then
+                state <- { state with Editor = { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone } }
+            do ImGui.endMenu()
+
         do ImGui.endMainMenuBar()
 
     let state = Outliner.draw state

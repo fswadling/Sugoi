@@ -5,6 +5,7 @@ module AssetBrowser
 // spawnable this phase).
 
 open Entity
+open Command
 
 let private baseEntity (name: string) : Entity =
     { Name = name
@@ -26,12 +27,16 @@ let draw (state: GameplayState.GameplayState) (shared: SharedState.SharedState) 
             match asset.Kind with
             | EntityKind.Actor ->
                 if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    let zone, ref = Zone.spawnActor state.Zone (baseEntity asset.Name)
-                    state <- { state with Zone = zone; Editor = { state.Editor with Selection = Some ref } }
+                    let entity = baseEntity asset.Name
+                    let ref = Zone.spawnActor state.Zone entity
+                    let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity))
+                    state <- { state with Editor = { state.Editor with Selection = Some ref; Undo = undo } }
             | EntityKind.Prop ->
                 if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    let zone, ref = Zone.spawnProp state.Zone (baseEntity asset.Name)
-                    state <- { state with Zone = zone; Editor = { state.Editor with Selection = Some ref } }
+                    let entity = baseEntity asset.Name
+                    let ref = Zone.spawnProp state.Zone entity
+                    let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity))
+                    state <- { state with Editor = { state.Editor with Selection = Some ref; Undo = undo } }
             | _ -> ()
 
     do ImGui.endWindow()

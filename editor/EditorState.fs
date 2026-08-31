@@ -6,6 +6,7 @@ module EditorState
 
 open System.Numerics
 open Entity
+open Command
 
 // The active transform tool, selected with 1/2/3.
 type Tool =
@@ -32,7 +33,9 @@ type EditorState =
       Tool : Tool
       Snap : bool
       Drag : Drag option
-      DockingInitialized : bool }
+      DockingInitialized : bool
+      Undo : UndoStack
+      NudgeBefore : Transform option }
 
 let create () : EditorState =
     { Selection = None
@@ -40,4 +43,6 @@ let create () : EditorState =
       Tool = Move
       Snap = false
       Drag = None
-      DockingInitialized = false }
+      DockingInitialized = false
+      Undo = UndoStack.create ()
+      NudgeBefore = None }

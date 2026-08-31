@@ -12,6 +12,7 @@
     <Compile Include="InputTests.fs" />
     <Compile Include="CameraTests.fs" />
     <Compile Include="RaycastTests.fs" />
+    <Compile Include="CommandTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

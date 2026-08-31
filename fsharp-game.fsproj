@@ -18,6 +18,7 @@
     <Compile Include="render/DebugDraw.fs" />
     <Compile Include="screen/Screen.fs" />
     <Compile Include="screen/SharedState.fs" />
+    <Compile Include="editor/Command.fs" />
     <Compile Include="editor/EditorState.fs" />
     <Compile Include="screen/GameplayState.fs" />
     <Compile Include="editor/Selection.fs" />

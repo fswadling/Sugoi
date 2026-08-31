@@ -70,7 +70,7 @@ type Prop =
 [<Struct>]
 type Environment =
     { Base : Entity
-      Props : SlotMap<Prop> }
+      mutable Props : SlotMap<Prop> }
 
 [<Struct>]
 type Waypoint =

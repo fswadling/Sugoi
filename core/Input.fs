@@ -16,7 +16,7 @@ type Key =
     | Tab
     | Backtick
     | Delete
-    | W | A | S | D | Q | E | F | Z
+    | W | A | S | D | Q | E | F | Z | Y
     | Digit of int
     | LeftCtrl | RightCtrl
     | LeftShift | RightShift
@@ -50,11 +50,12 @@ module Key =
         | E -> 1u <<< 9
         | F -> 1u <<< 10
         | Z -> 1u <<< 11
-        | Digit n -> 1u <<< (12 + (n - 1))
-        | LeftCtrl -> 1u <<< 15
-        | RightCtrl -> 1u <<< 16
-        | LeftShift -> 1u <<< 17
-        | RightShift -> 1u <<< 18
+        | Y -> 1u <<< 12
+        | Digit n -> 1u <<< (13 + (n - 1))
+        | LeftCtrl -> 1u <<< 17
+        | RightCtrl -> 1u <<< 18
+        | LeftShift -> 1u <<< 19
+        | RightShift -> 1u <<< 20
 
 // Per-frame input, gathered once by the engine (not by any screen) from SDL
 // state. Held/Pressed are `Key` bitmasks (`Key.mask`), so gathering allocates
@@ -108,6 +109,7 @@ let private keyMap : (int * KeyMask) array =
        int SDL.Scancode.E, Key.mask Key.E
        int SDL.Scancode.F, Key.mask Key.F
        int SDL.Scancode.Z, Key.mask Key.Z
+       int SDL.Scancode.Y, Key.mask Key.Y
        int SDL.Scancode.Alpha1, Key.mask (Key.Digit 1)
        int SDL.Scancode.Alpha2, Key.mask (Key.Digit 2)
        int SDL.Scancode.Alpha3, Key.mask (Key.Digit 3)

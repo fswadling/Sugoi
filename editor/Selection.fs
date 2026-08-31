@@ -5,6 +5,7 @@ module Selection
 // The `*Ref` variants act on a specific entity, for the inline row buttons.
 
 open Entity
+open Command
 
 // Delete a specific entity. Clears the selection only when it was the deleted
 // entity; otherwise leaves selection/drag untouched.
@@ -12,14 +13,17 @@ let deleteRef (state: GameplayState.GameplayState) (ref: EntityRef) : GameplaySt
     let entity = Zone.entityAt state.Zone ref
     match entity with
     | None -> state
-    | Some _ ->
+    | Some e ->
 
+    let cmd = Delete (ref, e)
+    apply state.Zone cmd
+    let undo = UndoStack.push state.Editor.Undo cmd
     let editor =
         if state.Editor.Selection = Some ref then
             { state.Editor with Selection = None; Drag = None }
         else
             state.Editor
-    { state with Zone = Zone.removeEntity state.Zone ref; Editor = editor }
+    { state with Editor = { editor with Undo = undo } }
 
 // Delete the selected entity.
 let delete (state: GameplayState.GameplayState) : GameplayState.GameplayState =
@@ -35,11 +39,13 @@ let duplicateRef (state: GameplayState.GameplayState) (ref: EntityRef) : Gamepla
     | Some e ->
     match ref.Kind with
     | EntityKind.Actor ->
-        let zone, newRef = Zone.spawnActor state.Zone e
-        { state with Zone = zone; Editor = { state.Editor with Selection = Some newRef } }
+        let newRef = Zone.spawnActor state.Zone e
+        let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e))
+        { state with Editor = { state.Editor with Selection = Some newRef; Undo = undo } }
     | EntityKind.Prop ->
-        let zone, newRef = Zone.spawnProp state.Zone e
-        { state with Zone = zone; Editor = { state.Editor with Selection = Some newRef } }
+        let newRef = Zone.spawnProp state.Zone e
+        let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e))
+        { state with Editor = { state.Editor with Selection = Some newRef; Undo = undo } }
     | _ -> state
 
 // Duplicate the selected entity.
