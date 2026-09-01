@@ -52,7 +52,7 @@ isShift     : Input -> bool   // LeftShift or RightShift held
 ```fsharp
 // Apply one frame of app-level shortcuts. No-ops when a text field has focus
 // (ImGui.wantTextInput()). Returns the updated state and any navigation request.
-handleShortcuts : GameplayState.GameplayState -> Input -> struct (GameplayState.GameplayState * ScreenTransition)
+handleShortcuts : Input -> GameplayState.GameplayState -> struct (GameplayState.GameplayState * ScreenTransition)
 ```
 
 ## Rules

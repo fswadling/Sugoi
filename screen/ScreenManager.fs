@@ -31,7 +31,7 @@ let update (frame: Frame) (m: ScreenManager) : ScreenManager =
     | ScreenKind.MainMenu ->
         { m with Transition = MainMenuScreen.update m.Shared }
     | ScreenKind.Gameplay ->
-        let struct (nextState, transition) = GameplayScreen.update m.Shared m.Gameplay frame
+        let struct (nextState, transition) = GameplayScreen.update m.Shared frame m.Gameplay
         { m with Gameplay = nextState; Transition = transition }
 
 // Draw the active screen; may set a transition. A draw request (e.g. a clicked

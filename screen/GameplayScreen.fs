@@ -8,30 +8,29 @@ open System
 open SDL3
 open Screen
 
+let private updateAspectRatio (width: float32, height: float32) (state: GameplayState.GameplayState): GameplayState.GameplayState =
+    let aspect = if height > 0.0f then width / height else state.Camera.Aspect
+    { state with Camera = { state.Camera with Aspect = aspect } }
+
 // Re-sync the camera aspect on switch-in so the grid and picking agree
 // immediately. Input edge detection is engine-owned now, so there's no
 // per-screen input state left to re-sync.
 let activate (_shared: SharedState.SharedState) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
     let size = ImGui.displaySize()
-    let aspect = if size.y > 0.0f then size.x / size.y else state.Camera.Aspect
-    { state with Camera = { state.Camera with Aspect = aspect } }
+    updateAspectRatio (size.x, size.y) state
 
 // Advance non-render logic: refresh the camera aspect from the frame's window
 // size, then hand the frame's input to the editor, which owns the edit/play
 // toggle, shortcuts, nudge, interaction, and camera.
-let update (_shared: SharedState.SharedState) (state: GameplayState.GameplayState) (frame: Frame) : struct (GameplayState.GameplayState * ScreenTransition) =
-    let aspect = if frame.WindowH > 0.0f then frame.WindowW / frame.WindowH else state.Camera.Aspect
-    let state = { state with Camera = { state.Camera with Aspect = aspect } }
-    Editor.update state frame
+let update (_shared: SharedState.SharedState) (frame: Frame) (state: GameplayState.GameplayState) : struct (GameplayState.GameplayState * ScreenTransition) =
+    state
+    |> updateAspectRatio (frame.WindowW, frame.WindowH)
+    |> Editor.update frame
 
 // Draw the editor workspace (when editing) and always emit the reference grid
 // so the scene stays visible in both edit and play modes.
 let draw (shared: SharedState.SharedState) (state: GameplayState.GameplayState) : struct (GameplayState.GameplayState * ScreenTransition) =
-    let struct (state, transition) =
-        if state.Editing
-        then Editor.draw state shared
-        else struct (state, ScreenTransition.None)
-
+    let struct (state, transition) = Editor.draw shared state
     let state = Viewport.drawGrid state
     let state = if state.Editing then Viewport.buildLines state else state
 

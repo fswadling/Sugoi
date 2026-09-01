@@ -69,7 +69,7 @@ type EditorState = { Selection : EntityRef option }
 
 // Draw the docking workspace + panels, reading/updating the gameplay state
 // (which owns the camera + editor state); File > Quit is a ScreenTransition.
-Editor.draw : GameplayState -> SharedState -> struct (GameplayState * ScreenTransition)
+Editor.draw : SharedState -> GameplayState -> struct (GameplayState * ScreenTransition)
 ```
 
 ## Rules

@@ -47,7 +47,7 @@ let private selectedTransform (state: GameplayState.GameplayState) : (Vector3 * 
     Option.map (fun (e: Entity) -> (e.Transform.Position, e.Transform)) entity
 
 // Write a transform back to the selected entity.
-let private setSelectedTransform (state: GameplayState.GameplayState) (t: Transform) : GameplayState.GameplayState =
+let private setSelectedTransform (t: Transform) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
     match state.Editor.Selection with
     | None -> state
     | Some ref ->
@@ -80,7 +80,7 @@ let private focus (state: GameplayState.GameplayState) : GameplayState.GameplayS
 // Derive the new transform for a drag, or None if the mouse ray doesn't
 // intersect the drag plane. Move/scale project onto the camera-facing plane
 // along the grabbed axis; rotate measures the angle around the axis.
-let private dragTransform (state: GameplayState.GameplayState) (t: Transform) (r: Ray) (d: Drag) (a: Vector3) : Transform option =
+let private dragTransform (t: Transform) (r: Ray) (d: Drag) (a: Vector3) (state: GameplayState.GameplayState) : Transform option =
     match state.Editor.Tool with
     | Move | Scale ->
         let normal = Camera.forward state.Camera
@@ -109,8 +109,8 @@ let private dragTransform (state: GameplayState.GameplayState) (t: Transform) (r
         Some { d.Start with Rotation = Quaternion.Concatenate(rotQ, d.Start.Rotation) }
 
 // Apply one frame of an in-progress gizmo drag.
-let private applyDrag (state: GameplayState.GameplayState) (viewportW: float32) (viewportH: float32) (x: float32) (y: float32) : GameplayState.GameplayState =
-    match (state.Editor.Selection, state.Editor.Drag) with
+let private applyDrag (viewportW: float32) (viewportH: float32) (x: float32) (y: float32) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+    match state.Editor.Selection, state.Editor.Drag with
     | Some _, Some d ->
         let sel = selectedTransform state
         match sel with
@@ -118,17 +118,17 @@ let private applyDrag (state: GameplayState.GameplayState) (viewportW: float32) 
         | Some (_, t) ->
         let r = Viewport.ray state.Camera viewportW viewportH x y
         let a = Viewport.axisDir d.Axis
-        let result = dragTransform state t r d a
+        let result = dragTransform t r d a state
         match result with
         | None -> state
-        | Some newT -> setSelectedTransform state newT
+        | Some newT -> setSelectedTransform newT state
     | _ -> state
 
 // End a drag: push one Transform command for the whole gesture (coalesced by the
 // undo stack), using the pre-drag transform as `Before`.
 let private finishDrag (state: GameplayState.GameplayState) : GameplayState.GameplayState =
     let undo =
-        match (state.Editor.Selection, state.Editor.Drag) with
+        match state.Editor.Selection, state.Editor.Drag with
         | Some ref, Some d ->
             match Zone.entityAt state.Zone ref with
             | None -> state.Editor.Undo
@@ -206,7 +206,7 @@ let private nudgeTransform (camera: Camera.Camera) (tool: Tool) (snap: bool) (t:
 // Apply one frame of keyboard nudge to the selection (Shift + WASD/QE) and, on
 // release, commit the whole held nudge as a single undo step. A no-op with no
 // selection, a drag in progress, or text input focused.
-let updateNudge (state: GameplayState.GameplayState) (input: Input.Input) : GameplayState.GameplayState =
+let updateNudge (input: Input.Input) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
     let dirs =
         if Input.isShift input && not (ImGui.wantTextInput()) && state.Editor.Drag = None then
             List.choose (fun k -> if Input.isHeld k input then nudgeDirOfKey k else None)
@@ -231,27 +231,29 @@ let updateNudge (state: GameplayState.GameplayState) (input: Input.Input) : Game
         | Some (_, t) ->
 
         let newT = nudgeTransform state.Camera state.Editor.Tool state.Editor.Snap t dirs
-        setSelectedTransform state newT
+        setSelectedTransform newT state
     | [] ->
         // No nudge key held: push one Transform command for the whole hold.
         match state.Editor.NudgeBefore with
         | None -> state
         | Some before ->
-            let undo =
-                match state.Editor.Selection with
-                | None -> state.Editor.Undo
-                | Some ref ->
-                    match Zone.entityAt state.Zone ref with
-                    | None -> state.Editor.Undo
-                    | Some entity ->
-                        UndoStack.push state.Editor.Undo (Transform (ref, before, entity.Transform))
-            { state with Editor = { state.Editor with NudgeBefore = None; Undo = undo } }
+
+        let undo =
+            match state.Editor.Selection with
+            | None -> state.Editor.Undo
+            | Some ref ->
+
+            match Zone.entityAt state.Zone ref with
+            | None -> state.Editor.Undo
+            | Some entity -> UndoStack.push state.Editor.Undo (Transform (ref, before, entity.Transform))
+
+        { state with Editor = { state.Editor with NudgeBefore = None; Undo = undo } }
 
 // ── App-level shortcuts ──
 
 // Apply one frame of app-level shortcuts. No-ops while a text field has focus.
 // Returns the updated state and any navigation request (Escape → menu).
-let handleShortcuts (state: GameplayState.GameplayState) (input: Input.Input) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
+let handleShortcuts (input: Input.Input) (state: GameplayState.GameplayState) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
     if ImGui.wantTextInput() then
         struct (state, Screen.ScreenTransition.None)
     else
@@ -298,7 +300,7 @@ let handleShortcuts (state: GameplayState.GameplayState) (input: Input.Input) : 
 
 // On a left press (not ImGui-captured): begin a gizmo drag when the cursor hits
 // a handle on the selection, otherwise pick an entity (a miss clears the selection).
-let private beginDragOrPick (state: GameplayState.GameplayState) (input: Input.Input) (viewportW: float32) (viewportH: float32) : GameplayState.GameplayState =
+let private beginDragOrPick (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
     let sel = selectedTransform state
     match sel with
     | None -> { state with Editor.Selection = Viewport.pick state viewportW viewportH input.MouseX input.MouseY }
@@ -315,11 +317,11 @@ let private beginDragOrPick (state: GameplayState.GameplayState) (input: Input.I
 
 // Handle one frame of left-button interaction: begin a drag/pick on press, apply
 // the drag while held, and finish on release.
-let interact (state: GameplayState.GameplayState) (input: Input.Input) (viewportW: float32) (viewportH: float32) : GameplayState.GameplayState =
+let private interact (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: GameplayState.GameplayState)  : GameplayState.GameplayState =
     if input.LeftPressed && not (ImGui.wantCaptureMouse()) then
-        beginDragOrPick state input viewportW viewportH
+        beginDragOrPick input viewportW viewportH state
     else if state.Editor.Drag <> None && input.LeftDown then
-        applyDrag state viewportW viewportH input.MouseX input.MouseY
+        applyDrag viewportW viewportH input.MouseX input.MouseY state
     else if state.Editor.Drag <> None && input.LeftReleased then
         finishDrag state
     else
@@ -329,7 +331,7 @@ let interact (state: GameplayState.GameplayState) (input: Input.Input) (viewport
 
 // Apply orbit/dolly/fly to the camera from this frame's input. Fly speed is
 // per second (dt-scaled); orbit and dolly are event-driven and unscaled.
-let private updateCamera (state: GameplayState.GameplayState) (input: Input.Input) (dt: float32) : GameplayState.GameplayState =
+let private updateCamera (input: Input.Input) (dt: float32) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
     let camera =
         if not input.RightDown then state.Camera else
         let c = Camera.orbit state.Camera (-input.MouseDX * 0.01f) (-input.MouseDY * 0.01f)
@@ -361,23 +363,24 @@ let private updateCamera (state: GameplayState.GameplayState) (input: Input.Inpu
 
 // Advance the editor for one frame: the edit/play toggle, shortcuts, nudge,
 // viewport interaction, and the camera. Called by GameplayScreen each frame.
-let update (state: GameplayState.GameplayState) (frame: Screen.Frame) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
+let update (frame: Screen.Frame) (state: GameplayState.GameplayState) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
     // Backtick toggles edit/play, unless the user is typing in a text field.
     let state =
         if Input.isPressed Input.Key.Backtick frame.Input && not (ImGui.wantTextInput()) then
             { state with Editing = not state.Editing }
         else state
 
-    let struct (state, transition) = handleShortcuts state frame.Input
+    if not state.Editing then struct (state, Screen.ScreenTransition.None) else
+
+    let struct (state, transition) = handleShortcuts frame.Input state
 
     let state =
-        if not state.Editing then state else
-        // keyboard nudge (editor mode only)
-        let state = updateNudge state frame.Input
-        // viewport selection + gizmo drag (editor mode only)
-        let state = interact state frame.Input frame.WindowW frame.WindowH
-        let state = updateCamera state frame.Input frame.Dt
         state
+        // keyboard nudge (editor mode only)
+        |> updateNudge frame.Input
+        // viewport selection + gizmo drag (editor mode only)
+        |> interact frame.Input frame.WindowW frame.WindowH
+        |> updateCamera frame.Input frame.Dt
 
     struct (state, transition)
 
@@ -385,7 +388,8 @@ let update (state: GameplayState.GameplayState) (frame: Screen.Frame) : struct (
 
 // Draw the workspace. Returns the updated state (the dock layout is built once
 // and remembered in the state) and any navigation request (File > Quit).
-let draw (state: GameplayState.GameplayState) (shared: SharedState.SharedState) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
+let draw (shared: SharedState.SharedState) (state: GameplayState.GameplayState) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
+    if not state.Editing then struct (state, Screen.ScreenTransition.None) else
     // Apply any panel-focus request queued by update (valid only after NewFrame).
     let mutable state = applyPendingFocus state
 

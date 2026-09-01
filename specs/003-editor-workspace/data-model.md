@@ -52,7 +52,7 @@ The viewport maps input to three camera ops (matching `ocaml-game` and
     (created once, reused every frame; gameplay-screen specific).
   - `Editor : EditorState`
   - `Editing : bool` — whether the editor workspace is shown. Defaults to
-    `true`; toggled by the backtick (`` ` ``) key in `GameplayScreen`. In play
+    `true`; toggled by the backtick (`` ` ``) key in `Editor.update`. In play
     mode the workspace is hidden but the viewport grid is still rendered.
 
 ## Relationships
