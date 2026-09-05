@@ -54,7 +54,10 @@ let private loadShader (device: Gpu.Device) (stage: SDL.GPUShaderStage) (path: s
     info.Props <- 0u
     SDL.CreateGPUShader(device, &info, ReadOnlySpan<byte>(code), "main")
 
-let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) : DebugDraw =
+// `depthTest` selects a pipeline that depth-tests against the scene (used for
+// editor markers/gizmos drawn after meshes, so they are occluded when behind
+// geometry). Depth writes stay off so the lines don't pollute the depth buffer.
+let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) (depthTest: bool) : DebugDraw =
     let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/line.vert.spv" 1u
     let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/line.frag.spv" 0u
 
@@ -100,15 +103,41 @@ let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) : DebugD
     info.PrimitiveType <- SDL.GPUPrimitiveType.LineList
     info.RasterizerState <- raster
     info.MultisampleState <- ms
-    // DepthStencilState default (depth test off).
+
+    if depthTest then
+        let mutable depth = SDL.GPUDepthStencilState()
+        depth.EnableDepthTest <- true
+        depth.EnableDepthWrite <- false
+        depth.CompareOp <- SDL.GPUCompareOp.LessOrEqual
+        info.DepthStencilState <- depth
+
+    // Pin the input/description arrays so their native pointers can be stored in
+    // the vertex-input/target-info structs (required to attach a depth target).
+    let vbufHandle = GCHandle.Alloc(vbufDescs, GCHandleType.Pinned)
+    let attrHandle = GCHandle.Alloc(attrs, GCHandleType.Pinned)
+    let colorHandle = GCHandle.Alloc(colorTargets, GCHandleType.Pinned)
 
     let pipeline =
-        SDL.CreateGPUGraphicsPipeline(
-            device,
-            &info,
-            ReadOnlySpan<SDL.GPUVertexBufferDescription>(vbufDescs),
-            ReadOnlySpan<SDL.GPUVertexAttribute>(attrs),
-            ReadOnlySpan<SDL.GPUColorTargetDescription>(colorTargets))
+        try
+            let mutable vertexInput = SDL.GPUVertexInputState()
+            vertexInput.VertexBufferDescriptions <- vbufHandle.AddrOfPinnedObject()
+            vertexInput.NumVertexBuffers <- 1u
+            vertexInput.VertexAttributes <- attrHandle.AddrOfPinnedObject()
+            vertexInput.NumVertexAttributes <- 2u
+            info.VertexInputState <- vertexInput
+
+            let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()
+            targetInfo.ColorTargetDescriptions <- colorHandle.AddrOfPinnedObject()
+            targetInfo.NumColorTargets <- 1u
+            targetInfo.DepthStencilFormat <- depthFormat
+            targetInfo.HasDepthStencilTarget <- depthTest
+            info.TargetInfo <- targetInfo
+
+            SDL.CreateGPUGraphicsPipeline(device, &info)
+        finally
+            vbufHandle.Free()
+            attrHandle.Free()
+            colorHandle.Free()
 
     let byteSize = uint32 (capacity * floatsPerVertex * 4)
 
@@ -270,3 +299,11 @@ let draw (dd: DebugDraw) (viewProjection: Matrix4x4) (cmd: Gpu.CommandBuffer) (r
 
     do SDL.BindGPUVertexBuffers(renderPass, 0u, bindings, 1u)
     do SDL.DrawGPUPrimitives(renderPass, uint32 dd.Count, 1u, 0u, 0u)
+
+// Free the owned GPU resources (pipeline, shaders, buffers).
+let release (dd: DebugDraw) : unit =
+    if dd.Pipeline <> IntPtr.Zero then SDL.ReleaseGPUGraphicsPipeline(dd.Device, dd.Pipeline)
+    if dd.VertexShader <> IntPtr.Zero then SDL.ReleaseGPUShader(dd.Device, dd.VertexShader)
+    if dd.FragmentShader <> IntPtr.Zero then SDL.ReleaseGPUShader(dd.Device, dd.FragmentShader)
+    if dd.VertexBuffer <> IntPtr.Zero then SDL.ReleaseGPUBuffer(dd.Device, dd.VertexBuffer)
+    if dd.TransferBuffer <> IntPtr.Zero then SDL.ReleaseGPUTransferBuffer(dd.Device, dd.TransferBuffer)

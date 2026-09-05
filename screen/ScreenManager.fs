@@ -17,12 +17,12 @@ type ScreenManager =
       mutable ShouldQuit : bool
       mutable Gameplay : GameplayState.GameplayState }
 
-let init (debugDraw: DebugDraw.DebugDraw) (meshPipeline: Gpu.Pipeline) : ScreenManager =
+let init (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (meshPipeline: Gpu.Pipeline) (staticPipeline: Gpu.Pipeline) : ScreenManager =
     { Active = ScreenKind.MainMenu
       Transition = ScreenTransition.None
       Shared = SharedState.create debugDraw.Device
       ShouldQuit = false
-      Gameplay = GameplayState.create debugDraw meshPipeline }
+      Gameplay = GameplayState.create debugDraw gizmoDraw meshPipeline staticPipeline }
 
 // Advance the active screen; may set a transition. The frame carries the frame
 // time, window size, and the engine-gathered input.

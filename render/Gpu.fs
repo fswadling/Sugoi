@@ -201,6 +201,97 @@ let createMeshPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) 
     SDL.ReleaseGPUShader(device, fragmentShader)
     pipeline
 
+// Depth-tested triangle pipeline for static position/normal/uv geometry (no
+// blend attributes, no bone storage buffer). Used by environments and props,
+// which must not pay the skinning cost of the actor mesh pipeline.
+let createStaticPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
+    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/static.vert.spv" 1u 0u
+    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/static.frag.spv" 0u 0u
+
+    let mutable vbufDesc = SDL.GPUVertexBufferDescription()
+    vbufDesc.Slot <- 0u
+    vbufDesc.Pitch <- 32u
+    vbufDesc.InputRate <- SDL.GPUVertexInputRate.Vertex
+    vbufDesc.InstanceStepRate <- 0u
+
+    let mutable attr0 = SDL.GPUVertexAttribute()
+    attr0.Location <- 0u
+    attr0.BufferSlot <- 0u
+    attr0.Format <- SDL.GPUVertexElementFormat.Float3
+    attr0.Offset <- 0u
+
+    let mutable attr1 = SDL.GPUVertexAttribute()
+    attr1.Location <- 1u
+    attr1.BufferSlot <- 0u
+    attr1.Format <- SDL.GPUVertexElementFormat.Float3
+    attr1.Offset <- 12u
+
+    let mutable attr2 = SDL.GPUVertexAttribute()
+    attr2.Location <- 2u
+    attr2.BufferSlot <- 0u
+    attr2.Format <- SDL.GPUVertexElementFormat.Float2
+    attr2.Offset <- 24u
+
+    let vbufDescs = [| vbufDesc |]
+    let attrs = [| attr0; attr1; attr2 |]
+
+    let mutable raster = SDL.GPURasterizerState()
+    raster.FillMode <- SDL.GPUFillMode.Fill
+    raster.CullMode <- SDL.GPUCullMode.None
+    raster.FrontFace <- SDL.GPUFrontFace.CounterClockwise
+
+    let mutable ms = SDL.GPUMultisampleState()
+    ms.SampleCount <- SDL.GPUSampleCount.SampleCount1
+    ms.SampleMask <- 0u
+
+    let mutable depth = SDL.GPUDepthStencilState()
+    depth.EnableDepthTest <- true
+    depth.EnableDepthWrite <- true
+    depth.CompareOp <- SDL.GPUCompareOp.LessOrEqual
+
+    let mutable colorTarget = SDL.GPUColorTargetDescription()
+    colorTarget.Format <- swapchainFormat
+
+    let colorTargets = [| colorTarget |]
+
+    let mutable info = SDL.GPUGraphicsPipelineCreateInfo()
+    info.VertexShader <- vertexShader
+    info.FragmentShader <- fragmentShader
+    info.PrimitiveType <- SDL.GPUPrimitiveType.TriangleList
+    info.RasterizerState <- raster
+    info.MultisampleState <- ms
+    info.DepthStencilState <- depth
+
+    let vbufHandle = GCHandle.Alloc(vbufDescs, GCHandleType.Pinned)
+    let attrHandle = GCHandle.Alloc(attrs, GCHandleType.Pinned)
+    let colorHandle = GCHandle.Alloc(colorTargets, GCHandleType.Pinned)
+
+    let pipeline =
+        try
+            let mutable vertexInput = SDL.GPUVertexInputState()
+            vertexInput.VertexBufferDescriptions <- vbufHandle.AddrOfPinnedObject()
+            vertexInput.NumVertexBuffers <- 1u
+            vertexInput.VertexAttributes <- attrHandle.AddrOfPinnedObject()
+            vertexInput.NumVertexAttributes <- 3u
+            info.VertexInputState <- vertexInput
+
+            let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()
+            targetInfo.ColorTargetDescriptions <- colorHandle.AddrOfPinnedObject()
+            targetInfo.NumColorTargets <- 1u
+            targetInfo.DepthStencilFormat <- depthFormat
+            targetInfo.HasDepthStencilTarget <- true
+            info.TargetInfo <- targetInfo
+
+            SDL.CreateGPUGraphicsPipeline(device, &info)
+        finally
+            vbufHandle.Free()
+            attrHandle.Free()
+            colorHandle.Free()
+
+    do SDL.ReleaseGPUShader(device, vertexShader)
+    do SDL.ReleaseGPUShader(device, fragmentShader)
+    pipeline
+
 // ── GPU context (pipeline + depth texture) ──
 
 [<Struct>]
@@ -209,9 +300,10 @@ type Gpu =
       SwapchainFormat : SDL.GPUTextureFormat
       DepthFormat : SDL.GPUTextureFormat
       MeshPipeline : Pipeline
-      DepthTexture : Texture
-      DepthW : int
-      DepthH : int }
+      StaticPipeline : Pipeline
+      mutable DepthTexture : Texture
+      mutable DepthW : int
+      mutable DepthH : int }
 
 let create (device: Device) (swapchainFormat: SDL.GPUTextureFormat) : Gpu =
     let depthFormat = SDL.GPUTextureFormat.D32Float
@@ -219,6 +311,7 @@ let create (device: Device) (swapchainFormat: SDL.GPUTextureFormat) : Gpu =
       SwapchainFormat = swapchainFormat
       DepthFormat = depthFormat
       MeshPipeline = createMeshPipeline device swapchainFormat depthFormat
+      StaticPipeline = createStaticPipeline device swapchainFormat depthFormat
       DepthTexture = IntPtr.Zero
       DepthW = 0
       DepthH = 0 }
@@ -235,15 +328,18 @@ let private createDepthTexture (device: Device) (w: uint32) (h: uint32) : Textur
     info.SampleCount <- SDL.GPUSampleCount.SampleCount1
     SDL.CreateGPUTexture(device, &info)
 
-// Recreate the depth texture when the swapchain size changes (resize).
-let ensureDepthTexture (g: Gpu) (w: uint32) (h: uint32) : Gpu =
+// Recreate the depth texture when the swapchain size changes (resize). Mutates
+// the context's mutable fields in place through a byref (runs every frame).
+let ensureDepthTexture (g: byref<Gpu>) (w: uint32) (h: uint32) : unit =
     if g.DepthTexture <> IntPtr.Zero && g.DepthW = int w && g.DepthH = int h then
-        g
+        ()
     else
 
     if g.DepthTexture <> IntPtr.Zero then
-        SDL.ReleaseGPUTexture(g.Device, g.DepthTexture)
-    { g with DepthTexture = createDepthTexture g.Device w h; DepthW = int w; DepthH = int h }
+        do SDL.ReleaseGPUTexture(g.Device, g.DepthTexture)
+    g.DepthTexture <- createDepthTexture g.Device w h
+    g.DepthW <- int w
+    g.DepthH <- int h
 
 let depthTargetInfo (g: Gpu) : SDL.GPUDepthStencilTargetInfo =
     let mutable t = SDL.GPUDepthStencilTargetInfo()
@@ -261,6 +357,8 @@ let depthTargetInfo (g: Gpu) : SDL.GPUDepthStencilTargetInfo =
 
 let destroy (g: Gpu) : unit =
     if g.MeshPipeline <> IntPtr.Zero then
-        SDL.ReleaseGPUGraphicsPipeline(g.Device, g.MeshPipeline)
+        do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.MeshPipeline)
+    if g.StaticPipeline <> IntPtr.Zero then
+        do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.StaticPipeline)
     if g.DepthTexture <> IntPtr.Zero then
-        SDL.ReleaseGPUTexture(g.Device, g.DepthTexture)
+        do SDL.ReleaseGPUTexture(g.Device, g.DepthTexture)

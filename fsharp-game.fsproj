@@ -9,9 +9,11 @@
   <ItemGroup>
     <Compile Include="core/SlotMap.fs" />
     <Compile Include="core/Iqm.fs" />
+    <Compile Include="core/Gltf.fs" />
     <Compile Include="core/Input.fs" />
     <Compile Include="render/Gpu.fs" />
     <Compile Include="render/Mesh.fs" />
+    <Compile Include="render/StaticMesh.fs" />
     <Compile Include="render/ImGui.fs" />
     <Compile Include="render/ImGuiSdl3.fs" />
     <Compile Include="render/Camera.fs" />
@@ -19,6 +21,8 @@
     <Compile Include="world/Actor.fs" />
     <Compile Include="world/ActorAsset.fs" />
     <Compile Include="world/ActorRender.fs" />
+    <Compile Include="world/EnvironmentAsset.fs" />
+    <Compile Include="world/EnvironmentRender.fs" />
     <Compile Include="world/Assets.fs" />
     <Compile Include="world/Entity.fs" />
     <Compile Include="world/Zone.fs" />
@@ -51,7 +55,7 @@
   <!-- Compiled line shader SPIR-V, loaded from disk at startup. Copied to the
        output dir so the shaders/ path resolves regardless of working dir. -->
   <Target Name="CopyShaders" AfterTargets="Build">
-    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv;shaders/mesh.vert.spv;shaders/mesh.frag.spv" DestinationFolder="$(OutDir)shaders" />
+    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv;shaders/mesh.vert.spv;shaders/mesh.frag.spv;shaders/static.vert.spv;shaders/static.frag.spv" DestinationFolder="$(OutDir)shaders" />
   </Target>
 
   <ItemGroup>

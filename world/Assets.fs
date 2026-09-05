@@ -1,13 +1,15 @@
 module Assets
 
 // Asset manager: scans the actors/environments/props subdirectories for s-syntax
-// manifests and returns them as id-keyed collections. Props and environments are
-// metadata-only this phase; actor assets are loaded eagerly at startup (scan +
-// parse + GPU upload) — mirroring odin-game's `Asset_Manager`.
+// manifests and eagerly loads each asset (parse + GPU upload) into id-keyed
+// collections — mirroring odin-game's `Asset_Manager`. Actors load via IQM;
+// environments and props load via the scoped glTF parser into shared static
+// submeshes.
 
 open System
 open System.Collections.Generic
 open System.IO
+open System.Numerics
 open Prime
 
 // The on-disk manifest shape (id/name/model). Fields are named, so the
@@ -18,27 +20,15 @@ type private Manifest =
       Name : string
       Model : string }
 
-// Metadata-only asset kinds for props and environments. These are listed and
-// spawnable/selectable this phase, but their models are not loaded yet.
-type PropAsset =
-    { Id : string
-      Name : string
-      ModelPath : string }
-
-type EnvironmentAsset =
-    { Id : string
-      Name : string
-      ModelPath : string }
-
 // Cross-screen asset manager, mirroring odin-game's `Asset_Manager`. Lives on
 // `SharedState` so every screen reaches the same loaded assets and GPU device.
-// Assets are keyed by id: props/environments don't look up by id yet, but will
-// once their loading lands.
+// Environments and props share the `EnvironmentAsset` runtime type (a static
+// model); a prop is an environment-like model with identity orientation.
 type AssetManager =
     { Device : Gpu.Device
       Actors : Dictionary<string, ActorAsset.ActorAsset>
-      Props : Dictionary<string, PropAsset>
-      Environments : Dictionary<string, EnvironmentAsset> }
+      Props : Dictionary<string, EnvironmentAsset.EnvironmentAsset>
+      Environments : Dictionary<string, EnvironmentAsset.EnvironmentAsset> }
 
 // ── scanning ──
 
@@ -84,17 +74,37 @@ let private loadActors (root: string) (device: Gpu.Device) : Dictionary<string, 
         actors.[id] <- { Id = id; Name = name; ModelPath = modelPath; Mesh = mesh; Model = actorModel }
     actors
 
-// Scan all asset kinds into the manager: props/environments are metadata-only
-// this phase, actors are loaded eagerly via `loadActors`.
-let scan (root: string) (device: Gpu.Device) : AssetManager =
-    let props = Dictionary<string, PropAsset>() 
-    for (id, name, modelPath) in scanDir root "props" do
-        props.[id] <- { Id = id; Name = name; ModelPath = modelPath }
+// ── static (environment/prop) asset loading ──
 
-    let environments = Dictionary<string, EnvironmentAsset>()
+// Parse a glTF model and upload each submesh as a static GPU buffer, producing a
+// shared `EnvironmentAsset`. Environments and props both use this path; props
+// have identity orientation.
+let private loadStaticModel (root: string) (device: Gpu.Device) (id: string) (name: string) (modelPath: string) : EnvironmentAsset.EnvironmentAsset =
+    let model = Gltf.load (Path.Combine(root, modelPath))
+    let submeshes =
+        model.Submeshes
+        |> Array.map (fun s -> { EnvironmentAsset.Mesh = StaticMesh.create device s.Positions s.Normals s.Uvs s.Indices; EnvironmentAsset.BaseColor = s.BaseColor })
+    { Id = id
+      Name = name
+      ModelPath = modelPath
+      Orientation = Quaternion.Identity
+      Submeshes = submeshes }
+
+// Scan all asset kinds into the manager. Actors load via IQM; environments and
+// props load via glTF. A missing `Model` path raises for every kind.
+let scan (root: string) (device: Gpu.Device) : AssetManager =
+    let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
+    for (id, name, modelPath) in scanDir root "props" do
+        if String.IsNullOrEmpty modelPath then
+            failwithf "asset manager: prop asset '%s' has no model path" id
+        props.[id] <- loadStaticModel root device id name modelPath
+
+    let environments = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
     for (id, name, modelPath) in scanDir root "environments" do
-        environments.[id] <- { Id = id; Name = name; ModelPath = modelPath }
-        
+        if String.IsNullOrEmpty modelPath then
+            failwithf "asset manager: environment asset '%s' has no model path" id
+        environments.[id] <- loadStaticModel root device id name modelPath
+
     let actors = loadActors root device
 
     { Device = device
@@ -107,3 +117,13 @@ let scan (root: string) (device: Gpu.Device) : AssetManager =
 let createActorRender (manager: AssetManager) (assetId: string) : ActorRender.ActorRender =
     let asset = manager.Actors.[assetId]
     ActorRender.create manager.Device asset
+
+// Create the per-instance renderer for an environment/prop asset id (already
+// loaded at startup).
+let createEnvironmentRender (manager: AssetManager) (assetId: string) : EnvironmentRender.EnvironmentRender =
+    let asset = manager.Environments.[assetId]
+    EnvironmentRender.create asset
+
+let createPropRender (manager: AssetManager) (assetId: string) : EnvironmentRender.EnvironmentRender =
+    let asset = manager.Props.[assetId]
+    EnvironmentRender.create asset

@@ -29,14 +29,17 @@ let draw (assets: Assets.AssetManager) (state: byref<GameplayState.GameplayState
                 let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, asset.Id))
                 state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
 
-        // Props spawn without a model this phase.
+        // Props spawn with their model binding (a static glTF submesh set).
         for asset in assets.Props.Values |> Seq.sortBy (fun a -> a.Id) do
             if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
                 let entity = baseEntity asset.Name
-                let ref = Zone.spawnProp state.Zone entity
-                let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, ""))
+                let ref = Zone.spawnProp state.Zone assets entity asset.Id
+                let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, asset.Id))
                 state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
 
-        // Environments are listed later, not spawnable this phase.
+        // Environments load into the zone's single environment slot.
+        for asset in assets.Environments.Values |> Seq.sortBy (fun a -> a.Id) do
+            if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
+                do Zone.setEnvironment state.Zone assets asset.Id
 
     do ImGui.endWindow()

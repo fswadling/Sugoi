@@ -15,8 +15,9 @@ let private baseEntity (name: string) : Entity =
       Selectable = true
       Draggable = true }
 
-// Headless: props don't create renderers, so the undo/redo logic is exercised
-// without a GPU device or loaded actor asset.
+// Headless: an empty asset id means "no model", so spawnProp/setActorWithAsset
+// skip renderer creation and the undo/redo logic is exercised without a GPU
+// device or loaded asset.
 let private assets = Assets.scan "" 0n
 
 // ── Command.apply / undo round-trips ──
@@ -34,7 +35,7 @@ let ``Spawn apply adds the entity and undo removes it`` () =
 [<Fact>]
 let ``Delete apply removes the entity and undo restores it`` () =
     let zone = Zone.create ()
-    let ref = Zone.spawnProp zone (baseEntity "doomed")
+    let ref = Zone.spawnProp zone assets (baseEntity "doomed") ""
     let entity = (Zone.entityAt zone ref).Value
     let cmd = Delete (ref, entity, "")
     Command.apply zone assets cmd
@@ -57,7 +58,7 @@ let ``Duplicate apply adds a copy and undo removes it`` () =
 [<Fact>]
 let ``Transform apply moves the entity and undo restores it`` () =
     let zone = Zone.create ()
-    let ref = Zone.spawnProp zone (baseEntity "moved")
+    let ref = Zone.spawnProp zone assets (baseEntity "moved") ""
     let before = (Zone.entityAt zone ref).Value.Transform
     let after = { before with Position = before.Position + Vector3(1.0f, 0.0f, 0.0f) }
     let cmd = Transform (ref, before, after)
@@ -82,7 +83,7 @@ let ``Transform apply and undo no-op on an absent entity`` () =
 [<Fact>]
 let ``push coalesces consecutive transforms for the same ref into one step`` () =
     let zone = Zone.create ()
-    let ref = Zone.spawnProp zone (baseEntity "drag")
+    let ref = Zone.spawnProp zone assets (baseEntity "drag") ""
     let t0 = (Zone.entityAt zone ref).Value.Transform
     let t1 = { t0 with Position = t0.Position + Vector3(1.0f, 0.0f, 0.0f) }
     let t2 = { t1 with Position = t1.Position + Vector3(1.0f, 0.0f, 0.0f) }
@@ -97,8 +98,8 @@ let ``push coalesces consecutive transforms for the same ref into one step`` () 
 [<Fact>]
 let ``push does not coalesce transforms for different refs`` () =
     let zone = Zone.create ()
-    let r1 = Zone.spawnProp zone (baseEntity "a")
-    let r2 = Zone.spawnProp zone (baseEntity "b")
+    let r1 = Zone.spawnProp zone assets (baseEntity "a") ""
+    let r2 = Zone.spawnProp zone assets (baseEntity "b") ""
     let t = transformIdentity
     let stack = UndoStack.create ()
     let stack = UndoStack.push stack (Transform (r1, t, { t with Position = Vector3(1.0f, 0.0f, 0.0f) }))
@@ -108,7 +109,7 @@ let ``push does not coalesce transforms for different refs`` () =
 [<Fact>]
 let ``a new non-coalescing edit clears the redo stack`` () =
     let zone = Zone.create ()
-    let ref = Zone.spawnProp zone (baseEntity "a")
+    let ref = Zone.spawnProp zone assets (baseEntity "a") ""
     let stack = UndoStack.create ()
     let stack = UndoStack.push stack (Spawn ({ Kind = EntityKind.Prop; Index = 9u }, baseEntity "x", ""))
     let stack = UndoStack.push stack (Transform (ref, transformIdentity, { transformIdentity with Position = Vector3(1.0f, 0.0f, 0.0f) }))
@@ -130,7 +131,7 @@ let ``undo and redo on an empty stack are no-ops`` () =
 let ``spawn undo redo round-trips through the stack`` () =
     let zone = Zone.create ()
     let entity = baseEntity "spawned"
-    let ref = Zone.spawnProp zone entity
+    let ref = Zone.spawnProp zone assets entity ""
     let stack = UndoStack.create ()
     let stack = UndoStack.push stack (Spawn (ref, entity, ""))
     Assert.Equal("spawned", (Zone.entityAt zone ref).Value.Name)
@@ -142,7 +143,7 @@ let ``spawn undo redo round-trips through the stack`` () =
 [<Fact>]
 let ``delete undo redo round-trips through the stack`` () =
     let zone = Zone.create ()
-    let ref = Zone.spawnProp zone (baseEntity "a")
+    let ref = Zone.spawnProp zone assets (baseEntity "a") ""
     let entity = (Zone.entityAt zone ref).Value
     let cmd = Delete (ref, entity, "")
     let stack = UndoStack.create ()

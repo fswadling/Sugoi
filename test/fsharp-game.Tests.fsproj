@@ -14,6 +14,7 @@
     <Compile Include="RaycastTests.fs" />
     <Compile Include="CommandTests.fs" />
     <Compile Include="IqmTests.fs" />
+    <Compile Include="GltfTests.fs" />
     <Compile Include="ActorTests.fs" />
   </ItemGroup>
 

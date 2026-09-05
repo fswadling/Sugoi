@@ -76,12 +76,24 @@ module Actor =
 
 [<Struct>]
 type Prop =
-    { Base : Entity }
+    { Base : Entity
+      AssetId : string
+      mutable Renderer : EnvironmentRender.EnvironmentRender }
 
 [<Struct>]
 type Environment =
     { Base : Entity
+      AssetId : string
+      mutable Renderer : EnvironmentRender.EnvironmentRender
       mutable Props : SlotMap<Prop> }
+
+module Prop =
+    // Release a prop's renderer GPU buffers.
+    let releaseRenderer (p: Prop) : unit = EnvironmentRender.release p.Renderer
+
+module Environment =
+    // Release an environment's renderer GPU buffers.
+    let releaseRenderer (e: Environment) : unit = EnvironmentRender.release e.Renderer
 
 [<Struct>]
 type Waypoint =

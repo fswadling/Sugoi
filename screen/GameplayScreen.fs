@@ -44,15 +44,22 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
     let transition = Editor.draw shared.Assets &state
     do Viewport.drawGrid &state
-    do if state.Editing then Viewport.buildLines &state
+    if state.Editing then
+        do Viewport.buildLines &state
+    else
+        // Markers/gizmos only accumulate while editing; clear them so a
+        // switch to play mode doesn't linger the previous frame's overlay.
+        state.GizmoDraw <- DebugDraw.clear state.GizmoDraw
 
     transition
 
-// Render the 3D scene: upload the grid (copy pass), then begin the scene render
-// pass (clearing color + depth), draw the grid and the actor meshes, and end the
-// pass.
+// Render the 3D scene: upload the grid + gizmo line vertices (copy passes),
+// then begin the scene render pass (clearing color + depth), draw the grid, the
+// environment/props/actors, and finally the gizmo/marker lines (depth-tested so
+// they are occluded by geometry in front of them).
 let renderScene (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : unit =
     do DebugDraw.upload state.DebugDraw pass.Cmd
+    do DebugDraw.upload state.GizmoDraw pass.Cmd
 
     // Upload each actor's bone palette (copy pass) before the render pass.
     SlotMap.iteriAlive state.Zone.Actors (fun _ (a: Actor) ->
@@ -64,11 +71,25 @@ let renderScene (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : 
     let viewProjection = Camera.viewProjection state.Camera
     do DebugDraw.draw state.DebugDraw viewProjection pass.Cmd scenePass
 
-    let baseColor = Vector4(0.85f, 0.75f, 0.65f, 1.0f)
     let lightDir = Vector3.Normalize(Vector3(0.4f, 0.8f, 0.4f))
+
+    // Static environment (if loaded) and props, then the animated actors.
+    let staticPipeline = state.StaticPipeline
+    if state.Zone.Environment.AssetId <> "" then
+        let model = Entity.modelMatrix state.Zone.Environment.Base.Transform
+        do EnvironmentRender.draw state.Zone.Environment.Renderer scenePass pass.Cmd staticPipeline viewProjection model lightDir
+
+    SlotMap.iteriAlive state.Zone.Environment.Props (fun _ (p: Prop) ->
+        let model = Entity.modelMatrix p.Base.Transform
+        do EnvironmentRender.draw p.Renderer scenePass pass.Cmd staticPipeline viewProjection model lightDir)
+
+    let baseColor = Vector4(0.85f, 0.75f, 0.65f, 1.0f)
     let meshPipeline = state.MeshPipeline
     SlotMap.iteriAlive state.Zone.Actors (fun _ (a: Actor) ->
         let model = Entity.modelMatrix a.Base.Transform
         do ActorRender.draw a.Renderer scenePass pass.Cmd meshPipeline viewProjection model lightDir baseColor)
+
+    // Editor markers + gizmos, depth-tested against the meshes drawn above.
+    do DebugDraw.draw state.GizmoDraw viewProjection pass.Cmd scenePass
 
     do SDL.EndGPURenderPass(scenePass)

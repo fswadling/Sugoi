@@ -69,12 +69,14 @@ let run () : int =
         1
     else
 
-    // ── Create the debug-draw line pipeline, the mesh pipeline + depth
-    //    texture, and set up the screen manager ──
+    // ── Create the debug-draw line pipelines (grid behind the scene, gizmos
+    //    depth-tested in front), the mesh pipeline + depth texture, and the
+    //    screen manager ──
     let swapchainFormat = SDL.GetGPUSwapchainTextureFormat(device, window)
-    let debugDraw = DebugDraw.create device swapchainFormat
     let mutable gpu = Gpu.create device swapchainFormat
-    let mutable manager = ScreenManager.init debugDraw gpu.MeshPipeline
+    let debugDraw = DebugDraw.create device swapchainFormat gpu.DepthFormat false
+    let gizmoDraw = DebugDraw.create device swapchainFormat gpu.DepthFormat true
+    let mutable manager = ScreenManager.init debugDraw gizmoDraw gpu.MeshPipeline gpu.StaticPipeline
 
     let mutable running = true
     let mutable ev = SDL.Event()
@@ -156,7 +158,7 @@ let run () : int =
             do ImGuiSdl3.prepareDrawData(drawData, cmd)
 
             // Scene pass: clear + draw the active screen's scene (color + depth).
-            gpu <- Gpu.ensureDepthTexture gpu w h
+            do Gpu.ensureDepthTexture &gpu w h
             let mutable depthTarget = Gpu.depthTargetInfo gpu
             sceneTargets.[0].Texture <- swapchainTexture
             do ScreenManager.renderScene &manager { Cmd = cmd; ColorTargets = sceneTargets; DepthTarget = depthTarget }
@@ -184,6 +186,8 @@ let run () : int =
 
     // ── Shut down ──
     do SDL.WaitForGPUIdle(device) |> ignore
+    do DebugDraw.release gizmoDraw
+    do DebugDraw.release debugDraw
     do Gpu.destroy gpu
     do ImGuiSdl3.shutdown()
     do ImGui.destroyContext(IntPtr.Zero)

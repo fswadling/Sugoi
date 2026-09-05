@@ -45,8 +45,9 @@ let duplicateRef (assets: Assets.AssetManager) (state: byref<GameplayState.Gamep
         let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e, assetId))
         state.Editor <- { state.Editor with Selection = Some newRef; Undo = undo }
     | EntityKind.Prop ->
-        let newRef = Zone.spawnProp state.Zone e
-        let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e, ""))
+        let assetId = Zone.assetIdAt state.Zone ref
+        let newRef = Zone.spawnProp state.Zone assets e assetId
+        let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e, assetId))
         state.Editor <- { state.Editor with Selection = Some newRef; Undo = undo }
     | _ -> ()
 

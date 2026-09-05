@@ -96,10 +96,10 @@ let drawGrid (state: byref<GameplayState.GameplayState>) : unit =
     let dd = DebugDraw.clear state.DebugDraw |> DebugDraw.drawGrid
     state.DebugDraw <- dd
 
-// ── Markers + gizmo (editor mode only; appends to the accumulator) ──
+// ── Markers + gizmo (editor mode only; appends to the gizmo accumulator) ──
 
 let buildLines (state: byref<GameplayState.GameplayState>) : unit =
-    let mutable dd = state.DebugDraw
+    let mutable dd = DebugDraw.clear state.GizmoDraw
     let zone = state.Zone
     let selection = state.Editor.Selection
 
@@ -117,7 +117,7 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
     | Some center -> dd <- drawGizmo state dd center
     | None -> ()
 
-    state.DebugDraw <- dd
+    state.GizmoDraw <- dd
 
 // ── Picking ──
 

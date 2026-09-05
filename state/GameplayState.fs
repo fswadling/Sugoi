@@ -10,15 +10,19 @@ open System.Numerics
 type GameplayState =
     { mutable Camera : Camera.Camera
       mutable DebugDraw : DebugDraw.DebugDraw
+      mutable GizmoDraw : DebugDraw.DebugDraw
       MeshPipeline : Gpu.Pipeline
+      StaticPipeline : Gpu.Pipeline
       Zone : Zone.Zone
       mutable Editor : EditorState.EditorState
       mutable Editing : bool }
 
-let create (debugDraw: DebugDraw.DebugDraw) (meshPipeline: Gpu.Pipeline) : GameplayState =
+let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (meshPipeline: Gpu.Pipeline) (staticPipeline: Gpu.Pipeline) : GameplayState =
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
       DebugDraw = debugDraw
+      GizmoDraw = gizmoDraw
       MeshPipeline = meshPipeline
+      StaticPipeline = staticPipeline
       Zone = Zone.create ()
       Editor = EditorState.create ()
       Editing = true }
