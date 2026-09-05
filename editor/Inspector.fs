@@ -6,7 +6,7 @@ module Inspector
 
 open Entity
 
-let draw (state: GameplayState.GameplayState) =
+let draw (state: inref<GameplayState.GameplayState>) =
     do ImGui.beginWindow("Inspector", System.IntPtr.Zero, 0) |> ignore
 
     match state.Editor.Selection with

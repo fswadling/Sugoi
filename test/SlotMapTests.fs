@@ -114,7 +114,7 @@ let ``setByIndex re-occupies a freed slot at the same index`` () =
 let ``removeByIndex frees a slot and bumps its generation`` () =
     let map0 = SlotMap.create<TestPayload> 4u
     let map1, h = SlotMap.add map0 { Value = 1 }
-    let map2 = SlotMap.removeByIndex map1 h.Index
+    let map2 = SlotMap.removeByIndex map1 h.Index None
     Assert.True(SlotMap.tryGetByIndex map2 h.Index |> Option.isNone)
     Assert.Equal(0u, SlotMap.count map2)
     // re-adding the slot gives a fresh generation, so the old handle is stale
@@ -126,13 +126,23 @@ let ``removeByIndex frees a slot and bumps its generation`` () =
 let ``removeByIndex on an already-dead slot raises`` () =
     let map0 = SlotMap.create<TestPayload> 2u
     let map1, h = SlotMap.add map0 { Value = 1 }
-    let map2 = SlotMap.removeByIndex map1 h.Index
+    let map2 = SlotMap.removeByIndex map1 h.Index None
     let mutable raised = false
     try
-        SlotMap.removeByIndex map2 h.Index |> ignore
+        SlotMap.removeByIndex map2 h.Index None |> ignore
     with :? System.InvalidOperationException ->
         raised <- true
     Assert.True(raised)
+
+[<Fact>]
+let ``removeByIndex runs the cleanup on the removed value`` () =
+    let map0 = SlotMap.create<TestPayload> 4u
+    let map1, h = SlotMap.add map0 { Value = 7 }
+    let mutable cleaned = -1
+    let map2 = SlotMap.removeByIndex map1 h.Index (Some (fun v -> cleaned <- v.Value))
+    Assert.Equal(7, cleaned)
+    Assert.True(SlotMap.tryGetByIndex map2 h.Index |> Option.isNone)
+    Assert.Equal(0u, SlotMap.count map2)
 
 [<Fact>]
 let ``iteriAlive yields only alive slots with their indices`` () =

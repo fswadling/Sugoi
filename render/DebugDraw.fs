@@ -28,12 +28,12 @@ let private capacity = 65536
 
 [<Struct>]
 type DebugDraw =
-    { Device : nativeint
-      Pipeline : nativeint
-      VertexShader : nativeint
-      FragmentShader : nativeint
-      VertexBuffer : nativeint
-      TransferBuffer : nativeint
+    { Device : Gpu.Device
+      Pipeline : Gpu.Pipeline
+      VertexShader : Gpu.Shader
+      FragmentShader : Gpu.Shader
+      VertexBuffer : Gpu.Buffer
+      TransferBuffer : Gpu.TransferBuffer
       Bindings : SDL.GPUBufferBinding array
       Data : float32 array
       StagingBytes : byte array
@@ -42,7 +42,7 @@ type DebugDraw =
 
 // ── GPU resource construction ──
 
-let private loadShader (device: nativeint) (stage: SDL.GPUShaderStage) (path: string) (uniformBuffers: uint32) : nativeint =
+let private loadShader (device: Gpu.Device) (stage: SDL.GPUShaderStage) (path: string) (uniformBuffers: uint32) : Gpu.Shader =
     let code = File.ReadAllBytes(path)
     let mutable info = SDL.GPUShaderCreateInfo()
     info.Format <- SDL.GPUShaderFormat.SPIRV
@@ -54,7 +54,7 @@ let private loadShader (device: nativeint) (stage: SDL.GPUShaderStage) (path: st
     info.Props <- 0u
     SDL.CreateGPUShader(device, &info, ReadOnlySpan<byte>(code), "main")
 
-let create (device: nativeint) (swapchainFormat: SDL.GPUTextureFormat) : DebugDraw =
+let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) : DebugDraw =
     let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/line.vert.spv" 1u
     let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/line.frag.spv" 0u
 
@@ -234,7 +234,7 @@ let private writeMatrix (bytes: byte array) (m: Matrix4x4) : unit =
 
 // Upload accumulated vertices to the GPU vertex buffer (copy pass, before the
 // render pass).
-let upload (dd: DebugDraw) (cmd: nativeint) : unit =
+let upload (dd: DebugDraw) (cmd: Gpu.CommandBuffer) : unit =
     if dd.Count <= 0 then () else
 
     let floatCount = dd.Count * floatsPerVertex
@@ -257,7 +257,7 @@ let upload (dd: DebugDraw) (cmd: nativeint) : unit =
 // Bind the line pipeline, push the view-projection uniform, and draw the
 // accumulated vertices. Called inside the render pass; the uniform push targets
 // the command buffer.
-let draw (dd: DebugDraw) (viewProjection: Matrix4x4) (cmd: nativeint) (renderPass: nativeint) : unit =
+let draw (dd: DebugDraw) (viewProjection: Matrix4x4) (cmd: Gpu.CommandBuffer) (renderPass: Gpu.RenderPass) : unit =
     if dd.Count <= 0 then () else
 
     do writeMatrix dd.UniformBytes viewProjection

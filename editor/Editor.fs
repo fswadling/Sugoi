@@ -29,12 +29,12 @@ let private nextPanelIndex (forward: bool) : int =
 
 // Apply a queued panel-focus request (valid only after ImGui.NewFrame), then
 // clear it. Returns the updated state.
-let private applyPendingFocus (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+let private applyPendingFocus (state: byref<GameplayState.GameplayState>) : unit =
     match state.Editor.PendingFocus with
-    | None -> state
+    | None -> ()
     | Some name ->
-    do ImGui.setWindowFocus(name)
-    { state with Editor = { state.Editor with PendingFocus = None } }
+        ImGui.setWindowFocus name
+        state.Editor <- { state.Editor with PendingFocus = None }
 
 // ── Selection edits ──
 
@@ -47,33 +47,32 @@ let private selectedTransform (state: GameplayState.GameplayState) : (Vector3 * 
     Option.map (fun (e: Entity) -> (e.Transform.Position, e.Transform)) entity
 
 // Write a transform back to the selected entity.
-let private setSelectedTransform (t: Transform) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+let private setSelectedTransform (t: Transform) (state: byref<GameplayState.GameplayState>) : unit =
     match state.Editor.Selection with
-    | None -> state
+    | None -> ()
     | Some ref ->
 
     let entity = Zone.entityAt state.Zone ref
     match entity with
-    | None -> state
+    | None -> ()
     | Some e ->
 
     Zone.setEntity state.Zone ref { e with Transform = t }
-    state
 
 
 // Focus the camera on the selection (re-centre the target, preserve the offset).
-let private focus (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+let private focus (state: byref<GameplayState.GameplayState>) : unit =
     match state.Editor.Selection with
-    | None -> state
+    | None -> ()
     | Some ref ->
 
     let entity = Zone.entityAt state.Zone ref
     match entity with
-    | None -> state
+    | None -> ()
     | Some e ->
 
     let offset = state.Camera.Position - state.Camera.Target
-    { state with Camera = { state.Camera with Target = e.Transform.Position; Position = e.Transform.Position + offset } }
+    state.Camera <- { state.Camera with Target = e.Transform.Position; Position = e.Transform.Position + offset }
 
 // ── Gizmo drag ──
 
@@ -109,24 +108,24 @@ let private dragTransform (t: Transform) (r: Ray) (d: Drag) (a: Vector3) (state:
         Some { d.Start with Rotation = Quaternion.Concatenate(rotQ, d.Start.Rotation) }
 
 // Apply one frame of an in-progress gizmo drag.
-let private applyDrag (viewportW: float32) (viewportH: float32) (x: float32) (y: float32) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+let private applyDrag (viewportW: float32) (viewportH: float32) (x: float32) (y: float32) (state: byref<GameplayState.GameplayState>) : unit =
     match state.Editor.Selection, state.Editor.Drag with
     | Some _, Some d ->
         let sel = selectedTransform state
         match sel with
-        | None -> state
+        | None -> ()
         | Some (_, t) ->
         let r = Viewport.ray state.Camera viewportW viewportH x y
         let a = Viewport.axisDir d.Axis
         let result = dragTransform t r d a state
         match result with
-        | None -> state
-        | Some newT -> setSelectedTransform newT state
-    | _ -> state
+        | None -> ()
+        | Some newT -> setSelectedTransform newT &state
+    | _ -> ()
 
 // End a drag: push one Transform command for the whole gesture (coalesced by the
 // undo stack), using the pre-drag transform as `Before`.
-let private finishDrag (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+let private finishDrag (state: byref<GameplayState.GameplayState>) : unit =
     let undo =
         match state.Editor.Selection, state.Editor.Drag with
         | Some ref, Some d ->
@@ -135,7 +134,7 @@ let private finishDrag (state: GameplayState.GameplayState) : GameplayState.Game
             | Some entity ->
                 UndoStack.push state.Editor.Undo (Transform (ref, d.Start, entity.Transform))
         | _ -> state.Editor.Undo
-    { state with Editor = { state.Editor with Drag = None; Undo = undo } }
+    state.Editor <- { state.Editor with Drag = None; Undo = undo }
 
 // ── Keyboard nudge (Shift + WASD/QE) ──
 
@@ -206,7 +205,7 @@ let private nudgeTransform (camera: Camera.Camera) (tool: Tool) (snap: bool) (t:
 // Apply one frame of keyboard nudge to the selection (Shift + WASD/QE) and, on
 // release, commit the whole held nudge as a single undo step. A no-op with no
 // selection, a drag in progress, or text input focused.
-let updateNudge (input: Input.Input) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+let updateNudge (input: Input.Input) (state: byref<GameplayState.GameplayState>) : unit =
     let dirs =
         if Input.isShift input && not (ImGui.wantTextInput()) && state.Editor.Drag = None then
             List.choose (fun k -> if Input.isHeld k input then nudgeDirOfKey k else None)
@@ -216,26 +215,24 @@ let updateNudge (input: Input.Input) (state: GameplayState.GameplayState) : Game
     match dirs with
     | _ :: _ ->
         // First frame of a hold: capture the pre-nudge transform as the "before".
-        let state =
-            match state.Editor.NudgeBefore with
-            | Some _ -> state
-            | None ->
-            match selectedTransform state with
-            | None -> state
-            | Some (_, t) ->
-            { state with Editor = { state.Editor with NudgeBefore = Some t } }
+        match state.Editor.NudgeBefore with
+        | Some _ -> ()
+        | None ->
+        match selectedTransform state with
+        | None -> ()
+        | Some (_, t) ->
+        state.Editor <- { state.Editor with NudgeBefore = Some t }
 
-        let sel = selectedTransform state
-        match sel with
-        | None -> state
+        match selectedTransform state with
+        | None -> ()
         | Some (_, t) ->
 
         let newT = nudgeTransform state.Camera state.Editor.Tool state.Editor.Snap t dirs
-        setSelectedTransform newT state
+        setSelectedTransform newT &state
     | [] ->
         // No nudge key held: push one Transform command for the whole hold.
         match state.Editor.NudgeBefore with
-        | None -> state
+        | None -> ()
         | Some before ->
 
         let undo =
@@ -247,43 +244,42 @@ let updateNudge (input: Input.Input) (state: GameplayState.GameplayState) : Game
             | None -> state.Editor.Undo
             | Some entity -> UndoStack.push state.Editor.Undo (Transform (ref, before, entity.Transform))
 
-        { state with Editor = { state.Editor with NudgeBefore = None; Undo = undo } }
+        state.Editor <- { state.Editor with NudgeBefore = None; Undo = undo }
 
 // ── App-level shortcuts ──
 
 // Apply one frame of app-level shortcuts. No-ops while a text field has focus.
 // Returns the updated state and any navigation request (Escape → menu).
-let handleShortcuts (input: Input.Input) (state: GameplayState.GameplayState) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
+let handleShortcuts (assets: Assets.AssetManager) (input: Input.Input) (state: byref<GameplayState.GameplayState>) : Screen.ScreenTransition =
     if ImGui.wantTextInput() then
-        struct (state, Screen.ScreenTransition.None)
+        Screen.ScreenTransition.None
     else
 
-    let mutable state = state
     let mutable transition = Screen.ScreenTransition.None
 
     // editor-only shortcuts (tool/snap/focus/delete/duplicate)
     if state.Editing then
         // tool switch: 1/2/3
-        if Input.isPressed (Input.Key.Digit 1) input then state <- { state with Editor = { state.Editor with Tool = Move } }
-        if Input.isPressed (Input.Key.Digit 2) input then state <- { state with Editor = { state.Editor with Tool = Rotate } }
-        if Input.isPressed (Input.Key.Digit 3) input then state <- { state with Editor = { state.Editor with Tool = Scale } }
+        if Input.isPressed (Input.Key.Digit 1) input then state.Editor <- { state.Editor with Tool = Move }
+        if Input.isPressed (Input.Key.Digit 2) input then state.Editor <- { state.Editor with Tool = Rotate }
+        if Input.isPressed (Input.Key.Digit 3) input then state.Editor <- { state.Editor with Tool = Scale }
 
         // snap toggle: Q (not while right-dragging — reserves Q for camera fly —
         // or while Shift is held — reserves Q for keyboard nudge)
         if Input.isPressed Input.Key.Q input && not input.RightDown && not (Input.isShift input) then
-            state <- { state with Editor = { state.Editor with Snap = not state.Editor.Snap } }
+            state.Editor <- { state.Editor with Snap = not state.Editor.Snap }
 
         // focus / delete / duplicate
-        if Input.isPressed Input.Key.F input then state <- focus state
-        if Input.isPressed Input.Key.Delete input then state <- Selection.delete state
-        if Input.isCtrl input && Input.isPressed Input.Key.D input then state <- Selection.duplicate state
+        if Input.isPressed Input.Key.F input then focus &state
+        if Input.isPressed Input.Key.Delete input then Selection.delete assets &state
+        if Input.isCtrl input && Input.isPressed Input.Key.D input then Selection.duplicate assets &state
 
         // undo / redo (blocked mid-drag so an in-progress gesture isn't corrupted)
         if state.Editor.Drag = None then
             if Input.isCtrl input && Input.isPressed Input.Key.Z input && not (Input.isShift input) then
-                state <- { state with Editor = { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone } }
+                state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone assets }
             if Input.isCtrl input && Input.isPressed Input.Key.Y input then
-                state <- { state with Editor = { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone } }
+                state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone assets }
 
     // Escape returns to the main menu
     if Input.isPressed Input.Key.Escape input then
@@ -292,106 +288,98 @@ let handleShortcuts (input: Input.Input) (state: GameplayState.GameplayState) : 
     // Ctrl+Tab / Ctrl+Shift+Tab cycle docked panel focus
     if Input.isCtrl input && Input.isPressed Input.Key.Tab input then
         let next = nextPanelIndex (not (Input.isShift input))
-        state <- { state with Editor = { state.Editor with PendingFocus = Some panelNames.[next] } }
+        state.Editor <- { state.Editor with PendingFocus = Some panelNames.[next] }
 
-    struct (state, transition)
+    transition
 
 // ── Viewport selection + gizmo interaction ──
 
 // On a left press (not ImGui-captured): begin a gizmo drag when the cursor hits
 // a handle on the selection, otherwise pick an entity (a miss clears the selection).
-let private beginDragOrPick (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+let private beginDragOrPick (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
     let sel = selectedTransform state
     match sel with
-    | None -> { state with Editor.Selection = Viewport.pick state viewportW viewportH input.MouseX input.MouseY }
+    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick state viewportW viewportH input.MouseX input.MouseY }
     | Some (center, transform) ->
 
     let r = Viewport.ray state.Camera viewportW viewportH input.MouseX input.MouseY
     match Viewport.gizmoAxisAt state r center with
-    | None -> { state with Editor.Selection = Viewport.pick state viewportW viewportH input.MouseX input.MouseY }
+    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick state viewportW viewportH input.MouseX input.MouseY }
     | Some axis ->
 
     let normal = if state.Editor.Tool = Rotate then Viewport.axisDir axis else Camera.forward state.Camera
     let grab = match planeIntersect r center normal with Some p -> p | None -> center
-    { state with Editor = { state.Editor with Drag = Some { Axis = axis; Start = transform; Grab = grab } } }
+    state.Editor <- { state.Editor with Drag = Some { Axis = axis; Start = transform; Grab = grab } }
 
 // Handle one frame of left-button interaction: begin a drag/pick on press, apply
 // the drag while held, and finish on release.
-let private interact (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: GameplayState.GameplayState)  : GameplayState.GameplayState =
+let private interact (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
     if input.LeftPressed && not (ImGui.wantCaptureMouse()) then
-        beginDragOrPick input viewportW viewportH state
+        do beginDragOrPick input viewportW viewportH &state
     else if state.Editor.Drag <> None && input.LeftDown then
-        applyDrag viewportW viewportH input.MouseX input.MouseY state
+        do applyDrag viewportW viewportH input.MouseX input.MouseY &state
     else if state.Editor.Drag <> None && input.LeftReleased then
-        finishDrag state
-    else
-        state
+        do finishDrag &state
 
 // ── Camera controls (edit mode) ──
 
 // Apply orbit/dolly/fly to the camera from this frame's input. Fly speed is
 // per second (dt-scaled); orbit and dolly are event-driven and unscaled.
-let private updateCamera (input: Input.Input) (dt: float32) (state: GameplayState.GameplayState) : GameplayState.GameplayState =
-    let camera =
-        if not input.RightDown then state.Camera else
-        let c = Camera.orbit state.Camera (-input.MouseDX * 0.01f) (-input.MouseDY * 0.01f)
+let private updateCamera (input: Input.Input) (dt: float32) (state: byref<GameplayState.GameplayState>) : unit =
+    if input.RightDown then
+        Camera.orbit &state.Camera (-input.MouseDX * 0.01f) (-input.MouseDY * 0.01f)
+
         let moving =
             not (Input.isShift input)
             && (Input.isHeld Input.Key.W input || Input.isHeld Input.Key.A input || Input.isHeld Input.Key.S input
                 || Input.isHeld Input.Key.D input || Input.isHeld Input.Key.Q input || Input.isHeld Input.Key.E input)
-        if not moving then c else
-        let f = Camera.forward c
-        let r = Camera.right c
-        let up = Vector3.UnitY
-        let speed = 6.0f * dt
-        let mutable delta = Vector3.Zero
-        if Input.isHeld Input.Key.W input then delta <- delta + f * speed
-        if Input.isHeld Input.Key.S input then delta <- delta - f * speed
-        if Input.isHeld Input.Key.D input then delta <- delta + r * speed
-        if Input.isHeld Input.Key.A input then delta <- delta - r * speed
-        if Input.isHeld Input.Key.E input then delta <- delta + up * speed
-        if Input.isHeld Input.Key.Q input then delta <- delta - up * speed
-        Camera.pan c delta
 
-    let camera =
-        if input.Wheel = 0.0f then camera else
-        Camera.dolly camera (MathF.Pow(0.9f, input.Wheel))
+        if moving then
+            let f = Camera.forward state.Camera
+            let r = Camera.right state.Camera
+            let up = Vector3.UnitY
+            let speed = 6.0f * dt
+            let mutable delta = Vector3.Zero
+            if Input.isHeld Input.Key.W input then delta <- delta + f * speed
+            if Input.isHeld Input.Key.S input then delta <- delta - f * speed
+            if Input.isHeld Input.Key.D input then delta <- delta + r * speed
+            if Input.isHeld Input.Key.A input then delta <- delta - r * speed
+            if Input.isHeld Input.Key.E input then delta <- delta + up * speed
+            if Input.isHeld Input.Key.Q input then delta <- delta - up * speed
+            do Camera.pan &state.Camera delta
 
-    { state with Camera = camera }
+    if input.Wheel <> 0.0f then
+        Camera.dolly &state.Camera (MathF.Pow(0.9f, input.Wheel))
 
 // ── Per-frame update ──
 
 // Advance the editor for one frame: the edit/play toggle, shortcuts, nudge,
 // viewport interaction, and the camera. Called by GameplayScreen each frame.
-let update (frame: Screen.Frame) (state: GameplayState.GameplayState) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
+let update (assets: Assets.AssetManager) (frame: Screen.Frame) (state: byref<GameplayState.GameplayState>) : Screen.ScreenTransition =
     // Backtick toggles edit/play, unless the user is typing in a text field.
-    let state =
-        if Input.isPressed Input.Key.Backtick frame.Input && not (ImGui.wantTextInput()) then
-            { state with Editing = not state.Editing }
-        else state
+    if Input.isPressed Input.Key.Backtick frame.Input && not (ImGui.wantTextInput()) then
+        state.Editing <- not state.Editing
 
-    if not state.Editing then struct (state, Screen.ScreenTransition.None) else
+    if not state.Editing then Screen.ScreenTransition.None else
 
-    let struct (state, transition) = handleShortcuts frame.Input state
+    let transition = handleShortcuts assets frame.Input &state
 
-    let state =
-        state
-        // keyboard nudge (editor mode only)
-        |> updateNudge frame.Input
-        // viewport selection + gizmo drag (editor mode only)
-        |> interact frame.Input frame.WindowW frame.WindowH
-        |> updateCamera frame.Input frame.Dt
+    // keyboard nudge (editor mode only)
+    do updateNudge frame.Input &state
+    // viewport selection + gizmo drag (editor mode only)
+    do interact frame.Input frame.WindowW frame.WindowH &state
+    do updateCamera frame.Input frame.Dt &state
 
-    struct (state, transition)
+    transition
 
 // ── Docking workspace draw ──
 
 // Draw the workspace. Returns the updated state (the dock layout is built once
 // and remembered in the state) and any navigation request (File > Quit).
-let draw (shared: SharedState.SharedState) (state: GameplayState.GameplayState) : struct (GameplayState.GameplayState * Screen.ScreenTransition) =
-    if not state.Editing then struct (state, Screen.ScreenTransition.None) else
+let draw (assets: Assets.AssetManager) (state: byref<GameplayState.GameplayState>) : Screen.ScreenTransition =
+    if not state.Editing then Screen.ScreenTransition.None else
     // Apply any panel-focus request queued by update (valid only after NewFrame).
-    let mutable state = applyPendingFocus state
+    do applyPendingFocus &state
 
     // Dockspace + (once) the default dock layout. The viewport is the central
     // passthru node; Outliner/Inspector/Asset Browser are docked around it.
@@ -399,7 +387,7 @@ let draw (shared: SharedState.SharedState) (state: GameplayState.GameplayState) 
 
     if not state.Editor.DockingInitialized then
         do ImGui.setupDockLayout(dockspaceId)
-        state <- { state with Editor = { state.Editor with DockingInitialized = true } }
+        state.Editor <- { state.Editor with DockingInitialized = true }
 
     let mutable transition = Screen.ScreenTransition.None
 
@@ -414,15 +402,15 @@ let draw (shared: SharedState.SharedState) (state: GameplayState.GameplayState) 
         if ImGui.beginMenu("Edit", true) then
             let idle = state.Editor.Drag = None && not (ImGui.wantTextInput())
             if ImGui.menuItem("Undo", "Ctrl+Z", false, idle && not (List.isEmpty state.Editor.Undo.Applied)) then
-                state <- { state with Editor = { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone } }
+                state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone assets }
             if ImGui.menuItem("Redo", "Ctrl+Y", false, idle && not (List.isEmpty state.Editor.Undo.Redo)) then
-                state <- { state with Editor = { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone } }
+                state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone assets }
             do ImGui.endMenu()
 
         do ImGui.endMainMenuBar()
 
-    let state = Outliner.draw state
-    do Inspector.draw state
-    let state = AssetBrowser.draw state shared
+    do Outliner.draw assets &state
+    do Inspector.draw &state
+    do AssetBrowser.draw assets &state
 
-    struct (state, transition)
+    transition

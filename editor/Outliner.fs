@@ -6,43 +6,44 @@ module Outliner
 
 open Entity
 
-let private entityRow (state: GameplayState.GameplayState) (name: string) (id: string) (ref: EntityRef) : GameplayState.GameplayState =
-    let mutable state = state
-
+let private entityRow (assets: Assets.AssetManager) (state: byref<GameplayState.GameplayState>) (name: string) (id: string) (ref: EntityRef) : unit =
     if ImGui.button(sprintf "%s##%s" name id, ImGui.ImVec2(0.0f, 0.0f)) then
-        state <- { state with Editor = { state.Editor with Selection = Some ref } }
+        state.Editor <- { state.Editor with Selection = Some ref }
 
     do ImGui.sameLine(0.0f, -1.0f)
 
     if ImGui.smallButton(sprintf "Del##del_%s" id) then
-        state <- Selection.deleteRef state ref
+        Selection.deleteRef assets &state ref
 
     do ImGui.sameLine(0.0f, -1.0f)
 
     if ImGui.smallButton(sprintf "Dup##dup_%s" id) then
-        state <- Selection.duplicateRef state ref
+        Selection.duplicateRef assets &state ref
 
-    state
-
-let draw (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+let draw (assets: Assets.AssetManager) (state: byref<GameplayState.GameplayState>) : unit =
     do ImGui.beginWindow("Outliner", System.IntPtr.Zero, 0) |> ignore
 
-    let mutable state = state
     let zone = state.Zone
 
     if ImGui.collapsingHeader("Actors", 0) then
         if SlotMap.count zone.Actors = 0u then
             do ImGui.text("(none)")
         else
-            SlotMap.iteriAlive zone.Actors (fun i a ->
-                state <- entityRow state a.Base.Name (sprintf "actor%d" (int i)) { Kind = EntityKind.Actor; Index = i })
+            let slots = zone.Actors.Slots
+            for i in 0 .. slots.Length - 1 do
+                let slot = slots.[i]
+                if slot.Alive then
+                    entityRow assets &state slot.Value.Base.Name (sprintf "actor%d" i) { Kind = EntityKind.Actor; Index = uint32 i }
 
     if ImGui.collapsingHeader("Props", 0) then
         if SlotMap.count zone.Environment.Props = 0u then
             do ImGui.text("(none)")
         else
-            SlotMap.iteriAlive zone.Environment.Props (fun i p ->
-                state <- entityRow state p.Base.Name (sprintf "prop%d" (int i)) { Kind = EntityKind.Prop; Index = i })
+            let slots = zone.Environment.Props.Slots
+            for i in 0 .. slots.Length - 1 do
+                let slot = slots.[i]
+                if slot.Alive then
+                    entityRow assets &state slot.Value.Base.Name (sprintf "prop%d" i) { Kind = EntityKind.Prop; Index = uint32 i }
 
     if ImGui.collapsingHeader("Triggers", 0) then
         do ImGui.text("(none)")
@@ -51,4 +52,3 @@ let draw (state: GameplayState.GameplayState) : GameplayState.GameplayState =
         do ImGui.text("(none)")
 
     do ImGui.endWindow()
-    state

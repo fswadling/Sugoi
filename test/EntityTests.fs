@@ -15,7 +15,7 @@ let baseEntity name =
 
 [<Fact>]
 let ``Actor composes the shared Entity base`` () =
-    let actor : Actor = { Base = baseEntity "akane" }
+    let actor : Actor = { Base = baseEntity "akane"; AssetId = ""; Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
     Assert.Equal("akane", actor.Base.Name)
     Assert.True(actor.Base.Enabled)
 

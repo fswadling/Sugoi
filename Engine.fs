@@ -69,10 +69,12 @@ let run () : int =
         1
     else
 
-    // ── Create the debug-draw line pipeline and set up the screen manager ──
+    // ── Create the debug-draw line pipeline, the mesh pipeline + depth
+    //    texture, and set up the screen manager ──
     let swapchainFormat = SDL.GetGPUSwapchainTextureFormat(device, window)
     let debugDraw = DebugDraw.create device swapchainFormat
-    let mutable manager = ScreenManager.init debugDraw
+    let mutable gpu = Gpu.create device swapchainFormat
+    let mutable manager = ScreenManager.init debugDraw gpu.MeshPipeline
 
     let mutable running = true
     let mutable ev = SDL.Event()
@@ -134,7 +136,8 @@ let run () : int =
         do ImGui.newFrame()
 
         // ── Advance and draw the active screen ──
-        manager <- manager |> ScreenManager.update frame |> ScreenManager.draw
+        do ScreenManager.update frame &manager
+        do ScreenManager.draw &manager
 
         do DebugOverlay.draw fps
 
@@ -152,9 +155,11 @@ let run () : int =
         if swapchainTexture <> IntPtr.Zero then
             do ImGuiSdl3.prepareDrawData(drawData, cmd)
 
-            // Scene pass: clear + draw the active screen's scene.
+            // Scene pass: clear + draw the active screen's scene (color + depth).
+            gpu <- Gpu.ensureDepthTexture gpu w h
+            let mutable depthTarget = Gpu.depthTargetInfo gpu
             sceneTargets.[0].Texture <- swapchainTexture
-            do ScreenManager.renderScene manager { Cmd = cmd; ColorTargets = sceneTargets }
+            do ScreenManager.renderScene &manager { Cmd = cmd; ColorTargets = sceneTargets; DepthTarget = depthTarget }
 
             // ImGui pass: load (preserves the scene) + draw ImGui on top.
             imguiTargets.[0].Texture <- swapchainTexture
@@ -165,7 +170,7 @@ let run () : int =
         do SDL.SubmitGPUCommandBuffer(cmd) |> ignore
 
         // ── Apply the frame's navigation request ──
-        manager <- ScreenManager.applyTransition manager
+        do ScreenManager.applyTransition &manager
 
         // ── Report frame time once per second ──
         if now - lastTimingLog >= 1_000_000_000.0 then
@@ -179,6 +184,7 @@ let run () : int =
 
     // ── Shut down ──
     do SDL.WaitForGPUIdle(device) |> ignore
+    do Gpu.destroy gpu
     do ImGuiSdl3.shutdown()
     do ImGui.destroyContext(IntPtr.Zero)
     do SDL.ReleaseWindowFromGPUDevice(device, window)

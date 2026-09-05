@@ -15,29 +15,28 @@ let private baseEntity (name: string) : Entity =
       Selectable = true
       Draggable = true }
 
-let draw (state: GameplayState.GameplayState) (shared: SharedState.SharedState) : GameplayState.GameplayState =
+let draw (assets: Assets.AssetManager) (state: byref<GameplayState.GameplayState>) : unit =
     do ImGui.beginWindow("Asset Browser", System.IntPtr.Zero, 0) |> ignore
 
-    let mutable state = state
-
-    if shared.Assets.Length = 0 then
+    if assets.Actors.Count = 0 && assets.Props.Count = 0 && assets.Environments.Count = 0 then
         do ImGui.text("(no assets)")
     else
-        for asset in shared.Assets do
-            match asset.Kind with
-            | EntityKind.Actor ->
-                if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    let entity = baseEntity asset.Name
-                    let ref = Zone.spawnActor state.Zone entity
-                    let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity))
-                    state <- { state with Editor = { state.Editor with Selection = Some ref; Undo = undo } }
-            | EntityKind.Prop ->
-                if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    let entity = baseEntity asset.Name
-                    let ref = Zone.spawnProp state.Zone entity
-                    let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity))
-                    state <- { state with Editor = { state.Editor with Selection = Some ref; Undo = undo } }
-            | _ -> ()
+        // Actors spawn with their model binding.
+        for asset in assets.Actors.Values |> Seq.sortBy (fun a -> a.Id) do
+            if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
+                let entity = baseEntity asset.Name
+                let ref = Zone.spawnActor state.Zone assets entity asset.Id
+                let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, asset.Id))
+                state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
+
+        // Props spawn without a model this phase.
+        for asset in assets.Props.Values |> Seq.sortBy (fun a -> a.Id) do
+            if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
+                let entity = baseEntity asset.Name
+                let ref = Zone.spawnProp state.Zone entity
+                let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, ""))
+                state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
+
+        // Environments are listed later, not spawnable this phase.
 
     do ImGui.endWindow()
-    state

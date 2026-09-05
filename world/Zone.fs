@@ -38,11 +38,33 @@ let entityAt (zone: Zone) (ref: EntityRef) : Entity option =
     | EntityKind.Prop -> Option.map (fun (p: Prop) -> p.Base) (SlotMap.tryGetByIndex zone.Environment.Props ref.Index)
     | _ -> None
 
+// The actor's AssetId behind a ref (empty for non-actor/absent kinds).
+let assetIdAt (zone: Zone) (ref: EntityRef) : string =
+    match ref.Kind with
+    | EntityKind.Actor -> Option.map (fun (a: Actor) -> a.AssetId) (SlotMap.tryGetByIndex zone.Actors ref.Index) |> Option.defaultValue ""
+    | _ -> ""
+
 // Write a base Entity back at the ref's index (Actor/Prop). No-op for other kinds.
+// For actors the existing AssetId is preserved (a base-entity write such as a
+// transform must not drop the model binding).
 let setEntity (zone: Zone) (ref: EntityRef) (entity: Entity) : unit =
     match ref.Kind with
     | EntityKind.Actor ->
-        zone.Actors <- SlotMap.setByIndex zone.Actors ref.Index { Base = entity }
+        match SlotMap.tryGetByIndex zone.Actors ref.Index with
+        | Some a ->
+            zone.Actors <- SlotMap.setByIndex zone.Actors ref.Index { Base = entity; AssetId = a.AssetId; Renderer = a.Renderer }
+        | None -> ()
+    | EntityKind.Prop ->
+        zone.Environment.Props <- SlotMap.setByIndex zone.Environment.Props ref.Index { Base = entity }
+    | _ -> ()
+
+// Write an actor (base + assetId) at the ref's index. Used by command apply/undo
+// to restore/create an actor where the renderer is created eagerly.
+let setActorWithAsset (zone: Zone) (assets: Assets.AssetManager) (ref: EntityRef) (entity: Entity) (assetId: string) : unit =
+    match ref.Kind with
+    | EntityKind.Actor ->
+        let renderer = Assets.createActorRender assets assetId
+        zone.Actors <- SlotMap.setByIndex zone.Actors ref.Index { Base = entity; AssetId = assetId; Renderer = renderer }
     | EntityKind.Prop ->
         zone.Environment.Props <- SlotMap.setByIndex zone.Environment.Props ref.Index { Base = entity }
     | _ -> ()
@@ -51,14 +73,16 @@ let setEntity (zone: Zone) (ref: EntityRef) (entity: Entity) : unit =
 let removeEntity (zone: Zone) (ref: EntityRef) : unit =
     match ref.Kind with
     | EntityKind.Actor ->
-        zone.Actors <- SlotMap.removeByIndex zone.Actors ref.Index
+        zone.Actors <- SlotMap.removeByIndex zone.Actors ref.Index (Some Actor.releaseRenderer)
     | EntityKind.Prop ->
-        zone.Environment.Props <- SlotMap.removeByIndex zone.Environment.Props ref.Index
+        zone.Environment.Props <- SlotMap.removeByIndex zone.Environment.Props ref.Index None
     | _ -> ()
 
-// Spawn a new actor/prop and return the new ref.
-let spawnActor (zone: Zone) (entity: Entity) : EntityRef =
-    let actors, handle = SlotMap.add zone.Actors { Base = entity }
+// Spawn a new actor/prop and return the new ref. The actor's renderer is created
+// eagerly (matching odin's `create_actor_entity` → `load_actor_renderer`).
+let spawnActor (zone: Zone) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) : EntityRef =
+    let renderer = Assets.createActorRender assets assetId
+    let actors, handle = SlotMap.add zone.Actors { Base = entity; AssetId = assetId; Renderer = renderer }
     zone.Actors <- actors
     { Kind = EntityKind.Actor; Index = handle.Index }
 

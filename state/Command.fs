@@ -8,30 +8,30 @@ open Entity
 open Zone
 
 type Command =
-    | Spawn of Ref : EntityRef * Entity : Entity
-    | Delete of Ref : EntityRef * Entity : Entity
-    | Duplicate of Ref : EntityRef * Entity : Entity
+    | Spawn of Ref : EntityRef * Entity : Entity * AssetId : string
+    | Delete of Ref : EntityRef * Entity : Entity * AssetId : string
+    | Duplicate of Ref : EntityRef * Entity : Entity * AssetId : string
     | Transform of Ref : EntityRef * Before : Transform * After : Transform
 
 // ── apply / undo a single command ──
 
-let apply (zone: Zone) (cmd: Command) : unit =
+let apply (zone: Zone) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
-    | Spawn (r, entity)
-    | Duplicate (r, entity) ->
-        setEntity zone r entity
-    | Delete (r, _) ->
+    | Spawn (r, entity, assetId)
+    | Duplicate (r, entity, assetId) ->
+        setActorWithAsset zone assets r entity assetId
+    | Delete (r, _, _) ->
         removeEntity zone r
     | Transform (r, _, after) ->
         Option.iter (fun (e: Entity) -> setEntity zone r { e with Transform = after }) (entityAt zone r)
 
-let undo (zone: Zone) (cmd: Command) : unit =
+let undo (zone: Zone) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
-    | Spawn (r, _)
-    | Duplicate (r, _) ->
+    | Spawn (r, _, _)
+    | Duplicate (r, _, _) ->
         removeEntity zone r
-    | Delete (r, entity) ->
-        setEntity zone r entity
+    | Delete (r, entity, assetId) ->
+        setActorWithAsset zone assets r entity assetId
     | Transform (r, before, _) ->
         Option.iter (fun (e: Entity) -> setEntity zone r { e with Transform = before }) (entityAt zone r)
 
@@ -46,8 +46,8 @@ module UndoStack =
     // Re-bind the enclosing module's command-level apply/undo under unambiguous
     // names — `Command` is also the name of the DU type, so `Command.undo` here
     // would resolve to the type, not this module.
-    let private undoCommand zone cmd = undo zone cmd
-    let private applyCommand zone cmd = apply zone cmd
+    let private undoCommand zone assets cmd = undo zone assets cmd
+    let private applyCommand zone assets cmd = apply zone assets cmd
 
     let create () : UndoStack =
         { Applied = []; Redo = [] }
@@ -73,18 +73,18 @@ module UndoStack =
         | Some merged -> { t with Applied = merged :: rest }
         | None -> { Applied = cmd :: t.Applied; Redo = [] }
 
-    let undo (t: UndoStack) (zone: Zone) : UndoStack =
+    let undo (t: UndoStack) (zone: Zone) (assets: Assets.AssetManager) : UndoStack =
         match t.Applied with
         | [] -> t
         | cmd :: rest ->
 
-        undoCommand zone cmd
+        undoCommand zone assets cmd
         { Applied = rest; Redo = cmd :: t.Redo }
 
-    let redo (t: UndoStack) (zone: Zone) : UndoStack =
+    let redo (t: UndoStack) (zone: Zone) (assets: Assets.AssetManager) : UndoStack =
         match t.Redo with
         | [] -> t
         | cmd :: rest ->
 
-        applyCommand zone cmd
+        applyCommand zone assets cmd
         { Applied = cmd :: t.Applied; Redo = rest }

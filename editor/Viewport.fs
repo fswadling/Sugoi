@@ -92,23 +92,24 @@ let gizmoCenter (state: GameplayState.GameplayState) : Vector3 option =
 
 // ── Reference grid (always visible) ──
 
-let drawGrid (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+let drawGrid (state: byref<GameplayState.GameplayState>) : unit =
     let dd = DebugDraw.clear state.DebugDraw |> DebugDraw.drawGrid
-    { state with DebugDraw = dd }
+    state.DebugDraw <- dd
 
 // ── Markers + gizmo (editor mode only; appends to the accumulator) ──
 
-let buildLines (state: GameplayState.GameplayState) : GameplayState.GameplayState =
+let buildLines (state: byref<GameplayState.GameplayState>) : unit =
     let mutable dd = state.DebugDraw
     let zone = state.Zone
+    let selection = state.Editor.Selection
 
     SlotMap.iteriAlive zone.Actors (fun i a ->
-        let isSelected = state.Editor.Selection = Some { Kind = EntityKind.Actor; Index = i }
+        let isSelected = selection = Some { Kind = EntityKind.Actor; Index = i }
         let c = if isSelected then selectedColor else white
         dd <- DebugDraw.wireframeBox dd a.Base.Transform.Position halfExtent c)
 
     SlotMap.iteriAlive zone.Environment.Props (fun i p ->
-        let isSelected = state.Editor.Selection = Some { Kind = EntityKind.Prop; Index = i }
+        let isSelected = selection = Some { Kind = EntityKind.Prop; Index = i }
         let c = if isSelected then selectedColor else white
         dd <- DebugDraw.wireframeBox dd p.Base.Transform.Position halfExtent c)
 
@@ -116,7 +117,7 @@ let buildLines (state: GameplayState.GameplayState) : GameplayState.GameplayStat
     | Some center -> dd <- drawGizmo state dd center
     | None -> ()
 
-    { state with DebugDraw = dd }
+    state.DebugDraw <- dd
 
 // ── Picking ──
 

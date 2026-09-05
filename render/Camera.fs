@@ -9,11 +9,11 @@ open System.Numerics
 
 [<Struct>]
 type Camera =
-    { Position : Vector3
-      Target : Vector3
+    { mutable Position : Vector3
+      mutable Target : Vector3
       Up : Vector3
       Fov : float32
-      Aspect : float32
+      mutable Aspect : float32
       Near : float32
       Far : float32 }
 
@@ -35,8 +35,9 @@ let proj (c: Camera) : Matrix4x4 = Matrix4x4.CreatePerspectiveFieldOfView(c.Fov,
 let viewProjection (c: Camera) : Matrix4x4 = view c * proj c
 
 // Orbit: yaw around the up axis + pitch around the right axis, rotating the
-// position<->target offset about the target (distance preserved).
-let orbit (c: Camera) (yaw: float32) (pitch: float32) : Camera =
+// position<->target offset about the target (distance preserved). Mutates the
+// camera in place.
+let orbit (c: byref<Camera>) (yaw: float32) (pitch: float32) : unit =
     let offset = c.Target - c.Position
     let r = right c
     let u = up c
@@ -44,16 +45,19 @@ let orbit (c: Camera) (yaw: float32) (pitch: float32) : Camera =
     let pitchQ = Quaternion.CreateFromAxisAngle(r, pitch)
     let q = Quaternion.Concatenate(yawQ, pitchQ)
     let offset' = Vector3.Transform(offset, q)
-    { c with Target = c.Position + offset' }
+    c.Target <- c.Position + offset'
 
 // Dolly: scale the position<->target distance by factor (clamped to a minimum).
-let dolly (c: Camera) (factor: float32) : Camera =
+// Mutates the camera in place.
+let dolly (c: byref<Camera>) (factor: float32) : unit =
     let offset = c.Position - c.Target
     let dist = offset.Length()
     let newDist = max 0.1f (dist * factor)
     let dir = offset / dist
-    { c with Position = c.Target + dir * newDist }
+    c.Position <- c.Target + dir * newDist
 
-// Pan/fly: move position and target together by a world-space delta.
-let pan (c: Camera) (delta: Vector3) : Camera =
-    { c with Position = c.Position + delta; Target = c.Target + delta }
+// Pan/fly: move position and target together by a world-space delta. Mutates the
+// camera in place.
+let pan (c: byref<Camera>) (delta: Vector3) : unit =
+    c.Position <- c.Position + delta
+    c.Target <- c.Target + delta

@@ -8,19 +8,25 @@
 
   <ItemGroup>
     <Compile Include="core/SlotMap.fs" />
-    <Compile Include="core/Entity.fs" />
-    <Compile Include="core/Zone.fs" />
-    <Compile Include="core/Assets.fs" />
+    <Compile Include="core/Iqm.fs" />
     <Compile Include="core/Input.fs" />
+    <Compile Include="render/Gpu.fs" />
+    <Compile Include="render/Mesh.fs" />
     <Compile Include="render/ImGui.fs" />
     <Compile Include="render/ImGuiSdl3.fs" />
     <Compile Include="render/Camera.fs" />
     <Compile Include="render/DebugDraw.fs" />
-    <Compile Include="screen/Screen.fs" />
-    <Compile Include="screen/SharedState.fs" />
-    <Compile Include="editor/Command.fs" />
-    <Compile Include="editor/EditorState.fs" />
-    <Compile Include="screen/GameplayState.fs" />
+    <Compile Include="world/Actor.fs" />
+    <Compile Include="world/ActorAsset.fs" />
+    <Compile Include="world/ActorRender.fs" />
+    <Compile Include="world/Assets.fs" />
+    <Compile Include="world/Entity.fs" />
+    <Compile Include="world/Zone.fs" />
+    <Compile Include="state/Screen.fs" />
+    <Compile Include="state/SharedState.fs" />
+    <Compile Include="state/Command.fs" />
+    <Compile Include="state/EditorState.fs" />
+    <Compile Include="state/GameplayState.fs" />
     <Compile Include="editor/Selection.fs" />
     <Compile Include="editor/Raycast.fs" />
     <Compile Include="editor/Viewport.fs" />
@@ -45,7 +51,7 @@
   <!-- Compiled line shader SPIR-V, loaded from disk at startup. Copied to the
        output dir so the shaders/ path resolves regardless of working dir. -->
   <Target Name="CopyShaders" AfterTargets="Build">
-    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv" DestinationFolder="$(OutDir)shaders" />
+    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv;shaders/mesh.vert.spv;shaders/mesh.frag.spv" DestinationFolder="$(OutDir)shaders" />
   </Target>
 
   <ItemGroup>

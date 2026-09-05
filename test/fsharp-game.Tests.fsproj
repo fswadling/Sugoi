@@ -13,6 +13,8 @@
     <Compile Include="CameraTests.fs" />
     <Compile Include="RaycastTests.fs" />
     <Compile Include="CommandTests.fs" />
+    <Compile Include="IqmTests.fs" />
+    <Compile Include="ActorTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

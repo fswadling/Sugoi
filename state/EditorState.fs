@@ -1,8 +1,8 @@
 module EditorState
 
-// Transient editor UI state. Not per-frame data, so it is an immutable record;
-// the editor updates it functionally. The camera and scene are owned by
-// GameplayState.
+// Transient editor UI state. A struct so copy-and-update (the editor rebuilds it
+// on every input event) is a stack copy rather than a heap allocation; it is
+// still updated functionally. The camera and scene are owned by GameplayState.
 
 open System.Numerics
 open Entity
@@ -27,6 +27,7 @@ type Drag =
       Start : Transform
       Grab : Vector3 }
 
+[<Struct>]
 type EditorState =
     { Selection : EntityRef option
       PendingFocus : string option

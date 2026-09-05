@@ -2,15 +2,16 @@ module SlotMap
 
 // Generational slot map: fixed-capacity, contiguous, inline storage of
 // value-type payloads (`'T : struct`) with O(1) add/get/free and stale-handle
-// detection via a per-slot generation. Slots and the container are immutable;
-// updates use copy-and-update (`with`). Indices are `uint32`, with
-// `UInt32.MaxValue` as the "no slot" sentinel.
+// detection via a per-slot generation. Slots and the container are immutable
+// records (updates use copy-and-update), except `Value`, which is mutable so
+// hot-path systems can advance it in place through a byref. Indices are
+// `uint32`, with `UInt32.MaxValue` as the "no slot" sentinel.
 
 open System
 
 [<Struct>]
 type Slot<'T> =
-    { Value : 'T
+    { mutable Value : 'T
       Generation : uint32
       Alive : bool
       NextFree : uint32 }
@@ -144,9 +145,10 @@ let setByIndex (map: SlotMap<'T>) (index: uint32) (value: 'T) : SlotMap<'T> =
             head <- uint32 j
     { map with Count = map.Count + 1u; FreeHead = head }
 
-// Free a slot by index (bump generation, push onto the free list). Raises on an
-// out-of-range index or an already-dead slot.
-let removeByIndex (map: SlotMap<'T>) (index: uint32) : SlotMap<'T> =
+// Free a slot by index (bump generation, push onto the free list), optionally
+// running `cleanup` on the value first. The cleanup runs only when the slot is
+// alive; an out-of-range index or an already-dead slot still raises.
+let removeByIndex (map: SlotMap<'T>) (index: uint32) (cleanup: ('T -> unit) option) : SlotMap<'T> =
     if index >= uint32 map.Slots.Length then
         invalidOp "slot map index is out of range"
 
@@ -154,6 +156,10 @@ let removeByIndex (map: SlotMap<'T>) (index: uint32) : SlotMap<'T> =
     let slot = map.Slots.[i]
     if not slot.Alive then
         invalidOp "slot map slot is already dead"
+
+    match cleanup with
+    | Some f -> f slot.Value
+    | None -> ()
 
     map.Slots.[i] <- { slot with Generation = slot.Generation + 1u; Alive = false; NextFree = map.FreeHead }
     { map with Count = map.Count - 1u; FreeHead = index }

@@ -41,5 +41,6 @@ type Frame =
 // they cross one explicit seam instead of riding loose through the manager.
 [<Struct>]
 type ScenePass =
-    { Cmd : nativeint
-      ColorTargets : SDL.GPUColorTargetInfo array }
+    { Cmd : Gpu.CommandBuffer
+      ColorTargets : SDL.GPUColorTargetInfo array
+      DepthTarget : SDL.GPUDepthStencilTargetInfo }

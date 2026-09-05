@@ -19,6 +19,11 @@ let transformIdentity : Transform =
       Rotation = Quaternion.Identity
       Scale = Vector3.One }
 
+// Compose a model matrix from a transform. System.Numerics is row-vector
+// (`v * M`), so TRS is `S * R * T` (scale, rotate, translate).
+let modelMatrix (t: Transform) : Matrix4x4 =
+    Matrix4x4.CreateScale(t.Scale) * Matrix4x4.CreateFromQuaternion(t.Rotation) * Matrix4x4.CreateTranslation(t.Position)
+
 // Convert a rotation quaternion to ZYX Euler angles in degrees (for display).
 let eulerDegrees (q: Quaternion) : Vector3 =
     let x, y, z, w = q.X, q.Y, q.Z, q.W
@@ -61,7 +66,13 @@ type Entity =
 // are standalone.
 [<Struct>]
 type Actor =
-    { Base : Entity }
+    { Base : Entity
+      AssetId : string
+      mutable Renderer : ActorRender.ActorRender }
+
+module Actor =
+    // Release an actor's renderer GPU buffers.
+    let releaseRenderer (a: Actor) : unit = ActorRender.release a.Renderer
 
 [<Struct>]
 type Prop =

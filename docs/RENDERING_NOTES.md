@@ -84,10 +84,14 @@ re-applies it).
 
 ## 4. SDL3 GPU shader resource sets (SPIR-V)
 
-SDL_gpu maps shader resources by convention, not by free choice. For SPIR-V:
+SDL_gpu maps shader resources by convention, not by free choice. For SPIR-V
+(verified against `SDL_gpu_vulkan.c` in SDL 3.4.12):
 
-- Vertex shader: **`set = 1`** = uniform buffers.
-- Fragment shader: `set = 2` = sampled textures; **`set = 3`** = uniform buffers.
+- Vertex shader: `set = 0` = samplers / storage textures / storage buffers
+  (storage buffer *n* binds at `binding = numSamplers + numStorageTextures + n`);
+  **`set = 1`** = uniform buffers.
+- Fragment shader: `set = 2` = samplers / storage textures / storage buffers;
+  **`set = 3`** = uniform buffers.
 
 `SDL_PushGPUVertexUniformData(cmd, slot_index=0, …)` maps to
 `set = 1, binding = 0`. The `line.vert` shader uses exactly that:
@@ -96,15 +100,34 @@ SDL_gpu maps shader resources by convention, not by free choice. For SPIR-V:
 layout(set = 1, binding = 0) uniform Uniforms { mat4 viewProj; } u;
 ```
 
+A vertex-stage read-only storage buffer bound via
+`SDL_BindGPUVertexStorageBuffers(pass, slot=0, …)` maps to `set = 0, binding = 0`
+(assuming no samplers/storage textures), and the shader must be created with
+`NumStorageBuffers = 1` or the pipeline layout won't include it.
+
 ---
 
-## 5. Pushing uniforms
+## 5. Pushing uniforms (the 4 KiB cap)
 
 - `SDL_PushGPUVertexUniformData` is **command-buffer-scoped** ("subsequent draw
   calls in this command buffer use this uniform data"). It does **not** need to
   be inside the render pass; pushing it before `BeginGPURenderPass` is fine.
 - Uniform data must respect **std140** layout. A single `mat4` is just 16
   floats (64 bytes) and needs no extra padding.
+- **Each pushed uniform slot is exposed to the shader with a hard 4 KiB range.**
+  SDL's Vulkan backend memcpy's the full push into its ring buffer but writes
+  the descriptor with `range = MAX_UBO_SECTION_SIZE` (4096). Any read past 4096
+  bytes is out of range — on NVIDIA it returns zeros. Symptom we hit: a
+  205×64-byte bone palette pushed as one uniform rendered bones 0–63 fine,
+  while bones 64+ read as zero — vertices weighted to them collapsed to a
+  point, producing degenerate spikes converging at the screen centre and
+  missing geometry (hair, fingers). There is no error or warning.
+- The fix for anything larger than 4 KiB is a **storage buffer**
+  (`SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ` + per-frame transfer-buffer
+  upload + `SDL_BindGPUVertexStorageBuffers`), which is what
+  `render/ActorRender.fs` does for the bone palette.
+- Uniform slots are also scarce: `MAX_UNIFORM_BUFFERS_PER_STAGE = 4` per stage,
+  so splitting a big array across slots caps out quickly.
 
 ---
 
