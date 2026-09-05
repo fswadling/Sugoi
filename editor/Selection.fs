@@ -15,8 +15,8 @@ let deleteRef (assets: Assets.AssetManager) (state: byref<GameplayState.Gameplay
     | None -> ()
     | Some e ->
 
-    let assetId = Zone.assetIdAt state.Zone ref
-    let cmd = Delete (ref, e, assetId)
+    let binding = Zone.bindingAt state.Zone ref
+    let cmd = Delete (ref, e, binding)
     apply state.Zone assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     let editor =
@@ -40,14 +40,14 @@ let duplicateRef (assets: Assets.AssetManager) (state: byref<GameplayState.Gamep
     | Some e ->
     match ref.Kind with
     | EntityKind.Actor ->
-        let assetId = Zone.assetIdAt state.Zone ref
-        let newRef = Zone.spawnActor state.Zone assets e assetId
-        let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e, assetId))
+        let binding = Zone.bindingAt state.Zone ref
+        let newRef = Zone.spawnActor state.Zone assets e binding.AssetId
+        let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e, binding))
         state.Editor <- { state.Editor with Selection = Some newRef; Undo = undo }
     | EntityKind.Prop ->
-        let assetId = Zone.assetIdAt state.Zone ref
-        let newRef = Zone.spawnProp state.Zone assets e assetId
-        let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e, assetId))
+        let binding = Zone.bindingAt state.Zone ref
+        let newRef = Zone.spawnPropBinding state.Zone assets e binding
+        let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e, binding))
         state.Editor <- { state.Editor with Selection = Some newRef; Undo = undo }
     | _ -> ()
 

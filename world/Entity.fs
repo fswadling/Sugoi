@@ -64,6 +64,16 @@ type Entity =
 // Specialised entities compose the base via a nested field (no struct
 // inheritance in F#). Actor/Environment/Prop share the base; Waypoint/Trigger
 // are standalone.
+
+// The asset binding carried by undo commands: which model to (re)create — an
+// actor id, a prop id, or empty for an environment part — and, for props, the
+// submesh range to draw.
+[<Struct>]
+type AssetBinding =
+    { AssetId : string
+      SubmeshIndex : int
+      SubmeshCount : int }
+
 [<Struct>]
 type Actor =
     { Base : Entity
@@ -78,22 +88,20 @@ module Actor =
 type Prop =
     { Base : Entity
       AssetId : string
+      SubmeshIndex : int
+      SubmeshCount : int
       mutable Renderer : EnvironmentRender.EnvironmentRender }
 
 [<Struct>]
 type Environment =
     { Base : Entity
       AssetId : string
-      mutable Renderer : EnvironmentRender.EnvironmentRender
+      Orientation : Quaternion
       mutable Props : SlotMap<Prop> }
 
 module Prop =
     // Release a prop's renderer GPU buffers.
     let releaseRenderer (p: Prop) : unit = EnvironmentRender.release p.Renderer
-
-module Environment =
-    // Release an environment's renderer GPU buffers.
-    let releaseRenderer (e: Environment) : unit = EnvironmentRender.release e.Renderer
 
 [<Struct>]
 type Waypoint =

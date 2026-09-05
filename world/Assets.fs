@@ -77,18 +77,31 @@ let private loadActors (root: string) (device: Gpu.Device) : Dictionary<string, 
 // ── static (environment/prop) asset loading ──
 
 // Parse a glTF model and upload each submesh as a static GPU buffer, producing a
-// shared `EnvironmentAsset`. Environments and props both use this path; props
-// have identity orientation.
-let private loadStaticModel (root: string) (device: Gpu.Device) (id: string) (name: string) (modelPath: string) : EnvironmentAsset.EnvironmentAsset =
+// shared `EnvironmentAsset`. Environments also carry their parsed parts (one per
+// glTF node with a mesh); prop assets render the whole model, so their parts list
+// stays empty.
+let private loadStaticModel (root: string) (device: Gpu.Device) (id: string) (name: string) (modelPath: string) (includeParts: bool) : EnvironmentAsset.EnvironmentAsset =
     let model = Gltf.load (Path.Combine(root, modelPath))
     let submeshes =
         model.Submeshes
         |> Array.map (fun s -> { EnvironmentAsset.Mesh = StaticMesh.create device s.Positions s.Normals s.Uvs s.Indices; EnvironmentAsset.BaseColor = s.BaseColor })
+    let parts =
+        if includeParts then
+            model.Parts
+            |> Array.map (fun p ->
+                { EnvironmentAsset.Name = p.Name
+                  EnvironmentAsset.HierarchyPath = p.HierarchyPath
+                  EnvironmentAsset.World = p.World
+                  EnvironmentAsset.SubmeshIndex = p.SubmeshIndex
+                  EnvironmentAsset.SubmeshCount = p.SubmeshCount })
+        else
+            Array.empty
     { Id = id
       Name = name
       ModelPath = modelPath
       Orientation = Quaternion.Identity
-      Submeshes = submeshes }
+      Submeshes = submeshes
+      Parts = parts }
 
 // Scan all asset kinds into the manager. Actors load via IQM; environments and
 // props load via glTF. A missing `Model` path raises for every kind.
@@ -97,13 +110,13 @@ let scan (root: string) (device: Gpu.Device) : AssetManager =
     for (id, name, modelPath) in scanDir root "props" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: prop asset '%s' has no model path" id
-        props.[id] <- loadStaticModel root device id name modelPath
+        props.[id] <- loadStaticModel root device id name modelPath false
 
     let environments = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
     for (id, name, modelPath) in scanDir root "environments" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: environment asset '%s' has no model path" id
-        environments.[id] <- loadStaticModel root device id name modelPath
+        environments.[id] <- loadStaticModel root device id name modelPath true
 
     let actors = loadActors root device
 
@@ -118,12 +131,14 @@ let createActorRender (manager: AssetManager) (assetId: string) : ActorRender.Ac
     let asset = manager.Actors.[assetId]
     ActorRender.create manager.Device asset
 
-// Create the per-instance renderer for an environment/prop asset id (already
-// loaded at startup).
-let createEnvironmentRender (manager: AssetManager) (assetId: string) : EnvironmentRender.EnvironmentRender =
-    let asset = manager.Environments.[assetId]
-    EnvironmentRender.create asset
-
+// Create the per-instance renderer for a placed prop asset id (already loaded at
+// startup): the whole model, identity orientation.
 let createPropRender (manager: AssetManager) (assetId: string) : EnvironmentRender.EnvironmentRender =
     let asset = manager.Props.[assetId]
-    EnvironmentRender.create asset
+    EnvironmentRender.create asset Quaternion.Identity 0 asset.Submeshes.Length
+
+// Create the per-instance renderer for one environment part: the part's submesh
+// range, with the environment's authored orientation.
+let createPartRender (manager: AssetManager) (environmentAssetId: string) (submeshIndex: int) (submeshCount: int) : EnvironmentRender.EnvironmentRender =
+    let asset = manager.Environments.[environmentAssetId]
+    EnvironmentRender.create asset asset.Orientation submeshIndex submeshCount

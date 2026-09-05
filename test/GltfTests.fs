@@ -2,6 +2,7 @@ module GltfTests
 
 open System
 open System.IO
+open System.Numerics
 open Xunit
 open Gltf
 
@@ -54,3 +55,70 @@ let ``load rejects a non-glTF file`` () =
         Assert.True(failed)
     finally
         File.Delete(tmp)
+
+[<Fact>]
+let ``load emits one part per mesh node with a world transform and submesh range`` () =
+    let m = Gltf.load (findAsset "assets/environments/Island.gltf")
+    Assert.Equal(1, m.Parts.Length)
+    let part = m.Parts.[0]
+    Assert.Equal(0, part.SubmeshIndex)
+    Assert.Equal(1, part.SubmeshCount)
+    // The island node's uniform scale (~32.496) lives in the part transform; the
+    // submesh positions stay local (un-scaled unit plane).
+    let sx = MathF.Sqrt(part.World.M11 * part.World.M11 + part.World.M12 * part.World.M12 + part.World.M13 * part.World.M13)
+    Assert.True(abs (sx - 32.496166f) < 0.001f)
+    let sub = m.Submeshes.[0]
+    let mutable maxAbs = 0.0f
+    for i in 0 .. sub.Positions.Length - 1 do
+        maxAbs <- max maxAbs (abs sub.Positions.[i])
+    Assert.True(maxAbs <= 1.0f + 0.001f)
+
+[<Fact>]
+let ``load spans a multi-primitive mesh as one part`` () =
+    let m = Gltf.load (findAsset "assets/props/Beech.gltf")
+    Assert.Equal(1, m.Parts.Length)
+    Assert.Equal(0, m.Parts.[0].SubmeshIndex)
+    Assert.Equal(2, m.Parts.[0].SubmeshCount)
+    Assert.Equal(Matrix4x4.Identity, m.Parts.[0].World)
+
+[<Fact>]
+let ``load composes parent and child node transforms in row-vector order`` () =
+    let tmp = Directory.CreateTempSubdirectory "fsharp-game-gltf-"
+    try
+        // Parent: rotate 90° about Y then translate (10,0,0). Child: translate
+        // (0,0,5) in parent space -> world (15,0,0).
+        let bin =
+            use ms = new MemoryStream()
+            use bw = new BinaryWriter(ms)
+            for v in [| 0.0f; 0.0f; 0.0f; 1.0f; 0.0f; 0.0f; 0.0f; 1.0f; 0.0f |] do
+                bw.Write(v)
+            ms.ToArray()
+        File.WriteAllBytes(Path.Combine(tmp.FullName, "test.bin"), bin)
+        let json =
+            """{
+              "asset": {"version": "2.0"},
+              "scene": 0,
+              "scenes": [{"nodes": [0]}],
+              "nodes": [
+                {"name": "parent", "children": [1], "rotation": [0, 0.7071067811865476, 0, 0.7071067811865476], "translation": [10, 0, 0]},
+                {"name": "child", "mesh": 0, "translation": [0, 0, 5]}
+              ],
+              "meshes": [{"name": "tri", "primitives": [{"attributes": {"POSITION": 0}}]}],
+              "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+              "bufferViews": [{"buffer": 0, "byteLength": 36, "byteOffset": 0}],
+              "buffers": [{"byteLength": 36, "uri": "test.bin"}]
+            }"""
+        let gltfPath = Path.Combine(tmp.FullName, "test.gltf")
+        File.WriteAllText(gltfPath, json)
+
+        let m = Gltf.load gltfPath
+        Assert.Equal(1, m.Parts.Length)
+        let child = m.Parts.[0]
+        Assert.Equal("child", child.Name)
+        let mutable s = Vector3.Zero
+        let mutable q = Quaternion.Identity
+        let mutable t = Vector3.Zero
+        Matrix4x4.Decompose(child.World, &s, &q, &t) |> ignore
+        Assert.True(Vector3.Distance(t, Vector3(15.0f, 0.0f, 0.0f)) < 0.001f)
+    finally
+        tmp.Delete(recursive = true)

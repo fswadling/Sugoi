@@ -21,13 +21,13 @@ let ``Actor composes the shared Entity base`` () =
 
 [<Fact>]
 let ``Environment composes the shared Entity base`` () =
-    let environment : Environment = { Base = baseEntity "forest"; AssetId = ""; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender>; Props = SlotMap.create<Prop> 0u }
+    let environment : Environment = { Base = baseEntity "forest"; AssetId = ""; Orientation = Quaternion.Identity; Props = SlotMap.create<Prop> 0u }
     Assert.Equal("forest", environment.Base.Name)
     Assert.True(environment.Base.Visible)
 
 [<Fact>]
 let ``Prop composes the shared Entity base`` () =
-    let prop : Prop = { Base = baseEntity "crate"; AssetId = ""; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
+    let prop : Prop = { Base = baseEntity "crate"; AssetId = ""; SubmeshIndex = 0; SubmeshCount = 0; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
     Assert.Equal("crate", prop.Base.Name)
     Assert.True(prop.Base.Selectable)
 

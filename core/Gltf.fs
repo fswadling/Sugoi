@@ -3,9 +3,11 @@ module Gltf
 // Scoped glTF 2.0 parser for static environments/props, ported from
 // ocaml-game/lib/core/gltf.ml. Supports external `.bin` buffers, buffer views,
 // accessors (float32 POSITION/NORMAL/TEXCOORD_0, u8/u16/u32 indices), materials
-// (per-primitive baseColorFactor), and node transforms baked to world space.
-// Anything else raises (constitution II). Emits flat struct-of-arrays
-// (float32[]/int[]) that feed the static GPU buffers directly.
+// (per-primitive baseColorFactor), and node transforms kept as per-node parts
+// (local-space geometry + a world transform per part, so each node can become an
+// independently-transformable prop). Anything else raises (constitution II).
+// Emits flat struct-of-arrays (float32[]/int[]) that feed the static GPU buffers
+// directly.
 
 open System
 open System.IO
@@ -24,8 +26,16 @@ type Submesh =
       Uvs : float32 array
       Indices : int array }
 
+type Part =
+    { Name : string
+      HierarchyPath : string
+      World : Matrix4x4
+      SubmeshIndex : int
+      SubmeshCount : int }
+
 type Model =
     { Submeshes : Submesh array
+      Parts : Part array
       Bounds : Bounds }
 
 // ── glTF component-type / accessor tables ──
@@ -200,7 +210,8 @@ let load (path: string) : Model =
 
     let meshes = optArray root "meshes"
 
-    // raw (unbaked) primitive geometry; positions/normals are baked later.
+    // Read one primitive's geometry (kept in node-local space; the node's world
+    // transform is carried on the part, not baked into the vertices).
     let readPrimitive (meshName: string) (primCount: int) (primIndex: int) (prim: JsonElement) : Submesh =
         let mode = defaultArg (optInt prim "mode") 4
         if mode <> 4 then failwithf "gltf: non-triangle primitive mode %d" mode
@@ -253,40 +264,49 @@ let load (path: string) : Model =
           Uvs = uvs
           Indices = indices }
 
-    // bake node transforms to world space and collect submeshes in scene order
+    // Read every mesh's primitives once (deduplicating instanced meshes) into a
+    // mesh-index → submesh-range table, so shared geometry is uploaded once and
+    // each part references it by range.
     let submeshes = ResizeArray<Submesh>()
+    let meshRanges = Array.zeroCreate<int * int> meshes.Length
+    for meshIndex in 0 .. meshes.Length - 1 do
+        let prims = optArray meshes.[meshIndex] "primitives"
+        let meshName = optString meshes.[meshIndex] "name"
+        let first = submeshes.Count
+        for primIndex in 0 .. prims.Length - 1 do
+            submeshes.Add(readPrimitive meshName prims.Length primIndex prims.[primIndex])
+        meshRanges.[meshIndex] <- (first, prims.Length)
 
-    let bakePrimitive (sub: Submesh) (world: Matrix4x4) (worldRot: Quaternion) : Submesh =
-        let vcount = sub.Positions.Length / 3
-        let positions = Array.zeroCreate<float32> sub.Positions.Length
-        let normals = Array.zeroCreate<float32> sub.Normals.Length
-        for v in 0 .. vcount - 1 do
-            let p = Vector3(sub.Positions.[v * 3], sub.Positions.[v * 3 + 1], sub.Positions.[v * 3 + 2])
-            let tp = Vector3.Transform(p, world)
-            positions.[v * 3] <- tp.X; positions.[v * 3 + 1] <- tp.Y; positions.[v * 3 + 2] <- tp.Z
-            let n = Vector3(sub.Normals.[v * 3], sub.Normals.[v * 3 + 1], sub.Normals.[v * 3 + 2])
-            let tn = Vector3.Transform(n, worldRot)
-            normals.[v * 3] <- tn.X; normals.[v * 3 + 1] <- tn.Y; normals.[v * 3 + 2] <- tn.Z
-        { sub with Positions = positions; Normals = normals }
+    // Walk the scene node tree, emitting one part per node that references a mesh.
+    // A part's World is the accumulated node transform (applied at spawn/draw time,
+    // not baked into the vertices), so each part can become an independently-
+    // transformable prop.
+    let parts = ResizeArray<Part>()
 
-    let rec bake (nodeIndex: int) (parentWorld: Matrix4x4) (parentRot: Quaternion) : unit =
+    let rec bake (nodeIndex: int) (parentWorld: Matrix4x4) (parentPath: string) : unit =
         let n = nodes.[nodeIndex]
         let local =
             Matrix4x4.CreateScale(n.Scale) * Matrix4x4.CreateFromQuaternion(n.Rotation) * Matrix4x4.CreateTranslation(n.Translation)
-        let world = parentWorld * local
-        let worldRot = parentRot * n.Rotation
+        // Row-vector convention: a point goes local -> parent -> world, so the
+        // node's accumulated world matrix is `local * parentWorld` (apply the
+        // node's transform, then the ancestors').
+        let world = local * parentWorld
+        let nodeLabel = if n.Name = "" then sprintf "Node%d" nodeIndex else n.Name
+        let path = if parentPath = "" then nodeLabel else sprintf "%s/%s" parentPath nodeLabel
 
         match n.Mesh with
         | Some meshIndex ->
-            let prims = optArray meshes.[meshIndex] "primitives"
-            let meshName = optString meshes.[meshIndex] "name"
-            for primIndex in 0 .. prims.Length - 1 do
-                let raw = readPrimitive meshName prims.Length primIndex prims.[primIndex]
-                submeshes.Add(bakePrimitive raw world worldRot)
+            let (first, count) = meshRanges.[meshIndex]
+            parts.Add(
+                { Name = n.Name
+                  HierarchyPath = path
+                  World = world
+                  SubmeshIndex = first
+                  SubmeshCount = count })
         | None -> ()
 
         for child in n.Children do
-            bake child world worldRot
+            bake child world path
 
     let sceneIndex = defaultArg (optInt root "scene") 0
     let scenes = optArray root "scenes"
@@ -297,9 +317,9 @@ let load (path: string) : Model =
             [||]
 
     for r in roots do
-        bake r Matrix4x4.Identity Quaternion.Identity
+        bake r Matrix4x4.Identity ""
 
-    // bounds over all baked positions
+    // bounds over all local-space positions (informational; drawn via parts).
     let mutable minX = Single.PositiveInfinity
     let mutable minY = Single.PositiveInfinity
     let mutable minZ = Single.PositiveInfinity
@@ -320,4 +340,5 @@ let load (path: string) : Model =
             if z > maxZ then maxZ <- z
 
     { Submeshes = submeshes.ToArray()
+      Parts = parts.ToArray()
       Bounds = { Min = Vector3(minX, minY, minZ); Max = Vector3(maxX, maxY, maxZ) } }

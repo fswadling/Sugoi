@@ -1,8 +1,8 @@
 module AssetBrowser
 
-// Bottom panel: lists the discovered actors/props. Clicking an actor/prop spawns
-// it into the active zone and selects it (environments are listed later, not
-// spawnable this phase).
+// Bottom panel: lists the discovered actors, environments, and props in named
+// sections. Clicking an actor/prop spawns it into the active zone and selects
+// it; clicking an environment loads it into the zone's single environment slot.
 
 open Entity
 open Command
@@ -21,25 +21,38 @@ let draw (assets: Assets.AssetManager) (state: byref<GameplayState.GameplayState
     if assets.Actors.Count = 0 && assets.Props.Count = 0 && assets.Environments.Count = 0 then
         do ImGui.text("(no assets)")
     else
-        // Actors spawn with their model binding.
-        for asset in assets.Actors.Values |> Seq.sortBy (fun a -> a.Id) do
-            if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                let entity = baseEntity asset.Name
-                let ref = Zone.spawnActor state.Zone assets entity asset.Id
-                let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, asset.Id))
-                state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
+        // ── Actors ──
+        if assets.Actors.Count > 0 then
+            do ImGui.text("Actors")
+            for asset in assets.Actors.Values |> Seq.sortBy (fun a -> a.Id) do
+                if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
+                    let entity = baseEntity asset.Name
+                    let ref = Zone.spawnActor state.Zone assets entity asset.Id
+                    let binding = { AssetId = asset.Id; SubmeshIndex = 0; SubmeshCount = 0 }
+                    let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, binding))
+                    state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
 
-        // Props spawn with their model binding (a static glTF submesh set).
-        for asset in assets.Props.Values |> Seq.sortBy (fun a -> a.Id) do
-            if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                let entity = baseEntity asset.Name
-                let ref = Zone.spawnProp state.Zone assets entity asset.Id
-                let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, asset.Id))
-                state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
+        // ── Environments ──
+        if assets.Environments.Count > 0 then
+            do ImGui.text("")
+            do ImGui.text("Environments")
+            for asset in assets.Environments.Values |> Seq.sortBy (fun a -> a.Id) do
+                if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
+                    let previous = state.Zone.Environment.AssetId
+                    do Zone.setEnvironment state.Zone assets asset.Id
+                    let undo = UndoStack.push state.Editor.Undo (SetEnvironment (previous, asset.Id))
+                    state.Editor <- { state.Editor with Undo = undo }
 
-        // Environments load into the zone's single environment slot.
-        for asset in assets.Environments.Values |> Seq.sortBy (fun a -> a.Id) do
-            if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                do Zone.setEnvironment state.Zone assets asset.Id
+        // ── Props ──
+        if assets.Props.Count > 0 then
+            do ImGui.text("")
+            do ImGui.text("Props")
+            for asset in assets.Props.Values |> Seq.sortBy (fun a -> a.Id) do
+                if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
+                    let entity = baseEntity asset.Name
+                    let ref = Zone.spawnProp state.Zone assets entity asset.Id
+                    let binding = { AssetId = asset.Id; SubmeshIndex = 0; SubmeshCount = 0 }
+                    let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, binding))
+                    state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
 
     do ImGui.endWindow()

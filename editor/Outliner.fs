@@ -25,6 +25,12 @@ let draw (assets: Assets.AssetManager) (state: byref<GameplayState.GameplayState
 
     let zone = state.Zone
 
+    // The currently loaded environment (a zone has at most one).
+    let environmentName =
+        if zone.Environment.AssetId = "" then "(none)" else zone.Environment.Base.Name
+    do ImGui.text(sprintf "Environment: %s" environmentName)
+    do ImGui.text("")
+
     if ImGui.collapsingHeader("Actors", 0) then
         if SlotMap.count zone.Actors = 0u then
             do ImGui.text("(none)")

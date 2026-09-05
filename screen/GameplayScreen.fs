@@ -55,8 +55,9 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
 // Render the 3D scene: upload the grid + gizmo line vertices (copy passes),
 // then begin the scene render pass (clearing color + depth), draw the grid, the
-// environment/props/actors, and finally the gizmo/marker lines (depth-tested so
-// they are occluded by geometry in front of them).
+// props (placed assets + imported environment parts), the actors, and finally
+// the gizmo/marker lines (depth-tested so they are occluded by geometry in
+// front of them).
 let renderScene (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : unit =
     do DebugDraw.upload state.DebugDraw pass.Cmd
     do DebugDraw.upload state.GizmoDraw pass.Cmd
@@ -73,12 +74,9 @@ let renderScene (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : 
 
     let lightDir = Vector3.Normalize(Vector3(0.4f, 0.8f, 0.4f))
 
-    // Static environment (if loaded) and props, then the animated actors.
+    // Props (placed assets and imported environment parts), then the animated
+    // actors. The environment entity itself draws nothing — its parts are props.
     let staticPipeline = state.StaticPipeline
-    if state.Zone.Environment.AssetId <> "" then
-        let model = Entity.modelMatrix state.Zone.Environment.Base.Transform
-        do EnvironmentRender.draw state.Zone.Environment.Renderer scenePass pass.Cmd staticPipeline viewProjection model lightDir
-
     SlotMap.iteriAlive state.Zone.Environment.Props (fun _ (p: Prop) ->
         let model = Entity.modelMatrix p.Base.Transform
         do EnvironmentRender.draw p.Renderer scenePass pass.Cmd staticPipeline viewProjection model lightDir)

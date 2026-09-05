@@ -8,32 +8,37 @@ open Entity
 open Zone
 
 type Command =
-    | Spawn of Ref : EntityRef * Entity : Entity * AssetId : string
-    | Delete of Ref : EntityRef * Entity : Entity * AssetId : string
-    | Duplicate of Ref : EntityRef * Entity : Entity * AssetId : string
+    | Spawn of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
+    | Delete of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
+    | Duplicate of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
     | Transform of Ref : EntityRef * Before : Transform * After : Transform
+    | SetEnvironment of PreviousAssetId : string * NewAssetId : string
 
 // ── apply / undo a single command ──
 
 let apply (zone: Zone) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
-    | Spawn (r, entity, assetId)
-    | Duplicate (r, entity, assetId) ->
-        setActorWithAsset zone assets r entity assetId
+    | Spawn (r, entity, binding)
+    | Duplicate (r, entity, binding) ->
+        setActorWithAsset zone assets r entity binding
     | Delete (r, _, _) ->
         removeEntity zone r
     | Transform (r, _, after) ->
         Option.iter (fun (e: Entity) -> setEntity zone r { e with Transform = after }) (entityAt zone r)
+    | SetEnvironment (_, newAssetId) ->
+        setEnvironment zone assets newAssetId
 
 let undo (zone: Zone) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
     | Spawn (r, _, _)
     | Duplicate (r, _, _) ->
         removeEntity zone r
-    | Delete (r, entity, assetId) ->
-        setActorWithAsset zone assets r entity assetId
+    | Delete (r, entity, binding) ->
+        setActorWithAsset zone assets r entity binding
     | Transform (r, before, _) ->
         Option.iter (fun (e: Entity) -> setEntity zone r { e with Transform = before }) (entityAt zone r)
+    | SetEnvironment (previousAssetId, _) ->
+        setEnvironment zone assets previousAssetId
 
 // ── undo stack ──
 
