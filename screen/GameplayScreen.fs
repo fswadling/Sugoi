@@ -38,12 +38,13 @@ let private advanceActorAnimations (dt: float32) (zone: Zone.Zone) : unit =
 let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
     do updateAspectRatio (frame.WindowW, frame.WindowH) &state
     do advanceActorAnimations frame.Dt state.Zone
-    Editor.update shared.Assets frame &state
+    do Physics.step shared.Physics frame.Dt
+    Editor.update shared frame &state
 
 // Draw the editor workspace (when editing) and always emit the reference grid
 // so the scene stays visible in both edit and play modes.
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
-    let transition = Editor.draw shared.Assets &state
+    let transition = Editor.draw shared &state
     do Viewport.drawGrid &state
     if state.Editing then
         do Viewport.buildLines &state
@@ -82,7 +83,7 @@ let renderScene (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : 
     // Props (placed assets and imported environment parts), then the animated
     // actors. The environment entity itself draws nothing — its parts are props.
     let staticPipeline = state.StaticPipeline
-    SlotMap.iteriAlive state.Zone.Environment.Props (fun _ (p: Prop) ->
+    SlotMap.iteriAlive state.Zone.Props (fun _ (p: Prop) ->
         let model = Entity.modelMatrix p.Base.Transform
         do EnvironmentRender.draw p.Renderer scenePass pass.Cmd staticPipeline viewProjection model light cameraPos)
 

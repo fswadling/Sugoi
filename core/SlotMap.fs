@@ -121,6 +121,15 @@ let tryGetByIndex (map: SlotMap<'T>) (index: uint32) : 'T option =
     let slot = map.Slots.[int index]
     if slot.Alive then Some slot.Value else None
 
+// Read a slot by index (alive only). Raises on an out-of-range or dead slot.
+let getByIndex (map: SlotMap<'T>) (index: uint32) : 'T =
+    if index >= uint32 map.Slots.Length then
+        invalidOp "slot map index is out of range"
+    let slot = map.Slots.[int index]
+    if not slot.Alive then
+        invalidOp "slot map slot is dead"
+    slot.Value
+
 // Write a value at an index. Overwrites an alive slot, or occupies a free slot
 // (rebuilding the free list) — the latter is how undo restores a deleted entity
 // at its original index. Raises on an out-of-range index.

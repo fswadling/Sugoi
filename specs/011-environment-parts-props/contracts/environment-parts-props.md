@@ -78,34 +78,38 @@ val createPartRender : manager:AssetManager -> environmentAssetId:string -> subm
 ```fsharp
 [<Struct>]
 type AssetBinding =
-    { AssetId : string
+    { AssetId : string option
       SubmeshIndex : int
       SubmeshCount : int }
 
 [<Struct>]
 type Prop =
     { Base : Entity
-      AssetId : string
+      AssetId : string option
       SubmeshIndex : int
       SubmeshCount : int
+      Physics : PhysicsAttachment<MeshCollider> option   // phase 13
       mutable Renderer : EnvironmentRender.EnvironmentRender }
 
 [<Struct>]
 type Environment =
     { Base : Entity
-      AssetId : string
-      Orientation : Quaternion
-      mutable Props : SlotMap<Prop> }
+      AssetId : string            // present only when the environment is loaded
+      Orientation : Quaternion }
 
-val spawnProp : zone:Zone -> assets:Assets.AssetManager -> entity:Entity -> assetId:string -> EntityRef
-val spawnPropBinding : zone:Zone -> assets:Assets.AssetManager -> entity:Entity -> binding:AssetBinding -> EntityRef
-val setEnvironment : zone:Zone -> assets:Assets.AssetManager -> assetId:string -> unit
-val setActorWithAsset : zone:Zone -> assets:Assets.AssetManager -> ref:EntityRef -> entity:Entity -> binding:AssetBinding -> unit
-val removeEntity : zone:Zone -> ref:EntityRef -> unit
+// Props live on `Zone.Props : SlotMap<Prop>`; `Zone.Environment : Environment option`
+// is the loaded environment (`None` when none is loaded).
+
+val spawnActor : zone:Zone -> world:Physics.World -> assets:Assets.AssetManager -> entity:Entity -> assetId:string -> EntityRef
+val spawnProp : zone:Zone -> world:Physics.World -> assets:Assets.AssetManager -> entity:Entity -> assetId:string -> EntityRef
+val spawnPropBinding : zone:Zone -> world:Physics.World -> assets:Assets.AssetManager -> entity:Entity -> binding:AssetBinding -> EntityRef
+val loadEnvironment : zone:Zone -> world:Physics.World -> assets:Assets.AssetManager -> assetId:string -> unit
+val clearEnvironment : zone:Zone -> world:Physics.World -> assets:Assets.AssetManager -> unit
+val setActorWithAsset : zone:Zone -> world:Physics.World -> assets:Assets.AssetManager -> ref:EntityRef -> entity:Entity -> binding:AssetBinding -> unit
+val removeEntity : zone:Zone -> world:Physics.World -> ref:EntityRef -> unit
 val entityAt : zone:Zone -> ref:EntityRef -> Entity option
 val bindingAt : zone:Zone -> ref:EntityRef -> AssetBinding
-val assetIdAt : zone:Zone -> ref:EntityRef -> string
-val setEntity : zone:Zone -> ref:EntityRef -> entity:Entity -> unit
+val setEntity : zone:Zone -> world:Physics.World -> ref:EntityRef -> entity:Entity -> unit
 ```
 
 `state/Command.fs` gains:
@@ -116,7 +120,7 @@ type Command =
     | Delete of EntityRef * Entity * AssetBinding
     | Duplicate of EntityRef * Entity * AssetBinding
     | Transform of EntityRef * Transform * Transform
-    | SetEnvironment of PreviousAssetId : string * NewAssetId : string
+    | SetEnvironment of PreviousAssetId : string option * NewAssetId : string option
 ```
 
 ## Rules
@@ -126,12 +130,12 @@ type Command =
   mesh's primitive count. It raises on `matrix` nodes, sparse accessors,
   skins/animations, non-triangle primitives, a missing `POSITION`, a non-`float32`
   attribute, or an unsupported index component type.
-- `Zone.setEnvironment` decomposes each `Part.World` into an `Entity.Transform`
-  (`Matrix4x4.Decompose`) and spawns a prop with `AssetId = ""`, the part's
-  submesh range, and that transform; it keeps placed props (non-empty `AssetId`)
-  and drops the previous environment's parts (empty `AssetId`). An empty asset id
-  clears the environment.
-- A placed prop (`AssetId` non-empty) draws the whole asset
+- `Zone.loadEnvironment` decomposes each `Part.World` into an `Entity.Transform`
+  (`Matrix4x4.Decompose`) and spawns a prop with `AssetId = None`, the part's
+  submesh range, and that transform; it keeps placed props (`Some` `AssetId`)
+  and drops the previous environment's parts (`None`). `Zone.clearEnvironment`
+  removes the loaded environment (dropping its parts, keeping placed props).
+- A placed prop (`AssetId = Some id`) draws the whole asset
   (`SubmeshIndex = 0`, `SubmeshCount = asset.Submeshes.Length`) with identity
   orientation; an environment part draws its range with the environment's
   orientation.

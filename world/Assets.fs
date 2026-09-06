@@ -134,11 +134,37 @@ let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<string
                   IndexCount = mesh.NumTriangles * 3
                   Material = Texture.makeMaterial loader'.White (Vector4(1.0f, 1.0f, 1.0f, 1.0f)) 0.0f 0.8f Vector3.Zero albedo None None None })
 
+        // Actor bounds from the model's positions, for the capsule collider.
+        if model.Positions.Length = 0 then failwithf "iqm: actor '%s' has no positions" id
+        let mutable minV = Vector3(Single.PositiveInfinity, Single.PositiveInfinity, Single.PositiveInfinity)
+        let mutable maxV = Vector3(Single.NegativeInfinity, Single.NegativeInfinity, Single.NegativeInfinity)
+        for i in 0 .. model.Positions.Length / 3 - 1 do
+            let x = model.Positions.[i * 3]
+            let y = model.Positions.[i * 3 + 1]
+            let z = model.Positions.[i * 3 + 2]
+            minV <- Vector3(min minV.X x, min minV.Y y, min minV.Z z)
+            maxV <- Vector3(max maxV.X x, max maxV.Y y, max maxV.Z z)
+        let actorBounds : Gltf.Bounds = { Min = minV; Max = maxV }
+
         let mesh = Mesh.create loader'.Device model.Positions normals uvs boneIds boneWeights model.Triangles submeshes
-        actors.[id] <- { Id = id; Name = name; ModelPath = modelPath; Mesh = mesh; Model = actorModel }
+        actors.[id] <- { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel }
     actors
 
 // ── static (environment/prop) asset loading ──
+
+// Bounds over a contiguous submesh range (one part's geometry).
+let private submeshRangeBounds (submeshes: Gltf.Submesh array) (first: int) (count: int) : Gltf.Bounds =
+    let mutable minV = Vector3(Single.PositiveInfinity, Single.PositiveInfinity, Single.PositiveInfinity)
+    let mutable maxV = Vector3(Single.NegativeInfinity, Single.NegativeInfinity, Single.NegativeInfinity)
+    for i in first .. first + count - 1 do
+        let positions = submeshes.[i].Positions
+        for v in 0 .. positions.Length / 3 - 1 do
+            let x = positions.[v * 3]
+            let y = positions.[v * 3 + 1]
+            let z = positions.[v * 3 + 2]
+            minV <- Vector3(min minV.X x, min minV.Y y, min minV.Z z)
+            maxV <- Vector3(max maxV.X x, max maxV.Y y, max maxV.Z z)
+    { Min = minV; Max = maxV }
 
 // Parse a glTF model and upload each submesh as a static GPU buffer, producing a
 // shared `EnvironmentAsset`. Each submesh resolves its glTF material index to a
@@ -163,7 +189,9 @@ let private loadStaticModel (loader: Loader) (root: string) (id: string) (name: 
         model.Submeshes
         |> Array.map (fun s ->
             { EnvironmentAsset.Mesh = StaticMesh.create loader.Device s.Positions s.Normals s.Uvs s.Indices
-              EnvironmentAsset.Material = materialFor s })
+              EnvironmentAsset.Material = materialFor s
+              EnvironmentAsset.Positions = s.Positions
+              EnvironmentAsset.Indices = s.Indices })
     let parts =
         if includeParts then
             model.Parts
@@ -171,6 +199,7 @@ let private loadStaticModel (loader: Loader) (root: string) (id: string) (name: 
                 { EnvironmentAsset.Name = p.Name
                   EnvironmentAsset.HierarchyPath = p.HierarchyPath
                   EnvironmentAsset.World = p.World
+                  EnvironmentAsset.Bounds = submeshRangeBounds model.Submeshes p.SubmeshIndex p.SubmeshCount
                   EnvironmentAsset.SubmeshIndex = p.SubmeshIndex
                   EnvironmentAsset.SubmeshCount = p.SubmeshCount })
         else
@@ -179,6 +208,7 @@ let private loadStaticModel (loader: Loader) (root: string) (id: string) (name: 
       Name = name
       ModelPath = modelPath
       Orientation = Quaternion.Identity
+      Bounds = model.Bounds
       Submeshes = submeshes
       Parts = parts }
 

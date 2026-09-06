@@ -9,5 +9,6 @@ type ActorAsset =
     { Id : string
       Name : string
       ModelPath : string
+      Bounds : Gltf.Bounds
       Mesh : Mesh.Mesh
       Model : Actor.ActorModel }

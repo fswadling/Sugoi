@@ -61,16 +61,43 @@ type Entity =
       Selectable : bool
       Draggable : bool }
 
+// Collider shape data kept on an entity so a transform change can rebuild the
+// body without re-reading the asset. Props/environment parts always collide as
+// mesh geometry and actors always as a capsule, so each entity stores only its
+// own shape, optionally (None = no collider).
+
+// Prop/environment-part geometry: node-local flat vertex positions (xyz
+// triplets) and triangle indices, unscaled; the body build bakes the entity
+// scale into the vertices.
+[<Struct>]
+type MeshCollider =
+    { Positions : float32 array
+      Indices : int array }
+
+// Actor capsule: horizontal radius and vertical half-height.
+[<Struct>]
+type CapsuleCollider =
+    { Radius : float32
+      HalfHeight : float32 }
+
+// An entity's physics attachment: the collider shape plus the body built from
+// it, held together so a body can never exist without its collider. `None`
+// means no collider.
+[<Struct>]
+type PhysicsAttachment<'Collider> =
+    { Collider : 'Collider
+      Body : Physics.BodyId }
+
 // Specialised entities compose the base via a nested field (no struct
 // inheritance in F#). Actor/Environment/Prop share the base; Waypoint/Trigger
 // are standalone.
 
 // The asset binding carried by undo commands: which model to (re)create — an
-// actor id, a prop id, or empty for an environment part — and, for props, the
+// actor id, a prop id, or `None` for an environment part — and, for parts, the
 // submesh range to draw.
 [<Struct>]
 type AssetBinding =
-    { AssetId : string
+    { AssetId : string option
       SubmeshIndex : int
       SubmeshCount : int }
 
@@ -78,26 +105,31 @@ type AssetBinding =
 type Actor =
     { Base : Entity
       AssetId : string
+      Physics : PhysicsAttachment<CapsuleCollider> option
       mutable Renderer : ActorRender.ActorRender }
 
 module Actor =
     // Release an actor's renderer GPU buffers.
     let releaseRenderer (a: Actor) : unit = ActorRender.release a.Renderer
 
+// A placed prop asset (`AssetId = Some id`, whole model) or an environment part
+// (`AssetId = None`, the part's submesh range in the zone's environment).
 [<Struct>]
 type Prop =
     { Base : Entity
-      AssetId : string
+      AssetId : string option
       SubmeshIndex : int
       SubmeshCount : int
+      Physics : PhysicsAttachment<MeshCollider> option
       mutable Renderer : EnvironmentRender.EnvironmentRender }
 
+// The zone's loaded environment asset. The environment is optional on the zone
+// (`Environment option`); when present it always has an asset id.
 [<Struct>]
 type Environment =
     { Base : Entity
       AssetId : string
-      Orientation : Quaternion
-      mutable Props : SlotMap<Prop> }
+      Orientation : Quaternion }
 
 module Prop =
     // Release a prop's renderer GPU buffers.

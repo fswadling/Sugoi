@@ -4,7 +4,7 @@
 
 This roadmap is derived from **odin-game's git history** (the "what" and the
 proven build order) and **ocaml-game's editor design** (the "how"), adapted to
-F# + SDL3/SDL_gpu + ImGui + Box3D. It deliberately departs from ocaml-game's
+F# + SDL3/SDL_gpu + ImGui + Jolt Physics. It deliberately departs from ocaml-game's
 foundation-first milestone order in favour of keeping something runnable at
 every step. It puts the **app shell (screens) first**, then the **"walk around an
 environment with physics"** and **PBR** milestones early, before any
@@ -49,7 +49,8 @@ box/BVH props), and a full **in-engine editor** to author all of it.
 - SDL3 window + SDL_gpu device + swapchain loop with a software 60 FPS cap.
 - Dear ImGui wired through the SDL_gpu backend, docking-enabled
   (`render/ImGui.fs`, `render/ImGuiSdl3.fs`, `native/`).
-- Box3D referenced (Happypig375 bindings) but not yet used.
+- Jolt Physics (JoltPhysicsSharp) wired in: `physics/Physics.fs` (world, box/capsule
+  bodies, raycast), colliders for actors/props, and accurate collider picking.
 - Target data architecture documented in `docs/ARCHITECTURE.md`.
 
 ## The phases
@@ -217,8 +218,8 @@ directional light.
 **Goal**: physical world plus accurate selection.
 
 **Deliverables**
-- `physics/Physics.fs` — Box3D adapter: world, capsule character body, box/hull
-  prop colliders, `b3World_Step`.
+- `physics/Physics.fs` — Jolt adapter: world, capsule character body, box prop
+  colliders, and `PhysicsSystem.Update` (step).
 - Collider↔render transform sync.
 - Accurate raycast picking (screen-ray → collider/BVH), replacing the phase-2
   minimal raycast.
@@ -390,8 +391,9 @@ PBR → physics → walk around). After that, the content-authoring path is
 - **Asset manifests** — port `ocaml-game/lib/core/assets.ml` (scan
   `actors/`/`environments/`/`props/` + s-syntax manifests) as the asset manager
   (needed by phase 2b and phase 4).
-- **Physics** — `Box3D` (Happypig375) behind `physics/Physics.fs`, starting with
-  capsule bodies (character) + box/hull shapes (props) and `b3World_Step`.
+- **Physics** — `JoltPhysicsSharp` behind `physics/Physics.fs`, starting with
+  capsule bodies (character) + mesh shapes (props/environment), accurate raycast
+  picking, and `PhysicsSystem.Update` (step).
 - **PBR** — glTF materials (metallic-roughness) map directly onto SDL_gpu
   pipelines; no external shading library needed. Keep it minimal (GGX direct +
   directional light) rather than a full PBR framework.

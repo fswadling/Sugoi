@@ -112,7 +112,7 @@ remain visible.
 - Re-spawning/replacing an environment removes the old parts and keeps placed
   props; undoing an environment spawn restores the previous environment (or none).
 - Imported parts must not collide with placed props in the slot map (both live in
-  the same `Zone.Environment.Props` map).
+  the same `Zone.Props` map).
 - A part name that collides with another part (names are display-only; no key).
 
 ## Requirements *(mandatory)*
@@ -129,8 +129,8 @@ remain visible.
 - **FR-003**: Spawning an environment MUST create one prop in the zone's props
   slot map per part, with the part's world transform as the prop's entity
   transform and the part's submesh range as the prop's draw range.
-- **FR-004**: A prop MUST distinguish a placed prop asset (non-empty asset id,
-  draws the whole model) from an environment part (empty asset id, draws a
+- **FR-004**: A prop MUST distinguish a placed prop asset (`AssetId = Some id`,
+  draws the whole model) from an environment part (`AssetId = None`, draws a
   submesh range of the environment's shared model).
 - **FR-005**: The environment's authored orientation MUST apply to every imported
   part when it is drawn.
@@ -140,8 +140,8 @@ remain visible.
 - **FR-007**: Imported parts MUST be selectable, transformable, and undoable
   through the existing `EntityRef`/`Zone`/`Command` flow.
 - **FR-008**: Re-spawning or replacing an environment MUST remove the previous
-  environment's parts (props with an empty asset id) before spawning the new ones,
-  and MUST preserve placed props (non-empty asset id).
+  environment's parts (props with `AssetId = None`) before spawning the new ones,
+  and MUST preserve placed props (`AssetId = Some id`).
 - **FR-009**: The system MUST fail loudly on a missing, malformed, or unsupported
   glTF or manifest (including `matrix` nodes, sparse accessors, skins/animations,
   and non-triangle primitives).
@@ -156,10 +156,11 @@ remain visible.
   shared static submeshes and the `Parts` list. Mirrors odin-game's
   `Environment_Asset.parts`.
 - **Environment entity**: the zone's single world container — base `Entity`, its
-  asset reference, orientation, and the `props` slot map (which now holds the
-  imported parts too). Renders nothing directly.
-- **Prop entity**: a placed prop — either a prop asset (`AssetId` non-empty,
-  whole model) or an environment part (`AssetId` empty, submesh range of the
+  asset reference, and orientation. Renders nothing directly; it is optional
+  (`Zone.Environment : Environment option`) and its imported parts live in the
+  zone's `Props` slot map.
+- **Prop entity**: a placed prop — either a prop asset (`AssetId = Some id`,
+  whole model) or an environment part (`AssetId = None`, submesh range of the
   environment's shared model).
 
 ## Success Criteria *(mandatory)*

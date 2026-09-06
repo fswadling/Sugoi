@@ -12,33 +12,37 @@ type Command =
     | Delete of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
     | Duplicate of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
     | Transform of Ref : EntityRef * Before : Transform * After : Transform
-    | SetEnvironment of PreviousAssetId : string * NewAssetId : string
+    | SetEnvironment of PreviousAssetId : string option * NewAssetId : string option
 
 // ── apply / undo a single command ──
 
-let apply (zone: Zone) (assets: Assets.AssetManager) (cmd: Command) : unit =
+let apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
     | Spawn (r, entity, binding)
     | Duplicate (r, entity, binding) ->
-        setActorWithAsset zone assets r entity binding
+        setActorWithAsset zone physics assets r entity binding
     | Delete (r, _, _) ->
-        removeEntity zone r
+        removeEntity zone physics r
     | Transform (r, _, after) ->
-        Option.iter (fun (e: Entity) -> setEntity zone r { e with Transform = after }) (entityAt zone r)
+        Option.iter (fun (e: Entity) -> setEntity zone physics r { e with Transform = after }) (entityAt zone r)
     | SetEnvironment (_, newAssetId) ->
-        setEnvironment zone assets newAssetId
+        match newAssetId with
+        | Some id -> loadEnvironment zone physics assets id
+        | None -> clearEnvironment zone physics assets
 
-let undo (zone: Zone) (assets: Assets.AssetManager) (cmd: Command) : unit =
+let undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
     | Spawn (r, _, _)
     | Duplicate (r, _, _) ->
-        removeEntity zone r
+        removeEntity zone physics r
     | Delete (r, entity, binding) ->
-        setActorWithAsset zone assets r entity binding
+        setActorWithAsset zone physics assets r entity binding
     | Transform (r, before, _) ->
-        Option.iter (fun (e: Entity) -> setEntity zone r { e with Transform = before }) (entityAt zone r)
+        Option.iter (fun (e: Entity) -> setEntity zone physics r { e with Transform = before }) (entityAt zone r)
     | SetEnvironment (previousAssetId, _) ->
-        setEnvironment zone assets previousAssetId
+        match previousAssetId with
+        | Some id -> loadEnvironment zone physics assets id
+        | None -> clearEnvironment zone physics assets
 
 // ── undo stack ──
 
@@ -51,8 +55,8 @@ module UndoStack =
     // Re-bind the enclosing module's command-level apply/undo under unambiguous
     // names — `Command` is also the name of the DU type, so `Command.undo` here
     // would resolve to the type, not this module.
-    let private undoCommand zone assets cmd = undo zone assets cmd
-    let private applyCommand zone assets cmd = apply zone assets cmd
+    let private undoCommand zone physics assets cmd = undo zone physics assets cmd
+    let private applyCommand zone physics assets cmd = apply zone physics assets cmd
 
     let create () : UndoStack =
         { Applied = []; Redo = [] }
@@ -78,18 +82,18 @@ module UndoStack =
         | Some merged -> { t with Applied = merged :: rest }
         | None -> { Applied = cmd :: t.Applied; Redo = [] }
 
-    let undo (t: UndoStack) (zone: Zone) (assets: Assets.AssetManager) : UndoStack =
+    let undo (t: UndoStack) (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) : UndoStack =
         match t.Applied with
         | [] -> t
         | cmd :: rest ->
 
-        undoCommand zone assets cmd
+        undoCommand zone physics assets cmd
         { Applied = rest; Redo = cmd :: t.Redo }
 
-    let redo (t: UndoStack) (zone: Zone) (assets: Assets.AssetManager) : UndoStack =
+    let redo (t: UndoStack) (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) : UndoStack =
         match t.Redo with
         | [] -> t
         | cmd :: rest ->
 
-        applyCommand zone assets cmd
+        applyCommand zone physics assets cmd
         { Applied = cmd :: t.Applied; Redo = rest }

@@ -12,9 +12,9 @@ graph TD
     P --> PT[Parts: name/path/world transform/submesh range]
     PT --> EA[EnvironmentAsset: Submeshes + Parts + Orientation]
     SM --> EA
-    EA --> Z[Zone.setEnvironment]
+    EA --> Z[Zone.loadEnvironment]
     Z --> PR[spawn one Prop per part]
-    PR --> PP[Zone.Environment.Props]
+    PR --> PP[Zone.Props]
     PP --> S[GameplayScreen.renderScene]
     S --> ER[EnvironmentRender.draw range]
     ER --> GPU[static pipeline]
@@ -108,42 +108,48 @@ val release : r:EnvironmentRender -> unit
 ```fsharp
 [<Struct>]
 type AssetBinding =
-    { AssetId : string                 // "" = environment part; else actor/prop id
+    { AssetId : string option          // None = environment part; Some = actor/prop id
       SubmeshIndex : int
       SubmeshCount : int }
 
 [<Struct>]
 type Prop =
     { Base : Entity
-      AssetId : string                 // "" = environment part; else prop asset id
+      AssetId : string option          // None = environment part; Some = prop asset id
       SubmeshIndex : int
       SubmeshCount : int
+      Physics : PhysicsAttachment<MeshCollider> option   // phase 13
       mutable Renderer : EnvironmentRender.EnvironmentRender }
 
 [<Struct>]
 type Environment =
     { Base : Entity
-      AssetId : string
-      Orientation : Quaternion         // from the loaded asset
-      mutable Props : SlotMap<Prop> } // now also holds imported parts
+      AssetId : string                 // present only when the environment is loaded
+      Orientation : Quaternion }       // from the loaded asset
+
+// Props live on `Zone.Props : SlotMap<Prop>` (phase 13 moved them out of
+// `Environment`); `Zone.Environment : Environment option` is `Some` only while
+// an environment is loaded.
 ```
 
 `AssetBinding` is what undo/redo commands carry to (re)create an entity's
-renderer: an actor/prop asset id or `""` for an environment part, plus the
-submesh range. `state/Command.fs` adds a `SetEnvironment` command
-(`PreviousAssetId * NewAssetId`) so loading/replacing an environment is undoable.
+renderer: an actor/prop asset id (`Some`) or `None` for an environment part,
+plus the submesh range. `state/Command.fs` adds a `SetEnvironment` command
+(`PreviousAssetId * NewAssetId`, both `string option`) so loading/replacing an
+environment is undoable.
 
-- `Zone.setEnvironment` decomposes each `EnvironmentPart.World` via
+- `Zone.loadEnvironment` decomposes each `EnvironmentPart.World` via
   `Matrix4x4.Decompose` into `Transform { Position; Rotation; Scale }`, and spawns
-  a prop (`spawnPropBinding`, `AssetId = ""`, the part's submesh range, and that
-  transform). It keeps placed props (non-empty `AssetId`) and drops the previous
-  environment's parts (empty `AssetId`); an empty asset id clears the environment.
-- `Zone.spawnProp` (placed prop path) uses `AssetId` non-empty and
+  a prop (`spawnPropBinding`, `AssetId = None`, the part's submesh range, and that
+  transform). It keeps placed props (`Some` `AssetId`) and drops the previous
+  environment's parts (`None`); `Zone.clearEnvironment` removes the environment
+  (dropping its parts, keeping placed props).
+- `Zone.spawnProp` (placed prop path) uses `AssetId = Some id` and
   `SubmeshIndex = 0`/`SubmeshCount = 0` — the renderer derives the whole-asset
   range from the prop asset.
 - `Zone.bindingAt` returns the `AssetBinding` (`AssetId` + submesh range) for a
-  ref; `setEntity`/`removeEntity`/`setActorWithAsset` preserve the binding across
-  edits/undo.
+  ref, raising for absent entities; `setEntity`/`removeEntity`/
+  `setActorWithAsset` preserve the binding across edits/undo.
 
 ## Asset manager — `world/Assets.fs`
 
@@ -156,9 +162,9 @@ submesh range. `state/Command.fs` adds a `SetEnvironment` command
 ## Scene pass — `screen/GameplayScreen.fs`
 
 `renderScene` drops the direct environment draw (the environment entity draws
-nothing). It draws each alive prop in `Zone.Environment.Props` — which now
-includes both placed props and imported parts — via `EnvironmentRender.draw` with
-the prop's entity transform and the static pipeline.
+nothing). It draws each alive prop in `Zone.Props` — which includes both placed
+props and imported parts — via `EnvironmentRender.draw` with the prop's entity
+transform and the static pipeline.
 
 ## Relationships
 
@@ -166,7 +172,7 @@ the prop's entity transform and the static pipeline.
 - `EnvironmentAsset` depends on `Gltf` + `StaticMesh`; `EnvironmentRender` depends
   on `EnvironmentAsset` + `StaticMesh` + `Gpu`.
 - `Assets` depends on `Actor*`/`Iqm`/`Environment*`/`Gltf`/`StaticMesh`/`Mesh`/`Gpu`.
-- `Entity` depends on `ActorRender` + `EnvironmentRender`; `Zone` depends on
-  `Entity` + `Assets` + `SlotMap`.
-- Compile order is unchanged; only the module contents change (no new files except
-  test data).
+- `Entity` depends on `ActorRender` + `EnvironmentRender` + `Physics`; `Zone`
+  depends on `Entity` + `Assets` + `SlotMap` + `Physics`.
+- Phase 11 adds no new files (only module contents change); phase 13 later inserts
+  `physics/Physics.fs` and adds the `Physics` dependency (see `013-physics-picking`).

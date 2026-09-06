@@ -2,7 +2,7 @@ module GameplayState
 
 // Per-screen gameplay state. A struct; owns the editor's data (camera + editor
 // state + editing flag) and the active zone. Shared per-asset data (the asset
-// manager) lives on `SharedState`, not here.
+// manager) and the physics world live on `SharedState`, not here.
 
 open System.Numerics
 

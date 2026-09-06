@@ -36,7 +36,7 @@ contort code to avoid allocation in cold paths — clarity first, then measure.
 - Build: .NET (`dotnet`)
 - Windowing/Graphics: SDL3 (via the `SDL3-CS` .NET bindings)
 - Editor UI: Dear ImGui (via a custom cimgui binding + SDL_gpu backend, `ImGui.fs`/`ImGuiSdl3.fs` + native `libcimgui.so`)
-- Physics: Box3D (via the `Box3D` (Happypig375) .NET bindings)
+- Physics: Jolt Physics (via the `JoltPhysicsSharp` .NET bindings)
 - Spec workflow: Spec Kit ("speckit")
 
 ## Development Workflow
@@ -57,6 +57,15 @@ contort code to avoid allocation in cold paths — clarity first, then measure.
 
 ## Amendments
 
-None yet.
+### 2026-09-06 — Physics backend: Box3D → Jolt Physics
 
-**Version**: 1.0.0 | **Ratified**: 2026-08-27 | **Last Amended**: 2026-08-27
+- **Rationale**: `Box3D` was referenced but never used in code. The physics +
+  picking phase (`specs/013-physics-picking`) and later locomotion need a
+  full-featured rigid-body engine; Jolt Physics provides a BVH broadphase,
+  capsule/box/hull/mesh/heightfield shapes, ray casts, and a character
+  controller. The maintained .NET binding is `JoltPhysicsSharp`.
+- **Migration plan**: Replace the unused `Box3D` NuGet reference with
+  `JoltPhysicsSharp` (+ `JoltPhysics.Native`). No code depends on `Box3D`, so
+  there is no source migration.
+
+**Version**: 1.1.0 | **Ratified**: 2026-08-27 | **Last Amended**: 2026-09-06

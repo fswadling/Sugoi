@@ -124,8 +124,8 @@ fsharp-game/
 │   ├── ZoneEditor.fs
 │   ├── Command.fs              #   undoable editor commands
 │   └── Raycast.fs              #   screen-ray picking math
-├── physics/                    # Box3D (NuGet `Box3D`, not vendored C)
-│   └── Physics.fs              #   Box3D-backed world + a thin F# adapter
+├── physics/                    # Jolt Physics (NuGet `JoltPhysicsSharp`)
+│   └── Physics.fs              #   Jolt-backed world + a thin F# adapter
 ├── native/                     # native libs (ImGui + cimgui + backends)
 ├── test/                       # one <Module>Tests.fs per module (flat)
 ├── assets/                     # data: glTF, IQM, textures, manifests
@@ -145,9 +145,10 @@ fsharp-game/
 - **`editor/`** — editor tools. Consumes everything.
 - **`Engine.fs`** — the top-level `run` loop; composes the rest.
 - **`Program.fs`** — `[<EntryPoint>] main` only, delegates to `Engine.run`.
-- **`physics/`** — the Box3D-backed world wrapped behind a thin F# adapter over
-  the `Box3D` (Happypig375) NuGet package. No vendored C source (the package
-  ships the native lib), unlike ocaml-game which vendored it.
+- **`physics/`** — the Jolt-backed world wrapped behind a thin F# adapter over
+  the `JoltPhysicsSharp` NuGet package. The per-platform native `joltc` library
+  (`libjoltc.so`/`libjoltc.dylib`/`joltc.dll`) ships in the `JoltPhysics.Native`
+  package and is copied into `runtimes/<rid>/native/` automatically.
 
 Dependency direction is strictly downward: `Program`/`editor` → `screen` →
 `render` → `core` → `SlotMap`.

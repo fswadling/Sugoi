@@ -11,10 +11,14 @@ open System.Numerics
 open StaticMesh
 open Texture
 
-// One static GPU submesh plus its runtime PBR material.
+// One static GPU submesh plus its runtime PBR material. The CPU-side vertex
+// positions (flat xyz triplets) and triangle indices are kept after upload so
+// physics can build mesh colliders from the actual geometry.
 type StaticSubmesh =
     { Mesh : StaticMesh
-      Material : Texture.Material }
+      Material : Texture.Material
+      Positions : float32 array
+      Indices : int array }
 
 // One glTF node with a mesh, ready to become a prop. `World` is the node's
 // accumulated transform (applied as the prop's entity transform); `SubmeshIndex`/
@@ -23,6 +27,7 @@ type EnvironmentPart =
     { Name : string
       HierarchyPath : string
       World : Matrix4x4
+      Bounds : Gltf.Bounds
       SubmeshIndex : int
       SubmeshCount : int }
 
@@ -31,5 +36,6 @@ type EnvironmentAsset =
       Name : string
       ModelPath : string
       Orientation : Quaternion
+      Bounds : Gltf.Bounds
       Submeshes : StaticSubmesh array
       Parts : EnvironmentPart array }

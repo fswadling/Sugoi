@@ -95,7 +95,7 @@ world/Assets.fs             # EXTENDED: loadStaticModel gains parts; createPartR
                             #           for environment parts
 world/Entity.fs             # EXTENDED: AssetBinding + Prop gains SubmeshIndex/SubmeshCount;
                             #           Environment drops Renderer, gains Orientation
-world/Zone.fs               # EXTENDED: setEnvironment spawns one prop per part;
+world/Zone.fs               # EXTENDED: loadEnvironment spawns one prop per part;
                             #           spawnPropBinding/bindingAt; preserves placed props
 screen/GameplayScreen.fs    # EXTENDED: drop direct environment draw (parts draw via
                             #           the props slot map)
@@ -117,8 +117,8 @@ is one parameter on the renderer). `Gltf` stays in `core/` and stores part
 transforms as `Matrix4x4`; `world/Zone.fs` decomposes them into `Entity.Transform`
 (`Matrix4x4.Decompose`) so the gizmo/picking see the correct per-part position.
 The environment entity loses its renderer and becomes a container holding
-`AssetId` + `Orientation` + the props slot map; imported parts live in that map
-with `AssetId = ""`.
+`AssetId` + `Orientation`; props (placed and imported) live on `Zone.Props`, and
+`Zone.Environment` becomes optional. Imported parts have `AssetId = None`.
 
 ## Complexity Tracking
 

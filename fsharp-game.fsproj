@@ -11,6 +11,7 @@
     <Compile Include="core/Iqm.fs" />
     <Compile Include="core/Gltf.fs" />
     <Compile Include="core/Input.fs" />
+    <Compile Include="physics/Physics.fs" />
     <Compile Include="render/Gpu.fs" />
     <Compile Include="render/Texture.fs" />
     <Compile Include="render/Mesh.fs" />
@@ -68,7 +69,8 @@
   </Target>
 
   <ItemGroup>
-    <PackageReference Include="Box3D" Version="0.1.0.20260813" />
+    <PackageReference Include="JoltPhysicsSharp" Version="2.22.0" />
+    <PackageReference Include="JoltPhysics.Native" Version="1.1.0" />
     <PackageReference Include="Prime" Version="11.5.2" />
     <PackageReference Include="SDL3-CS" Version="3.4.14.1" />
   </ItemGroup>

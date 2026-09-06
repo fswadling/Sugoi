@@ -50,8 +50,8 @@ renderer plumbing can represent and draw a submesh range.
   into `EnvironmentAsset.Parts` for environments (empty for props); replace
   `createEnvironmentRender` with `createPropRender` (full range, identity
   orientation) and `createPartRender` (part range, environment orientation).
-- [X] T008 Rework `world/Zone.fs`: `setEnvironment` decomposes each part's `World`
-  via `Matrix4x4.Decompose` and spawns one prop per part (`AssetId = ""`, part's
+- [X] T008 Rework `world/Zone.fs`: `loadEnvironment` decomposes each part's `World`
+  via `Matrix4x4.Decompose` and spawns one prop per part (`AssetId = None`, part's
   submesh range, decomposed transform); add `spawnPropBinding`/`bindingAt` and an
   `AssetBinding` type; `setActorWithAsset`/`removeEntity` preserve the submesh
   range alongside the asset id.
@@ -81,10 +81,10 @@ authored position, and the environment entity draws no geometry.
   `assets/environments/artroom.manifest` (`[[Id "artroom"] [Name "ArtRoom"]
   [Model "environments/ArtRoom/ArtRoom.gltf"]]`).
 - [X] T012 [US1] In `editor/AssetBrowser.fs`, confirm environments spawn via
-  `Zone.setEnvironment` (already wired in phase 4); verify the new part-spawn path
+  `Zone.loadEnvironment` (already wired in phase 4); verify the new part-spawn path
   is exercised on click.
 - [X] T013 [US1] In `world/Zone.fs`/`world/Entity.fs`, ensure imported parts carry
-  an empty `AssetId` (so `assetIdAt` returns `""`) while placed props keep their id.
+  `AssetId = None` while placed props keep `AssetId = Some id`.
 
 **Checkpoint**: `artroom` imports as many props as it has mesh-bearing nodes.
 
@@ -101,11 +101,11 @@ desk moves and undo restores it.
 ### Implementation for User Story 2
 
 - [X] T014 [US2] Confirm the existing selection/gizmo flow picks imported parts
-  (they are ordinary props in `Zone.Environment.Props`); fix any
-  `editor/Viewport.fs`/`editor/Selection.fs` issue where an empty `AssetId` is
+  (they are ordinary props in `Zone.Props`); fix any
+  `editor/Viewport.fs`/`editor/Selection.fs` issue where a `None` `AssetId` is
   mishandled.
 - [X] T015 [US2] Confirm `state/Command.fs` spawn/delete/duplicate/transform undo
-  preserves the prop's `SubmeshIndex`/`SubmeshCount` and empty `AssetId` (so an
+  preserves the prop's `SubmeshIndex`/`SubmeshCount` and `AssetId = None` (so an
   imported part's range and part-ness survive undo/redo).
 - [X] T016 [US2] In `screen/GameplayScreen.fs`, confirm each part draws with its
   own entity transform and depth-sorts correctly against siblings/actors.
@@ -128,7 +128,7 @@ remain visible.
 - [X] T017 [US3] In `screen/GameplayScreen.fs`, verify draw order (grid → props →
   actors) and that placed props (full-range renderers) and imported parts
   (range renderers) coexist in the same props loop.
-- [X] T018 [US3] Verify re-spawn/replace: `Zone.setEnvironment` drops the old
+- [X] T018 [US3] Verify re-spawn/replace: `Zone.loadEnvironment` drops the old
   environment's parts and keeps placed props before spawning the new parts (no
   stale parts, placed props survive).
 
@@ -153,8 +153,8 @@ together.
 - [X] T022 Deduplicate instanced meshes: emit submeshes per unique mesh (mesh-index
   order) and have parts reference ranges, instead of re-reading geometry per node.
 - [X] T023 Make environment spawn undoable: add `Command.SetEnvironment`
-  (`PreviousAssetId * NewAssetId`); `Zone.setEnvironment` preserves placed props
-  and handles an empty id (clear). Push the command from `editor/AssetBrowser.fs`;
+  (`PreviousAssetId * NewAssetId`); `Zone.loadEnvironment` preserves placed props
+  and `Zone.clearEnvironment` clears. Push the command from `editor/AssetBrowser.fs`;
   tests in `CommandTests.fs`.
 - [X] T024 Divide `editor/AssetBrowser.fs` into Actors / Environments / Props
   sections.

@@ -24,6 +24,7 @@ let private gizmoLen = 0.75f
 let private gizmoRadius = 0.75f
 let private hitThreshold = 0.1f
 let private tipSize = 0.05f
+let private pickDistance = 1000.0f
 
 // ── Gizmo axis helpers ──
 
@@ -108,7 +109,7 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
         let c = if isSelected then selectedColor else white
         dd <- DebugDraw.wireframeBox dd a.Base.Transform.Position halfExtent c)
 
-    SlotMap.iteriAlive zone.Environment.Props (fun i p ->
+    SlotMap.iteriAlive zone.Props (fun i p ->
         let isSelected = selection = Some { Kind = EntityKind.Prop; Index = i }
         let c = if isSelected then selectedColor else white
         dd <- DebugDraw.wireframeBox dd p.Base.Transform.Position halfExtent c)
@@ -124,31 +125,18 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
 let ray (camera: Camera.Camera) (w: float32) (h: float32) (x: float32) (y: float32) : Ray =
     Raycast.rayFromScreen camera w h x y
 
-let pick (state: GameplayState.GameplayState) (w: float32) (h: float32) (x: float32) (y: float32) : EntityRef option =
+let pick (physics: Physics.World) (state: GameplayState.GameplayState) (w: float32) (h: float32) (x: float32) (y: float32) : EntityRef option =
     let r = ray state.Camera w h x y
 
-    // Keep the nearest hit in a value-type accumulator: a struct tuple of
-    // (distance, entity) inside a `voption`. No `Some`/tuple/`EntityRef` boxes,
-    // so the fold allocates nothing; the lambda stays pure and inlinable.
-    let consider (acc: struct (float32 * EntityRef) voption) (ref: EntityRef) (pos: Vector3) : struct (float32 * EntityRef) voption =
-        match Raycast.intersectAabb r pos halfExtent with
-        | None -> acc
-        | Some t ->
+    // Raycast against the physics colliders and map the hit body back to its
+    // entity via the zone's body→entity map.
+    match Physics.raycast physics r.Origin (r.Dir * pickDistance) with
+    | None -> None
+    | Some (bodyId, _) ->
 
-        match acc with
-        | ValueNone -> ValueSome (struct (t, ref))
-        | ValueSome (struct (bt, _)) when t < bt -> ValueSome (struct (t, ref))
-        | _ -> acc
-
-    let bestActors =
-        SlotMap.foldiAlive state.Zone.Actors ValueNone (fun acc i a -> consider acc { Kind = EntityKind.Actor; Index = i } a.Base.Transform.Position)
-
-    let best =
-        SlotMap.foldiAlive state.Zone.Environment.Props bestActors (fun acc i p -> consider acc { Kind = EntityKind.Prop; Index = i } p.Base.Transform.Position)
-
-    match best with
-    | ValueNone -> None
-    | ValueSome (struct (_, ref)) -> Some ref
+    match state.Zone.BodyToEntity.TryGetValue(bodyId) with
+    | true, ref -> Some ref
+    | false, _ -> None
 
 // Which gizmo axis (if any) the screen ray hits at the given center.
 let gizmoAxisAt (state: GameplayState.GameplayState) (r: Ray) (center: Vector3) : GizmoAxis option =
@@ -163,8 +151,9 @@ let gizmoAxisAt (state: GameplayState.GameplayState) (r: Ray) (center: Vector3) 
         match Raycast.planeIntersect r center normal with
         | None -> false
         | Some p ->
-            let off = p - center
-            abs (off.Length() - gizmoRadius) < hitThreshold
+
+        let off = p - center
+        abs (off.Length() - gizmoRadius) < hitThreshold
 
     let hit (axis: GizmoAxis) =
         if state.Editor.Tool = Rotate then ringHit axis else segHit axis

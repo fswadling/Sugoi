@@ -47,7 +47,7 @@ let private selectedTransform (state: GameplayState.GameplayState) : (Vector3 * 
     Option.map (fun (e: Entity) -> (e.Transform.Position, e.Transform)) entity
 
 // Write a transform back to the selected entity.
-let private setSelectedTransform (t: Transform) (state: byref<GameplayState.GameplayState>) : unit =
+let private setSelectedTransform (physics: Physics.World) (t: Transform) (state: byref<GameplayState.GameplayState>) : unit =
     match state.Editor.Selection with
     | None -> ()
     | Some ref ->
@@ -57,7 +57,7 @@ let private setSelectedTransform (t: Transform) (state: byref<GameplayState.Game
     | None -> ()
     | Some e ->
 
-    Zone.setEntity state.Zone ref { e with Transform = t }
+    Zone.setEntity state.Zone physics ref { e with Transform = t }
 
 
 // Focus the camera on the selection (re-centre the target, preserve the offset).
@@ -108,7 +108,7 @@ let private dragTransform (t: Transform) (r: Ray) (d: Drag) (a: Vector3) (state:
         Some { d.Start with Rotation = Quaternion.Concatenate(rotQ, d.Start.Rotation) }
 
 // Apply one frame of an in-progress gizmo drag.
-let private applyDrag (viewportW: float32) (viewportH: float32) (x: float32) (y: float32) (state: byref<GameplayState.GameplayState>) : unit =
+let private applyDrag (physics: Physics.World) (viewportW: float32) (viewportH: float32) (x: float32) (y: float32) (state: byref<GameplayState.GameplayState>) : unit =
     match state.Editor.Selection, state.Editor.Drag with
     | Some _, Some d ->
         let sel = selectedTransform state
@@ -120,7 +120,7 @@ let private applyDrag (viewportW: float32) (viewportH: float32) (x: float32) (y:
         let result = dragTransform t r d a state
         match result with
         | None -> ()
-        | Some newT -> setSelectedTransform newT &state
+        | Some newT -> setSelectedTransform physics newT &state
     | _ -> ()
 
 // End a drag: push one Transform command for the whole gesture (coalesced by the
@@ -205,7 +205,7 @@ let private nudgeTransform (camera: Camera.Camera) (tool: Tool) (snap: bool) (t:
 // Apply one frame of keyboard nudge to the selection (Shift + WASD/QE) and, on
 // release, commit the whole held nudge as a single undo step. A no-op with no
 // selection, a drag in progress, or text input focused.
-let updateNudge (input: Input.Input) (state: byref<GameplayState.GameplayState>) : unit =
+let updateNudge (physics: Physics.World) (input: Input.Input) (state: byref<GameplayState.GameplayState>) : unit =
     let dirs =
         if Input.isShift input && not (ImGui.wantTextInput()) && state.Editor.Drag = None then
             List.choose (fun k -> if Input.isHeld k input then nudgeDirOfKey k else None)
@@ -228,7 +228,7 @@ let updateNudge (input: Input.Input) (state: byref<GameplayState.GameplayState>)
         | Some (_, t) ->
 
         let newT = nudgeTransform state.Camera state.Editor.Tool state.Editor.Snap t dirs
-        setSelectedTransform newT &state
+        setSelectedTransform physics newT &state
     | [] ->
         // No nudge key held: push one Transform command for the whole hold.
         match state.Editor.NudgeBefore with
@@ -250,7 +250,7 @@ let updateNudge (input: Input.Input) (state: byref<GameplayState.GameplayState>)
 
 // Apply one frame of app-level shortcuts. No-ops while a text field has focus.
 // Returns the updated state and any navigation request (Escape → menu).
-let handleShortcuts (assets: Assets.AssetManager) (input: Input.Input) (state: byref<GameplayState.GameplayState>) : Screen.ScreenTransition =
+let handleShortcuts (shared: SharedState.SharedState) (input: Input.Input) (state: byref<GameplayState.GameplayState>) : Screen.ScreenTransition =
     if ImGui.wantTextInput() then
         Screen.ScreenTransition.None
     else
@@ -271,15 +271,15 @@ let handleShortcuts (assets: Assets.AssetManager) (input: Input.Input) (state: b
 
         // focus / delete / duplicate
         if Input.isPressed Input.Key.F input then focus &state
-        if Input.isPressed Input.Key.Delete input then Selection.delete assets &state
-        if Input.isCtrl input && Input.isPressed Input.Key.D input then Selection.duplicate assets &state
+        if Input.isPressed Input.Key.Delete input then Selection.delete shared &state
+        if Input.isCtrl input && Input.isPressed Input.Key.D input then Selection.duplicate shared &state
 
         // undo / redo (blocked mid-drag so an in-progress gesture isn't corrupted)
         if state.Editor.Drag = None then
             if Input.isCtrl input && Input.isPressed Input.Key.Z input && not (Input.isShift input) then
-                state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone assets }
+                state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone shared.Physics shared.Assets }
             if Input.isCtrl input && Input.isPressed Input.Key.Y input then
-                state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone assets }
+                state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone shared.Physics shared.Assets }
 
     // Escape returns to the main menu
     if Input.isPressed Input.Key.Escape input then
@@ -296,15 +296,15 @@ let handleShortcuts (assets: Assets.AssetManager) (input: Input.Input) (state: b
 
 // On a left press (not ImGui-captured): begin a gizmo drag when the cursor hits
 // a handle on the selection, otherwise pick an entity (a miss clears the selection).
-let private beginDragOrPick (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
+let private beginDragOrPick (physics: Physics.World) (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
     let sel = selectedTransform state
     match sel with
-    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick state viewportW viewportH input.MouseX input.MouseY }
+    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick physics state viewportW viewportH input.MouseX input.MouseY }
     | Some (center, transform) ->
 
     let r = Viewport.ray state.Camera viewportW viewportH input.MouseX input.MouseY
     match Viewport.gizmoAxisAt state r center with
-    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick state viewportW viewportH input.MouseX input.MouseY }
+    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick physics state viewportW viewportH input.MouseX input.MouseY }
     | Some axis ->
 
     let normal = if state.Editor.Tool = Rotate then Viewport.axisDir axis else Camera.forward state.Camera
@@ -313,11 +313,11 @@ let private beginDragOrPick (input: Input.Input) (viewportW: float32) (viewportH
 
 // Handle one frame of left-button interaction: begin a drag/pick on press, apply
 // the drag while held, and finish on release.
-let private interact (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
+let private interact (physics: Physics.World) (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
     if input.LeftPressed && not (ImGui.wantCaptureMouse()) then
-        do beginDragOrPick input viewportW viewportH &state
+        do beginDragOrPick physics input viewportW viewportH &state
     else if state.Editor.Drag <> None && input.LeftDown then
-        do applyDrag viewportW viewportH input.MouseX input.MouseY &state
+        do applyDrag physics viewportW viewportH input.MouseX input.MouseY &state
     else if state.Editor.Drag <> None && input.LeftReleased then
         do finishDrag &state
 
@@ -355,19 +355,19 @@ let private updateCamera (input: Input.Input) (dt: float32) (state: byref<Gamepl
 
 // Advance the editor for one frame: the edit/play toggle, shortcuts, nudge,
 // viewport interaction, and the camera. Called by GameplayScreen each frame.
-let update (assets: Assets.AssetManager) (frame: Screen.Frame) (state: byref<GameplayState.GameplayState>) : Screen.ScreenTransition =
+let update (shared: SharedState.SharedState) (frame: Screen.Frame) (state: byref<GameplayState.GameplayState>) : Screen.ScreenTransition =
     // Backtick toggles edit/play, unless the user is typing in a text field.
     if Input.isPressed Input.Key.Backtick frame.Input && not (ImGui.wantTextInput()) then
         state.Editing <- not state.Editing
 
     if not state.Editing then Screen.ScreenTransition.None else
 
-    let transition = handleShortcuts assets frame.Input &state
+    let transition = handleShortcuts shared frame.Input &state
 
     // keyboard nudge (editor mode only)
-    do updateNudge frame.Input &state
+    do updateNudge shared.Physics frame.Input &state
     // viewport selection + gizmo drag (editor mode only)
-    do interact frame.Input frame.WindowW frame.WindowH &state
+    do interact shared.Physics frame.Input frame.WindowW frame.WindowH &state
     do updateCamera frame.Input frame.Dt &state
 
     transition
@@ -376,7 +376,7 @@ let update (assets: Assets.AssetManager) (frame: Screen.Frame) (state: byref<Gam
 
 // Draw the workspace. Returns the updated state (the dock layout is built once
 // and remembered in the state) and any navigation request (File > Quit).
-let draw (assets: Assets.AssetManager) (state: byref<GameplayState.GameplayState>) : Screen.ScreenTransition =
+let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : Screen.ScreenTransition =
     if not state.Editing then Screen.ScreenTransition.None else
     // Apply any panel-focus request queued by update (valid only after NewFrame).
     do applyPendingFocus &state
@@ -402,15 +402,15 @@ let draw (assets: Assets.AssetManager) (state: byref<GameplayState.GameplayState
         if ImGui.beginMenu("Edit", true) then
             let idle = state.Editor.Drag = None && not (ImGui.wantTextInput())
             if ImGui.menuItem("Undo", "Ctrl+Z", false, idle && not (List.isEmpty state.Editor.Undo.Applied)) then
-                state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone assets }
+                state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone shared.Physics shared.Assets }
             if ImGui.menuItem("Redo", "Ctrl+Y", false, idle && not (List.isEmpty state.Editor.Undo.Redo)) then
-                state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone assets }
+                state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone shared.Physics shared.Assets }
             do ImGui.endMenu()
 
         do ImGui.endMainMenuBar()
 
-    do Outliner.draw assets &state
+    do Outliner.draw shared &state
     do Inspector.draw &state
-    do AssetBrowser.draw assets &state
+    do AssetBrowser.draw shared &state
 
     transition

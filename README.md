@@ -1,6 +1,6 @@
 # fsharp-game
 
-A game written in F# using SDL3, ImGui, and Box3D, structured after `odin-game`.
+A game written in F# using SDL3, ImGui, and Jolt Physics, structured after `odin-game`.
 
 ## Prerequisites
 

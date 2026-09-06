@@ -56,10 +56,11 @@ and the phase-4 `core/Gltf.fs`.
 
 ## Decision 4 — The environment renders via its parts; the entity is a container
 
-- **Decision**: `Zone.setEnvironment` spawns one prop per part (empty `AssetId`,
+- **Decision**: `Zone.loadEnvironment` spawns one prop per part (`AssetId = None`,
   submesh range, part transform) and the environment entity itself draws nothing.
   The environment keeps `AssetId` + `Orientation` so the orientation can be
-  composed into every part's draw.
+  composed into every part's draw; props live on `Zone.Props` and the environment
+  is optional (`Zone.Environment : Environment option`).
 - **Rationale**: this is exactly odin's `render_full_model = false` path. It makes
   "imported furniture" a set of first-class props instead of one opaque mesh.
 - **Alternatives considered**: keep a `render_full_model` flag and support both
@@ -68,8 +69,8 @@ and the phase-4 `core/Gltf.fs`.
 
 ## Decision 5 — A prop distinguishes a placed asset from an environment part by asset id
 
-- **Decision**: a prop with a non-empty `AssetId` is a placed prop asset (draws
-  the whole model); a prop with an empty `AssetId` is an environment part (draws a
+- **Decision**: a prop with `AssetId = Some id` is a placed prop asset (draws the
+  whole model); a prop with `AssetId = None` is an environment part (draws a
   submesh range of the environment's shared model). `Prop` gains
   `SubmeshIndex`/`SubmeshCount` used only by parts (a placed asset uses
   `0`/`asset.Submeshes.Length`).
@@ -107,14 +108,14 @@ and the phase-4 `core/Gltf.fs`.
 
 ## Decision 8 — Re-spawning an environment replaces parts, preserves placed props
 
-- **Decision**: `setEnvironment` drops the previous environment's parts (props
-  with an empty `AssetId`) and keeps placed props (non-empty `AssetId`), then
-  spawns the new environment's parts. An empty asset id clears the environment
+- **Decision**: `loadEnvironment` drops the previous environment's parts (props
+  with `AssetId = None`) and keeps placed props (`Some` `AssetId`), then
+  spawns the new environment's parts. `clearEnvironment` removes the environment
   (parts removed, placed props kept).
 - **Rationale**: an environment swap must not leave the previous environment's
   furniture in the zone, but placed props are first-class entities that live in
   the same props slot map and must survive a swap (spec FR-006/FR-008). Using
-  `AssetId = ""` as the part marker makes the split trivial.
+  `AssetId = None` as the part marker makes the split trivial.
 - **Alternatives considered**: wiping the whole props map like phase 4 (rejected —
   destroys placed props and breaks their undo stack); diffing old/new parts
   (rejected — no stable part identity across different assets).
@@ -122,12 +123,12 @@ and the phase-4 `core/Gltf.fs`.
 ## Decision 9 — Loading an environment is an undoable command
 
 - **Decision**: `state/Command.fs` gains `SetEnvironment (PreviousAssetId,
-  NewAssetId)`; the Asset Browser pushes it after calling `setEnvironment`. Undo
-  re-runs `setEnvironment` with the previous id (or `""` to clear).
+  NewAssetId)`; the Asset Browser pushes it after calling `loadEnvironment`/
+  `clearEnvironment`. Undo re-runs the previous id (or clears when `None`).
 - **Rationale**: loading an environment now spawns many props, so it must be a
   first-class, undoable edit rather than a bare zone-level mutation (phase 4's
   `Decision 11` deferred this; phase 11 makes it necessary). Because parts are
-  spawned deterministically from the asset, re-running `setEnvironment` restores
+  spawned deterministically from the asset, re-running `loadEnvironment` restores
   the previous environment's parts on undo.
 - **Alternatives considered**: a full props-map snapshot for undo (rejected —
   copying the slot map is heavy and re-spawning is deterministic); leaving it
