@@ -21,6 +21,7 @@ type CommandBuffer = nativeint
 type CopyPass = nativeint
 type Pipeline = nativeint
 type Texture = nativeint
+type Sampler = nativeint
 type RenderPass = nativeint
 
 // Maximum joint count for the GPU skinning bone palette. Mirrored as BONES_MAX
@@ -29,12 +30,12 @@ let BonesMax = 205
 
 // ── shaders + buffers ──
 
-let loadShader (device: Device) (stage: SDL.GPUShaderStage) (path: string) (uniformBuffers: uint32) (storageBuffers: uint32) : Shader =
+let loadShader (device: Device) (stage: SDL.GPUShaderStage) (path: string) (uniformBuffers: uint32) (storageBuffers: uint32) (samplers: uint32) : Shader =
     let code = File.ReadAllBytes(path)
     let mutable info = SDL.GPUShaderCreateInfo()
     info.Format <- SDL.GPUShaderFormat.SPIRV
     info.Stage <- stage
-    info.NumSamplers <- 0u
+    info.NumSamplers <- samplers
     info.NumStorageTextures <- 0u
     info.NumStorageBuffers <- storageBuffers
     info.NumUniformBuffers <- uniformBuffers
@@ -93,13 +94,26 @@ let writeVector4 (bytes: byte array) (offset: int) (v: Vector4) : unit =
     let s = MemoryMarshal.Cast<byte, float32>(bytes.AsSpan(offset, 16))
     s.[0] <- v.X; s.[1] <- v.Y; s.[2] <- v.Z; s.[3] <- v.W
 
+// Inverse-transpose of the model's upper 3x3 (the normal matrix), returned as a
+// mat4 so the shader can read `mat3(normalMatrix)`. Falls back to identity when
+// the upper 3x3 is singular (degenerate scale).
+let normalMatrix (model: Matrix4x4) : Matrix4x4 =
+    let m3 =
+        Matrix4x4(
+            model.M11, model.M12, model.M13, 0.0f,
+            model.M21, model.M22, model.M23, 0.0f,
+            model.M31, model.M32, model.M33, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f)
+    let mutable inv = Matrix4x4.Identity
+    if Matrix4x4.Invert(m3, &inv) then Matrix4x4.Transpose(inv) else Matrix4x4.Identity
+
 // ── mesh pipeline ──
 
 // Depth-tested triangle pipeline for position/normal/uv/blend vertices with a
 // vertex-stage PerDraw uniform block plus the bone-palette storage buffer.
 let createMeshPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
-    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/mesh.vert.spv" 1u 1u
-    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/mesh.frag.spv" 0u 0u
+    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/mesh.vert.spv" 1u 1u 0u
+    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/mesh.frag.spv" 1u 0u 4u
 
     let mutable vbufDesc = SDL.GPUVertexBufferDescription()
     vbufDesc.Slot <- 0u
@@ -205,8 +219,8 @@ let createMeshPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) 
 // blend attributes, no bone storage buffer). Used by environments and props,
 // which must not pay the skinning cost of the actor mesh pipeline.
 let createStaticPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
-    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/static.vert.spv" 1u 0u
-    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/static.frag.spv" 0u 0u
+    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/static.vert.spv" 1u 0u 0u
+    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/static.frag.spv" 1u 0u 4u
 
     let mutable vbufDesc = SDL.GPUVertexBufferDescription()
     vbufDesc.Slot <- 0u

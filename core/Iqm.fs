@@ -26,7 +26,7 @@ type VertexArray =
 
 type Mesh =
     { Name : string
-      Material : int
+      Material : string
       FirstVertex : int
       NumVertices : int
       FirstTriangle : int
@@ -144,7 +144,7 @@ let load (path: string) : Model =
         Array.init numMeshes (fun i ->
             let off = ofsMeshes + i * 24
             { Name = cstring b ofsText (int (u32 b off))
-              Material = int (u32 b (off + 4))
+              Material = cstring b ofsText (int (u32 b (off + 4)))
               FirstVertex = int (u32 b (off + 8))
               NumVertices = int (u32 b (off + 12))
               FirstTriangle = int (u32 b (off + 16))

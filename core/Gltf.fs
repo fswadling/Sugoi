@@ -17,10 +17,21 @@ open System.Text.Json
 
 type Bounds = { Min : Vector3; Max : Vector3 }
 
+type TextureRef = { Uri : string }
+
+type Material =
+    { BaseColor : Vector4
+      Metallic : float32
+      Roughness : float32
+      Emissive : Vector3
+      AlbedoTexture : TextureRef option
+      MetallicRoughnessTexture : TextureRef option
+      NormalTexture : TextureRef option
+      EmissiveTexture : TextureRef option }
+
 type Submesh =
     { Name : string
       Material : int
-      BaseColor : Vector4
       Positions : float32 array
       Normals : float32 array
       Uvs : float32 array
@@ -36,6 +47,7 @@ type Part =
 type Model =
     { Submeshes : Submesh array
       Parts : Part array
+      Materials : Material array
       Bounds : Bounds }
 
 // ── glTF component-type / accessor tables ──
@@ -170,18 +182,56 @@ let load (path: string) : Model =
               Count = reqInt a "count"
               Components = typeComponents ((req a "type").GetString()) })
 
-    let materialBaseColors =
+    // images: external uri only; embedded (bufferView/data:) raise.
+    let images =
+        optArray root "images"
+        |> Array.map (fun img ->
+            match img.TryGetProperty("uri") with
+            | true, u ->
+                let uri = u.GetString()
+                if uri.StartsWith("data:") then failwith "gltf: embedded data-URI images unsupported"
+                uri
+            | false, _ ->
+                if img.TryGetProperty("bufferView") |> fst then failwith "gltf: embedded images unsupported"
+                else failwith "gltf: image without uri unsupported")
+
+    // textures: source -> image index
+    let textures = optArray root "textures" |> Array.map (fun t -> reqInt t "source")
+
+    let textureRef (index: int) : TextureRef =
+        if index < 0 || index >= textures.Length then failwith "gltf: texture index out of range"
+        let imageIndex = textures.[index]
+        if imageIndex < 0 || imageIndex >= images.Length then failwith "gltf: image index out of range"
+        { Uri = images.[imageIndex] }
+
+    let floatList (e: JsonElement) (name: string) (n: int) (def: float32 array) : float32 array =
+        match e.TryGetProperty(name) with
+        | false, _ -> def
+        | true, v ->
+        let c = v.EnumerateArray() |> Seq.map _.GetSingle() |> Seq.toArray
+        if c.Length <> n then failwithf "gltf: %s must have %d components" name n
+        c
+
+    let materials =
         optArray root "materials"
         |> Array.map (fun m ->
-            match m.TryGetProperty("pbrMetallicRoughness") with
-            | true, pbr ->
-                match pbr.TryGetProperty("baseColorFactor") with
-                | true, f ->
-                    let c = f.EnumerateArray() |> Seq.map (fun x -> x.GetSingle()) |> Seq.toArray
-                    if c.Length <> 4 then failwith "gltf: baseColorFactor must have 4 components"
-                    Vector4(c.[0], c.[1], c.[2], c.[3])
-                | false, _ -> Vector4(1.0f, 1.0f, 1.0f, 1.0f)
-            | false, _ -> Vector4(1.0f, 1.0f, 1.0f, 1.0f))
+            let pbr = match m.TryGetProperty("pbrMetallicRoughness") with | true, p -> p | false, _ -> m
+            let baseColor = floatList pbr "baseColorFactor" 4 [| 1.0f; 1.0f; 1.0f; 1.0f |]
+            let metallic = match pbr.TryGetProperty("metallicFactor") with | true, f -> f.GetSingle() | false, _ -> 1.0f
+            let roughness = match pbr.TryGetProperty("roughnessFactor") with | true, f -> f.GetSingle() | false, _ -> 1.0f
+            let emissive = floatList m "emissiveFactor" 3 [| 0.0f; 0.0f; 0.0f |]
+            let texRef (block: JsonElement) (name: string) : TextureRef option =
+                match block.TryGetProperty(name) with
+                | true, t -> Some (textureRef (reqInt t "index"))
+                | false, _ -> None
+            { BaseColor = Vector4(baseColor.[0], baseColor.[1], baseColor.[2], baseColor.[3])
+              Metallic = metallic
+              Roughness = roughness
+              Emissive = Vector3(emissive.[0], emissive.[1], emissive.[2])
+              AlbedoTexture = texRef pbr "baseColorTexture"
+              MetallicRoughnessTexture = texRef pbr "metallicRoughnessTexture"
+              NormalTexture = texRef m "normalTexture"
+              EmissiveTexture = texRef m "emissiveTexture" })
 
     let nodes =
         optArray root "nodes"
@@ -251,14 +301,10 @@ let load (path: string) : Model =
             | false, _ -> Array.init vertexCount id
 
         let material = defaultArg (optInt prim "material") -1
-        let baseColor =
-            if material >= 0 && material < materialBaseColors.Length then materialBaseColors.[material]
-            else Vector4(1.0f, 1.0f, 1.0f, 1.0f)
 
         let name = if primCount = 1 then meshName else sprintf "%s.%d" meshName primIndex
         { Name = name
           Material = material
-          BaseColor = baseColor
           Positions = positions
           Normals = normals
           Uvs = uvs
@@ -341,4 +387,5 @@ let load (path: string) : Model =
 
     { Submeshes = submeshes.ToArray()
       Parts = parts.ToArray()
+      Materials = materials
       Bounds = { Min = Vector3(minX, minY, minZ); Max = Vector3(maxX, maxY, maxZ) } }

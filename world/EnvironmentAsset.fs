@@ -9,11 +9,12 @@ module EnvironmentAsset
 
 open System.Numerics
 open StaticMesh
+open Texture
 
-// One static GPU submesh plus its parsed material base color.
+// One static GPU submesh plus its runtime PBR material.
 type StaticSubmesh =
     { Mesh : StaticMesh
-      BaseColor : Vector4 }
+      Material : Texture.Material }
 
 // One glTF node with a mesh, ready to become a prop. `World` is the node's
 // accumulated transform (applied as the prop's entity transform); `SubmeshIndex`/

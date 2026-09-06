@@ -9,6 +9,7 @@ open System.Numerics
 open SDL3
 open Screen
 open Entity
+open Texture
 
 let private updateAspectRatio (width: float32, height: float32) (state: byref<GameplayState.GameplayState>) : unit =
     let aspect = if height > 0.0f then width / height else state.Camera.Aspect
@@ -72,20 +73,23 @@ let renderScene (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : 
     let viewProjection = Camera.viewProjection state.Camera
     do DebugDraw.draw state.DebugDraw viewProjection pass.Cmd scenePass
 
-    let lightDir = Vector3.Normalize(Vector3(0.4f, 0.8f, 0.4f))
+    let light : Light =
+        { Direction = Vector3.Normalize(Vector3(0.4f, 0.8f, 0.4f))
+          Color = Vector3(1.0f, 1.0f, 1.0f)
+          Ambient = Vector3(0.15f, 0.15f, 0.15f) }
+    let cameraPos = state.Camera.Position
 
     // Props (placed assets and imported environment parts), then the animated
     // actors. The environment entity itself draws nothing — its parts are props.
     let staticPipeline = state.StaticPipeline
     SlotMap.iteriAlive state.Zone.Environment.Props (fun _ (p: Prop) ->
         let model = Entity.modelMatrix p.Base.Transform
-        do EnvironmentRender.draw p.Renderer scenePass pass.Cmd staticPipeline viewProjection model lightDir)
+        do EnvironmentRender.draw p.Renderer scenePass pass.Cmd staticPipeline viewProjection model light cameraPos)
 
-    let baseColor = Vector4(0.85f, 0.75f, 0.65f, 1.0f)
     let meshPipeline = state.MeshPipeline
     SlotMap.iteriAlive state.Zone.Actors (fun _ (a: Actor) ->
         let model = Entity.modelMatrix a.Base.Transform
-        do ActorRender.draw a.Renderer scenePass pass.Cmd meshPipeline viewProjection model lightDir baseColor)
+        do ActorRender.draw a.Renderer scenePass pass.Cmd meshPipeline viewProjection model light cameraPos)
 
     // Editor markers + gizmos, depth-tested against the meshes drawn above.
     do DebugDraw.draw state.GizmoDraw viewProjection pass.Cmd scenePass

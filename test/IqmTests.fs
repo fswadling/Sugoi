@@ -10,7 +10,7 @@ let private findAkane () : string =
     let rec up (dir: DirectoryInfo) (depth: int) : string option =
         if depth > 8 then None
         else
-        let candidate = Path.Combine(dir.FullName, "assets", "actors", "Akane.iqm")
+        let candidate = Path.Combine(dir.FullName, "assets", "actors", "Akane", "Akane.iqm")
         if File.Exists(candidate) then Some candidate
         else if dir.Parent = null then None
         else up dir.Parent (depth + 1)
@@ -38,6 +38,15 @@ let ``load parses the Akane IQM model`` () =
     let weights = Option.get m.BlendWeights
     Assert.Equal(20005 * 4, indices.Length)
     Assert.Equal(20005 * 4, weights.Length)
+
+    // The model splits into 13 meshes; each IQM `material` field is a texture
+    // name (not an index), naming the albedo PNG for that mesh.
+    Assert.Equal(13, m.Meshes.Length)
+    Assert.Equal("_10.png", m.Meshes.[0].Material)
+    Assert.Equal("_16.png", m.Meshes.[12].Material)
+    Assert.Equal("Body", m.Meshes.[0].Name)
+    Assert.Equal("Face", m.Meshes.[5].Name)
+    Assert.Equal("Hair", m.Meshes.[12].Name)
 
 [<Fact>]
 let ``load rejects a non-IQM file`` () =

@@ -15,6 +15,7 @@ open System.Numerics
 open System.Runtime.InteropServices
 open SDL3
 open Actor
+open Texture
 open Mesh
 
 // Per-actor animation + skinning state. A value type so instances live inline in
@@ -101,9 +102,9 @@ let upload (r: ActorRender) (cmd: Gpu.CommandBuffer) : unit =
 
 // Bind this instance's bone storage buffer (vertex storage slot 0) and draw.
 // Runs inside the render pass.
-let draw (r: ActorRender) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (lightDir: Vector3) (baseColor: Vector4) : unit =
+let draw (r: ActorRender) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (light: Light) (cameraPos: Vector3) : unit =
     do SDL.BindGPUVertexStorageBuffers(renderPass, 0u, [| r.BoneBuffer |], 1u)
-    do Mesh.draw r.Asset.Mesh renderPass cmd pipeline viewProjection (upAxisFix * model) lightDir baseColor
+    do Mesh.draw r.Asset.Mesh renderPass cmd pipeline viewProjection (upAxisFix * model) light cameraPos
 
 // Free this instance's GPU buffers (bone storage + upload transfer). Called when
 // an actor is removed from its zone. The shared `ActorAsset` (mesh + model) is

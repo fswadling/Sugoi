@@ -9,20 +9,18 @@ layout(location = 2) in vec2  aUV;
 layout(location = 3) in uvec4 aBoneIds;
 layout(location = 4) in vec4  aBoneWeights;
 
-layout(location = 0) out vec4 vColor;
+layout(location = 0) out vec3 vWorldPos;
+layout(location = 1) out vec3 vWorldNormal;
+layout(location = 2) out vec2 vUV;
 
 // Vertex-stage uniform slot 0 (set = 1 in SDL_gpu's convention).
 layout(set = 1, binding = 0) uniform PerDraw {
     mat4 viewProj;
     mat4 model;
-    vec4 lightDir;
-    vec4 baseColor;
+    mat4 normalMatrix;
 } perDraw;
 
-// Vertex-stage storage buffer slot 0 (set = 0 in SDL_gpu's convention). The
-// bone palette must be a storage buffer, not a pushed uniform: SDL_gpu's
-// Vulkan backend binds each pushed uniform slot with a 4 KiB range
-// (MAX_UBO_SECTION_SIZE), so any bone past index 63 would read as zero.
+// Vertex-stage storage buffer slot 0 (set = 0 in SDL_gpu's convention).
 layout(set = 0, binding = 0) readonly buffer Bones {
     mat4 bones[];
 } bone;
@@ -36,11 +34,11 @@ void main() {
 
     mat4 modelBone = perDraw.model * boneBlended;
     vec4 world = modelBone * vec4(aPosition, 1.0);
-    vec3 n = normalize(mat3(modelBone) * aNormal);
-    vec3 l = normalize(perDraw.lightDir.xyz);
-    float diffuse = max(dot(n, l), 0.0);
-    float ambient = 0.25;
-    float light = ambient + diffuse * (1.0 - ambient);
-    vColor = vec4(perDraw.baseColor.rgb * light, perDraw.baseColor.a);
+    vWorldPos = world.xyz;
+    // Inverse-transpose of the model transform for non-uniform scale, composed
+    // with the (rigid) bone rotation. Bones are rotation+translation, so their
+    // inverse-transpose is the rotation itself.
+    vWorldNormal = mat3(perDraw.normalMatrix) * mat3(boneBlended) * aNormal;
+    vUV = aUV;
     gl_Position = perDraw.viewProj * world;
 }

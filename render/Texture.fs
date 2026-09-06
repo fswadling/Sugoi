@@ -1,0 +1,160 @@
+module Texture
+
+// Texture decode/upload + PBR material. Textures are decoded from disk by
+// SDL_image (IMG_LoadGPUTexture), already bound by the SDL3-CS package, straight
+// into an SDL_gpu sampled texture. A `Material` bundles the metallic-roughness
+// factors with up to four texture samplers (albedo/normal/metallic-roughness/
+// emissive); absent maps fall back to a shared white placeholder and are skipped
+// by the shader's has* flags.
+
+open System
+open System.IO
+open System.Numerics
+open System.Runtime.InteropServices
+open SDL3
+open Gpu
+
+// A decoded image uploaded as an SDL_gpu texture + sampler.
+[<Struct>]
+type Texture =
+    { Device : Gpu.Device
+      Handle : Gpu.Texture
+      Sampler : Gpu.Sampler }
+
+// Scene lighting: a directional sun + ambient. Shared by both pipelines.
+[<Struct>]
+type Light =
+    { Direction : Vector3   // toward the sun
+      Color : Vector3
+      Ambient : Vector3 }
+
+// Runtime PBR material. `Bindings` is always four entries in fixed shader order
+// (albedo, normal, metallicRoughness, emissive); absent slots use the shared
+// white placeholder and are skipped via the has* flags.
+type Material =
+    { BaseColor : Vector4
+      Metallic : float32
+      Roughness : float32
+      Emissive : Vector3
+      HasAlbedo : bool
+      HasNormal : bool
+      HasMetallicRoughness : bool
+      HasEmissive : bool
+      Bindings : SDL.GPUTextureSamplerBinding array }
+
+let private createSampler (device: Gpu.Device) : Gpu.Sampler =
+    let mutable info = SDL.GPUSamplerCreateInfo()
+    info.MinFilter <- SDL.GPUFilter.Linear
+    info.MagFilter <- SDL.GPUFilter.Linear
+    info.MipmapMode <- SDL.GPUSamplerMipmapMode.Linear
+    info.AddressModeU <- SDL.GPUSamplerAddressMode.Repeat
+    info.AddressModeV <- SDL.GPUSamplerAddressMode.Repeat
+    info.AddressModeW <- SDL.GPUSamplerAddressMode.Repeat
+    SDL.CreateGPUSampler(device, &info)
+
+// Wrap a Texture as a texture+sampler binding (fixed shader slot).
+let private binding (t: Texture) : SDL.GPUTextureSamplerBinding =
+    let mutable b = SDL.GPUTextureSamplerBinding()
+    b.Texture <- t.Handle
+    b.Sampler <- t.Sampler
+    b
+
+// libSDL3_image (vendored next to the apphost) links libjbig.so.0 for TIFF/JBIG
+// support. Preload it from the app directory before the first decode: the app
+// dir is not in the dynamic linker's default search path, so this makes
+// libjbig.so.0 resolvable when SDL_image is first dlopen'd.
+let private preloadImageDep = lazy (
+    let path = Path.Combine(AppContext.BaseDirectory, "libjbig.so.0")
+    if File.Exists(path) then NativeLibrary.Load(path) |> ignore)
+
+// Decode an image file straight into a 1x1..n SDL_gpu texture (R8G8B8A8Unorm, no
+// mip levels) using SDL_image.
+let load (device: Gpu.Device) (path: string) : Texture =
+    do preloadImageDep.Value
+    let cmd = SDL.AcquireGPUCommandBuffer(device)
+    let copyPass = SDL.BeginGPUCopyPass(cmd)
+    let mutable w = 0
+    let mutable h = 0
+    let handle = SDL3.Image.LoadGPUTexture(device, copyPass, path, &w, &h)
+    SDL.EndGPUCopyPass(copyPass)
+    SDL.SubmitGPUCommandBuffer(cmd) |> ignore
+    if handle = IntPtr.Zero then failwithf "texture: failed to load '%s'" path
+    { Device = device; Handle = handle; Sampler = createSampler device }
+
+// A 1x1 solid RGBA texture (used as the shared placeholder for absent maps).
+let solid (device: Gpu.Device) (r: byte) (g: byte) (b: byte) (a: byte) : Texture =
+    let mutable texInfo = SDL.GPUTextureCreateInfo()
+    texInfo.Type <- SDL.GPUTextureType.TextureType2D
+    texInfo.Format <- SDL.GPUTextureFormat.R8G8B8A8Unorm
+    texInfo.Usage <- SDL.GPUTextureUsageFlags.Sampler
+    texInfo.Width <- 1u
+    texInfo.Height <- 1u
+    texInfo.LayerCountOrDepth <- 1u
+    texInfo.NumLevels <- 1u
+    texInfo.SampleCount <- SDL.GPUSampleCount.SampleCount1
+    let handle = SDL.CreateGPUTexture(device, &texInfo)
+
+    let transfer = Gpu.createTransferBuffer device 4u
+    let mapped = SDL.MapGPUTransferBuffer(device, transfer, false)
+    let pixels = [| r; g; b; a |]
+    Marshal.Copy(pixels, 0, mapped, 4)
+    SDL.UnmapGPUTransferBuffer(device, transfer)
+
+    let cmd = SDL.AcquireGPUCommandBuffer(device)
+    let copyPass = SDL.BeginGPUCopyPass(cmd)
+    let mutable transferInfo = SDL.GPUTextureTransferInfo()
+    transferInfo.TransferBuffer <- transfer
+    transferInfo.Offset <- 0u
+    let mutable region = SDL.GPUTextureRegion()
+    region.Texture <- handle
+    region.MipLevel <- 0u
+    region.Layer <- 0u
+    region.X <- 0u
+    region.Y <- 0u
+    region.Z <- 0u
+    region.W <- 1u
+    region.H <- 1u
+    region.D <- 1u
+    SDL.UploadToGPUTexture(copyPass, &transferInfo, &region, false)
+    SDL.EndGPUCopyPass(copyPass)
+    SDL.SubmitGPUCommandBuffer(cmd) |> ignore
+    SDL.ReleaseGPUTransferBuffer(device, transfer)
+
+    { Device = device; Handle = handle; Sampler = createSampler device }
+
+// Build a runtime material; `white` is the shared placeholder substituted for
+// absent maps so the four sampler bindings stay contiguous.
+let makeMaterial
+    (white: Texture)
+    (baseColor: Vector4)
+    (metallic: float32)
+    (roughness: float32)
+    (emissive: Vector3)
+    (albedo: Texture option)
+    (normal: Texture option)
+    (metallicRoughness: Texture option)
+    (emissiveTex: Texture option) : Material =
+    let pick (t: Texture option) : Texture * bool =
+        match t with Some x -> (x, true) | None -> (white, false)
+    let (a, hasA) = pick albedo
+    let (n, hasN) = pick normal
+    let (mr, hasMR) = pick metallicRoughness
+    let (e, hasE) = pick emissiveTex
+    let bindings =
+        [| binding a
+           binding n
+           binding mr
+           binding e |]
+    { BaseColor = baseColor
+      Metallic = metallic
+      Roughness = roughness
+      Emissive = emissive
+      HasAlbedo = hasA
+      HasNormal = hasN
+      HasMetallicRoughness = hasMR
+      HasEmissive = hasE
+      Bindings = bindings }
+
+// A default dielectric material (no maps, sensible roughness).
+let defaultMaterial (white: Texture) (baseColor: Vector4) : Material =
+    makeMaterial white baseColor 0.0f 0.8f Vector3.Zero None None None None

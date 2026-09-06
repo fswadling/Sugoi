@@ -12,6 +12,7 @@
     <Compile Include="core/Gltf.fs" />
     <Compile Include="core/Input.fs" />
     <Compile Include="render/Gpu.fs" />
+    <Compile Include="render/Texture.fs" />
     <Compile Include="render/Mesh.fs" />
     <Compile Include="render/StaticMesh.fs" />
     <Compile Include="render/ImGui.fs" />
@@ -50,6 +51,14 @@
        apphost so `DllImport("cimgui")` resolves it at runtime. -->
   <Target Name="CopyImGuiBackend" AfterTargets="Build" Condition="Exists('native/libcimgui.so')">
     <Copy SourceFiles="native/libcimgui.so" DestinationFolder="$(OutDir)" />
+  </Target>
+
+  <!-- Vendored SDL3_image native library (from ppy.sdl3_image-cs) plus its
+       libjbig dependency. `DllImport("SDL3_image")` resolves libSDL3_image.so
+       from the app dir; libjbig.so.0 is preloaded in Texture.fs before the first
+       decode so the dynamic linker can satisfy SDL_image's NEEDED entry. -->
+  <Target Name="CopySdl3ImageLibraries" AfterTargets="Build" Condition="Exists('native/libSDL3_image.so')">
+    <Copy SourceFiles="native/libSDL3_image.so;native/libjbig.so.0" DestinationFolder="$(OutDir)" />
   </Target>
 
   <!-- Compiled line shader SPIR-V, loaded from disk at startup. Copied to the

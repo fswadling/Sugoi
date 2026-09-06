@@ -21,28 +21,44 @@ let private findAsset (relative: string) : string =
 
 [<Fact>]
 let ``load parses the Island environment`` () =
-    let m = Gltf.load (findAsset "assets/environments/Island.gltf")
+    let m = Gltf.load (findAsset "assets/environments/Island/Island.gltf")
     Assert.Equal(1, m.Submeshes.Length)
     let sub = m.Submeshes.[0]
     Assert.Equal(65478, sub.Positions.Length / 3)
     Assert.Equal(65478, sub.Normals.Length / 3)
     Assert.Equal(65478, sub.Uvs.Length / 2)
     Assert.True(sub.Indices.Length % 3 = 0)
-    // no material -> default white base color
+    // no material -> the submesh references none; no materials are defined.
     Assert.Equal(-1, sub.Material)
-    Assert.Equal(System.Numerics.Vector4(1.0f, 1.0f, 1.0f, 1.0f), sub.BaseColor)
+    Assert.Empty(m.Materials)
 
 [<Fact>]
 let ``load parses the multi-primitive Beech prop`` () =
-    let m = Gltf.load (findAsset "assets/props/Beech.gltf")
+    let m = Gltf.load (findAsset "assets/props/Beech/Beech.gltf")
     Assert.Equal(2, m.Submeshes.Length)
     let bark = m.Submeshes.[0]
     let leaves = m.Submeshes.[1]
     Assert.Equal(131015, bark.Positions.Length / 3)
     Assert.Equal(230832, leaves.Positions.Length / 3)
-    // Bark has an explicit baseColorFactor (black); the leaves have none (white).
-    Assert.Equal(System.Numerics.Vector4(0.0f, 0.0f, 0.0f, 1.0f), bark.BaseColor)
-    Assert.Equal(System.Numerics.Vector4(1.0f, 1.0f, 1.0f, 1.0f), leaves.BaseColor)
+    // Bark has an explicit baseColorFactor (black) and an emissive texture; the
+    // leaves have no factor (white), a normal map, an albedo map, and a
+    // metallic-roughness map.
+    Assert.Equal(2, m.Materials.Length)
+    Assert.Equal(0, bark.Material)
+    Assert.Equal(1, leaves.Material)
+    let barkMat = m.Materials.[0]
+    let leavesMat = m.Materials.[1]
+    Assert.Equal(System.Numerics.Vector4(0.0f, 0.0f, 0.0f, 1.0f), barkMat.BaseColor)
+    Assert.Equal(System.Numerics.Vector4(1.0f, 1.0f, 1.0f, 1.0f), leavesMat.BaseColor)
+    Assert.Equal(1.0f, barkMat.Metallic)   // default metallicFactor
+    Assert.Equal(1.0f, barkMat.Roughness)  // default roughnessFactor
+    Assert.Equal(0.0f, leavesMat.Metallic) // explicit metallicFactor
+    Assert.Equal(Some { Uri = "textures/SingleBeechNormal.png" }, leavesMat.NormalTexture)
+    Assert.Equal(Some { Uri = "textures/SingleBeechColour-SingleBeechOpacity2.png" }, leavesMat.AlbedoTexture)
+    Assert.Equal(Some { Uri = "textures/SingleBeechRoughness.png" }, leavesMat.MetallicRoughnessTexture)
+    Assert.Equal(None, leavesMat.EmissiveTexture)
+    Assert.Equal(Some { Uri = "textures/Bark001_2K-JPG_Color.jpg" }, barkMat.EmissiveTexture)
+    Assert.Equal(None, barkMat.AlbedoTexture)
 
 [<Fact>]
 let ``load rejects a non-glTF file`` () =
@@ -57,8 +73,22 @@ let ``load rejects a non-glTF file`` () =
         File.Delete(tmp)
 
 [<Fact>]
+let ``load rejects a data-URI embedded image`` () =
+    let tmp = Directory.CreateTempSubdirectory "fsharp-game-gltf-"
+    try
+        let json = """{"images": [{"uri": "data:image/png;base64,AAAA"}]}"""
+        let gltfPath = Path.Combine(tmp.FullName, "test.gltf")
+        File.WriteAllText(gltfPath, json)
+        let failed =
+            try Gltf.load gltfPath |> ignore; false
+            with _ -> true
+        Assert.True(failed)
+    finally
+        tmp.Delete(recursive = true)
+
+[<Fact>]
 let ``load emits one part per mesh node with a world transform and submesh range`` () =
-    let m = Gltf.load (findAsset "assets/environments/Island.gltf")
+    let m = Gltf.load (findAsset "assets/environments/Island/Island.gltf")
     Assert.Equal(1, m.Parts.Length)
     let part = m.Parts.[0]
     Assert.Equal(0, part.SubmeshIndex)
@@ -75,7 +105,7 @@ let ``load emits one part per mesh node with a world transform and submesh range
 
 [<Fact>]
 let ``load spans a multi-primitive mesh as one part`` () =
-    let m = Gltf.load (findAsset "assets/props/Beech.gltf")
+    let m = Gltf.load (findAsset "assets/props/Beech/Beech.gltf")
     Assert.Equal(1, m.Parts.Length)
     Assert.Equal(0, m.Parts.[0].SubmeshIndex)
     Assert.Equal(2, m.Parts.[0].SubmeshCount)
