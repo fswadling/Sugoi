@@ -229,6 +229,54 @@ let sphere (dd: DebugDraw) (center: Vector3) (radius: float32) (c: Color) : Debu
             prev <- Some p
     dd
 
+// Capsule wireframe: a cylinder silhouette, the two hemisphere equator circles,
+// and the hemisphere silhouette arcs (through the poles).
+let capsule (dd: DebugDraw) (center: Vector3) (halfHeight: float32) (radius: float32) (c: Color) : DebugDraw =
+    let segments = 24
+    let top = center + Vector3(0.0f, halfHeight, 0.0f)
+    let bottom = center - Vector3(0.0f, halfHeight, 0.0f)
+
+    // Draw a circle centred at `o` in the plane spanned by `u`/`v`.
+    let circle (dd: DebugDraw) (o: Vector3) (u: Vector3) (v: Vector3) : DebugDraw =
+        let mutable dd = dd
+        let mutable prev = None
+        for i in 0 .. segments do
+            let a = 2.0f * MathF.PI * float32 i / float32 segments
+            let p = o + u * (radius * MathF.Cos a) + v * (radius * MathF.Sin a)
+            match prev with
+            | Some q -> dd <- line dd q p c
+            | None -> ()
+            prev <- Some p
+        dd
+
+    // Cylinder silhouette (four vertical lines between the equators).
+    let dd = line dd (top + Vector3(radius, 0.0f, 0.0f)) (bottom + Vector3(radius, 0.0f, 0.0f)) c
+    let dd = line dd (top - Vector3(radius, 0.0f, 0.0f)) (bottom - Vector3(radius, 0.0f, 0.0f)) c
+    let dd = line dd (top + Vector3(0.0f, 0.0f, radius)) (bottom + Vector3(0.0f, 0.0f, radius)) c
+    let dd = line dd (top - Vector3(0.0f, 0.0f, radius)) (bottom - Vector3(0.0f, 0.0f, radius)) c
+
+    // Hemisphere equator circles (horizontal, in the XZ plane).
+    let dd = circle dd top Vector3.UnitX Vector3.UnitZ
+    let dd = circle dd bottom Vector3.UnitX Vector3.UnitZ
+
+    // Hemisphere silhouette arcs (half-circles through the pole `p`).
+    let arc (dd: DebugDraw) (o: Vector3) (u: Vector3) (pole: Vector3) : DebugDraw =
+        let mutable dd = dd
+        let mutable prev = None
+        for i in 0 .. segments do
+            let a = MathF.PI * float32 i / float32 segments
+            let p = o + u * (radius * MathF.Cos a) + pole * (radius * MathF.Sin a)
+            match prev with
+            | Some q -> dd <- line dd q p c
+            | None -> ()
+            prev <- Some p
+        dd
+
+    let dd = arc dd top Vector3.UnitX Vector3.UnitY
+    let dd = arc dd top Vector3.UnitZ Vector3.UnitY
+    let dd = arc dd bottom Vector3.UnitX -Vector3.UnitY
+    arc dd bottom Vector3.UnitZ -Vector3.UnitY
+
 let drawGrid (dd: DebugDraw) : DebugDraw =
     let minor = { R = 0.4f; G = 0.4f; B = 0.4f; A = 1.0f }
     let major = { R = 0.6f; G = 0.6f; B = 0.6f; A = 1.0f }

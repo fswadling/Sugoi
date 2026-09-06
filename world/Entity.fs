@@ -106,6 +106,7 @@ type Actor =
     { Base : Entity
       AssetId : string
       Physics : PhysicsAttachment<CapsuleCollider> option
+      ShowCollider : bool
       mutable Renderer : ActorRender.ActorRender }
 
 module Actor =

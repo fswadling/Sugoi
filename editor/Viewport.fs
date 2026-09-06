@@ -15,6 +15,7 @@ open Raycast
 
 let private white : DebugDraw.Color = { R = 1.0f; G = 1.0f; B = 1.0f; A = 1.0f }
 let private selectedColor : DebugDraw.Color = { R = 1.0f; G = 0.8f; B = 0.0f; A = 1.0f }
+let private colliderColor : DebugDraw.Color = { R = 0.2f; G = 1.0f; B = 0.6f; A = 1.0f }
 let private xColor : DebugDraw.Color = { R = 1.0f; G = 0.2f; B = 0.2f; A = 1.0f }
 let private yColor : DebugDraw.Color = { R = 0.2f; G = 1.0f; B = 0.2f; A = 1.0f }
 let private zColor : DebugDraw.Color = { R = 0.3f; G = 0.4f; B = 1.0f; A = 1.0f }
@@ -107,7 +108,11 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
     SlotMap.iteriAlive zone.Actors (fun i a ->
         let isSelected = selection = Some { Kind = EntityKind.Actor; Index = i }
         let c = if isSelected then selectedColor else white
-        dd <- DebugDraw.wireframeBox dd a.Base.Transform.Position halfExtent c)
+        dd <- DebugDraw.wireframeBox dd a.Base.Transform.Position halfExtent c
+        if a.ShowCollider then
+            match a.Physics with
+            | Some ph -> dd <- DebugDraw.capsule dd (Zone.capsuleCenter a.Base.Transform ph.Collider) ph.Collider.HalfHeight ph.Collider.Radius colliderColor
+            | None -> ())
 
     SlotMap.iteriAlive zone.Props (fun i p ->
         let isSelected = selection = Some { Kind = EntityKind.Prop; Index = i }

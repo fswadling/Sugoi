@@ -29,11 +29,20 @@ let ``mesh collider raises on an empty range`` () =
     Assert.Throws<Exception>(fun () -> Zone.meshCollider Array.empty 0 0 |> ignore) |> ignore
 
 [<Fact>]
-let ``capsule collider derives radius and half-height from Z-up bounds`` () =
+let ``capsule collider uses a fixed radius and full Z height`` () =
     let b : Bounds = { Min = Vector3(-1.0f, -1.0f, 0.0f); Max = Vector3(1.0f, 1.0f, 4.0f) }
     let collider = Zone.capsuleCollider b
-    Assert.Equal(1.0f, collider.Radius)      // horizontal half-extent max(1, 1)
-    Assert.Equal(1.0f, collider.HalfHeight)  // halfZ 2.0 - radius 1.0
+    Assert.Equal(0.35f, collider.Radius)     // fixed actor radius
+    Assert.Equal(1.65f, collider.HalfHeight) // height/2 (2.0) - radius (0.35)
+
+[<Fact>]
+let ``capsule center sits above the feet at the entity position`` () =
+    let collider : CapsuleCollider = { Radius = 0.35f; HalfHeight = 0.473f }
+    let transform : Transform = { Position = Vector3(1.0f, 0.0f, 2.0f); Rotation = Quaternion.Identity; Scale = Vector3.One }
+    let center = Zone.capsuleCenter transform collider
+    Assert.Equal(1.0f, center.X)
+    Assert.True(abs (center.Y - 0.823f) < 1e-5f, sprintf "expected y near 0.823, got %f" center.Y)
+    Assert.Equal(2.0f, center.Z)
 
 // A 2x2 quad in the z=0 plane, front face toward +z.
 let private quadVertices : Vector3 array =

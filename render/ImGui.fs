@@ -49,6 +49,9 @@ extern bool button(string label, ImVec2 size)
 [<DllImport("cimgui", EntryPoint = "igSmallButton", CallingConvention = CallingConvention.Cdecl)>]
 extern bool smallButton(string label)
 
+[<DllImport("cimgui", EntryPoint = "igCheckbox", CallingConvention = CallingConvention.Cdecl)>]
+extern bool checkbox(string label, bool& v)
+
 [<DllImport("cimgui", EntryPoint = "igSameLine", CallingConvention = CallingConvention.Cdecl)>]
 extern void sameLine(float32 offsetFromStartX, float32 spacing)
 

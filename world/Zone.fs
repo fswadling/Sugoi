@@ -61,15 +61,18 @@ let meshCollider (submeshes: EnvironmentAsset.StaticSubmesh array) (first: int) 
         baseVertex <- baseVertex + s.Positions.Length / 3
     { Positions = positions; Indices = indices }
 
-// Capsule from asset bounds. IQM is Z-up, so the vertical (height) extent is Z
-// and the horizontal (width/depth) extent is X/Y.
+// The actor capsule radius, matching odin-game's DEFAULT_ACTOR_COLLIDER_RADIUS.
+// Actors always collide as a fixed-width capsule around their torso rather than
+// a radius derived from their (often arm-span-dominated) bounds.
+let defaultActorColliderRadius = 0.35f
+
+// Capsule from asset bounds. IQM is Z-up, so the vertical (height) extent is Z;
+// the capsule spans that full height (feet at the entity position) with a fixed
+// radius.
 let capsuleCollider (bounds: Gltf.Bounds) : CapsuleCollider =
-    let halfX = (bounds.Max.X - bounds.Min.X) / 2.0f
-    let halfY = (bounds.Max.Y - bounds.Min.Y) / 2.0f
-    let halfZ = (bounds.Max.Z - bounds.Min.Z) / 2.0f
-    let radius = max halfX halfY
-    let halfHeight = max 0.0f (halfZ - radius)
-    { Radius = radius; HalfHeight = halfHeight }
+    let height = bounds.Max.Z - bounds.Min.Z
+    let halfHeight = max 0.0f (height / 2.0f - defaultActorColliderRadius)
+    { Radius = defaultActorColliderRadius; HalfHeight = halfHeight }
 
 // A prop's collider from its binding: a placed prop asset (`Some id`) meshes its
 // whole model; an environment part (`None`) meshes that part's submesh range.
@@ -107,8 +110,13 @@ let private meshBody (world: Physics.World) (collider: MeshCollider) (transform:
             Vector3(collider.Positions.[i * 3] * scale.X, collider.Positions.[i * 3 + 1] * scale.Y, collider.Positions.[i * 3 + 2] * scale.Z))
     Physics.createMeshBody world transform.Position transform.Rotation vertices collider.Indices
 
+// The world-space centre of an actor's capsule: the entity position is the feet,
+// so the capsule (cylinder half-height + hemisphere radius) sits above it.
+let capsuleCenter (transform: Transform) (collider: CapsuleCollider) : Vector3 =
+    transform.Position + Vector3(0.0f, collider.HalfHeight + collider.Radius, 0.0f)
+
 let private capsuleBody (world: Physics.World) (collider: CapsuleCollider) (transform: Transform) : Physics.BodyId =
-    Physics.createCapsuleBody world transform.Position collider.HalfHeight collider.Radius
+    Physics.createCapsuleBody world (capsuleCenter transform collider) collider.HalfHeight collider.Radius
 
 // Attach physics to an entity: derive its collider and build the body in the
 // supplied world; for props, the attachment is None when the part binding is
@@ -217,7 +225,7 @@ let setActorWithAsset (zone: Zone) (world: Physics.World) (assets: Assets.AssetM
         let renderer = Assets.createActorRender assets assetId
         let attachment = attachActorPhysics world assets assetId entity.Transform
         do mapBody zone attachment ref
-        zone.Actors <- SlotMap.setByIndex zone.Actors ref.Index { Base = entity; AssetId = assetId; Physics = attachment; Renderer = renderer }
+        zone.Actors <- SlotMap.setByIndex zone.Actors ref.Index { Base = entity; AssetId = assetId; Physics = attachment; ShowCollider = false; Renderer = renderer }
     | EntityKind.Prop ->
         let renderer = propRenderer zone assets binding
         let attachment = attachPropPhysics world zone assets binding entity.Transform
@@ -247,7 +255,7 @@ let removeEntity (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
 let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) : EntityRef =
     let renderer = Assets.createActorRender assets assetId
     let attachment = attachActorPhysics world assets assetId entity.Transform
-    let actors, handle = SlotMap.add zone.Actors { Base = entity; AssetId = assetId; Physics = attachment; Renderer = renderer }
+    let actors, handle = SlotMap.add zone.Actors { Base = entity; AssetId = assetId; Physics = attachment; ShowCollider = false; Renderer = renderer }
     zone.Actors <- actors
     let ref = { Kind = EntityKind.Actor; Index = handle.Index }
     do mapBody zone attachment ref
