@@ -73,7 +73,9 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       StaticPipeline = Unchecked.defaultof<Gpu.Pipeline>
       Zone = zone
       Editor = EditorState.create ()
-      Editing = true }
+      Editing = true
+      Player = None
+      Follow = Systems.createFollow () }
 
 // ── Duplicate ──
 

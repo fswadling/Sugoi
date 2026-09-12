@@ -77,72 +77,28 @@ let ``get on a stale handle raises`` () =
     Assert.True(raised)
     Assert.Equal(2, (map.Get(h1)).Value)
 
-[<Fact>]
-let ``get by index and generation resolves a live slot`` () =
-    let map = SlotMap<TestPayload>(2u)
-    let h = map.Add({ Value = 7 })
-    Assert.Equal(7, (map.Get(h.Index, h.Generation)).Value)
-
-[<Fact>]
-let ``get by index and generation raises for a stale or out-of-range slot`` () =
-    let map = SlotMap<TestPayload>(2u)
-    let h = map.Add({ Value = 7 })
-    map.Free(h)
-
-    let mutable staleRaised = false
-    try
-        map.Get(h.Index, h.Generation) |> ignore
-    with :? System.InvalidOperationException ->
-        staleRaised <- true
-
-    let mutable rangeRaised = false
-    try
-        map.Get(9u, 0u) |> ignore
-    with :? System.InvalidOperationException ->
-        rangeRaised <- true
-
-    Assert.True(staleRaised)
-    Assert.True(rangeRaised)
-
-// ── Index-based accessors (editor CRUD) ──
+// ── Handle-based accessors (editor CRUD) ──
 
 [<Fact>]
 let ``IsAlive is true for an alive slot`` () =
     let map = SlotMap<TestPayload>(4u)
     let h = map.Add({ Value = 7 })
-    Assert.True(map.IsAlive(h.Index, h.Generation))
+    Assert.True(map.IsAlive(h))
 
 [<Fact>]
 let ``IsAlive is false for a dead or out-of-range slot`` () =
     let map = SlotMap<TestPayload>(2u)
     let h = map.Add({ Value = 1 })
     map.Free(h)
-    Assert.False(map.IsAlive(h.Index, h.Generation))
-    Assert.False(map.IsAlive(9u, 0u))
-
-[<Fact>]
-let ``TryGet returns the value only for a live slot with the given generation`` () =
-    let map = SlotMap<TestPayload>(2u)
-    let h = map.Add({ Value = 7 })
-    Assert.Equal(7, (map.TryGet(h.Index, h.Generation)).Value.Value)
-    map.Free(h)
-    Assert.True(map.TryGet(h.Index, h.Generation) |> Option.isNone)
-    Assert.True(map.TryGet(9u, 0u) |> Option.isNone)
-
-[<Fact>]
-let ``Get by index and generation returns a live pointer into the slot`` () =
-    let map = SlotMap<TestPayload>(4u)
-    let h = map.Add({ Value = 1 })
-    let p = &map.Get(h.Index, h.Generation)
-    p.Value <- 9
-    Assert.Equal(9, (map.Get(h)).Value)
+    Assert.False(map.IsAlive(h))
+    Assert.False(map.IsAlive({ Index = 9u; Generation = 0u }))
 
 [<Fact>]
 let ``assigning through Get overwrites an alive slot`` () =
     let map = SlotMap<TestPayload>(4u)
     let h = map.Add({ Value = 1 })
-    map.Get(h.Index, h.Generation) <- { Value = 2 }
-    Assert.Equal(2, (map.Get(h.Index, h.Generation)).Value)
+    map.Get(h) <- { Value = 2 }
+    Assert.Equal(2, (map.Get(h)).Value)
     Assert.Equal(1u, map.Count)
 
 [<Fact>]
@@ -151,8 +107,8 @@ let ``IsAlive rejects a slot whose generation has advanced`` () =
     let h = map.Add({ Value = 1 })
     map.Free(h)
     let h2 = map.Add({ Value = 2 })
-    Assert.True(map.IsAlive(h2.Index, h2.Generation))
-    Assert.False(map.IsAlive(h.Index, h.Generation))
+    Assert.True(map.IsAlive(h2))
+    Assert.False(map.IsAlive(h))
 
 [<Fact>]
 let ``IsOccupied tracks any live slot regardless of generation`` () =
@@ -172,16 +128,16 @@ let ``IsOccupied stays true when a slot is recycled at a new generation`` () =
     // Occupied, but not alive at the original generation — the state that makes a
     // restore of the original ref a bug rather than a no-op.
     Assert.True(map.IsOccupied(h.Index))
-    Assert.False(map.IsAlive(h.Index, h.Generation))
-    Assert.True(map.IsAlive(h2.Index, h2.Generation))
+    Assert.False(map.IsAlive(h))
+    Assert.True(map.IsAlive(h2))
 
 [<Fact>]
 let ``Occupy re-occupies a freed slot at the same index`` () =
     let map = SlotMap<TestPayload>(2u)
     let h = map.Add({ Value = 1 })
     map.Free(h)
-    map.Occupy(h.Index, h.Generation, { Value = 9 })
-    Assert.Equal(9, (map.Get(h.Index, h.Generation)).Value)
+    map.Occupy(h, { Value = 9 })
+    Assert.Equal(9, (map.Get(h)).Value)
     Assert.Equal(1u, map.Count)
 
 [<Fact>]
@@ -190,8 +146,8 @@ let ``Occupy restores the recorded generation so the old handle resolves`` () =
     let h = map.Add({ Value = 1 })
     map.Free(h)
     // Free bumped the slot's generation; re-occupying writes the handle's back.
-    map.Occupy(h.Index, h.Generation, { Value = 9 })
-    Assert.True(map.IsAlive(h.Index, h.Generation))
+    map.Occupy(h, { Value = 9 })
+    Assert.True(map.IsAlive(h))
     Assert.Equal(9, (map.Get(h)).Value)
 
 [<Fact>]
@@ -202,8 +158,8 @@ let ``Occupy restores a generation after a slot was recycled and freed again`` (
     let h1 = map.Add({ Value = 2 })
     map.Free(h1)
     // The slot is free again after the recycle; the original generation restores.
-    map.Occupy(h0.Index, h0.Generation, { Value = 9 })
-    Assert.True(map.IsAlive(h0.Index, h0.Generation))
+    map.Occupy(h0, { Value = 9 })
+    Assert.True(map.IsAlive(h0))
     Assert.Equal(9, (map.Get(h0)).Value)
 
 [<Fact>]
@@ -214,7 +170,7 @@ let ``Occupy on a slot recycled by another entity raises`` () =
     let h1 = map.Add({ Value = 2 })
     let mutable raised = false
     try
-        map.Occupy(h0.Index, h0.Generation, { Value = 9 })
+        map.Occupy(h0, { Value = 9 })
     with :? System.InvalidOperationException ->
         raised <- true
     Assert.True(raised)
@@ -226,18 +182,18 @@ let ``Occupy on an already-alive slot raises and leaves it intact`` () =
     let h = map.Add({ Value = 1 })
     let mutable raised = false
     try
-        map.Occupy(h.Index, h.Generation, { Value = 2 })
+        map.Occupy(h, { Value = 2 })
     with :? System.InvalidOperationException ->
         raised <- true
     Assert.True(raised)
-    Assert.Equal(1, (map.Get(h.Index, h.Generation)).Value)
+    Assert.Equal(1, (map.Get(h)).Value)
 
 [<Fact>]
-let ``removeByIndex frees a slot and bumps its generation`` () =
+let ``remove frees a slot and bumps its generation`` () =
     let map = SlotMap<TestPayload>(4u)
     let h = map.Add({ Value = 1 })
-    map.RemoveByIndex(h.Index, h.Generation, None)
-    Assert.False(map.IsAlive(h.Index, h.Generation))
+    map.Remove(h, None)
+    Assert.False(map.IsAlive(h))
     Assert.Equal(0u, map.Count)
     // re-adding the slot gives a fresh generation, so the old handle is stale
     let h2 = map.Add({ Value = 2 })
@@ -245,25 +201,25 @@ let ``removeByIndex frees a slot and bumps its generation`` () =
     Assert.NotEqual(h.Generation, h2.Generation)
 
 [<Fact>]
-let ``removeByIndex on an already-dead slot raises`` () =
+let ``remove on an already-dead slot raises`` () =
     let map = SlotMap<TestPayload>(2u)
     let h = map.Add({ Value = 1 })
-    map.RemoveByIndex(h.Index, h.Generation, None)
+    map.Remove(h, None)
     let mutable raised = false
     try
-        map.RemoveByIndex(h.Index, h.Generation, None)
+        map.Remove(h, None)
     with :? System.InvalidOperationException ->
         raised <- true
     Assert.True(raised)
 
 [<Fact>]
-let ``removeByIndex runs the cleanup on the removed value`` () =
+let ``remove runs the cleanup on the removed value`` () =
     let map = SlotMap<TestPayload>(4u)
     let h = map.Add({ Value = 7 })
     let mutable cleaned = -1
-    map.RemoveByIndex(h.Index, h.Generation, Some (fun v -> cleaned <- v.Value))
+    map.Remove(h, Some (fun v -> cleaned <- v.Value))
     Assert.Equal(7, cleaned)
-    Assert.False(map.IsAlive(h.Index, h.Generation))
+    Assert.False(map.IsAlive(h))
     Assert.Equal(0u, map.Count)
 
 [<Fact>]

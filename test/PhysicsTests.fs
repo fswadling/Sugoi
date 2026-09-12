@@ -107,3 +107,37 @@ let ``ray from inside a hollow room hits the prop, not the room shell`` () =
     match Physics.raycast world Vector3.Zero (Vector3(0.0f, 100.0f, 0.0f)) with
     | Some (hit, _) -> Assert.Equal(room, hit)
     | None -> failwith "expected a hit"
+
+// A flat floor quad at y = -5, front faces up (+Y).
+let private floorVertices : Vector3 array =
+    [| Vector3(-5.0f, -5.0f, -5.0f); Vector3(5.0f, -5.0f, -5.0f); Vector3(5.0f, -5.0f, 5.0f); Vector3(-5.0f, -5.0f, 5.0f) |]
+let private floorIndices : int array = [| 0; 2; 1;  0; 3; 2 |]
+
+// Actor capsules are dynamic with rotation locked: the body must fall under gravity,
+// land on the floor, and remain upright.
+[<Fact>]
+let ``dynamic capsule falls and rests upright on the floor`` () =
+    let world = Physics.create ()
+    ignore (Physics.createMeshBody world Vector3.Zero Quaternion.Identity floorVertices floorIndices)
+    let body = Physics.createCapsuleBody world (Vector3(0.0f, -3.0f, 0.0f)) 0.5f 0.35f
+    for _ in 1 .. 300 do
+        Physics.step world (1.0f / 60.0f)
+    let (position, rotation) = Physics.getBodyTransform world body
+    Assert.True(abs (position.Y + 4.15f) < 0.1f, sprintf "expected rest y near -4.15, got %f" position.Y)
+    Assert.True(abs rotation.X + abs rotation.Y + abs rotation.Z < 1e-3f, sprintf "expected an upright body, got %A" rotation)
+
+// Regression: `PhysicsSystem` keeps raw pointers to the object-layer filters, so the
+// `World` must hold their managed wrappers alive. When it didn't, a collection freed
+// them, the filter pointers dangled, and bodies silently fell through all geometry.
+[<Fact>]
+let ``collision still works after a garbage collection`` () =
+    let world = Physics.create ()
+    ignore (Physics.createMeshBody world Vector3.Zero Quaternion.Identity floorVertices floorIndices)
+    do GC.Collect()
+    do GC.WaitForPendingFinalizers()
+    do GC.Collect()
+    let body = Physics.createCapsuleBody world (Vector3(0.0f, -3.0f, 0.0f)) 0.5f 0.35f
+    for _ in 1 .. 300 do
+        Physics.step world (1.0f / 60.0f)
+    let (position, _) = Physics.getBodyTransform world body
+    Assert.True(abs (position.Y + 4.15f) < 0.1f, sprintf "expected rest y near -4.15, got %f" position.Y)

@@ -15,7 +15,9 @@ type GameplayState =
       StaticPipeline : Gpu.Pipeline
       Zone : Zone.Zone
       mutable Editor : EditorState.EditorState
-      mutable Editing : bool }
+      mutable Editing : bool
+      mutable Player : SlotMap.Handle option
+      mutable Follow : Systems.CameraFollow }
 
 let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (meshPipeline: Gpu.Pipeline) (staticPipeline: Gpu.Pipeline) : GameplayState =
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
@@ -25,4 +27,6 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (me
       StaticPipeline = staticPipeline
       Zone = Zone.create ()
       Editor = EditorState.create ()
-      Editing = true }
+      Editing = true
+      Player = None
+      Follow = Systems.createFollow () }

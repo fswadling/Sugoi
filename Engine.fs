@@ -100,6 +100,20 @@ let run () : int =
     imguiTargets.[0].LoadOp <- SDL.GPULoadOp.Load
     imguiTargets.[0].StoreOp <- SDL.GPUStoreOp.Store
 
+    // ── Per-phase frame timing ──
+    // `lap` closes the current phase and starts the next; totals accumulate over the
+    // 1s log window and reset when reported. Cheap enough (one tick read per phase)
+    // to leave in permanently, and it splits managed work from GPU recording.
+    let phaseNames = [| "input"; "update"; "ui"; "imgui"; "acquire"; "record"; "submit" |]
+    let phaseNs = Array.zeroCreate<float> phaseNames.Length
+    let mutable phaseFrames = 0.0
+    let mutable phaseFrameMs = 0.0
+    let mutable mark = 0.0
+    let lap (i: int) : unit =
+        let next = nowNs ()
+        phaseNs.[i] <- phaseNs.[i] + (next - mark)
+        mark <- next
+
     // ── Main loop ──
     while running && not manager.ShouldQuit do
         let now = nowNs ()
@@ -112,6 +126,7 @@ let run () : int =
         fps <- fps * 0.9 + instFps * 0.1
 
         // ── Poll events (forward to ImGui; accumulate the wheel for the frame) ──
+        mark <- nowNs ()
         let mutable wheel = 0.0f
         while SDL.PollEvent(&ev) do
             if ev.Type = uint32 SDL.EventType.Quit then
@@ -136,23 +151,29 @@ let run () : int =
         let frame = { Dt = float32 (dtMs / 1000.0); WindowW = size.x; WindowH = size.y; Input = input }
 
         do ImGui.newFrame()
+        do lap 0
 
         // ── Advance and draw the active screen ──
         do ScreenManager.update frame &manager
+        do lap 1
         do ScreenManager.draw &manager
 
         do DebugOverlay.draw fps
+        do lap 2
 
         // ── Render ImGui and submit the frame ──
         do ImGui.render()
 
         let drawData = ImGui.getDrawData()
+        do lap 3
+
         let cmd = SDL.AcquireGPUCommandBuffer(device)
 
         let mutable swapchainTexture = IntPtr.Zero
         let mutable w = 0u
         let mutable h = 0u
         do SDL.WaitAndAcquireGPUSwapchainTexture(cmd, window, &swapchainTexture, &w, &h) |> ignore
+        do lap 4
 
         if swapchainTexture <> IntPtr.Zero then
             do ImGuiSdl3.prepareDrawData(drawData, cmd)
@@ -170,13 +191,31 @@ let run () : int =
             do SDL.EndGPURenderPass(imguiPass)
 
         do SDL.SubmitGPUCommandBuffer(cmd) |> ignore
+        do lap 5
 
         // ── Apply the frame's navigation request ──
         do ScreenManager.applyTransition &manager
+        do lap 6
+        phaseFrames <- phaseFrames + 1.0
+        phaseFrameMs <- phaseFrameMs + dtMs
 
-        // ── Report frame time once per second ──
+        // ── Report frame + per-phase times once per second ──
         if now - lastTimingLog >= 1_000_000_000.0 then
-            do printfn "frame %.2fms" dtMs
+            let perFrame (total: float) = total / phaseFrames / 1e6
+            let phases =
+                phaseNames
+                |> Array.mapi (fun i name -> sprintf "%s %.2f" name (perFrame phaseNs.[i]))
+                |> String.concat "  "
+            do printfn "avg %.2fms (last %.2f) | %s | phases %.2f | actors %d props %d parts %d"
+                (phaseFrameMs / phaseFrames) dtMs phases (perFrame (Array.sum phaseNs))
+                (int manager.Gameplay.Zone.Actors.Count)
+                (int manager.Gameplay.Zone.Props.Count)
+                (match manager.Gameplay.Zone.Environment with
+                 | Some environment -> int environment.Parts.Count
+                 | _ -> 0)
+            do Array.fill phaseNs 0 phaseNs.Length 0.0
+            phaseFrames <- 0.0
+            phaseFrameMs <- 0.0
             lastTimingLog <- now
 
         // ── Cap to 60 fps (vsync does not pace on this driver) ──

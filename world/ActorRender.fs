@@ -73,6 +73,18 @@ let create (device: Gpu.Device) (asset: ActorAsset.ActorAsset) : ActorRender =
 let advanceInPlace (r: byref<ActorRender>) (dt: float32) : unit =
     do Actor.advanceInPlace r.Asset.Model &r.Animation dt
 
+// Switch this instance to the named animation clip, if it is not already playing it.
+// A clip the asset does not define is a content bug and raises.
+let playClip (r: byref<ActorRender>) (name: string) : unit =
+    let model = r.Asset.Model
+    match Actor.findAnimIndex model name with
+    | None -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+    | Some index ->
+
+    if r.Animation.AnimIndex <> index then
+        r.Animation <- Actor.createSlot model.Model index true
+
+
 // Sample the pose and upload the bone palette to this instance's GPU storage
 // buffer. Runs in the copy-pass phase, before the render pass (like DebugDraw).
 let upload (r: ActorRender) (cmd: Gpu.CommandBuffer) : unit =

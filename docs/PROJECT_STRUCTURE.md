@@ -119,7 +119,7 @@ fsharp-game/
 │   ├── Cast.fs                 #   name → asset id map (planned)
 │   ├── Cue.fs                  #   Cue_Op (template) + CueState (runtime) (planned)
 │   ├── Scenario.fs             #   scenario library (planned)
-│   ├── Systems.fs              #   named play-mode systems (planned)
+│   ├── Systems.fs              #   named play-mode systems
 │   └── Project.fs              #   DTO persistence (project.json) (planned)
 ├── state/                      # app/screen + editor-command state
 │   ├── Screen.fs               #   kind/transition/input types

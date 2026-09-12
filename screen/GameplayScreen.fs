@@ -29,17 +29,31 @@ let private advanceActorAnimations (dt: float32) (zone: Zone.Zone) : unit =
     for i in 0 .. slots.Length - 1 do
         let slot = &slots.[i]
         if slot.Alive then
-            let actor = &zone.Actors.Get(uint32 i, slot.Generation)
+            let actor = &zone.Actors.Get { Index = uint32 i; Generation = slot.Generation }
             do ActorRender.advanceInPlace &actor.Renderer dt
 
 // Advance non-render logic: refresh the camera aspect from the frame's window
-// size, advance the actor animations, then hand the frame's input to the editor,
-// which owns the edit/play toggle, shortcuts, nudge, interaction, and camera.
+// size, advance the actor animations, then hand the frame's input to the editor
+// (which owns the edit/play toggle, shortcuts, nudge, interaction, and camera).
+// The play chain and the physics step run only while playing; each player system
+// no-ops without a live bound player, so a play session with no player still advances
+// the world but drives no character. The editor does not simulate, so it stays passive.
 let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
     do updateAspectRatio (frame.WindowW, frame.WindowH) &state
     do advanceActorAnimations frame.Dt state.Zone
-    do Physics.step shared.Physics frame.Dt
-    Editor.update shared frame &state
+    let transition = Editor.update shared frame &state
+
+    // The world simulates for the whole of play mode, player or not: the physics step and
+    // the body→entity sync run regardless, while the player systems no-op without a live
+    // player. The editor does not simulate, so it stays passive.
+    if not state.Editing then
+        do Systems.playerInput shared.Physics state.Zone state.Player frame.Input frame.Dt
+        do Physics.step shared.Physics frame.Dt
+        do Systems.syncActors shared.Physics state.Zone
+        do Systems.cameraFollow state.Zone state.Player &state.Follow &state.Camera
+        do Systems.animate state.Zone state.Player frame.Input
+
+    transition
 
 // Draw the editor workspace (when editing) and always emit the reference grid
 // so the scene stays visible in both edit and play modes.

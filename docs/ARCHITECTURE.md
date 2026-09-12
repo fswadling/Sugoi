@@ -24,9 +24,9 @@ The foundational structure (odin-game `src/slot_map.odin`):
 - Add/get/free are O(1); deletion reuses indices without index fix-ups, and a
   generation counter detects stale handles.
 - Slots are exposed as a read-only span (`Slots`) so systems scan directly, and
-  writes go through `Get` (by index + generation). Undo restores through `Occupy`,
-  which re-occupies a deleted entity's recorded (free) slot and restores its
-  generation; a slot unexpectedly taken fails loudly rather than relocating.
+  writes go through `Get` (by `Handle`: index + generation). Undo restores through
+  `Occupy`, which re-occupies a deleted entity's recorded (free) slot and restores
+  its generation; a slot unexpectedly taken fails loudly rather than relocating.
 
 ```text
 for i in 0..<N:
@@ -171,6 +171,12 @@ graph TD
   AGENTS.md guidance.
 - **Zone containers** → keep `Zone_Map` (runtime) and `Zone_Registry`
   (authoring templates) as distinct structures.
+- **Jolt ownership** → `PhysicsSystem` holds only *raw pointers* to the object-layer
+  pair filter, broad-phase interface, and object-vs-broadphase filter, so the `World`
+  must keep their managed wrappers (and its `PhysicsSystemSettings`) alive as fields.
+  If the GC finalises them, native collision silently stops and dynamic bodies fall
+  through all geometry. Shapes are different: a body ref-counts its shape natively, so
+  a shape wrapper may be collected once the body exists.
 
 The locality to preserve is the slot maps and fixed-size struct arrays — not
 inlined strings.

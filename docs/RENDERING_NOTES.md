@@ -196,11 +196,38 @@ Line vertices are 7 floats each — `position.xyz` (offset 0, `Float3`) +
 
 ---
 
+## 11. Per-phase frame timing
+
+The frame loop (`Engine.fs`) times each phase every frame and prints the averages
+once a second alongside the frame time:
+
+```
+avg 22.4ms (last 16.8) | input 0.15  update 0.03  ui 7.40  imgui 0.02  acquire 0.47  record 17.15  submit 0.00 | phases 25.23 | actors 1 props 0 parts 463
+```
+
+The phases are `input` (poll + gather + ImGui NewFrame), `update`
+(`ScreenManager.update`: systems, `Physics.step`, editor), `ui`
+(`ScreenManager.draw` + overlay), `imgui` (`ImGui.render` + `getDrawData`),
+`acquire` (command buffer + swapchain), `record` (draw-data prep, uploads, scene
+pass, ImGui pass) and `submit`. `phases` is their sum, so the gap to `avg` is idle
+sleep (headroom); the entity counts expose scene growth. The cost is one clock read
+per phase, so it can be left on. Note that `avg` is averaged over the window while
+`last` is the final frame — compare `avg` to `phases`, not `last`.
+
+---
+
 ## Known follow-ups
 
-- Two benign build warnings at `Engine.fs:111` (`FS0009`/`FS0051`) from the
+- Two benign build warnings in `Engine.fs` (`FS0009`/`FS0051`) from the
   `NativePtr.toNativeInt (&&ev)` event dispatch; they can be silenced with
   `#nowarn` if desired.
 - The frame loop still uses both `mailbox` present mode and a software 60 fps
   cap. `ocaml-game` (D-018) concluded the two clocks drift and removed the
   software cap in favour of the vblank wait alone; worth re-checking here.
+- **Scene draw cost scales with glTF node count.** The ArtRoom loads as 463
+  environment parts, each drawn with its own full state block (vertex + fragment
+  uniform pushes, pipeline bind, sampler bind, index bind). Measured via the
+  per-phase log: `record` ~20 ms/frame with the parts loaded versus ~0.5 ms with
+  none, while `acquire` stays ~0.1 ms — so the frame is **CPU-bound on draw
+  submission**, not GPU-bound. Frustum-culling parts and skipping unchanged binds
+  are the next steps (`specs/016-walk-around/tasks.md` T023–T025).

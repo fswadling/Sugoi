@@ -117,7 +117,8 @@ every later phase builds on (no visible result yet; verified by tests).
 - `core/SlotMap.fs` — generational slot map: a sealed class over a fixed slot
   array (`{ value, generation, alive, next_free }`), free-list, generation
   counter; O(1) add/get/free with stale-reference detection, mutated in place.
-  A read-only `Slots` span for scans, a `byref` `Get` (index + generation), and a
+  A read-only `Slots` span for scans, a `byref` `Get` (by `Handle`: index +
+  generation), and a
   generation-restoring `Occupy` for undo (re-occupy the deleted entity's recorded
   slot, which is always free; a taken slot raises).
 - `world/Entity.fs` — `Entity_Kind` (`Actor|Environment|Prop|Part|Waypoint|Trigger`),
@@ -232,20 +233,24 @@ directional light.
 **Done when**: character/props have colliders and click-select hits physical
 shapes.
 
-### 7 · Walk around
+### 7 · Walk around ✅
 
 **Goal**: the playable backbone — walk the character around an environment with
 physics.
 
 **Deliverables**
-- Player input system (movement + camera).
-- Gravity system.
-- Camera follow.
-- Start the fixed-order system chain: `player_input → gravity → physics →
-  camera_follow` (grows in phase 13).
+- `world/Systems.fs` — player systems gated on a bound player: `playerInput`
+  (tank controls), `cameraFollow`, `animate`, plus `syncActors`, the non-gated
+  body→entity sync for every actor.
+- Dynamic, rotation-locked actor capsules — gravity and collision come from the
+  physics step, and the actor's existing body is the player body.
+- A deliberate *Set as Player* editor action; no enter/leave-play callbacks.
+- The fixed-order play-mode chain: `player_input → physics → sync → camera_follow`
+  (grows in phase 13).
 
 **Done when**: you can walk the character around the environment with collisions
-and a following camera.
+and a following camera. *(complete — `specs/016`; the SC-007 frame rate is still
+outstanding on the 463-part ArtRoom — see `specs/016` tasks T023–T025)*
 
 ### 8 · Zones
 
@@ -419,6 +424,6 @@ PBR → physics → walk around). After that, the content-authoring path is
 
 ## Next step
 
-**Phase 2a — entity store** (`/speckit-specify`): the generational slot map and
-the entity model, verified by unit tests. Phase 2 then proceeds through 2b
-(editor workspace shell) → 2c (selection + transform) → 2d (command/undo).
+**Phase 8 — zones** (`/speckit-specify`): `world/ZoneMap.fs` (a runtime slot map
+of zones plus an `active` index) and a zone-switch path, so multiple zones exist
+and can be switched between at runtime.

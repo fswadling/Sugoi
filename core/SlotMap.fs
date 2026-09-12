@@ -55,24 +55,20 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
         freeHead <- slot.NextFree
         { Index = uint32 index; Generation = slot.Generation }
 
-    // Validate an address and return its array index; raises on out-of-range or stale.
-    member private _.CheckedSlot(index: uint32, generation: uint32) : int =
-        if index >= uint32 slots.Length then
+    // Validate a handle and return its array index; raises on out-of-range or stale.
+    member private _.CheckedSlot(handle: Handle) : int =
+        if handle.Index >= uint32 slots.Length then
             invalidOp "slot map handle is out of range"
 
-        let i = int index
+        let i = int handle.Index
         let slot = slots.[i]
-        if not slot.Alive || slot.Generation <> generation then
+        if not slot.Alive || slot.Generation <> handle.Generation then
             invalidOp "slot map handle is stale"
 
         i
 
     member this.Get(handle: Handle) : byref<'T> =
-        &slots.[this.CheckedSlot(handle.Index, handle.Generation)].Value
-
-    // The index + generation form of `Get`, for an `EntityRef` rather than a `Handle`.
-    member this.Get(index: uint32, generation: uint32) : byref<'T> =
-        &slots.[this.CheckedSlot(index, generation)].Value
+        &slots.[this.CheckedSlot(handle)].Value
 
     member _.Free(handle: Handle) : unit =
         if handle.Index >= uint32 slots.Length then
@@ -99,14 +95,14 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
 
     // ── Editor-facing access ──
 
-    // Editor access is index-based and always names the generation, so no accessor
-    // can read or write a slot that has since been freed and reused.
+    // Every accessor names a `Handle` (index + generation), so none can read or
+    // write a slot that has since been freed and reused.
 
-    // Whether the slot at `index` is alive with `generation`.
-    member _.IsAlive(index: uint32, generation: uint32) : bool =
-        if index >= uint32 slots.Length then false else
-        let slot = slots.[int index]
-        slot.Alive && slot.Generation = generation
+    // Whether the slot named by `handle` is alive.
+    member _.IsAlive(handle: Handle) : bool =
+        if handle.Index >= uint32 slots.Length then false else
+        let slot = slots.[int handle.Index]
+        slot.Alive && slot.Generation = handle.Generation
 
     // Whether the slot holds any entity at all, regardless of generation. The
     // precondition `Occupy` needs: a slot reused by another entity is occupied but
@@ -114,24 +110,21 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
     member _.IsOccupied(index: uint32) : bool =
         index < uint32 slots.Length && slots.[int index].Alive
 
-    // A copy of the slot's value, or None when it is dead or its generation advanced.
-    member this.TryGet(index: uint32, generation: uint32) : 'T option =
-        if this.IsAlive(index, generation) then Some slots.[int index].Value else None
-
-    // Re-occupy the free slot at `index` and restore `generation`, so the caller's
-    // ref resolves again — how undo restores a deleted entity. Rebuilds the free
-    // list (O(capacity); undo path only) and raises if the slot is already alive, so
-    // a slot recycled by an untracked spawn fails loudly rather than being clobbered.
-    member _.Occupy(index: uint32, generation: uint32, value: 'T) : unit =
-        if index >= uint32 slots.Length then
+    // Re-occupy the free slot named by `handle` and restore its generation, so the
+    // caller's ref resolves again — how undo restores a deleted entity. Rebuilds the
+    // free list (O(capacity); undo path only) and raises if the slot is already
+    // alive, so a slot recycled by an untracked spawn fails loudly rather than being
+    // clobbered.
+    member _.Occupy(handle: Handle, value: 'T) : unit =
+        if handle.Index >= uint32 slots.Length then
             invalidOp "slot map index is out of range"
 
-        let i = int index
+        let i = int handle.Index
         let slot = slots.[i]
         if slot.Alive then
-            invalidOp (sprintf "slot map slot %d is already alive (generation %d, occupy asked for %d)" i slot.Generation generation)
+            invalidOp (sprintf "slot map slot %d is already alive (generation %d, occupy asked for %d)" i slot.Generation handle.Generation)
 
-        slots.[i] <- { slot with Value = value; Generation = generation; Alive = true; NextFree = noneIndex }
+        slots.[i] <- { slot with Value = value; Generation = handle.Generation; Alive = true; NextFree = noneIndex }
         let mutable head = noneIndex
         for j = slots.Length - 1 downto 0 do
             if not slots.[j].Alive then
@@ -140,10 +133,10 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
         activeCount <- activeCount + 1u
         freeHead <- head
 
-    // Free the slot at `index`, running `cleanup` on the value first. Raises on an
-    // out-of-range or stale/dead slot.
-    member this.RemoveByIndex(index: uint32, generation: uint32, cleanup: ('T -> unit) option) : unit =
-        let i = this.CheckedSlot(index, generation)
+    // Free the slot named by `handle`, running `cleanup` on the value first. Raises
+    // on an out-of-range or stale/dead slot.
+    member this.Remove(handle: Handle, cleanup: ('T -> unit) option) : unit =
+        let i = this.CheckedSlot(handle)
         let slot = slots.[i]
 
         match cleanup with
@@ -152,4 +145,4 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
 
         slots.[i] <- { slot with Generation = slot.Generation + 1u; Alive = false; NextFree = freeHead }
         activeCount <- activeCount - 1u
-        freeHead <- index
+        freeHead <- handle.Index

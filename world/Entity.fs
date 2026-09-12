@@ -9,9 +9,9 @@ open SlotMap
 
 [<Struct>]
 type Transform =
-    { Position : Vector3
-      Rotation : Quaternion
-      Scale : Vector3 }
+    { mutable Position : Vector3
+      mutable Rotation : Quaternion
+      mutable Scale : Vector3 }
 
 // Identity transform: at the origin, no rotation, unit scale.
 let transformIdentity : Transform =
@@ -66,10 +66,15 @@ let propRef (index: uint32) (generation: uint32) : EntityRef =
 let partRef (epoch: uint32) (index: uint32) (generation: uint32) : EntityRef =
     { Kind = EntityKind.Part; Index = index; Generation = generation; Epoch = epoch }
 
+// The slot-map handle a ref names. The ref's kind/epoch select which map it resolves
+// against; the handle itself is only the index + generation.
+let handleOf (ref: EntityRef) : Handle =
+    { Index = ref.Index; Generation = ref.Generation }
+
 [<Struct>]
 type Entity =
     { Name : string
-      Transform : Transform
+      mutable Transform : Transform
       Enabled : bool
       Visible : bool
       Selectable : bool
@@ -117,7 +122,7 @@ type AssetBinding =
 
 [<Struct>]
 type Actor =
-    { Base : Entity
+    { mutable Base : Entity
       AssetId : string
       Physics : PhysicsAttachment<CapsuleCollider> option
       ShowCollider : bool

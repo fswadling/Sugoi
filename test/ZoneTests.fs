@@ -162,7 +162,7 @@ let ``undo restores the recorded generation and redo removes it again`` () =
     Assert.True(Option.isNone (Zone.tryEntityAt zone ref))
 
     // Undo re-occupies the freed slot, restoring the generation the ref recorded.
-    zone.Props.Occupy(ref.Index, ref.Generation, original)
+    zone.Props.Occupy(handleOf ref, original)
     Assert.True(Zone.isAlive zone ref)
     Assert.Equal("crate", (Zone.tryEntityAt zone ref).Value.Name)
     Assert.Equal(1u, zone.Props.Count)
@@ -327,8 +327,8 @@ let ``loading an environment attaches a body per part mapped to its part ref`` (
     let environment = Zone.loadEnvironment zone world assets "room"
 
     Assert.Equal(1u, environment.Parts.Count)
-    Assert.True((environment.Parts.Get(0u, 0u)).Physics.IsSome)
-    let body = (environment.Parts.Get(0u, 0u)).Physics.Value.Body
+    Assert.True((environment.Parts.Get { Index = 0u; Generation = 0u }).Physics.IsSome)
+    let body = (environment.Parts.Get { Index = 0u; Generation = 0u }).Physics.Value.Body
     Assert.True(zone.BodyToEntity.ContainsKey(body))
     Assert.Equal<EntityRef>(partRef environment.Epoch 0u 0u, zone.BodyToEntity.[body])
 
@@ -340,20 +340,20 @@ let ``swapping environments tears down the outgoing bodies, retains slots, and r
 
     let first = Zone.loadEnvironment zone world assets "room"
     let firstRef = partRef first.Epoch 0u 0u
-    let firstBody = (first.Parts.Get(0u, 0u)).Physics.Value.Body
+    let firstBody = (first.Parts.Get { Index = 0u; Generation = 0u }).Physics.Value.Body
     Assert.True(Zone.isAlive zone firstRef)
 
     // Loading again takes a fresh epoch and deactivates `first` in place.
     let second = Zone.loadEnvironment zone world assets "room"
     Assert.NotEqual<uint32>(first.Epoch, second.Epoch)
     Assert.False(zone.BodyToEntity.ContainsKey(firstBody))       // outgoing bodies destroyed
-    Assert.True((first.Parts.Get(0u, 0u)).Physics.IsNone)        // part cleared, slot kept
+    Assert.True((first.Parts.Get { Index = 0u; Generation = 0u }).Physics.IsNone)        // part cleared, slot kept
     Assert.False(Zone.isAlive zone firstRef)                     // epoch scoping
 
     // Swapping back (what undoing the second load does) revives the same slot.
     Zone.setEnvironment zone world assets (Some first)
     Assert.True(Zone.isAlive zone firstRef)
-    let revivedBody = (first.Parts.Get(0u, 0u)).Physics.Value.Body
+    let revivedBody = (first.Parts.Get { Index = 0u; Generation = 0u }).Physics.Value.Body
     Assert.True(zone.BodyToEntity.ContainsKey(revivedBody))
     Assert.Equal<EntityRef>(firstRef, zone.BodyToEntity.[revivedBody])
 
@@ -371,10 +371,10 @@ let ``a part transform is inert while a different environment is loaded`` () =
     Zone.setTransform zone world firstRef moved
 
     // The current environment's same-index part is untouched...
-    Assert.Equal(Vector3.Zero, (second.Parts.Get(0u, 0u)).Base.Transform.Position)
+    Assert.Equal(Vector3.Zero, (second.Parts.Get { Index = 0u; Generation = 0u }).Base.Transform.Position)
     // ...and the stale ref never reaches its own (inactive) environment's part.
     Zone.setEnvironment zone world assets (Some first)
-    Assert.Equal(Vector3.Zero, (first.Parts.Get(0u, 0u)).Base.Transform.Position)
+    Assert.Equal(Vector3.Zero, (first.Parts.Get { Index = 0u; Generation = 0u }).Base.Transform.Position)
 
 [<Fact>]
 let ``undo and redo of an environment load route through the real lifecycle`` () =

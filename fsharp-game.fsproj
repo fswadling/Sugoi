@@ -28,6 +28,7 @@
     <Compile Include="world/Assets.fs" />
     <Compile Include="world/Entity.fs" />
     <Compile Include="world/Zone.fs" />
+    <Compile Include="world/Systems.fs" />
     <Compile Include="state/Screen.fs" />
     <Compile Include="state/SharedState.fs" />
     <Compile Include="state/Command.fs" />

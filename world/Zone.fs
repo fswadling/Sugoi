@@ -45,11 +45,11 @@ let partsFor (zone: Zone) (ref: EntityRef) : SlotMap<Prop> option =
 // storage (environment, waypoint, trigger) are never alive.
 let isAlive (zone: Zone) (ref: EntityRef) : bool =
     match ref.Kind with
-    | EntityKind.Actor -> zone.Actors.IsAlive(ref.Index, ref.Generation)
-    | EntityKind.Prop -> zone.Props.IsAlive(ref.Index, ref.Generation)
+    | EntityKind.Actor -> zone.Actors.IsAlive(handleOf ref)
+    | EntityKind.Prop -> zone.Props.IsAlive(handleOf ref)
     | EntityKind.Part ->
         match partsFor zone ref with
-        | Some parts -> parts.IsAlive(ref.Index, ref.Generation)
+        | Some parts -> parts.IsAlive(handleOf ref)
         | None -> false
     | EntityKind.Environment
     | EntityKind.Waypoint
@@ -61,17 +61,20 @@ let isAlive (zone: Zone) (ref: EntityRef) : bool =
 let tryEntityAt (zone: Zone) (ref: EntityRef) : Entity option =
     match ref.Kind with
     | EntityKind.Actor ->
-        match zone.Actors.TryGet(ref.Index, ref.Generation) with
-        | Some a -> Some a.Base
-        | None -> None
+        if not (zone.Actors.IsAlive(handleOf ref)) then None else
+        let actor = &zone.Actors.Get(handleOf ref)
+        Some actor.Base
     | EntityKind.Prop ->
-        match zone.Props.TryGet(ref.Index, ref.Generation) with
-        | Some p -> Some p.Base
-        | None -> None
+        if not (zone.Props.IsAlive(handleOf ref)) then None else
+        let prop = &zone.Props.Get(handleOf ref)
+        Some prop.Base
     | EntityKind.Part ->
         match partsFor zone ref with
-        | Some parts -> parts.TryGet(ref.Index, ref.Generation) |> Option.map (fun p -> p.Base)
         | None -> None
+        | Some parts ->
+        if not (parts.IsAlive(handleOf ref)) then None else
+        let part = &parts.Get(handleOf ref)
+        Some part.Base
     | _ -> None
 
 // ── Collider derivation ──
@@ -194,25 +197,25 @@ let private mapBody (zone: Zone) (attachment: PhysicsAttachment<'T> option) (ref
 let bindingAt (zone: Zone) (ref: EntityRef) : AssetBinding =
     match ref.Kind with
     | EntityKind.Actor ->
-        let a = &zone.Actors.Get(ref.Index, ref.Generation)
+        let a = &zone.Actors.Get(handleOf ref)
         { AssetId = Some a.AssetId; SubmeshIndex = 0; SubmeshCount = 0 }
     | EntityKind.Prop ->
-        let p = &zone.Props.Get(ref.Index, ref.Generation)
+        let p = &zone.Props.Get(handleOf ref)
         { AssetId = p.AssetId; SubmeshIndex = p.SubmeshIndex; SubmeshCount = p.SubmeshCount }
     | EntityKind.Part ->
         match partsFor zone ref with
         | None -> failwithf "bindingAt: part ref %A does not belong to the loaded environment" ref
         | Some parts ->
-        let p = &parts.Get(ref.Index, ref.Generation)
+        let p = &parts.Get(handleOf ref)
         { AssetId = p.AssetId; SubmeshIndex = p.SubmeshIndex; SubmeshCount = p.SubmeshCount }
     | _ -> failwithf "bindingAt: kind %A has no asset binding" ref.Kind
 
 // Change a mesh-backed entity's transform in `map` (a placed prop or an
 // environment part), recreating its body so the collider follows.
 let private setMeshTransform (zone: Zone) (world: Physics.World) (map: SlotMap<Prop>) (ref: EntityRef) (transform: Transform) : unit =
-    if not (map.IsAlive(ref.Index, ref.Generation)) then () else
+    if not (map.IsAlive(handleOf ref)) then () else
 
-    let p = &map.Get(ref.Index, ref.Generation)
+    let p = &map.Get(handleOf ref)
     do destroyBody world zone p.Physics
     let attachment =
         match p.Physics with
@@ -228,7 +231,7 @@ let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform
     | EntityKind.Actor ->
         if not (isAlive zone ref) then () else
 
-        let a = &zone.Actors.Get(ref.Index, ref.Generation)
+        let a = &zone.Actors.Get(handleOf ref)
         do destroyBody world zone a.Physics
         let attachment =
             match a.Physics with
@@ -281,7 +284,7 @@ let setActorWithAsset (zone: Zone) (world: Physics.World) (assets: Assets.AssetM
         let renderer = Assets.createActorRender assets assetId
         let attachment = attachActorPhysics world assets assetId entity.Transform
         let actor = { Base = entity; AssetId = assetId; Physics = attachment; ShowCollider = false; Renderer = renderer }
-        zone.Actors.Occupy(ref.Index, ref.Generation, actor)
+        zone.Actors.Occupy(handleOf ref, actor)
         do mapBody zone attachment ref
     | EntityKind.Prop ->
         do ensureSlotFree zone.Props ref
@@ -289,7 +292,7 @@ let setActorWithAsset (zone: Zone) (world: Physics.World) (assets: Assets.AssetM
         let attachment = attachPropPhysics world zone assets binding entity.Transform
         let prop =
             { Base = entity; AssetId = binding.AssetId; SubmeshIndex = binding.SubmeshIndex; SubmeshCount = binding.SubmeshCount; Physics = attachment; Renderer = renderer }
-        zone.Props.Occupy(ref.Index, ref.Generation, prop)
+        zone.Props.Occupy(handleOf ref, prop)
         do mapBody zone attachment ref
     | EntityKind.Part ->
         // A part restore only runs while the environment it names is loaded: swaps
@@ -303,7 +306,7 @@ let setActorWithAsset (zone: Zone) (world: Physics.World) (assets: Assets.AssetM
             let attachment = attachPropPhysics world zone assets binding entity.Transform
             let prop =
                 { Base = entity; AssetId = binding.AssetId; SubmeshIndex = binding.SubmeshIndex; SubmeshCount = binding.SubmeshCount; Physics = attachment; Renderer = renderer }
-            parts.Occupy(ref.Index, ref.Generation, prop)
+            parts.Occupy(handleOf ref, prop)
             do mapBody zone attachment ref
         | None -> failwithf "setActorWithAsset: part ref %A does not belong to the loaded environment" ref
     | _ -> ()
@@ -311,11 +314,11 @@ let setActorWithAsset (zone: Zone) (world: Physics.World) (assets: Assets.AssetM
 // Remove a mesh-backed entity (placed prop or environment part) from `map`,
 // destroying its body. No-op for a stale ref.
 let private removeMeshEntity (zone: Zone) (world: Physics.World) (map: SlotMap<Prop>) (ref: EntityRef) : unit =
-    if map.IsAlive(ref.Index, ref.Generation) then
-        // Copy the attachment out first: `RemoveByIndex` mutates the slot.
-        let physics = (map.Get(ref.Index, ref.Generation)).Physics
+    if map.IsAlive(handleOf ref) then
+        // Copy the attachment out first: `Remove` mutates the slot.
+        let physics = (map.Get(handleOf ref)).Physics
         do destroyBody world zone physics
-        map.RemoveByIndex(ref.Index, ref.Generation, Some Prop.releaseRenderer)
+        map.Remove(handleOf ref, Some Prop.releaseRenderer)
 
 // Remove the entity at the ref (Actor/Prop/Part), destroying its body. No-op for
 // other kinds or a stale ref (its generation no longer matches the slot).
@@ -323,9 +326,9 @@ let removeEntity (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
     match ref.Kind with
     | EntityKind.Actor ->
         if isAlive zone ref then
-            let physics = (zone.Actors.Get(ref.Index, ref.Generation)).Physics
+            let physics = (zone.Actors.Get(handleOf ref)).Physics
             do destroyBody world zone physics
-            zone.Actors.RemoveByIndex(ref.Index, ref.Generation, Some Actor.releaseRenderer)
+            zone.Actors.Remove(handleOf ref, Some Actor.releaseRenderer)
     | EntityKind.Prop ->
         do removeMeshEntity zone world zone.Props ref
     | EntityKind.Part ->
@@ -377,15 +380,15 @@ let spawnProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) 
 // Build a renderer + body for a part, mapping the body back to a `Part` ref stamped
 // with the environment's epoch. `zone.Environment` must already be `environment`
 // (the part renderer resolves its asset through it).
-let private attachPart (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (environment: Environment) (index: uint32) (generation: uint32) : unit =
+let private attachPart (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (environment: Environment) (handle: Handle) : unit =
     let parts = environment.Parts
-    let p = &parts.Get(index, generation)
+    let p = &parts.Get(handle)
     let transform = p.Base.Transform
     let binding = { AssetId = p.AssetId; SubmeshIndex = p.SubmeshIndex; SubmeshCount = p.SubmeshCount }
     let renderer = propRenderer zone assets binding
     let attachment = attachPropPhysics world zone assets binding transform
     p <- { p with Renderer = renderer; Physics = attachment }
-    do mapBody zone attachment (partRef environment.Epoch index generation)
+    do mapBody zone attachment (partRef environment.Epoch handle.Index handle.Generation)
 
 // Spawn a duplicate of an environment part into the current environment.
 let spawnPartBinding (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (binding: AssetBinding) : EntityRef =
@@ -395,7 +398,7 @@ let spawnPartBinding (zone: Zone) (world: Physics.World) (assets: Assets.AssetMa
 
     let handle = environment.Parts.Add(meshProp entity binding)
     let ref = partRef environment.Epoch handle.Index handle.Generation
-    do attachPart zone world assets environment handle.Index handle.Generation
+    do attachPart zone world assets environment handle
     ref
 
 // Build a fresh environment value from an asset: one part per mesh-bearing node,
@@ -440,7 +443,7 @@ let private deactivateEnvironment (zone: Zone) (world: Physics.World) : unit =
             let p = slot.Value
             do destroyBody world zone p.Physics
             do Prop.releaseRenderer p
-            parts.Get(uint32 i, slot.Generation) <- { p with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
+            parts.Get { Index = uint32 i; Generation = slot.Generation } <- { p with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
     zone.Environment <- None
 
 // Rebuild an environment's part resources and make it the current environment.
@@ -451,7 +454,7 @@ let private activateEnvironment (zone: Zone) (world: Physics.World) (assets: Ass
     for i in 0 .. slots.Length - 1 do
         let slot = &slots.[i]
         if slot.Alive then
-            do attachPart zone world assets environment (uint32 i) slot.Generation
+            do attachPart zone world assets environment { Index = uint32 i; Generation = slot.Generation }
 
 // Swap the current environment for `environment` (None clears it): tear down the
 // outgoing parts and rebuild the incoming ones.
