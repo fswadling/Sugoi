@@ -1,8 +1,9 @@
 module Command
 
-// Undoable editor commands. Each command stores the data needed to apply and
-// undo a mutation over the active zone, plus the affected `EntityRef` (an index,
-// not a pointer), so undo survives entity deletion and re-creation.
+// Undoable editor commands. Each stores the data needed to apply and undo a
+// mutation over the active zone, plus the affected `EntityRef` (kind, index,
+// generation, and — for a part — its environment epoch). The generation and epoch
+// are what let a restored entity be told apart from one that reused its slot.
 
 open Entity
 open Zone
@@ -12,7 +13,7 @@ type Command =
     | Delete of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
     | Duplicate of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
     | Transform of Ref : EntityRef * Before : Transform * After : Transform
-    | SetEnvironment of PreviousAssetId : string option * NewAssetId : string option
+    | SetEnvironment of Previous : Environment option * Next : Environment option
 
 // ── apply / undo a single command ──
 
@@ -24,11 +25,9 @@ let apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (c
     | Delete (r, _, _) ->
         removeEntity zone physics r
     | Transform (r, _, after) ->
-        Option.iter (fun (e: Entity) -> setEntity zone physics r { e with Transform = after }) (entityAt zone r)
-    | SetEnvironment (_, newAssetId) ->
-        match newAssetId with
-        | Some id -> loadEnvironment zone physics assets id
-        | None -> clearEnvironment zone physics assets
+        setTransform zone physics r after
+    | SetEnvironment (_, next) ->
+        setEnvironment zone physics assets next
 
 let undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
@@ -38,11 +37,9 @@ let undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cm
     | Delete (r, entity, binding) ->
         setActorWithAsset zone physics assets r entity binding
     | Transform (r, before, _) ->
-        Option.iter (fun (e: Entity) -> setEntity zone physics r { e with Transform = before }) (entityAt zone r)
-    | SetEnvironment (previousAssetId, _) ->
-        match previousAssetId with
-        | Some id -> loadEnvironment zone physics assets id
-        | None -> clearEnvironment zone physics assets
+        setTransform zone physics r before
+    | SetEnvironment (previous, _) ->
+        setEnvironment zone physics assets previous
 
 // ── undo stack ──
 
@@ -73,7 +70,7 @@ module UndoStack =
         let merge (prev: Command) (newCmd: Command) : Command option =
             match prev, newCmd with
             | Transform (a, before, _), Transform (b, _, after) ->
-                if a.Kind = b.Kind && a.Index = b.Index then
+                if a = b then
                     Some (Transform (a, before, after))
                 else None
             | _ -> None

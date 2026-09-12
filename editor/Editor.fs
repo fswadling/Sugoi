@@ -43,21 +43,15 @@ let private selectedTransform (state: GameplayState.GameplayState) : (Vector3 * 
     match state.Editor.Selection with
     | None -> None
     | Some ref ->
-    let entity = Zone.entityAt state.Zone ref
-    Option.map (fun (e: Entity) -> (e.Transform.Position, e.Transform)) entity
+    let entity = Zone.tryEntityAt state.Zone ref
+    Option.map (fun e -> (e.Transform.Position, e.Transform)) entity
 
 // Write a transform back to the selected entity.
 let private setSelectedTransform (physics: Physics.World) (t: Transform) (state: byref<GameplayState.GameplayState>) : unit =
     match state.Editor.Selection with
     | None -> ()
     | Some ref ->
-
-    let entity = Zone.entityAt state.Zone ref
-    match entity with
-    | None -> ()
-    | Some e ->
-
-    Zone.setEntity state.Zone physics ref { e with Transform = t }
+    Zone.setTransform state.Zone physics ref t
 
 
 // Focus the camera on the selection (re-centre the target, preserve the offset).
@@ -66,7 +60,7 @@ let private focus (state: byref<GameplayState.GameplayState>) : unit =
     | None -> ()
     | Some ref ->
 
-    let entity = Zone.entityAt state.Zone ref
+    let entity = Zone.tryEntityAt state.Zone ref
     match entity with
     | None -> ()
     | Some e ->
@@ -129,10 +123,10 @@ let private finishDrag (state: byref<GameplayState.GameplayState>) : unit =
     let undo =
         match state.Editor.Selection, state.Editor.Drag with
         | Some ref, Some d ->
-            match Zone.entityAt state.Zone ref with
+            let entity = Zone.tryEntityAt state.Zone ref
+            match entity with
+            | Some e -> UndoStack.push state.Editor.Undo (Transform (ref, d.Start, e.Transform))
             | None -> state.Editor.Undo
-            | Some entity ->
-                UndoStack.push state.Editor.Undo (Transform (ref, d.Start, entity.Transform))
         | _ -> state.Editor.Undo
     state.Editor <- { state.Editor with Drag = None; Undo = undo }
 
@@ -240,11 +234,25 @@ let updateNudge (physics: Physics.World) (input: Input.Input) (state: byref<Game
             | None -> state.Editor.Undo
             | Some ref ->
 
-            match Zone.entityAt state.Zone ref with
+            let entity = Zone.tryEntityAt state.Zone ref
+            match entity with
+            | Some e -> UndoStack.push state.Editor.Undo (Transform (ref, before, e.Transform))
             | None -> state.Editor.Undo
-            | Some entity -> UndoStack.push state.Editor.Undo (Transform (ref, before, entity.Transform))
 
         state.Editor <- { state.Editor with NudgeBefore = None; Undo = undo }
+
+// ── Undo / redo ──
+
+// Apply one undo/redo step and reconcile the selection: a swapped environment
+// dangles a Part selection. Both the shortcut and the Edit menu route through here
+// so the reconcile can't be missed.
+let private undoStep (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
+    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone shared.Physics shared.Assets }
+    do Selection.dropStalePartSelection &state
+
+let private redoStep (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
+    state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone shared.Physics shared.Assets }
+    do Selection.dropStalePartSelection &state
 
 // ── App-level shortcuts ──
 
@@ -277,9 +285,9 @@ let handleShortcuts (shared: SharedState.SharedState) (input: Input.Input) (stat
         // undo / redo (blocked mid-drag so an in-progress gesture isn't corrupted)
         if state.Editor.Drag = None then
             if Input.isCtrl input && Input.isPressed Input.Key.Z input && not (Input.isShift input) then
-                state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone shared.Physics shared.Assets }
+                do undoStep shared &state
             if Input.isCtrl input && Input.isPressed Input.Key.Y input then
-                state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone shared.Physics shared.Assets }
+                do redoStep shared &state
 
     // Escape returns to the main menu
     if Input.isPressed Input.Key.Escape input then
@@ -402,9 +410,9 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         if ImGui.beginMenu("Edit", true) then
             let idle = state.Editor.Drag = None && not (ImGui.wantTextInput())
             if ImGui.menuItem("Undo", "Ctrl+Z", false, idle && not (List.isEmpty state.Editor.Undo.Applied)) then
-                state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone shared.Physics shared.Assets }
+                do undoStep shared &state
             if ImGui.menuItem("Redo", "Ctrl+Y", false, idle && not (List.isEmpty state.Editor.Undo.Redo)) then
-                state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone shared.Physics shared.Assets }
+                do redoStep shared &state
             do ImGui.endMenu()
 
         do ImGui.endMainMenuBar()

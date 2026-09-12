@@ -10,7 +10,7 @@ open Command
 // Delete a specific entity. Clears the selection only when it was the deleted
 // entity; otherwise leaves selection/drag untouched.
 let deleteRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) : unit =
-    let entity = Zone.entityAt state.Zone ref
+    let entity = Zone.tryEntityAt state.Zone ref
     match entity with
     | None -> ()
     | Some e ->
@@ -35,28 +35,23 @@ let delete (shared: SharedState.SharedState) (state: byref<GameplayState.Gamepla
 
 // Duplicate a specific entity and select the copy.
 let duplicateRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) : unit =
-    let entity = Zone.entityAt state.Zone ref
+    let entity = Zone.tryEntityAt state.Zone ref
     match entity with
     | None -> ()
     | Some e ->
-    match ref.Kind with
-    | EntityKind.Actor ->
-        let binding = Zone.bindingAt state.Zone ref
-        match binding.AssetId with
-        | None -> failwith "actor without an asset id"
-        | Some assetId ->
-        let newRef = Zone.spawnActor state.Zone shared.Physics shared.Assets e assetId
-        let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e, binding))
-        state.Editor <- { state.Editor with Selection = Some newRef; Undo = undo }
-    | EntityKind.Prop ->
-        let binding = Zone.bindingAt state.Zone ref
-        let newRef = Zone.spawnPropBinding state.Zone shared.Physics shared.Assets e binding
-        let undo = UndoStack.push state.Editor.Undo (Duplicate (newRef, e, binding))
-        state.Editor <- { state.Editor with Selection = Some newRef; Undo = undo }
-    | _ -> ()
+    do Spawning.duplicate shared &state ref e
 
 // Duplicate the selected entity.
 let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
     match state.Editor.Selection with
     | None -> ()
     | Some ref -> duplicateRef shared &state ref
+
+// Drop a Part selection left dangling by an environment swap: its epoch no longer
+// resolves, so the inspector would silently show nothing. Actor/Prop selections are
+// left alone — a stale one can resolve again when undo/redo restores its slot.
+let dropStalePartSelection (state: byref<GameplayState.GameplayState>) : unit =
+    match state.Editor.Selection with
+    | Some ref when ref.Kind = EntityKind.Part && not (Zone.isAlive state.Zone ref) ->
+        state.Editor <- { state.Editor with Selection = None; Drag = None }
+    | _ -> ()

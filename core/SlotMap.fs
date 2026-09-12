@@ -1,11 +1,9 @@
 module SlotMap
 
-// Generational slot map: fixed-capacity, contiguous, inline storage of
-// value-type payloads (`'T : struct`) with O(1) add/get/free and stale-handle
-// detection via a per-slot generation. Slots and the container are immutable
-// records (updates use copy-and-update), except `Value`, which is mutable so
-// hot-path systems can advance it in place through a byref. Indices are
-// `uint32`, with `UInt32.MaxValue` as the "no slot" sentinel.
+// Generational slot map: fixed-capacity, contiguous storage of value-type
+// payloads (`'T : struct`) with O(1) add/get/free and stale-handle detection.
+// A sealed class mutated in place, so a reference is the only map and no copy
+// can desync from the shared storage; `Get` returns a `byref` into the payload.
 
 open System
 
@@ -21,154 +19,137 @@ type Handle =
     { Index : uint32
       Generation : uint32 }
 
-[<Struct>]
-type SlotMap<'T when 'T : struct> =
-    { Slots : Slot<'T> array
-      Count : uint32
-      FreeHead : uint32 }
-
-// "No slot" sentinel for free-list links and FreeHead.
+// "No slot" sentinel for free-list links and the free-list head.
 let private noneIndex = UInt32.MaxValue
 
-let create<'T when 'T : struct> (capacity: uint) : SlotMap<'T> =
-    let n = int capacity
+[<Sealed>]
+type SlotMap<'T when 'T : struct>(capacity: uint) =
 
-    let slots = Array.init n (fun _ ->
-        { Value = Unchecked.defaultof<'T>
-          Generation = 0u
-          Alive = false
-          NextFree = noneIndex })
+    let slotCount = int capacity
 
-    // link the free list: 0 -> 1 -> ... -> (n - 1) -> noneIndex
-    for i in 0 .. n - 2 do
-        slots.[i] <- { slots.[i] with NextFree = uint32 (i + 1) }
+    // Pre-allocate the slots and link the free list: 0 -> 1 -> ... -> (n - 1).
+    let slots =
+        Array.init slotCount (fun i ->
+            { Value = Unchecked.defaultof<'T>
+              Generation = 0u
+              Alive = false
+              NextFree = if i < slotCount - 1 then uint32 (i + 1) else noneIndex })
 
-    { Slots = slots
-      Count = 0u
-      FreeHead = if n > 0 then 0u else noneIndex }
+    let mutable activeCount = 0u
+    let mutable freeHead = if slotCount > 0 then 0u else noneIndex
 
-let add (map: SlotMap<'T>) (value: 'T) : SlotMap<'T> * Handle =
-    if map.FreeHead = noneIndex then
-        invalidOp "slot map is full"
+    // Read-only view of the backing slots for systems that scan directly; writes go
+    // through `Get`, so no caller can desync the free list.
+    member _.Slots : ReadOnlySpan<Slot<'T>> = ReadOnlySpan<Slot<'T>>(slots)
 
-    let index = int map.FreeHead
-    let slot = map.Slots.[index]
-    map.Slots.[index] <- { slot with Value = value; Alive = true; NextFree = noneIndex }
-    { map with Count = map.Count + 1u; FreeHead = slot.NextFree },
-    { Index = map.FreeHead; Generation = slot.Generation }
+    member _.Count : uint32 = activeCount
 
-let get (map: SlotMap<'T>) (handle: Handle) : 'T =
-    if handle.Index >= uint32 map.Slots.Length then
-        invalidOp "slot map handle is out of range"
+    member _.Add(value: 'T) : Handle =
+        if freeHead = noneIndex then
+            invalidOp "slot map is full"
 
-    let slot = map.Slots.[int handle.Index]
-    if not slot.Alive || slot.Generation <> handle.Generation then
-        invalidOp "slot map handle is stale"
+        let index = int freeHead
+        let slot = slots.[index]
+        slots.[index] <- { slot with Value = value; Alive = true; NextFree = noneIndex }
+        activeCount <- activeCount + 1u
+        freeHead <- slot.NextFree
+        { Index = uint32 index; Generation = slot.Generation }
 
-    slot.Value
+    // Validate an address and return its array index; raises on out-of-range or stale.
+    member private _.CheckedSlot(index: uint32, generation: uint32) : int =
+        if index >= uint32 slots.Length then
+            invalidOp "slot map handle is out of range"
 
-let free (map: SlotMap<'T>) (handle: Handle) : SlotMap<'T> =
-    if handle.Index >= uint32 map.Slots.Length then
-        invalidOp "slot map handle is out of range"
-
-    let index = int handle.Index
-    let slot = map.Slots.[index]
-    if not slot.Alive || slot.Generation <> handle.Generation then
-        invalidOp "slot map handle is stale"
-
-    // bump the generation so old handles go stale, then push onto the free list
-    map.Slots.[index] <- { slot with Generation = slot.Generation + 1u; Alive = false; NextFree = map.FreeHead }
-    { map with Count = map.Count - 1u; FreeHead = handle.Index }
-
-let count (map: SlotMap<'T>) : uint32 =
-    map.Count
-
-// Iterate the alive slots, applying `f` to each (index, value). A plain loop —
-// no per-slot allocation. `[<InlineIfLambda>]` lets the compiler inline a
-// statically-known lambda at the call site (no closure allocation or indirect
-// call); it falls back to a normal closure when the lambda can't be inlined.
-let inline iteriAlive (map: SlotMap<'T>) ([<InlineIfLambda>] f: uint32 -> 'T -> unit) : unit =
-    let slots = map.Slots
-    for i in 0 .. slots.Length - 1 do
+        let i = int index
         let slot = slots.[i]
-        if slot.Alive then f (uint32 i) slot.Value
+        if not slot.Alive || slot.Generation <> generation then
+            invalidOp "slot map handle is stale"
 
-// Fold over the alive slots, threading an accumulator. Mirrors `iteriAlive`:
-// `[<InlineIfLambda>]` inlines a statically-known lambda (no closure or indirect
-// call), falling back to a normal closure otherwise. The accumulator is passed
-// as a value, so the lambda stays pure and inlinable (unlike capturing a
-// `mutable` from the caller).
-let inline foldiAlive (map: SlotMap<'T>) (state: 'State) ([<InlineIfLambda>] f: 'State -> uint32 -> 'T -> 'State) : 'State =
-    let slots = map.Slots
-    let mutable acc = state
-    for i in 0 .. slots.Length - 1 do
+        i
+
+    member this.Get(handle: Handle) : byref<'T> =
+        &slots.[this.CheckedSlot(handle.Index, handle.Generation)].Value
+
+    // The index + generation form of `Get`, for an `EntityRef` rather than a `Handle`.
+    member this.Get(index: uint32, generation: uint32) : byref<'T> =
+        &slots.[this.CheckedSlot(index, generation)].Value
+
+    member _.Free(handle: Handle) : unit =
+        if handle.Index >= uint32 slots.Length then
+            invalidOp "slot map handle is out of range"
+
+        let index = int handle.Index
+        let slot = slots.[index]
+        if not slot.Alive || slot.Generation <> handle.Generation then
+            invalidOp "slot map handle is stale"
+
+        // bump the generation so old handles go stale, then push onto the free list
+        slots.[index] <- { slot with Generation = slot.Generation + 1u; Alive = false; NextFree = freeHead }
+        activeCount <- activeCount - 1u
+        freeHead <- handle.Index
+
+    // Scan the alive slots. `[<InlineIfLambda>]` inlines a statically-known lambda
+    // (no closure or indirect call). The value is passed by copy, so a loop that
+    // mutates a payload in place resolves it through `Get` instead.
+    member inline this.IteriAlive([<InlineIfLambda>] f: uint32 -> uint32 -> 'T -> unit) : unit =
+        let slots = this.Slots
+        for i in 0 .. slots.Length - 1 do
+            let slot = slots.[i]
+            if slot.Alive then f (uint32 i) slot.Generation slot.Value
+
+    // ── Editor-facing access ──
+
+    // Editor access is index-based and always names the generation, so no accessor
+    // can read or write a slot that has since been freed and reused.
+
+    // Whether the slot at `index` is alive with `generation`.
+    member _.IsAlive(index: uint32, generation: uint32) : bool =
+        if index >= uint32 slots.Length then false else
+        let slot = slots.[int index]
+        slot.Alive && slot.Generation = generation
+
+    // Whether the slot holds any entity at all, regardless of generation. The
+    // precondition `Occupy` needs: a slot reused by another entity is occupied but
+    // not alive at the original generation.
+    member _.IsOccupied(index: uint32) : bool =
+        index < uint32 slots.Length && slots.[int index].Alive
+
+    // A copy of the slot's value, or None when it is dead or its generation advanced.
+    member this.TryGet(index: uint32, generation: uint32) : 'T option =
+        if this.IsAlive(index, generation) then Some slots.[int index].Value else None
+
+    // Re-occupy the free slot at `index` and restore `generation`, so the caller's
+    // ref resolves again — how undo restores a deleted entity. Rebuilds the free
+    // list (O(capacity); undo path only) and raises if the slot is already alive, so
+    // a slot recycled by an untracked spawn fails loudly rather than being clobbered.
+    member _.Occupy(index: uint32, generation: uint32, value: 'T) : unit =
+        if index >= uint32 slots.Length then
+            invalidOp "slot map index is out of range"
+
+        let i = int index
         let slot = slots.[i]
-        if slot.Alive then acc <- f acc (uint32 i) slot.Value
-    acc
+        if slot.Alive then
+            invalidOp (sprintf "slot map slot %d is already alive (generation %d, occupy asked for %d)" i slot.Generation generation)
 
-// ── Editor-facing, index-based access (no generation check) ──
+        slots.[i] <- { slot with Value = value; Generation = generation; Alive = true; NextFree = noneIndex }
+        let mutable head = noneIndex
+        for j = slots.Length - 1 downto 0 do
+            if not slots.[j].Alive then
+                slots.[j] <- { slots.[j] with NextFree = head }
+                head <- uint32 j
+        activeCount <- activeCount + 1u
+        freeHead <- head
 
-// The editor addresses entities by `EntityRef { kind; index }` — an index with
-// no generation. These accessors mirror that: they read/write a slot by index
-// alone. Deletion bumps the generation, so a stale index could alias a reused
-// slot; the editor clears selection on delete and undo stores the full value, so
-// this is safe (and matches ocaml-game's index-based Slot_map.get/set/remove).
+    // Free the slot at `index`, running `cleanup` on the value first. Raises on an
+    // out-of-range or stale/dead slot.
+    member this.RemoveByIndex(index: uint32, generation: uint32, cleanup: ('T -> unit) option) : unit =
+        let i = this.CheckedSlot(index, generation)
+        let slot = slots.[i]
 
-// Read a slot by index (alive only), or None. Returns None for an out-of-range
-// or dead slot.
-let tryGetByIndex (map: SlotMap<'T>) (index: uint32) : 'T option =
-    if index >= uint32 map.Slots.Length then None else
-    let slot = map.Slots.[int index]
-    if slot.Alive then Some slot.Value else None
+        match cleanup with
+        | Some f -> f slot.Value
+        | None -> ()
 
-// Read a slot by index (alive only). Raises on an out-of-range or dead slot.
-let getByIndex (map: SlotMap<'T>) (index: uint32) : 'T =
-    if index >= uint32 map.Slots.Length then
-        invalidOp "slot map index is out of range"
-    let slot = map.Slots.[int index]
-    if not slot.Alive then
-        invalidOp "slot map slot is dead"
-    slot.Value
-
-// Write a value at an index. Overwrites an alive slot, or occupies a free slot
-// (rebuilding the free list) — the latter is how undo restores a deleted entity
-// at its original index. Raises on an out-of-range index.
-let setByIndex (map: SlotMap<'T>) (index: uint32) (value: 'T) : SlotMap<'T> =
-    if index >= uint32 map.Slots.Length then
-        invalidOp "slot map index is out of range"
-
-    let i = int index
-    let slot = map.Slots.[i]
-    if slot.Alive then
-        map.Slots.[i] <- { slot with Value = value }
-        map
-    else
-
-    // occupy this free slot, then rebuild the free list without it
-    map.Slots.[i] <- { slot with Value = value; Alive = true; NextFree = noneIndex }
-    let n = map.Slots.Length
-    let mutable head = noneIndex
-    for j = n - 1 downto 0 do
-        if not map.Slots.[j].Alive then
-            map.Slots.[j] <- { map.Slots.[j] with NextFree = head }
-            head <- uint32 j
-    { map with Count = map.Count + 1u; FreeHead = head }
-
-// Free a slot by index (bump generation, push onto the free list), optionally
-// running `cleanup` on the value first. The cleanup runs only when the slot is
-// alive; an out-of-range index or an already-dead slot still raises.
-let removeByIndex (map: SlotMap<'T>) (index: uint32) (cleanup: ('T -> unit) option) : SlotMap<'T> =
-    if index >= uint32 map.Slots.Length then
-        invalidOp "slot map index is out of range"
-
-    let i = int index
-    let slot = map.Slots.[i]
-    if not slot.Alive then
-        invalidOp "slot map slot is already dead"
-
-    match cleanup with
-    | Some f -> f slot.Value
-    | None -> ()
-
-    map.Slots.[i] <- { slot with Generation = slot.Generation + 1u; Alive = false; NextFree = map.FreeHead }
-    { map with Count = map.Count - 1u; FreeHead = index }
+        slots.[i] <- { slot with Generation = slot.Generation + 1u; Alive = false; NextFree = freeHead }
+        activeCount <- activeCount - 1u
+        freeHead <- index

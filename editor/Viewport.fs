@@ -89,7 +89,9 @@ let drawGizmo (state: GameplayState.GameplayState) (dd: DebugDraw.DebugDraw) (ce
 // The selected entity's position (the gizmo center), or None.
 let gizmoCenter (state: GameplayState.GameplayState) : Vector3 option =
     match state.Editor.Selection with
-    | Some ref -> Option.map (fun (e: Entity) -> e.Transform.Position) (Zone.entityAt state.Zone ref)
+    | Some ref ->
+    let entity = Zone.tryEntityAt state.Zone ref
+    Option.map (fun e -> e.Transform.Position) entity
     | None -> None
 
 // ── Reference grid (always visible) ──
@@ -105,8 +107,8 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
     let zone = state.Zone
     let selection = state.Editor.Selection
 
-    SlotMap.iteriAlive zone.Actors (fun i a ->
-        let isSelected = selection = Some { Kind = EntityKind.Actor; Index = i }
+    zone.Actors.IteriAlive(fun i gen a ->
+        let isSelected = selection = Some (actorRef i gen)
         let c = if isSelected then selectedColor else white
         dd <- DebugDraw.wireframeBox dd a.Base.Transform.Position halfExtent c
         if a.ShowCollider then
@@ -114,10 +116,18 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
             | Some ph -> dd <- DebugDraw.capsule dd (Zone.capsuleCenter a.Base.Transform ph.Collider) ph.Collider.HalfHeight ph.Collider.Radius colliderColor
             | None -> ())
 
-    SlotMap.iteriAlive zone.Props (fun i p ->
-        let isSelected = selection = Some { Kind = EntityKind.Prop; Index = i }
+    zone.Props.IteriAlive(fun i gen p ->
+        let isSelected = selection = Some (propRef i gen)
         let c = if isSelected then selectedColor else white
         dd <- DebugDraw.wireframeBox dd p.Base.Transform.Position halfExtent c)
+
+    match zone.Environment with
+    | Some environment ->
+        environment.Parts.IteriAlive(fun i gen p ->
+            let isSelected = selection = Some (partRef environment.Epoch i gen)
+            let c = if isSelected then selectedColor else white
+            dd <- DebugDraw.wireframeBox dd p.Base.Transform.Position halfExtent c)
+    | None -> ()
 
     match gizmoCenter state with
     | Some center -> dd <- drawGizmo state dd center

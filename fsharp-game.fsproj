@@ -33,6 +33,7 @@
     <Compile Include="state/Command.fs" />
     <Compile Include="state/EditorState.fs" />
     <Compile Include="state/GameplayState.fs" />
+    <Compile Include="editor/Spawning.fs" />
     <Compile Include="editor/Selection.fs" />
     <Compile Include="editor/Raycast.fs" />
     <Compile Include="editor/Viewport.fs" />

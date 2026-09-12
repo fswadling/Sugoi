@@ -22,15 +22,15 @@ let activate (_shared: SharedState.SharedState) (state: byref<GameplayState.Game
     let size = ImGui.displaySize()
     do updateAspectRatio (size.x, size.y) &state
 
-// Advance each actor's own animation clock. Mutates each slot value in place
-// through a byref so only the frame float is written, rather than rebuilding the
-// Actor/ActorRender records via copy-and-update.
+// Advance each actor's own animation clock in place: the alive scan reads the map's
+// slot span, then each payload is resolved through `Get` so only the frame float is written.
 let private advanceActorAnimations (dt: float32) (zone: Zone.Zone) : unit =
     let slots = zone.Actors.Slots
     for i in 0 .. slots.Length - 1 do
-        let mutable slot = &slots.[i]
+        let slot = &slots.[i]
         if slot.Alive then
-            do ActorRender.advanceInPlace &slot.Value.Renderer dt
+            let actor = &zone.Actors.Get(uint32 i, slot.Generation)
+            do ActorRender.advanceInPlace &actor.Renderer dt
 
 // Advance non-render logic: refresh the camera aspect from the frame's window
 // size, advance the actor animations, then hand the frame's input to the editor,
@@ -65,7 +65,7 @@ let renderScene (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : 
     do DebugDraw.upload state.GizmoDraw pass.Cmd
 
     // Upload each actor's bone palette (copy pass) before the render pass.
-    SlotMap.iteriAlive state.Zone.Actors (fun _ (a: Actor) ->
+    state.Zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
         ActorRender.upload a.Renderer pass.Cmd)
 
     let mutable depthTarget = pass.DepthTarget
@@ -83,14 +83,19 @@ let renderScene (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : 
     // Props (placed assets and imported environment parts), then the animated
     // actors. The environment entity itself draws nothing — its parts are props.
     let staticPipeline = state.StaticPipeline
-    SlotMap.iteriAlive state.Zone.Props (fun _ (p: Prop) ->
-        let model = Entity.modelMatrix p.Base.Transform
-        do EnvironmentRender.draw p.Renderer scenePass pass.Cmd staticPipeline viewProjection model light cameraPos)
+    do state.Zone.Props.IteriAlive(fun _ _ (p: Prop) ->
+           let model = Entity.modelMatrix p.Base.Transform
+           do EnvironmentRender.draw p.Renderer scenePass pass.Cmd staticPipeline viewProjection model light cameraPos)
+
+    do state.Zone.Environment |> Option.iter (fun environment ->
+        environment.Parts.IteriAlive(fun _ _ (p: Prop) ->
+            let model = Entity.modelMatrix p.Base.Transform
+            do EnvironmentRender.draw p.Renderer scenePass pass.Cmd staticPipeline viewProjection model light cameraPos))
 
     let meshPipeline = state.MeshPipeline
-    SlotMap.iteriAlive state.Zone.Actors (fun _ (a: Actor) ->
-        let model = Entity.modelMatrix a.Base.Transform
-        do ActorRender.draw a.Renderer scenePass pass.Cmd meshPipeline viewProjection model light cameraPos)
+    do state.Zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
+           let model = Entity.modelMatrix a.Base.Transform
+           do ActorRender.draw a.Renderer scenePass pass.Cmd meshPipeline viewProjection model light cameraPos)
 
     // Editor markers + gizmos, depth-tested against the meshes drawn above.
     do DebugDraw.draw state.GizmoDraw viewProjection pass.Cmd scenePass

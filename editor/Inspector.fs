@@ -11,23 +11,24 @@ let draw (state: byref<GameplayState.GameplayState>) =
 
     match state.Editor.Selection with
     | Some ref ->
-        match Zone.entityAt state.Zone ref with
+        let entity = Zone.tryEntityAt state.Zone ref
+        match entity with
+        | None -> do ImGui.text("(no selection)")
         | Some e ->
-            do ImGui.text(sprintf "Name: %s" e.Name)
-            do ImGui.text(sprintf "Position: %A" e.Transform.Position)
-            do ImGui.text(sprintf "Rotation: %A" (eulerDegrees e.Transform.Rotation))
-            do ImGui.text(sprintf "Scale: %A" e.Transform.Scale)
 
-            // Actor-only capsule-collider visibility toggle.
-            if ref.Kind = EntityKind.Actor then
-                match SlotMap.tryGetByIndex state.Zone.Actors ref.Index with
-                | None -> ()
-                | Some actor ->
-                let mutable show = actor.ShowCollider
-                if ImGui.checkbox("Show Collider", &show) then
-                    state.Zone.Actors <- SlotMap.setByIndex state.Zone.Actors ref.Index { actor with ShowCollider = show }
-        | None ->
-            do ImGui.text("(no selection)")
+        do ImGui.text(sprintf "Name: %s" e.Name)
+        do ImGui.text(sprintf "Position: %A" e.Transform.Position)
+        do ImGui.text(sprintf "Rotation: %A" (eulerDegrees e.Transform.Rotation))
+        do ImGui.text(sprintf "Scale: %A" e.Transform.Scale)
+
+        // Actor-only capsule-collider toggle. `TryEntityAt` above resolved this ref;
+        // re-resolve through `Get` after the ImGui call rather than holding a byref.
+        if ref.Kind = EntityKind.Actor then
+            let handle : SlotMap.Handle = { Index = ref.Index; Generation = ref.Generation }
+            let mutable show = (state.Zone.Actors.Get(handle)).ShowCollider
+            if ImGui.checkbox("Show Collider", &show) then
+                let actor = &state.Zone.Actors.Get(handle)
+                actor <- { actor with ShowCollider = show }
     | None ->
         do ImGui.text("(no selection)")
 

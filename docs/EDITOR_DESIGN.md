@@ -86,7 +86,23 @@ scene/camera without owning them.
 Every editor mutation goes through a command with `apply`/`undo`, pushed onto an
 undo stack. Commands store **values** (not closures):
 
-- Entity commands store an `EntityRef` so undo survives entity deletion.
+- Entity commands store an `EntityRef` (kind, index, generation, and the
+  environment epoch for parts) so undo survives entity deletion and slot reuse.
+  Restoring a deleted entity re-occupies its recorded slot via `Occupy`, which
+  raises if the slot is taken. Each kind's entities live in their own slot map —
+  actors, placed props, and the current environment's parts — and changing
+  environments moves the `Environment` value (and its part map) rather than
+  respawning, so a recorded slot is always free when undo runs. That rests on no
+  untracked `Add` ever reusing a recorded slot, so entity creation is funnelled
+  through `editor/Spawning.fs`, which pairs every `Zone.spawn*` with the command
+  that reverses it; `AssetBrowser`/`Selection` must not call `Zone.spawn*`
+  directly, and `Zone` checks the slot is free before building resources. A part
+  ref's epoch ties it to its environment, so a part command applied while a
+  different environment is loaded is a no-op (a delete or transform) or fails
+  loudly (a restore, which the LIFO order makes unreachable) rather than acting
+  on the wrong part. Swapping environments (a load, or undo/redo of the swap)
+  drops a part selection whose epoch no longer matches, so the inspector never
+  shows a dangling entity.
 - Non-entity surfaces (cast, scenario, zone registry, advent flags, cue root)
   store **name-keyed before/after snapshots** of the immutable map/set entry.
 - A generic `Field` command covers arbitrary entity property edits.
@@ -148,13 +164,16 @@ already provides the minimal `ig*` layer; grow it per milestone.
 - **Phase 11** — scenario editor (library + cue + scene tabs).
 - **Phase 12** — zone registry editor.
 
-## Module map (`editor/`)
+## Module map
 
-Per `docs/PROJECT_STRUCTURE.md`:
+Per `docs/PROJECT_STRUCTURE.md`. `EditorState`/`Command` live in `state/`; the
+rest are in `editor/`.
 
 | Module | Responsibility |
 |---|---|
 | `Editor` | orchestration: docking workspace, keyboard shortcuts, camera/gizmo interaction |
+| `Spawning` | single entity-creation surface; pairs each spawn with its reversing command |
+| `Selection` | selection edits (delete / duplicate) + stale-part-selection cleanup |
 | `EditorState` | selection + transient UI state |
 | `Outliner` | hierarchical entity list |
 | `Inspector` | single editing surface for the selection |

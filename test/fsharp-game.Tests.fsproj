@@ -16,6 +16,14 @@
     <Compile Include="GltfTests.fs" />
     <Compile Include="ActorTests.fs" />
     <Compile Include="PhysicsTests.fs" />
+    <Compile Include="ZoneTests.fs" />
+    <Compile Include="SpawningTests.fs" />
+  </ItemGroup>
+
+  <!-- Serialize test collections: `Physics.create` calls Jolt's process-global
+       `Foundation.Init`, so parallel worlds are unsafe. -->
+  <ItemGroup>
+    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

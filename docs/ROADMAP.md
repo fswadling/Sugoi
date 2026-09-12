@@ -66,7 +66,7 @@ content-authoring and polish on top.
 | **2a** | **Entity store** | generational slot map + entity model, verified by tests | `odin-game/src/{slot_map,entity}.odin`; `ocaml-game/lib/core/{slot_map,entity}.ml` |
 | **2b** | **Editor workspace shell** | docking, viewport, outliner, inspector, asset browser (empty scene) | `odin-game/src/editor*.odin`; `ocaml-game` M5 |
 | **2c** | **Selection + transform** | raycast select, move/rotate/scale gizmos, spawn/delete/duplicate | `odin-game/src/editor*.odin`; `ocaml-game` M5 |
-| **2d** | **Command/undo** | undo/redo for every editor mutation | `ocaml-game` D-011; `editor/Command.fs` |
+| **2d** | **Command/undo** | undo/redo for every editor mutation | `ocaml-game` D-011; `state/Command.fs` |
 | **3** | **Animated character on screen** | an animated actor in a 3D viewport | `odin-game` IQM loading; `ocaml-game/lib/core/{iqm,actor,assets}.ml` |
 | **4** | **Environment + props** | a static environment + prop assets you can see | `odin-game/src/{environment,environment_gltf,environment_render}.odin`; `ocaml-game/lib/core/gltf.ml` |
 | **5** | **PBR + lighting** | metallic-roughness shading (GGX), materials, sun/directional light | `odin-game/src/environment_render.odin`, `docs/PBR_PLAN.md`; `ocaml-game` M13 |
@@ -95,12 +95,12 @@ Each phase lists the concrete **deliverables** (modules + behaviour) and the
 screen on the existing ImGui + SDL_gpu loop.
 
 **Deliverables**
-- `screen/Screen.fs` — `ScreenKind` + `ScreenTransition`.
+- `state/Screen.fs` — `ScreenKind` + `ScreenTransition`.
 - `screen/ScreenManager.fs` — owns the active screen, dispatches update/draw,
   applies the transition at frame end.
 - `screen/MainMenuScreen.fs` (Play/Quit) and `screen/GameplayScreen.fs`
   (UI-only placeholder).
-- `screen/SharedState.fs` / `screen/GameplayState.fs` — empty state seams for
+- `state/SharedState.fs` / `state/GameplayState.fs` — empty state seams for
   later phases.
 - `Engine.fs` (run loop) split out of `Program.fs`, which becomes a thin entry
   point. Move `ImGui.fs`/`ImGuiSdl3.fs` into `render/`.
@@ -114,13 +114,17 @@ placeholder; Quit (or window close) exits cleanly. *(complete — `specs/001`)*
 every later phase builds on (no visible result yet; verified by tests).
 
 **Deliverables**
-- `core/SlotMap.fs` — generational slot map: fixed slot array (`{ entity,
-  generation, alive, next_free }`), free-list, generation counter; O(1)
-  add/get/free with stale-reference detection.
-- `core/Entity.fs` — `Entity_Kind` (`Actor|Environment|Prop|Waypoint|Trigger`),
-  `Entity_Ref { kind, index }` + `NO_ENTITY`, base `Entity` (`name`, `transform`,
-  `enabled`, `visible`, `selectable`, `draggable`), and the specialized entities
-  (each embeds a nested `Entity`; no struct inheritance in F#).
+- `core/SlotMap.fs` — generational slot map: a sealed class over a fixed slot
+  array (`{ value, generation, alive, next_free }`), free-list, generation
+  counter; O(1) add/get/free with stale-reference detection, mutated in place.
+  A read-only `Slots` span for scans, a `byref` `Get` (index + generation), and a
+  generation-restoring `Occupy` for undo (re-occupy the deleted entity's recorded
+  slot, which is always free; a taken slot raises).
+- `world/Entity.fs` — `Entity_Kind` (`Actor|Environment|Prop|Part|Waypoint|Trigger`),
+  `Entity_Ref { kind, index, generation, epoch }` (absence via `option`), base
+  `Entity` (`name`, `transform`, `enabled`, `visible`, `selectable`, `draggable`),
+  and the specialized entities (each embeds a nested `Entity`; no struct
+  inheritance in F#).
 
 **Done when**: `test/SlotMapTests.fs` proves add/get/free, free-list reuse, and
 stale-handle rejection.
@@ -131,12 +135,12 @@ stale-handle rejection.
 populated asset browser.
 
 **Deliverables**
-- `core/Assets.fs` — asset manager: scan `actors/`/`environments/`/`props/` + s-syntax
+- `world/Assets.fs` — asset manager: scan `actors/`/`environments/`/`props/` + s-syntax
   manifests, keyed by `id`.
 - `render/DebugDraw.fs` — line/wireframe primitive (grid; later gizmos/overlays).
 - `render/Camera.fs` — editor camera (pitch/yaw/pan/zoom).
 - Docking workspace: `editor/Editor.fs` (docking + menu bar + shortcuts),
-  `editor/EditorState.fs`, `editor/Viewport.fs`, `editor/Outliner.fs`,
+  `state/EditorState.fs`, `editor/Viewport.fs`, `editor/Outliner.fs`,
   `editor/Inspector.fs`, `editor/AssetBrowser.fs`.
 - Backtick (`` ` ``) play/edit toggle, hiding/showing the workspace while the
   viewport grid stays visible.
@@ -163,7 +167,7 @@ gizmos (rendered as debug-draw markers).
 **Goal**: make every editor mutation undoable/redoable.
 
 **Deliverables**
-- `editor/Command.fs` — value-storing commands (`apply`/`undo`), not closures;
+- `state/Command.fs` — value-storing commands (`apply`/`undo`), not closures;
   `EntityRef`-based entity commands survive deletion.
 - Undo/redo stack + `Ctrl+Z` / `Ctrl+Shift+Z`.
 - Continuous-edit coalescing (a gizmo/slider drag = one undo step).
@@ -182,8 +186,8 @@ the hard plumbing step (SDL_gpu has no `LoadModel`/`DrawMesh` helper).
 - `render/Mesh.fs` — GPU buffers + draw path.
 - `core/Iqm.fs` — IQM binary parser emitting flat struct-of-arrays
   (`System.IO.BinaryReader`, little-endian, `float32` data).
-- `core/Actor.fs` — IQM model + animation/morph state.
-- `render/ActorRender.fs` — skinned actor rendering.
+- `world/Actor.fs` — IQM model + animation/morph state.
+- `world/ActorRender.fs` — skinned actor rendering.
 
 **Done when**: an animated character (e.g. Akane) is visible and animating in
 the viewport via the asset manifest.
@@ -194,10 +198,11 @@ the viewport via the asset manifest.
 
 **Deliverables**
 - `core/Gltf.fs` — scoped glTF parser (environments/props).
-- `core/Zone.fs` — the world container: `actors`, `environment` (owning its own
-  `props` slot map), `waypoints`, `triggers`, plus inline global settings.
-- `core/Entity.fs` — `Environment_Entity` / `Prop_Entity`.
-- `render/EnvironmentRender.fs` — static environment + prop rendering.
+- `world/Zone.fs` — the world container: `actors`, `environment` (owning its own
+  `parts` slot map), `waypoints`, `triggers`, plus inline global settings.
+- `world/Entity.fs` — `Environment_Entity` (owning its parts map) / `Prop_Entity`
+  / `Part`.
+- `world/EnvironmentRender.fs` — static environment + prop rendering.
 
 **Done when**: a static environment and prop assets are visible in the viewport.
 
@@ -247,7 +252,7 @@ and a following camera.
 **Goal**: multiple zones and switching between them.
 
 **Deliverables**
-- `core/ZoneMap.fs` — runtime slot map of zones + an `active` index.
+- `world/ZoneMap.fs` — runtime slot map of zones + an `active` index.
 - Zone switch path.
 
 **Done when**: multiple zones exist and you can switch between them at runtime.
@@ -257,7 +262,7 @@ and a following camera.
 **Goal**: author and run a scripted sequence.
 
 **Deliverables**
-- `core/Cue.fs` — `Cue_Op` template union (`Sequence|Parallel|Fork|If` + leaf
+- `world/Cue.fs` — `Cue_Op` template union (`Sequence|Parallel|Fork|If` + leaf
   ops) and a separate `CueState` runtime union + `state_map`.
 - Runtime cue execution.
 - `editor/CueEditor.fs` + `editor/CueTree.fs` — recursive tree-list editor (not a
@@ -272,9 +277,9 @@ and a following camera.
 **Goal**: waypoints, triggers, adventure flags, and cast.
 
 **Deliverables**
-- `Waypoint` / `Trigger` entities in `core/Entity.fs` (or `core/Zone.fs`).
-- `core/Advent.fs` — named flag set.
-- `core/Cast.fs` — name → asset id map.
+- `Waypoint` / `Trigger` entities in `world/Entity.fs` (or `world/Zone.fs`).
+- `world/Advent.fs` — named flag set.
+- `world/Cast.fs` — name → asset id map.
 - `editor/CastPanel.fs` / `editor/AdventPanel.fs` docked panels.
 - Trigger→cue wiring inline in the Inspector.
 
@@ -286,7 +291,7 @@ adventure flags, and manage the cast.
 **Goal**: assemble scenarios from zones + cast + cues.
 
 **Deliverables**
-- `core/Scenario.fs` — scenario library; a scenario = zones + cast + `cue_root`
+- `world/Scenario.fs` — scenario library; a scenario = zones + cast + `cue_root`
   (immutable at runtime).
 - `editor/ScenarioEditor.fs` — library + cue/scene Inspector tabs.
 
@@ -297,7 +302,7 @@ adventure flags, and manage the cast.
 **Goal**: author zone templates/settings.
 
 **Deliverables**
-- `core/ZoneRegistry.fs` — editor zone templates (environment asset id, settings,
+- `world/ZoneRegistry.fs` — editor zone templates (environment asset id, settings,
   prop templates, splat maps, `template_saved`).
 - `editor/ZoneEditor.fs`.
 
@@ -309,7 +314,7 @@ adventure flags, and manage the cast.
 the working game, not a rewrite.
 
 **Deliverables**
-- `core/Systems.fs` — named play-mode systems chained in the fixed order.
+- `world/Systems.fs` — named play-mode systems chained in the fixed order.
 - Fixed-timestep loop (accumulator + fixed `dt`), decoupling simulation from
   render (replaces the software 60 FPS cap).
 - Formalise the immutable-cue-template guarantee from phase 9.
@@ -334,7 +339,7 @@ cel-shading.
 **Goal**: save/load and performance.
 
 **Deliverables**
-- `core/Project.fs` — `Project_DTO`/`Project_Zone`/`Project_Prop`/
+- `world/Project.fs` — `Project_DTO`/`Project_Zone`/`Project_Prop`/
   `Project_Scenario` DTOs (`System.Text.Json`), separate from the runtime model.
 - Atomic save/load (`project.json`, `.tmp` + rename); missing file is not an error.
 - Async asset loading + LRU model cache.

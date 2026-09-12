@@ -28,11 +28,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do ImGui.text("Actors")
             for asset in assets.Actors.Values |> Seq.sortBy (fun a -> a.Id) do
                 if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    let entity = baseEntity asset.Name
-                    let ref = Zone.spawnActor state.Zone shared.Physics assets entity asset.Id
-                    let binding = { AssetId = Some asset.Id; SubmeshIndex = 0; SubmeshCount = 0 }
-                    let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, binding))
-                    state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
+                    do Spawning.spawnActor shared &state (baseEntity asset.Name) asset.Id
 
         // ── Environments ──
         if assets.Environments.Count > 0 then
@@ -40,9 +36,11 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do ImGui.text("Environments")
             for asset in assets.Environments.Values |> Seq.sortBy (fun a -> a.Id) do
                 if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    let previous = state.Zone.Environment |> Option.map (fun e -> e.AssetId)
-                    do Zone.loadEnvironment state.Zone shared.Physics assets asset.Id
-                    let undo = UndoStack.push state.Editor.Undo (SetEnvironment (previous, Some asset.Id))
+                    let previous = state.Zone.Environment
+                    let next = Zone.loadEnvironment state.Zone shared.Physics assets asset.Id
+                    // A carried-over part selection no longer resolves; drop it.
+                    do Selection.dropStalePartSelection &state
+                    let undo = UndoStack.push state.Editor.Undo (SetEnvironment (previous, Some next))
                     state.Editor <- { state.Editor with Undo = undo }
 
         // ── Props ──
@@ -51,10 +49,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do ImGui.text("Props")
             for asset in assets.Props.Values |> Seq.sortBy (fun a -> a.Id) do
                 if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    let entity = baseEntity asset.Name
-                    let ref = Zone.spawnProp state.Zone shared.Physics assets entity asset.Id
-                    let binding = { AssetId = Some asset.Id; SubmeshIndex = 0; SubmeshCount = 0 }
-                    let undo = UndoStack.push state.Editor.Undo (Spawn (ref, entity, binding))
-                    state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
+                    do Spawning.spawnProp shared &state (baseEntity asset.Name) asset.Id
 
     do ImGui.endWindow()

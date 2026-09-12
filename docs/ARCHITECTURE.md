@@ -23,7 +23,10 @@ The foundational structure (odin-game `src/slot_map.odin`):
   free-list.
 - Add/get/free are O(1); deletion reuses indices without index fix-ups, and a
   generation counter detects stale handles.
-- Slot fields are exposed so systems write scan loops directly.
+- Slots are exposed as a read-only span (`Slots`) so systems scan directly, and
+  writes go through `Get` (by index + generation). Undo restores through `Occupy`,
+  which re-occupies a deleted entity's recorded (free) slot and restores its
+  generation; a slot unexpectedly taken fails loudly rather than relocating.
 
 ```text
 for i in 0..<N:
@@ -35,22 +38,32 @@ heap-allocated per entity.
 
 ## Entity model
 
-- `Entity_Kind` discriminates `Actor | Environment | Prop | Waypoint | Trigger`.
-- `Entity_Ref { kind, index }` is a lightweight handle (not a pointer), with a
-  `NO_ENTITY` sentinel.
+- `Entity_Kind` discriminates `Actor | Environment | Prop | Part | Waypoint | Trigger`.
+- `Entity_Ref { kind, index, generation, epoch }` is a lightweight handle (not a
+  pointer). Deleting bumps the slot generation, so a stale ref fails lookup
+  instead of aliasing a reused slot. `epoch` scopes a Part ref to the environment
+  that produced it (0 for other kinds): each environment's parts map starts its
+  generations at 0, so without it a part ref could resolve against a same-index
+  part in a different environment. Absence is `EntityRef option` in the F# port,
+  not Odin's `NO_ENTITY` sentinel.
 - `Entity` is the shared base: `name`, `transform`, `enabled`, `visible`,
   `selectable`, `draggable`.
 - Specialized entities compose the base (Odin uses `using entity: Entity`):
   - `Actor_Entity` — renderer pointer, physics, debug flag.
-  - `Environment_Entity` — its own `props` slot map, mesh indices, renderer,
-    splat/grass pointers.
-  - `Prop_Entity` — collision data, render-transform cache, water params.
+  - `Environment_Entity` — its own `parts` slot map (the imported glTF parts),
+    mesh indices, renderer, splat/grass pointers.
+  - `Prop_Entity` — a placed prop: collision data, render-transform cache, water
+    params. Environment parts reuse the same shape.
   - `Waypoint`, `Trigger` — standalone (no `Entity` base).
+- A part is addressed by `EntityKind.Part` into the current environment's own
+  parts map, scoped by the ref's `epoch`, so environment churn never touches the
+  zone's placed props/actors and a stale part ref can't alias another
+  environment's part.
 
 ## Zone = world container
 
 `Zone` owns one playable area: `actors`, `environment` (which owns its own
-`props`), `waypoints`, `triggers`, plus inline global settings (wind, lighting,
+`parts`), `waypoints`, `triggers`, plus inline global settings (wind, lighting,
 skydome, ocean). Zones are heap-allocated; their entity collections are
 fixed-size inline arrays.
 
@@ -130,7 +143,7 @@ graph TD
     Z --> SW["waypoints: Slot_Map(Waypoint)"]
     Z --> ST["triggers: Slot_Map(Trigger)"]
 
-    ENV --> SP["props: Slot_Map(Prop_Entity)"]
+    ENV --> SP["parts: Slot_Map(Prop_Entity)"]
 
     C --> COP["Cue_Op (template union)"]
     C --> CST["CueState (runtime union)"]
@@ -139,8 +152,11 @@ graph TD
 
 ## F# port decisions
 
-- **Slot map** → a generic struct with a fixed `array` (or `Span`/`Memory`) plus
-  free-list and generation counter. F# `[<Struct>]` types are the fit.
+- **Slot map** → a generic sealed class holding a fixed `Slot` array plus the
+  free-list head and count, mutated in place. It is deliberately *not* an
+  immutable struct: copies would desync from the shared storage. `Slot`/`Handle`
+  stay `[<Struct>]`, `Slots` is a read-only span, and `Get` returns a `byref` into
+  the payload.
 - **`using entity: Entity`** → no struct inheritance in F#; model as a nested
   `Entity` field inside each specialized record.
 - **Inline `[N]u8` strings → `string`.** The runtime `Entity.name` in odin-game

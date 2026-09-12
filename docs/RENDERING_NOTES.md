@@ -125,7 +125,7 @@ A vertex-stage read-only storage buffer bound via
 - The fix for anything larger than 4 KiB is a **storage buffer**
   (`SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ` + per-frame transfer-buffer
   upload + `SDL_BindGPUVertexStorageBuffers`), which is what
-  `render/ActorRender.fs` does for the bone palette.
+  `world/ActorRender.fs` does for the bone palette.
 - Uniform slots are also scarce: `MAX_UNIFORM_BUFFERS_PER_STAGE = 4` per stage,
   so splitting a big array across slots caps out quickly.
 

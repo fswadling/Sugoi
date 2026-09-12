@@ -39,18 +39,32 @@ type EntityKind =
     | Actor
     | Environment
     | Prop
+    | Part
     | Waypoint
     | Trigger
 
-// A lightweight handle to an entity: its kind plus its slot-map index. Absence
-// ("no entity") is represented with `EntityRef option`, so there is no sentinel
-// value — the odin reference needed one because it has no option type. A value
-// type, so the per-frame selection check in `Viewport.buildLines` and the pick
-// fold stay allocation-free.
+// A lightweight handle to an entity: kind, slot-map index, and the slot's
+// generation. The generation makes a delete-then-reuse fail a lookup instead of
+// aliasing the new occupant. `Epoch` scopes a Part ref to the environment that
+// produced it (0 for other kinds), so a same-index part in another environment
+// can't resolve. Absence is `EntityRef option`; a value type keeps the per-frame
+// selection check allocation-free.
 [<Struct>]
 type EntityRef =
     { Kind : EntityKind
-      Index : uint32 }
+      Index : uint32
+      Generation : uint32
+      Epoch : uint32 }
+
+// Constructors for the common ref kinds, so call sites can't forget the epoch.
+let actorRef (index: uint32) (generation: uint32) : EntityRef =
+    { Kind = EntityKind.Actor; Index = index; Generation = generation; Epoch = 0u }
+
+let propRef (index: uint32) (generation: uint32) : EntityRef =
+    { Kind = EntityKind.Prop; Index = index; Generation = generation; Epoch = 0u }
+
+let partRef (epoch: uint32) (index: uint32) (generation: uint32) : EntityRef =
+    { Kind = EntityKind.Part; Index = index; Generation = generation; Epoch = epoch }
 
 [<Struct>]
 type Entity =
@@ -124,13 +138,17 @@ type Prop =
       Physics : PhysicsAttachment<MeshCollider> option
       mutable Renderer : EnvironmentRender.EnvironmentRender }
 
-// The zone's loaded environment asset. The environment is optional on the zone
-// (`Environment option`); when present it always has an asset id.
+// The zone's loaded environment (optional on the zone). It owns its parts slot
+// map (one prop per mesh-bearing glTF node), so environment churn never touches
+// the zone's placed-prop or actor maps. `Epoch` identifies this environment so a
+// part ref can be checked against the current one.
 [<Struct>]
 type Environment =
     { Base : Entity
       AssetId : string
-      Orientation : Quaternion }
+      Orientation : Quaternion
+      Epoch : uint32
+      Parts : SlotMap<Prop> }
 
 module Prop =
     // Release a prop's renderer GPU buffers.

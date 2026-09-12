@@ -34,24 +34,38 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     do ImGui.text("")
 
     if ImGui.collapsingHeader("Actors", 0) then
-        if SlotMap.count zone.Actors = 0u then
+        if zone.Actors.Count = 0u then
             do ImGui.text("(none)")
         else
             let slots = zone.Actors.Slots
             for i in 0 .. slots.Length - 1 do
                 let slot = slots.[i]
                 if slot.Alive then
-                    entityRow shared &state slot.Value.Base.Name (sprintf "actor%d" i) { Kind = EntityKind.Actor; Index = uint32 i }
+                    entityRow shared &state slot.Value.Base.Name (sprintf "actor%d" i) (actorRef (uint32 i) slot.Generation)
 
     if ImGui.collapsingHeader("Props", 0) then
-        if SlotMap.count zone.Props = 0u then
+        if zone.Props.Count = 0u then
             do ImGui.text("(none)")
         else
             let slots = zone.Props.Slots
             for i in 0 .. slots.Length - 1 do
                 let slot = slots.[i]
                 if slot.Alive then
-                    entityRow shared &state slot.Value.Base.Name (sprintf "prop%d" i) { Kind = EntityKind.Prop; Index = uint32 i }
+                    entityRow shared &state slot.Value.Base.Name (sprintf "prop%d" i) (propRef (uint32 i) slot.Generation)
+
+    if ImGui.collapsingHeader("Parts", 0) then
+        match zone.Environment with
+        | None -> do ImGui.text("(none)")
+        | Some environment ->
+
+        if environment.Parts.Count = 0u then
+            do ImGui.text("(none)")
+        else
+            let slots = environment.Parts.Slots
+            for i in 0 .. slots.Length - 1 do
+                let slot = slots.[i]
+                if slot.Alive then
+                    entityRow shared &state slot.Value.Base.Name (sprintf "part%d" i) (partRef environment.Epoch (uint32 i) slot.Generation)
 
     if ImGui.collapsingHeader("Triggers", 0) then
         do ImGui.text("(none)")

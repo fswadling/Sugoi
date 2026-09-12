@@ -21,7 +21,7 @@ let ``Actor composes the shared Entity base`` () =
 
 [<Fact>]
 let ``Environment composes the shared Entity base`` () =
-    let environment : Environment = { Base = baseEntity "forest"; AssetId = "forest"; Orientation = Quaternion.Identity }
+    let environment : Environment = { Base = baseEntity "forest"; AssetId = "forest"; Orientation = Quaternion.Identity; Epoch = 1u; Parts = SlotMap<Prop>(1u) }
     Assert.Equal("forest", environment.Base.Name)
     Assert.True(environment.Base.Visible)
 
