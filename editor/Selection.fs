@@ -10,14 +10,15 @@ open Command
 // Delete a specific entity. Clears the selection only when it was the deleted
 // entity; otherwise leaves selection/drag untouched.
 let deleteRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) : unit =
-    let entity = Zone.tryEntityAt state.Zone ref
+    let zone = GameplayState.activeZone state
+    let entity = Zone.tryEntityAt zone ref
     match entity with
     | None -> ()
     | Some e ->
 
-    let binding = Zone.bindingAt state.Zone ref
+    let binding = Zone.bindingAt zone ref
     let cmd = Delete (ref, e, binding)
-    apply state.Zone shared.Physics shared.Assets cmd
+    apply zone shared.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     let editor =
         if state.Editor.Selection = Some ref then
@@ -35,7 +36,7 @@ let delete (shared: SharedState.SharedState) (state: byref<GameplayState.Gamepla
 
 // Duplicate a specific entity and select the copy.
 let duplicateRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) : unit =
-    let entity = Zone.tryEntityAt state.Zone ref
+    let entity = Zone.tryEntityAt (GameplayState.activeZone state) ref
     match entity with
     | None -> ()
     | Some e ->
@@ -52,6 +53,6 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
 // left alone — a stale one can resolve again when undo/redo restores its slot.
 let dropStalePartSelection (state: byref<GameplayState.GameplayState>) : unit =
     match state.Editor.Selection with
-    | Some ref when ref.Kind = EntityKind.Part && not (Zone.isAlive state.Zone ref) ->
+    | Some ref when ref.Kind = EntityKind.Part && not (Zone.isAlive (GameplayState.activeZone state) ref) ->
         state.Editor <- { state.Editor with Selection = None; Drag = None }
     | _ -> ()

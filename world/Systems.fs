@@ -51,8 +51,8 @@ let playerHandleOf (ref: EntityRef) : Handle =
 
 // Whether the bound player resolves to a live actor. Each system uses this to decide
 // whether it has anything to do.
-let isPlayerLive (zone: Zone.Zone) (player: Handle voption) : bool =
-    match player with
+let isPlayerLive (zone: Zone.Zone) : bool =
+    match zone.Player with
     | ValueSome handle -> zone.Actors.IsAlive handle
     | _ -> false
 
@@ -61,10 +61,10 @@ let isPlayerLive (zone: Zone.Zone) (player: Handle voption) : bool =
 // Tank controls: A/D turn the facing and write the body's rotation; W/S write the
 // body's horizontal velocity along the facing, preserving its vertical velocity so
 // gravity still accumulates.
-let playerInput (world: Physics.World) (zone: Zone.Zone) (player: Handle voption) (input: Input.Input) (dt: float32) : unit =
-    if not (isPlayerLive zone player) then () else
+let playerInput (world: Physics.World) (zone: Zone.Zone) (input: Input.Input) (dt: float32) : unit =
+    if not (isPlayerLive zone) then () else
 
-    let actor = &zone.Actors.Get player.Value
+    let actor = &zone.Actors.Get zone.Player.Value
     match actor.Physics with
     | None -> ()
     | Some attachment ->
@@ -113,10 +113,10 @@ let cameraPose (position: Vector3) (yaw: float32) (follow: CameraFollow) : Vecto
     pivot + offset, pivot
 
 // Place the camera behind and above the player from the actor's facing.
-let cameraFollow (zone: Zone.Zone) (player: Handle voption) (follow: byref<CameraFollow>) (camera: byref<Camera.Camera>) : unit =
-    if not (isPlayerLive zone player) then () else
+let cameraFollow (zone: Zone.Zone) (follow: byref<CameraFollow>) (camera: byref<Camera.Camera>) : unit =
+    if not (isPlayerLive zone) then () else
 
-    let actor = &zone.Actors.Get player.Value
+    let actor = &zone.Actors.Get zone.Player.Value
     let yaw = yawOf actor.Base.Transform.Rotation
     follow.Yaw <- yaw
     let (cameraPosition, target) = cameraPose actor.Base.Transform.Position yaw follow
@@ -133,8 +133,8 @@ let locomotionClip (input: Input.Input) : string =
         "Idle"
 
 // Switch the player actor's animation to match the held movement keys.
-let animate (zone: Zone.Zone) (player: Handle voption) (input: Input.Input) : unit =
-    if not (isPlayerLive zone player) then () else
+let animate (zone: Zone.Zone) (input: Input.Input) : unit =
+    if not (isPlayerLive zone) then () else
 
-    let actor = &zone.Actors.Get player.Value
+    let actor = &zone.Actors.Get zone.Player.Value
     do ActorRender.playClip &actor.Renderer (locomotionClip input)

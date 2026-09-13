@@ -43,7 +43,7 @@ let private selectedTransform (state: GameplayState.GameplayState) : (Vector3 * 
     match state.Editor.Selection with
     | None -> None
     | Some ref ->
-    let entity = Zone.tryEntityAt state.Zone ref
+    let entity = Zone.tryEntityAt (GameplayState.activeZone state) ref
     Option.map (fun e -> (e.Transform.Position, e.Transform)) entity
 
 // Write a transform back to the selected entity.
@@ -51,7 +51,7 @@ let private setSelectedTransform (physics: Physics.World) (t: Transform) (state:
     match state.Editor.Selection with
     | None -> ()
     | Some ref ->
-    Zone.setTransform state.Zone physics ref t
+    Zone.setTransform (GameplayState.activeZone state) physics ref t
 
 
 // Focus the camera on the selection (re-centre the target, preserve the offset).
@@ -60,7 +60,7 @@ let private focus (state: byref<GameplayState.GameplayState>) : unit =
     | None -> ()
     | Some ref ->
 
-    let entity = Zone.tryEntityAt state.Zone ref
+    let entity = Zone.tryEntityAt (GameplayState.activeZone state) ref
     match entity with
     | None -> ()
     | Some e ->
@@ -123,7 +123,7 @@ let private finishDrag (state: byref<GameplayState.GameplayState>) : unit =
     let undo =
         match state.Editor.Selection, state.Editor.Drag with
         | Some ref, Some d ->
-            let entity = Zone.tryEntityAt state.Zone ref
+            let entity = Zone.tryEntityAt (GameplayState.activeZone state) ref
             match entity with
             | Some e -> UndoStack.push state.Editor.Undo (Transform (ref, d.Start, e.Transform))
             | None -> state.Editor.Undo
@@ -234,7 +234,7 @@ let updateNudge (physics: Physics.World) (input: Input.Input) (state: byref<Game
             | None -> state.Editor.Undo
             | Some ref ->
 
-            let entity = Zone.tryEntityAt state.Zone ref
+            let entity = Zone.tryEntityAt (GameplayState.activeZone state) ref
             match entity with
             | Some e -> UndoStack.push state.Editor.Undo (Transform (ref, before, e.Transform))
             | None -> state.Editor.Undo
@@ -247,11 +247,12 @@ let updateNudge (physics: Physics.World) (input: Input.Input) (state: byref<Game
 // dangles a Part selection. Both the shortcut and the Edit menu route through here
 // so the reconcile can't be missed.
 let private undoStep (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo state.Zone shared.Physics shared.Assets }
+    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo (GameplayState.activeZone state) shared.Physics shared.Assets }
     do Selection.dropStalePartSelection &state
 
+// Redo re-applies the most recently undone command to the zone it came from.
 let private redoStep (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo state.Zone shared.Physics shared.Assets }
+    state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo (GameplayState.activeZone state) shared.Physics shared.Assets }
     do Selection.dropStalePartSelection &state
 
 // ── App-level shortcuts ──

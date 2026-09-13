@@ -64,16 +64,20 @@ let private headlessAssets () : Assets.AssetManager =
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Physics = Physics.create () }
 
-// A minimal gameplay state: the fake draws are never touched on these paths.
+// A minimal gameplay state: the fake draws are never touched on these paths. The
+// zone is installed under a name with exactly one active zone.
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
+    let zones = Dictionary<string, Zone.Zone>()
+    zones.["test"] <- zone
     { Camera = Camera.create Vector3.Zero Vector3.Zero
       DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
-      Zone = zone
+      Zones = zones
+      ActiveZone = "test"
       Editor = EditorState.create ()
       Editing = true
-      Player = ValueNone
-      Follow = Systems.createFollow () }
+      Follow = Systems.createFollow ()
+      UndoByZone = Dictionary() }
 
 // ── Duplicate ──
 
@@ -90,14 +94,14 @@ let ``duplicating a part spawns a copy, selects it, and pushes the reversing com
 
     Assert.Equal(2u, environment.Parts.Count)
     // The source is untouched and the copy is a distinct, live part ref.
-    Assert.True(Zone.isAlive state.Zone source)
+    Assert.True(Zone.isAlive zone source)
     match state.Editor.Selection with
     | Some copy ->
         Assert.NotEqual(source, copy)
         Assert.Equal(EntityKind.Part, copy.Kind)
         Assert.Equal(environment.Epoch, copy.Epoch)
-        Assert.True(Zone.isAlive state.Zone copy)
-        Assert.Equal("wall-copy", (Zone.tryEntityAt state.Zone copy).Value.Name)
+        Assert.True(Zone.isAlive zone copy)
+        Assert.Equal("wall-copy", (Zone.tryEntityAt zone copy).Value.Name)
     | None -> Assert.Fail("duplicate did not select the copy")
 
     // The paired command must name the copy, so undoing it removes exactly that.

@@ -8,6 +8,11 @@ open System.Numerics
 open Entity
 open Command
 
+// Length of the reusable zone-name text buffer (the pending name in the Outliner
+// zones section). 64 bytes is ample for a zone name.
+[<Literal>]
+let zoneNameBufferSize = 64
+
 // The active transform tool, selected with 1/2/3.
 type Tool =
     | Move
@@ -36,7 +41,10 @@ type EditorState =
       Drag : Drag option
       DockingInitialized : bool
       Undo : UndoStack
-      NudgeBefore : Transform option }
+      NudgeBefore : Transform option
+      // A reused UTF-8 buffer for the pending zone name (Outliner zones section);
+      // one buffer so typing allocates nothing per frame.
+      NewZoneName : byte[] }
 
 let create () : EditorState =
     { Selection = None
@@ -46,4 +54,5 @@ let create () : EditorState =
       Drag = None
       DockingInitialized = false
       Undo = UndoStack.create ()
-      NudgeBefore = None }
+      NudgeBefore = None
+      NewZoneName = Array.zeroCreate zoneNameBufferSize }

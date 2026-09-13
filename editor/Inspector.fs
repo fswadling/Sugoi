@@ -9,9 +9,11 @@ open Entity
 let draw (state: byref<GameplayState.GameplayState>) =
     do ImGui.beginWindow("Inspector", System.IntPtr.Zero, 0) |> ignore
 
+    let zone = GameplayState.activeZone state
+
     match state.Editor.Selection with
     | Some ref ->
-        let entity = Zone.tryEntityAt state.Zone ref
+        let entity = Zone.tryEntityAt zone ref
         match entity with
         | None -> do ImGui.text("(no selection)")
         | Some e ->
@@ -25,13 +27,13 @@ let draw (state: byref<GameplayState.GameplayState>) =
         // play-binding action, not an undoable scene edit, and it touches no physics.
         if ref.Kind = EntityKind.Actor then
             let handle : SlotMap.Handle = { Index = ref.Index; Generation = ref.Generation }
-            let mutable show = (state.Zone.Actors.Get(handle)).ShowCollider
+            let mutable show = (zone.Actors.Get(handle)).ShowCollider
             if ImGui.checkbox("Show Collider", &show) then
-                let actor = &state.Zone.Actors.Get(handle)
+                let actor = &zone.Actors.Get(handle)
                 actor <- { actor with ShowCollider = show }
 
             if ImGui.button("Set as Player", ImGui.ImVec2(0.0f, 0.0f)) then
-                state.Player <- ValueSome (Systems.playerHandleOf ref)
+                zone.Player <- ValueSome (Systems.playerHandleOf ref)
     | None ->
         do ImGui.text("(no selection)")
 

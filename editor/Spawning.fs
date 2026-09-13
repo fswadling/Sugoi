@@ -15,32 +15,35 @@ let private commit (state: byref<GameplayState.GameplayState>) (cmd: Command) (r
 
 // Spawn a whole actor or prop asset into the active zone.
 let spawnActor (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) : unit =
-    let ref = Zone.spawnActor state.Zone shared.Physics shared.Assets entity assetId
+    let zone = GameplayState.activeZone state
+    let ref = Zone.spawnActor zone shared.Physics shared.Assets entity assetId
     let binding = { AssetId = Some assetId; SubmeshIndex = 0; SubmeshCount = 0 }
     do commit &state (Spawn (ref, entity, binding)) ref
 
 let spawnProp (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) : unit =
-    let ref = Zone.spawnProp state.Zone shared.Physics shared.Assets entity assetId
+    let zone = GameplayState.activeZone state
+    let ref = Zone.spawnProp zone shared.Physics shared.Assets entity assetId
     let binding = { AssetId = Some assetId; SubmeshIndex = 0; SubmeshCount = 0 }
     do commit &state (Spawn (ref, entity, binding)) ref
 
 // Copy an existing entity into a new slot, recording the binding it was built from.
 // Dispatching on kind first makes an unsupported kind fail loudly.
 let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (source: EntityRef) (entity: Entity) : unit =
+    let zone = GameplayState.activeZone state
     match source.Kind with
     | EntityKind.Actor ->
-        let binding = Zone.bindingAt state.Zone source
+        let binding = Zone.bindingAt zone source
         match binding.AssetId with
         | None -> failwith "actor without an asset id"
         | Some assetId ->
-        let ref = Zone.spawnActor state.Zone shared.Physics shared.Assets entity assetId
+        let ref = Zone.spawnActor zone shared.Physics shared.Assets entity assetId
         do commit &state (Duplicate (ref, entity, binding)) ref
     | EntityKind.Prop ->
-        let binding = Zone.bindingAt state.Zone source
-        let ref = Zone.spawnPropBinding state.Zone shared.Physics shared.Assets entity binding
+        let binding = Zone.bindingAt zone source
+        let ref = Zone.spawnPropBinding zone shared.Physics shared.Assets entity binding
         do commit &state (Duplicate (ref, entity, binding)) ref
     | EntityKind.Part ->
-        let binding = Zone.bindingAt state.Zone source
-        let ref = Zone.spawnPartBinding state.Zone shared.Physics shared.Assets entity binding
+        let binding = Zone.bindingAt zone source
+        let ref = Zone.spawnPartBinding zone shared.Physics shared.Assets entity binding
         do commit &state (Duplicate (ref, entity, binding)) ref
     | kind -> failwithf "duplicate: kind %A has no entity to duplicate" kind

@@ -75,6 +75,16 @@ Two zone containers exist on purpose:
   `settings`, `prop_template`, splat maps, and `template_saved` for
   authoring/persistence.
 
+In the F# port the runtime container is folded into the gameplay screen: zones live
+in a `Dictionary<string, Zone>` keyed by the zone's unique name, with `ActiveZone`
+naming the active one (zones are addressed by identity and never bulk-iterated, so a
+slot map buys nothing). Only the active zone's bodies are attached to the one shared
+physics world: a switch detaches the outgoing zone with `BodyInterface.RemoveBody`
+and re-attaches the incoming one with `AddBody`, then re-optimises the broadphase, so
+inactive zones neither collide nor integrate without rebuilding any shape or body.
+Deleting a zone destroys its bodies and releases its GPU resources. The player
+designation and the undo history are held per zone.
+
 ## Systems
 
 Systems are plain procedures that take `zone`/`screen`/`shared` + `dt` and
@@ -135,8 +145,9 @@ graph TD
     SS --> ADV[Advent_Set]
     SS --> CAST[Cast_Members]
 
-    GS --> ZM[Zone_Map]
-    ZM --> Z[Zone]
+    GS --> ZONES["zones: Dictionary(string, Zone)"]
+    GS --> ACTIVE["active zone name"]
+    ZONES --> Z[Zone]
 
     Z --> SA["actors: Slot_Map(Actor_Entity)"]
     Z --> ENV["environment: Environment_Entity"]
@@ -169,8 +180,10 @@ graph TD
 - **Systems** → top-level `unit`-returning functions mutating
   `Zone`/`GameplayScreen`/`SharedState`, called with `do`. This matches the
   AGENTS.md guidance.
-- **Zone containers** → keep `Zone_Map` (runtime) and `Zone_Registry`
-  (authoring templates) as distinct structures.
+- **Zone containers** → the runtime container is a name-keyed
+  `Dictionary<string, Zone>` on `GameplayState` with an `ActiveZone` name (not a
+  `Zone_Map` slot map: zones are addressed by identity and never bulk-iterated).
+  `Zone_Registry` (authoring templates) stays a distinct structure.
 - **Jolt ownership** → `PhysicsSystem` holds only *raw pointers* to the object-layer
   pair filter, broad-phase interface, and object-vs-broadphase filter, so the `World`
   must keep their managed wrappers (and its `PhysicsSystemSettings`) alive as fields.

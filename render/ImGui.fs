@@ -103,3 +103,15 @@ extern bool wantCaptureMouse()
 // ((0, 0) with no current context).
 [<DllImport("cimgui", EntryPoint = "cimgui_display_size", CallingConvention = CallingConvention.Cdecl)>]
 extern ImVec2 displaySize()
+
+// A single-line text field over a caller-owned NUL-terminated UTF-8 buffer
+// (cimgui's igInputText). Returns true while the field is being edited.
+[<DllImport("cimgui", EntryPoint = "igInputText", CallingConvention = CallingConvention.Cdecl)>]
+extern bool inputText(string label, byte[] buf, unativeint bufSize, int flags, nativeint callback, nativeint userData)
+
+// Visually disable (and block) the widgets drawn between these two calls.
+[<DllImport("cimgui", EntryPoint = "igBeginDisabled", CallingConvention = CallingConvention.Cdecl)>]
+extern void beginDisabled(bool disabled)
+
+[<DllImport("cimgui", EntryPoint = "igEndDisabled", CallingConvention = CallingConvention.Cdecl)>]
+extern void endDisabled()

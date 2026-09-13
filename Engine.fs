@@ -215,15 +215,16 @@ let run () : int =
                 phaseNames
                 |> Array.mapi (fun i name -> sprintf "%s %.2f" name (perFrame phaseNs.[i]))
                 |> String.concat "  "
+            let zone = GameplayState.activeZone manager.Gameplay
             do printfn "avg %.2fms (last %.2f) | %s | phases %.2f | actors %d props %d parts %d | draws %d instances %d"
                 (phaseFrameMs / phaseFrames) dtMs phases (perFrame (Array.sum phaseNs))
-                (int manager.Gameplay.Zone.Actors.Count)
-                (int manager.Gameplay.Zone.Props.Count)
-                (match manager.Gameplay.Zone.Environment with
+                (int zone.Actors.Count)
+                (int zone.Props.Count)
+                (match zone.Environment with
                  | Some environment -> int environment.Parts.Count
                  | _ -> 0)
-                manager.Gameplay.Zone.Batch.DrawCalls
-                manager.Gameplay.Zone.Batch.InstanceCount
+                zone.Batch.DrawCalls
+                zone.Batch.InstanceCount
             do Array.fill phaseNs 0 phaseNs.Length 0.0
             phaseFrames <- 0.0
             phaseFrameMs <- 0.0
@@ -238,7 +239,8 @@ let run () : int =
     do SDL.WaitForGPUIdle(device) |> ignore
     do DebugDraw.release gizmoDraw
     do DebugDraw.release debugDraw
-    do EnvironmentBatch.release manager.Shared.Gpu.Device manager.Gameplay.Zone.Batch
+    for zone in manager.Gameplay.Zones.Values do
+        EnvironmentBatch.release manager.Shared.Gpu.Device zone.Batch
     do Gpu.destroy manager.Shared.Gpu
     do ImGuiSdl3.shutdown()
     do ImGui.destroyContext(IntPtr.Zero)

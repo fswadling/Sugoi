@@ -90,7 +90,7 @@ let drawGizmo (state: GameplayState.GameplayState) (dd: DebugDraw.DebugDraw) (ce
 let gizmoCenter (state: GameplayState.GameplayState) : Vector3 option =
     match state.Editor.Selection with
     | Some ref ->
-    let entity = Zone.tryEntityAt state.Zone ref
+    let entity = Zone.tryEntityAt (GameplayState.activeZone state) ref
     Option.map (fun e -> e.Transform.Position) entity
     | None -> None
 
@@ -104,7 +104,7 @@ let drawGrid (state: byref<GameplayState.GameplayState>) : unit =
 
 let buildLines (state: byref<GameplayState.GameplayState>) : unit =
     let mutable dd = DebugDraw.clear state.GizmoDraw
-    let zone = state.Zone
+    let zone = GameplayState.activeZone state
     let selection = state.Editor.Selection
 
     zone.Actors.IteriAlive(fun i gen a ->
@@ -149,7 +149,7 @@ let pick (physics: Physics.World) (state: GameplayState.GameplayState) (w: float
     | None -> None
     | Some (bodyId, _) ->
 
-    match state.Zone.BodyToEntity.TryGetValue(bodyId) with
+    match (GameplayState.activeZone state).BodyToEntity.TryGetValue(bodyId) with
     | true, ref -> Some ref
     | false, _ -> None
 

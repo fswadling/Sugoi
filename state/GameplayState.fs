@@ -1,31 +1,102 @@
 module GameplayState
 
-// Per-screen gameplay state. A struct; owns the screen's entities (the zone), its
-// view (camera + per-screen render buffers), and its editor/play state. Device-level
-// render resources (pipelines, formats, depth target) live on `SharedState`, not
-// here — a screen's state describes the screen, not the hardware.
+// Per-screen gameplay state. A struct; owns the screen's zones (a name-keyed map
+// with exactly one active zone), its view (camera + per-screen render buffers), and
+// its editor/play state. Device-level render resources (pipelines, formats, depth
+// target) live on `SharedState`, not here. A zone's name is its identity and its key;
+// `activeZone` is one dictionary lookup, done once per frame by the hot paths.
 
+open System.Collections.Generic
 open System.Numerics
+open Command
 
 [<Struct>]
 type GameplayState =
     { mutable Camera : Camera.Camera
       mutable DebugDraw : DebugDraw.DebugDraw
       mutable GizmoDraw : DebugDraw.DebugDraw
-      Zone : Zone.Zone
+      Zones : Dictionary<string, Zone.Zone>
+      mutable ActiveZone : string
       mutable Editor : EditorState.EditorState
       mutable Editing : bool
-      // A value option so the handle stays inline in this struct instead of pointing
-      // at a heap `Some`; the player systems read it every frame while playing.
-      mutable Player : SlotMap.Handle voption
-      mutable Follow : Systems.CameraFollow }
+      mutable Follow : Systems.CameraFollow
+      // Per-zone undo/redo history, swapped in on a switch so an edit's undo always
+      // applies to the zone it was recorded in.
+      UndoByZone : Dictionary<string, UndoStack> }
 
 let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) : GameplayState =
+    let zones = Dictionary<string, Zone.Zone>()
+    zones.["main"] <- Zone.create ()
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
       DebugDraw = debugDraw
       GizmoDraw = gizmoDraw
-      Zone = Zone.create ()
+      Zones = zones
+      ActiveZone = "main"
       Editor = EditorState.create ()
       Editing = true
-      Player = ValueNone
-      Follow = Systems.createFollow () }
+      Follow = Systems.createFollow ()
+      UndoByZone = Dictionary() }
+
+// The active zone (one dictionary lookup).
+let activeZone (state: GameplayState) : Zone.Zone =
+    match state.Zones.TryGetValue state.ActiveZone with
+    | true, zone -> zone
+    | false, _ -> invalidOp (sprintf "activeZone: '%s' is not a zone" state.ActiveZone)
+
+// After `ActiveZone` has changed: park the outgoing zone's undo stack, load the
+// incoming one, drop the (zone-scoped) selection/drag/nudge, and re-frame the camera
+// on the incoming zone.
+let private enterZone (state: byref<GameplayState>) (outgoing: string) : unit =
+    state.UndoByZone.[outgoing] <- state.Editor.Undo
+    let incoming =
+        match state.UndoByZone.TryGetValue state.ActiveZone with
+        | true, stack -> stack
+        | false, _ -> UndoStack.create ()
+    state.Editor <- { state.Editor with Undo = incoming; Selection = None; Drag = None; NudgeBefore = None }
+
+    let zone = activeZone state
+    let pivot =
+        match zone.Player with
+        | ValueSome handle when zone.Actors.IsAlive handle ->
+            let actor = &zone.Actors.Get handle
+            actor.Base.Transform.Position + Vector3(0.0f, state.Follow.Height, 0.0f)
+        | _ -> Vector3.Zero
+    let offset = state.Camera.Position - state.Camera.Target
+    state.Camera <- { state.Camera with Target = pivot; Position = pivot + offset }
+
+// Detach the outgoing zone's bodies, make `next` active, attach its bodies, then
+// swap the view state.
+let private swapZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (outgoing: string) (next: string) : unit =
+    do Zone.deactivatePhysics state.Zones.[outgoing] shared.Physics
+    state.ActiveZone <- next
+    do Zone.activatePhysics state.Zones.[next] shared.Physics
+    enterZone &state outgoing
+
+// Make a listed zone active. A no-op when it already is; an unknown name is a bug.
+let switchZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
+    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "switchZone: '%s' is not a zone" name) else
+    if name = state.ActiveZone then () else
+    swapZone shared &state state.ActiveZone name
+
+// Add an empty zone under `name` and make it active. The name must be non-empty and
+// unused; the editor only offers the add when it is.
+let addZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
+    if name = "" then invalidOp "addZone: a zone name must not be empty" else
+    if state.Zones.ContainsKey name then invalidOp (sprintf "addZone: zone '%s' already exists" name) else
+    let outgoing = state.ActiveZone
+    state.Zones.[name] <- Zone.create ()
+    swapZone shared &state outgoing name
+
+// Delete a zone and release everything it owns. The last zone cannot be deleted;
+// deleting the active zone first makes another zone active.
+let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
+    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "deleteZone: '%s' is not a zone" name) else
+    if state.Zones.Count <= 1 then invalidOp "deleteZone: cannot delete the last zone" else
+
+    if name = state.ActiveZone then
+        let replacement = state.Zones.Keys |> Seq.filter (fun key -> key <> name) |> Seq.sort |> Seq.head
+        swapZone shared &state name replacement
+
+    do Zone.release state.Zones.[name] shared.Physics shared.Gpu.Device
+    state.Zones.Remove name |> ignore
+    state.UndoByZone.Remove name |> ignore

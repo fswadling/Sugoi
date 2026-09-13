@@ -40,18 +40,19 @@ let private advanceActorAnimations (dt: float32) (zone: Zone.Zone) : unit =
 // the world but drives no character. The editor does not simulate, so it stays passive.
 let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
     do updateAspectRatio (frame.WindowW, frame.WindowH) &state
-    do advanceActorAnimations frame.Dt state.Zone
+    let zone = GameplayState.activeZone state
+    do advanceActorAnimations frame.Dt zone
     let transition = Editor.update shared frame &state
 
     // The world simulates for the whole of play mode, player or not: the physics step and
     // the body→entity sync run regardless, while the player systems no-op without a live
     // player. The editor does not simulate, so it stays passive.
     if not state.Editing then
-        do Systems.playerInput shared.Physics state.Zone state.Player frame.Input frame.Dt
+        do Systems.playerInput shared.Physics zone frame.Input frame.Dt
         do Physics.step shared.Physics frame.Dt
-        do Systems.syncActors shared.Physics state.Zone
-        do Systems.cameraFollow state.Zone state.Player &state.Follow &state.Camera
-        do Systems.animate state.Zone state.Player frame.Input
+        do Systems.syncActors shared.Physics zone
+        do Systems.cameraFollow zone &state.Follow &state.Camera
+        do Systems.animate zone frame.Input
 
     transition
 
@@ -78,13 +79,14 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
     // ── per-frame buffers ──
     // Gather the static instances (CPU), then upload every per-frame buffer in copy
     // passes before the render pass.
-    do Zone.gatherStatic shared.Gpu.Device state.Zone
-    do EnvironmentBatch.upload shared.Gpu.Device state.Zone.Batch pass.Cmd
+    let zone = GameplayState.activeZone state
+    do Zone.gatherStatic shared.Gpu.Device zone
+    do EnvironmentBatch.upload shared.Gpu.Device zone.Batch pass.Cmd
     do DebugDraw.upload state.DebugDraw pass.Cmd
     do DebugDraw.upload state.GizmoDraw pass.Cmd
 
     // Upload each actor's bone palette (copy pass) before the render pass.
-    state.Zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
+    zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
         ActorRender.upload a.Renderer pass.Cmd)
 
     // ── scene pass ──
@@ -102,10 +104,10 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
 
     // Static scene: props (placed assets + imported environment parts) batched into
     // one instanced draw per distinct submesh, then the animated actors.
-    do EnvironmentBatch.render state.Zone.Batch scenePass pass.Cmd shared.Gpu.StaticPipeline viewProjection light cameraPos
+    do EnvironmentBatch.render zone.Batch scenePass pass.Cmd shared.Gpu.StaticPipeline viewProjection light cameraPos
 
     let meshPipeline = shared.Gpu.MeshPipeline
-    do state.Zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
+    do zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
            let model = Entity.modelMatrix a.Base.Transform
            do ActorRender.draw a.Renderer scenePass pass.Cmd meshPipeline viewProjection model light cameraPos)
 

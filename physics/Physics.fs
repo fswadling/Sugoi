@@ -107,6 +107,40 @@ let destroyBody (world: World) (BodyId id) : unit =
     let mutable bodyId = BodyID(id)
     do world.System.BodyInterface.RemoveAndDestroyBody(&bodyId)
 
+// ── Attach / detach (zone switching) ──
+//
+// A body can be removed from the simulation and re-added later without destroying
+// it; its shape (and any mesh-shape BVH) survives. Zones use this to make an
+// inactive zone's bodies neither collide nor integrate, cheaply re-activating them
+// on the way back.
+
+let removeBody (world: World) (BodyId id) : unit =
+    let mutable bodyId = BodyID(id)
+    do world.System.BodyInterface.RemoveBody(&bodyId)
+
+let addBody (world: World) (BodyId id) : unit =
+    let mutable bodyId = BodyID(id)
+    do world.System.BodyInterface.AddBody(&bodyId, Activation.Activate)
+
+// Adding many bodies one at a time leaves the broadphase tree inefficient; rebuild
+// it once a batch (a zone's worth) has been re-added.
+let optimizeBroadPhase (world: World) : unit =
+    world.System.OptimizeBroadPhase()
+
+// Destroy a body whether or not it is currently attached, removing it from the
+// simulation first when needed (Jolt's `DestroyBody` does not remove it). Used when
+// a whole zone is deleted.
+let isAdded (world: World) (BodyId id) : bool =
+    let mutable bodyId = BodyID(id)
+    world.System.BodyInterface.IsAdded(&bodyId)
+
+let releaseBody (world: World) (BodyId id) : unit =
+    if isAdded world (BodyId id) then
+        let mutable bodyId = BodyID(id)
+        do world.System.BodyInterface.RemoveBody(&bodyId)
+    let mutable destroyId = BodyID(id)
+    do world.System.BodyInterface.DestroyBody(&destroyId)
+
 // ── Dynamic actor body access ──
 //
 // The locomotion systems read and write the actor's body directly: they set the

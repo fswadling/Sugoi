@@ -69,43 +69,46 @@ let private actor (name: string) : Actor =
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 
 [<Fact>]
-let ``isPlayerLive is true only for a bound live actor`` () =
+let ``isPlayerLive is true only for a live designated actor`` () =
     let zone = Zone.create ()
-    Assert.False(isPlayerLive zone ValueNone)
+    Assert.False(isPlayerLive zone)
 
     let stale : Handle = { Index = 0u; Generation = 99u }
-    Assert.False(isPlayerLive zone (ValueSome stale))
+    zone.Player <- ValueSome stale
+    Assert.False(isPlayerLive zone)
 
     let handle = zone.Actors.Add(actor "player")
-    Assert.True(isPlayerLive zone (ValueSome handle))
+    zone.Player <- ValueSome handle
+    Assert.True(isPlayerLive zone)
 
     // Freeing the actor bumps the generation, so the handle goes stale.
     zone.Actors.Free(handle)
-    Assert.False(isPlayerLive zone (ValueSome handle))
+    Assert.False(isPlayerLive zone)
 
 [<Fact>]
-let ``systems are inert with no player bound`` () =
+let ``systems are inert with no player designated`` () =
     let zone = Zone.create ()
     let world = Physics.create ()
     let frame = input (Input.Key.mask Input.Key.W)
     let mutable follow = createFollow ()
     let mutable camera = Camera.create Vector3.Zero Vector3.Zero
-    do playerInput world zone ValueNone frame 0.016f
-    do cameraFollow zone ValueNone &follow &camera
-    do animate zone ValueNone frame
+    do playerInput world zone frame 0.016f
+    do cameraFollow zone &follow &camera
+    do animate zone frame
     Assert.Equal(Vector3.Zero, camera.Position)
 
 [<Fact>]
-let ``systems are inert with a stale handle`` () =
+let ``systems are inert with a stale designation`` () =
     let zone = Zone.create ()
     let world = Physics.create ()
     let stale : Handle = { Index = 0u; Generation = 99u }
+    zone.Player <- ValueSome stale
     let frame = input (Input.Key.mask Input.Key.W)
     let mutable follow = createFollow ()
     let mutable camera = Camera.create (Vector3(1.0f, 1.0f, 1.0f)) Vector3.Zero
-    do playerInput world zone (ValueSome stale) frame 0.016f
-    do cameraFollow zone (ValueSome stale) &follow &camera
-    do animate zone (ValueSome stale) frame
+    do playerInput world zone frame 0.016f
+    do cameraFollow zone &follow &camera
+    do animate zone frame
     Assert.Equal(Vector3(1.0f, 1.0f, 1.0f), camera.Position)
 
 // Every actor's body is written back, not just a bound player's. A dynamic actor that

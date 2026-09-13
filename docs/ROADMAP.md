@@ -72,7 +72,7 @@ content-authoring and polish on top.
 | **5** | **PBR + lighting** | metallic-roughness shading (GGX), materials, sun/directional light | `odin-game/src/environment_render.odin`, `docs/PBR_PLAN.md`; `ocaml-game` M13 |
 | **6** | **Physics + picking** | capsule character + box/BVH prop colliders, raycast click-select | `odin-game/src/physics.odin`; `ocaml-game` M6 (Box3D + raycast) |
 | **7** | **Walk around** | player locomotion + camera follow; walk the character around the environment with physics | `odin-game` `player_input`/`camera_follow`/`gravity` systems; `ocaml-game` M11.1–M11.2 |
-| **8** | **Zones** | multiple zones, switch between them | `odin-game/src/{zone_map,zone_registry}.odin` (runtime part) |
+| **8** | **Zones** | multiple zones: add, select, delete, switch | `odin-game/src/{zone_map,zone_registry}.odin` (runtime part); `specs/024` |
 | **9** | **Cue engine + editor** | author and run a scripted sequence | `odin-game/src/{cue,cue_editor}.odin`; `ocaml-game/lib/core/cue.ml`, `docs/CUE_DESIGN.md` |
 | **10** | **Story primitives** | waypoints, triggers, advent, cast | `odin-game/src/{cast,advent}.odin` + zone waypoints/triggers; `ocaml-game` M7 |
 | **11** | **Scenario editor** | assemble a scenario from zones + cast + cues | `odin-game/src/{scenario,scenario_editor}.odin`; `ocaml-game` M9 |
@@ -251,15 +251,21 @@ physics.
 **Done when**: you can walk the character around the environment with collisions
 and a following camera. *(complete — `specs/016`)*
 
-### 8 · Zones
+### 8 · Zones ✅
 
-**Goal**: multiple zones and switching between them.
+**Goal**: multiple zones with one active; add, select, delete, and switch.
 
 **Deliverables**
-- `world/ZoneMap.fs` — runtime slot map of zones + an `active` index.
-- Zone switch path.
+- A name-keyed `Dictionary<string, Zone>` on `GameplayState` plus `ActiveZone`
+  (no `world/ZoneMap.fs` — a dictionary suffices for identity-addressed zones).
+- Zone switch path: detach the outgoing zone's bodies and re-attach the incoming
+  zone's (`RemoveBody`/`AddBody` + broadphase optimize) in the one shared world.
+- Per-zone player designation and undo history, plus add/select/delete in the
+  Outliner's Zones section.
+- Deleting a zone releases its bodies and GPU resources; the last zone is protected.
 
-**Done when**: multiple zones exist and you can switch between them at runtime.
+**Done when**: multiple zones exist and you can add, select, delete, and switch
+between them at runtime. *(complete — `specs/024`)*
 
 ### 9 · Cue engine + editor
 
@@ -423,6 +429,7 @@ PBR → physics → walk around). After that, the content-authoring path is
 
 ## Next step
 
-**Phase 8 — zones** (`/speckit-specify`): `world/ZoneMap.fs` (a runtime slot map
-of zones plus an `active` index) and a zone-switch path, so multiple zones exist
-and can be switched between at runtime.
+**Phase 9 — cue engine + editor** (`/speckit-specify`): `world/Cue.fs` (a `Cue_Op`
+template union and a separate `CueState` runtime union + `state_map`), runtime cue
+execution, and `editor/CueEditor.fs`/`editor/CueTree.fs`, so you can author and run a
+scripted sequence. (Phase 8 — zones — is complete; `specs/024`.)

@@ -22,17 +22,20 @@ type Zone =
       Props : SlotMap<Prop>
       Batch : EnvironmentBatch.EnvironmentBatch
       mutable NextEnvironmentEpoch : uint32
-      BodyToEntity : Dictionary<Physics.BodyId, EntityRef> }
+      BodyToEntity : Dictionary<Physics.BodyId, EntityRef>
+      // The zone's player designation: which of its actors is the avatar. Only the
+      // active zone's designation is live. `ValueNone` means it drives no character.
+      mutable Player : Handle voption }
 
 let create () : Zone =
     { Name = ""
       Actors = SlotMap<Actor>(64u)
       Environment = None
-      // Placed props only — an environment's imported parts live in its own map.
       Props = SlotMap<Prop>(32u)
       Batch = EnvironmentBatch.create ()
       NextEnvironmentEpoch = 0u
-      BodyToEntity = Dictionary<Physics.BodyId, EntityRef>() }
+      BodyToEntity = Dictionary<Physics.BodyId, EntityRef>()
+      Player = ValueNone }
 
 // ── static-scene batch ──
 
@@ -495,3 +498,105 @@ let loadEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetMan
     let environment = buildEnvironment assets assetId epoch
     do setEnvironment zone world assets (Some environment)
     environment
+
+// ── Zone-level physics lifecycle ──
+//
+// A switch detaches the outgoing zone's bodies from the simulation and re-attaches
+// the incoming zone's, without destroying bodies or shapes (Jolt's RemoveBody/
+// AddBody). Deletion is the only place bodies are destroyed.
+
+let deactivatePhysics (zone: Zone) (world: Physics.World) : unit =
+    let detach (attachment: PhysicsAttachment<'T> option) : unit =
+        match attachment with
+        | Some ph -> Physics.removeBody world ph.Body
+        | None -> ()
+
+    let actorSlots = zone.Actors.Slots
+    for i in 0 .. actorSlots.Length - 1 do
+        let slot = &actorSlots.[i]
+        if slot.Alive then
+            detach (zone.Actors.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+
+    let propSlots = zone.Props.Slots
+    for i in 0 .. propSlots.Length - 1 do
+        let slot = &propSlots.[i]
+        if slot.Alive then
+            detach (zone.Props.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+
+    match zone.Environment with
+    | Some environment ->
+        let partSlots = environment.Parts.Slots
+        for i in 0 .. partSlots.Length - 1 do
+            let slot = &partSlots.[i]
+            if slot.Alive then
+                detach (environment.Parts.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+    | None -> ()
+
+let activatePhysics (zone: Zone) (world: Physics.World) : unit =
+    let attach (attachment: PhysicsAttachment<'T> option) : unit =
+        match attachment with
+        | Some ph -> Physics.addBody world ph.Body
+        | None -> ()
+
+    let actorSlots = zone.Actors.Slots
+    for i in 0 .. actorSlots.Length - 1 do
+        let slot = &actorSlots.[i]
+        if slot.Alive then
+            attach (zone.Actors.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+
+    let propSlots = zone.Props.Slots
+    for i in 0 .. propSlots.Length - 1 do
+        let slot = &propSlots.[i]
+        if slot.Alive then
+            attach (zone.Props.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+
+    match zone.Environment with
+    | Some environment ->
+        let partSlots = environment.Parts.Slots
+        for i in 0 .. partSlots.Length - 1 do
+            let slot = &partSlots.[i]
+            if slot.Alive then
+                attach (environment.Parts.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+    | None -> ()
+
+    Physics.optimizeBroadPhase world
+
+// Delete-time cleanup: destroy every body the zone owns (it is inactive, so the
+// bodies are detached), release every renderer and the zone's static-scene batch,
+// and drop the body map. Nothing here is undoable.
+let release (zone: Zone) (world: Physics.World) (device: Gpu.Device) : unit =
+    let actorSlots = zone.Actors.Slots
+    for i in 0 .. actorSlots.Length - 1 do
+        let slot = &actorSlots.[i]
+        if slot.Alive then
+            let a = &zone.Actors.Get { Index = uint32 i; Generation = slot.Generation }
+            match a.Physics with
+            | Some ph -> do Physics.releaseBody world ph.Body
+            | None -> ()
+            do Actor.releaseRenderer a
+
+    let propSlots = zone.Props.Slots
+    for i in 0 .. propSlots.Length - 1 do
+        let slot = &propSlots.[i]
+        if slot.Alive then
+            let p = &zone.Props.Get { Index = uint32 i; Generation = slot.Generation }
+            match p.Physics with
+            | Some ph -> do Physics.releaseBody world ph.Body
+            | None -> ()
+            do Prop.releaseRenderer p
+
+    match zone.Environment with
+    | Some environment ->
+        let partSlots = environment.Parts.Slots
+        for i in 0 .. partSlots.Length - 1 do
+            let slot = &partSlots.[i]
+            if slot.Alive then
+                let p = &environment.Parts.Get { Index = uint32 i; Generation = slot.Generation }
+                match p.Physics with
+                | Some ph -> do Physics.releaseBody world ph.Body
+                | None -> ()
+                do Prop.releaseRenderer p
+    | None -> ()
+
+    EnvironmentBatch.release device zone.Batch
+    zone.BodyToEntity.Clear()
