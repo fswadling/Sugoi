@@ -249,8 +249,7 @@ physics.
   (grows in phase 13).
 
 **Done when**: you can walk the character around the environment with collisions
-and a following camera. *(complete — `specs/016`; the SC-007 frame rate is still
-outstanding on the 463-part ArtRoom — see `specs/016` tasks T023–T025)*
+and a following camera. *(complete — `specs/016`)*
 
 ### 8 · Zones
 

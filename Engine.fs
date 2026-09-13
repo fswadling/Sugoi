@@ -190,8 +190,11 @@ let run () : int =
             do ImGuiSdl3.renderDrawData(drawData, cmd, imguiPass)
             do SDL.EndGPURenderPass(imguiPass)
 
-        do SDL.SubmitGPUCommandBuffer(cmd) |> ignore
+        // End of recording. The submit below blocks when the GPU is still busy, so it
+        // is measured separately from CPU command recording.
         do lap 5
+
+        do SDL.SubmitGPUCommandBuffer(cmd) |> ignore
 
         // ── Apply the frame's navigation request ──
         do ScreenManager.applyTransition &manager

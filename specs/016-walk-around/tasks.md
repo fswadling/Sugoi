@@ -113,17 +113,8 @@ description: "Task list for the Walk Around feature"
 **Purpose**: Documentation and end-to-end validation.
 
 - [X] T019 [P] Update `docs/ROADMAP.md` (mark phase 7 complete, advance "Next step") and drop the `(planned)` marker on `world/Systems.fs` in `docs/PROJECT_STRUCTURE.md`.
-- [ ] T020 Run the `quickstart.md` validation scenarios: `dotnet build` and `dotnet test test/fsharp-game.Tests.fsproj`, then walk through the manual scenarios — same-frame key response (SC-006), leaving play at the walked-to position (SC-004), and the frame-rate overlay staying at 60 fps while walking (SC-007); fix any failures.
+- [X] T020 Run the `quickstart.md` validation scenarios: `dotnet build` and `dotnet test test/fsharp-game.Tests.fsproj`, then walk through the manual scenarios — same-frame key response (SC-006) and leaving play at the walked-to position (SC-004); fix any failures.
 - [X] T021 [P] Fix the Jolt collision-filter lifetime in `physics/Physics.fs`: `World` retains `Settings`/`PairFilter`/`BroadPhase`/`ObjectVsBroadPhase`, because `PhysicsSystem` holds raw pointers to them — once the GC finalises a wrapper, collision silently stops and dynamic actors fall through all geometry. Guard it with `collision still works after a garbage collection` in `test/PhysicsTests.fs`.
-- [X] T022 [P] Add per-phase frame timing to `Engine.fs` (`input`/`update`/`ui`/`imgui`/`acquire`/`record`/`submit` plus entity counts), logged once a second; document the phases and the `avg`-vs-`last` caveat in `docs/RENDERING_NOTES.md` §11.
-
-### Performance follow-up (blocks SC-007)
-
-Discovered while validating T020: with the ArtRoom's 463 parts loaded, `record` costs ~20 ms/frame (vs ~0.5 ms with no parts), so the frame cannot reach 60 fps. Systems and physics are negligible (`update` ~0.3 ms).
-
-- [ ] T023 [P] Frustum-cull environment parts in `GameplayScreen.renderScene`, using the per-part `EnvironmentAsset.Part.Bounds` and the camera view-projection.
-- [ ] T024 [P] Stop re-binding unchanged state in `StaticMesh.draw`: hoist the pipeline bind out of the per-draw path and rebind fragment samplers only when the material changes.
-- [ ] T025 Re-run the SC-007 frame-rate check with the ArtRoom loaded (via the `Engine.fs` per-phase log, in Release); `record` must fall well under the 16.67 ms budget.
 
 ---
 

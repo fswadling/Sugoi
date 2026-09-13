@@ -225,9 +225,11 @@ per phase, so it can be left on. Note that `avg` is averaged over the window whi
   cap. `ocaml-game` (D-018) concluded the two clocks drift and removed the
   software cap in favour of the vblank wait alone; worth re-checking here.
 - **Scene draw cost scales with glTF node count.** The ArtRoom loads as 463
-  environment parts, each drawn with its own full state block (vertex + fragment
-  uniform pushes, pipeline bind, sampler bind, index bind). Measured via the
-  per-phase log: `record` ~20 ms/frame with the parts loaded versus ~0.5 ms with
-  none, while `acquire` stays ~0.1 ms — so the frame is **CPU-bound on draw
-  submission**, not GPU-bound. Frustum-culling parts and skipping unchanged binds
-  are the next steps (`specs/016-walk-around/tasks.md` T023–T025).
+  environment parts (521 submesh draws), each drawn with its own full state
+  block. Measured via the per-phase log: `record` ~20 ms/frame with the parts
+  loaded versus ~0.5 ms with none, while `acquire` stays ~0.1 ms — so the frame
+  is **CPU-bound on draw submission**, not GPU-bound. Frustum culling and bind
+  de-duplication were tried and measured to have **no effect**, and have been
+  reverted; the fix is instancing (521 → 191 draws). Full investigation,
+  measurements, external evidence and the implementation plan live in
+  `docs/RENDER_PERFORMANCE.md`.
