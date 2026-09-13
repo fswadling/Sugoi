@@ -75,6 +75,10 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 // the gizmo/marker lines (depth-tested so they are occluded by geometry in
 // front of them).
 let renderScene (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : unit =
+    // Gather the static scene's instances for this frame (CPU), then upload every
+    // per-frame buffer in copy passes before the render pass.
+    do EnvironmentBatch.gather state.Batch state.Zone
+    do EnvironmentBatch.upload state.Batch pass.Cmd
     do DebugDraw.upload state.DebugDraw pass.Cmd
     do DebugDraw.upload state.GizmoDraw pass.Cmd
 
@@ -94,17 +98,9 @@ let renderScene (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : 
           Ambient = Vector3(0.15f, 0.15f, 0.15f) }
     let cameraPos = state.Camera.Position
 
-    // Props (placed assets and imported environment parts), then the animated
-    // actors. The environment entity itself draws nothing — its parts are props.
-    let staticPipeline = state.StaticPipeline
-    do state.Zone.Props.IteriAlive(fun _ _ (p: Prop) ->
-           let model = Entity.modelMatrix p.Base.Transform
-           do EnvironmentRender.draw p.Renderer scenePass pass.Cmd staticPipeline viewProjection model light cameraPos)
-
-    do state.Zone.Environment |> Option.iter (fun environment ->
-        environment.Parts.IteriAlive(fun _ _ (p: Prop) ->
-            let model = Entity.modelMatrix p.Base.Transform
-            do EnvironmentRender.draw p.Renderer scenePass pass.Cmd staticPipeline viewProjection model light cameraPos))
+    // Static scene: props (placed assets + imported environment parts) batched into
+    // one instanced draw per distinct submesh, then the animated actors.
+    do EnvironmentBatch.render state.Batch scenePass pass.Cmd state.StaticPipeline viewProjection light cameraPos
 
     let meshPipeline = state.MeshPipeline
     do state.Zone.Actors.IteriAlive(fun _ _ (a: Actor) ->

@@ -71,6 +71,7 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       MeshPipeline = Unchecked.defaultof<Gpu.Pipeline>
       StaticPipeline = Unchecked.defaultof<Gpu.Pipeline>
+      Batch = Unchecked.defaultof<EnvironmentBatch.EnvironmentBatch>
       Zone = zone
       Editor = EditorState.create ()
       Editing = true

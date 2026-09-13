@@ -2,10 +2,10 @@ module StaticMesh
 
 // Static GPU vertex/index buffers + draw for unskinned geometry (environments
 // and props). The vertex buffer is position + normal + uv (32-byte stride),
-// uploaded once at create; no blend attributes, no bone storage buffer. Draw
-// pushes a vertex PerDraw uniform (viewProj/model/normalMatrix) and a fragment
-// material+light uniform, binds the material's samplers, and issues an indexed
-// draw.
+// uploaded once at create; no blend attributes, no bone storage buffer. Draw is
+// instanced: the caller binds the static pipeline and pushes the shared viewProj
+// uniform for the whole block, while per-instance model/normal transforms come
+// from a second vertex buffer slot (see render/InstanceBuffer.fs).
 
 open System
 open System.IO
@@ -20,9 +20,8 @@ type StaticMesh =
       VertexBuffer : Gpu.Buffer
       IndexBuffer : Gpu.Buffer
       IndexCount : int
-      PerDrawUniformBytes : byte array
       MaterialUniformBytes : byte array
-      VertexBinding : SDL.GPUBufferBinding array
+      VertexBinding : SDL.GPUBufferBinding array  // [0] mesh vertices, [1] instance transforms
       IndexBinding : SDL.GPUBufferBinding }
 
 // Interleave the static vertex data into a 32-byte stride buffer:
@@ -58,18 +57,15 @@ let create (device: Gpu.Device) (positions: float32 array) (normals: float32 arr
       VertexBuffer = vertexBuffer
       IndexBuffer = indexBuffer
       IndexCount = indices.Length
-      PerDrawUniformBytes = Array.zeroCreate<byte> 192   // viewProj + model + normalMatrix
       MaterialUniformBytes = Array.zeroCreate<byte> 128  // 8 x vec4 material/light
-      VertexBinding = Array.zeroCreate<SDL.GPUBufferBinding> 1
+      VertexBinding = Array.zeroCreate<SDL.GPUBufferBinding> 2
       IndexBinding = indexBinding }
 
-// Bind the static pipeline, push the vertex + fragment uniforms, bind the
-// material's samplers, and issue an indexed draw.
-let draw (m: StaticMesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (light: Light) (cameraPos: Vector3) (material: Material) : unit =
-    do writeMatrix m.PerDrawUniformBytes 0 viewProjection
-    do writeMatrix m.PerDrawUniformBytes 64 model
-    do writeMatrix m.PerDrawUniformBytes 128 (normalMatrix model)
-
+// Push the fragment material/light uniform, bind the mesh vertices (slot 0) and the
+// caller's instance range (slot 1), bind the material's samplers, and issue an
+// indexed instanced draw. The static pipeline and the shared viewProj uniform are
+// bound/pushed once per static block by the caller (see world/EnvironmentBatch.fs).
+let drawInstanced (m: StaticMesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (instanceBinding: SDL.GPUBufferBinding) (instanceCount: uint32) (light: Light) (cameraPos: Vector3) (material: Material) : unit =
     do writeVector4 m.MaterialUniformBytes 0 material.BaseColor
     do writeVector4 m.MaterialUniformBytes 16 (Vector4(material.Metallic, material.Roughness, 0.0f, 0.0f))
     do writeVector4 m.MaterialUniformBytes 32 (Vector4(material.Emissive, 0.0f))
@@ -83,17 +79,16 @@ let draw (m: StaticMesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (
     do writeVector4 m.MaterialUniformBytes 96 (Vector4(light.Ambient, 0.0f))
     do writeVector4 m.MaterialUniformBytes 112 (Vector4(cameraPos, 0.0f))
 
-    do SDL.PushGPUVertexUniformData(cmd, 0u, m.PerDrawUniformBytes, 192u)
     do SDL.PushGPUFragmentUniformData(cmd, 0u, m.MaterialUniformBytes, 128u)
-    do SDL.BindGPUGraphicsPipeline(renderPass, pipeline)
 
     let bindings = m.VertexBinding
     bindings.[0].Buffer <- m.VertexBuffer
     bindings.[0].Offset <- 0u
-    do SDL.BindGPUVertexBuffers(renderPass, 0u, bindings, 1u)
+    bindings.[1] <- instanceBinding
+    do SDL.BindGPUVertexBuffers(renderPass, 0u, bindings, 2u)
 
     do SDL.BindGPUFragmentSamplers(renderPass, 0u, material.Bindings, uint32 material.Bindings.Length)
 
     let mutable indexBinding = m.IndexBinding
     do SDL.BindGPUIndexBuffer(renderPass, &indexBinding, SDL.GPUIndexElementSize.IndexElementSize32Bit)
-    do SDL.DrawGPUIndexedPrimitives(renderPass, uint32 m.IndexCount, 1u, 0u, 0, 0u)
+    do SDL.DrawGPUIndexedPrimitives(renderPass, uint32 m.IndexCount, instanceCount, 0u, 0, 0u)

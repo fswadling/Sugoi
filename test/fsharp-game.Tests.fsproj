@@ -19,6 +19,7 @@
     <Compile Include="ZoneTests.fs" />
     <Compile Include="SpawningTests.fs" />
     <Compile Include="PlayerTests.fs" />
+    <Compile Include="EnvironmentBatchTests.fs" />
   </ItemGroup>
 
   <!-- Serialize test collections: `Physics.create` calls Jolt's process-global

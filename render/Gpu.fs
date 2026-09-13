@@ -228,6 +228,16 @@ let createStaticPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat
     vbufDesc.InputRate <- SDL.GPUVertexInputRate.Vertex
     vbufDesc.InstanceStepRate <- 0u
 
+    // Instance transform stream (slot 1): one 112-byte record per instance — four
+    // model rows then three normal-matrix rows, all Float4 (see shaders/static.vert
+    // and render/InstanceBuffer.fs). InputRate.Instance advances one record per
+    // instance; SDL_gpu requires instance_step_rate to be 0.
+    let mutable instanceDesc = SDL.GPUVertexBufferDescription()
+    instanceDesc.Slot <- 1u
+    instanceDesc.Pitch <- 112u
+    instanceDesc.InputRate <- SDL.GPUVertexInputRate.Instance
+    instanceDesc.InstanceStepRate <- 0u
+
     let mutable attr0 = SDL.GPUVertexAttribute()
     attr0.Location <- 0u
     attr0.BufferSlot <- 0u
@@ -246,8 +256,20 @@ let createStaticPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat
     attr2.Format <- SDL.GPUVertexElementFormat.Float2
     attr2.Offset <- 24u
 
-    let vbufDescs = [| vbufDesc |]
-    let attrs = [| attr0; attr1; attr2 |]
+    let instanceAttr (location: uint32) (offset: uint32) : SDL.GPUVertexAttribute =
+        let mutable a = SDL.GPUVertexAttribute()
+        a.Location <- location
+        a.BufferSlot <- 1u
+        a.Format <- SDL.GPUVertexElementFormat.Float4
+        a.Offset <- offset
+        a
+
+    let vbufDescs = [| vbufDesc; instanceDesc |]
+    let attrs =
+        [| attr0; attr1; attr2
+           instanceAttr 3u 0u; instanceAttr 4u 16u; instanceAttr 5u 32u
+           instanceAttr 6u 48u; instanceAttr 7u 64u; instanceAttr 8u 80u
+           instanceAttr 9u 96u |]
 
     let mutable raster = SDL.GPURasterizerState()
     raster.FillMode <- SDL.GPUFillMode.Fill
@@ -284,9 +306,9 @@ let createStaticPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat
         try
             let mutable vertexInput = SDL.GPUVertexInputState()
             vertexInput.VertexBufferDescriptions <- vbufHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexBuffers <- 1u
+            vertexInput.NumVertexBuffers <- 2u
             vertexInput.VertexAttributes <- attrHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexAttributes <- 3u
+            vertexInput.NumVertexAttributes <- 10u
             info.VertexInputState <- vertexInput
 
             let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()

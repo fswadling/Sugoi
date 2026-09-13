@@ -209,13 +209,15 @@ let run () : int =
                 phaseNames
                 |> Array.mapi (fun i name -> sprintf "%s %.2f" name (perFrame phaseNs.[i]))
                 |> String.concat "  "
-            do printfn "avg %.2fms (last %.2f) | %s | phases %.2f | actors %d props %d parts %d"
+            do printfn "avg %.2fms (last %.2f) | %s | phases %.2f | actors %d props %d parts %d | draws %d instances %d"
                 (phaseFrameMs / phaseFrames) dtMs phases (perFrame (Array.sum phaseNs))
                 (int manager.Gameplay.Zone.Actors.Count)
                 (int manager.Gameplay.Zone.Props.Count)
                 (match manager.Gameplay.Zone.Environment with
                  | Some environment -> int environment.Parts.Count
                  | _ -> 0)
+                manager.Gameplay.Batch.DrawCalls
+                manager.Gameplay.Batch.InstanceCount
             do Array.fill phaseNs 0 phaseNs.Length 0.0
             phaseFrames <- 0.0
             phaseFrameMs <- 0.0

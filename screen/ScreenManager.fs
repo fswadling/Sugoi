@@ -22,7 +22,7 @@ let init (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (mesh
       Transition = ScreenTransition.None
       Shared = SharedState.create debugDraw.Device
       ShouldQuit = false
-      Gameplay = GameplayState.create debugDraw gizmoDraw meshPipeline staticPipeline }
+      Gameplay = GameplayState.create debugDraw.Device debugDraw gizmoDraw meshPipeline staticPipeline }
 
 // Advance the active screen; may set a transition. The frame carries the frame
 // time, window size, and the engine-gathered input.

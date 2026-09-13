@@ -171,107 +171,242 @@ count stayed at 521.
 
 ## 7. Plan: instancing
 
-### Sketch
+**Prior art:** Nu solves this in its own ecosystem with instancing-by-default and
+freeze-time pre-batching; see §12 for the code paths and the comparison.
 
-- Build a **per-frame instance buffer** of model matrices: 521 × 64 B ≈ 33 KB.
-- Issue **one instanced draw per unique submesh** → **521 draws collapse to 191**
-  calls. Because each submesh has exactly one material, this groups materials
-  for free (and makes the sampler dedup in §5b almost redundant).
-- Move the model matrix out of the pushed vertex uniform and into a **vertex
-  storage buffer** indexed by `gl_InstanceIndex` in `shaders/static.vert`.
-  `viewProj` stays a pushed uniform (or moves into the same storage buffer).
+### Confirmed: the geometry is already shared
+
+This is smaller than it first looks. `core/Gltf.fs` already **deduplicates
+instanced meshes** at parse time (`Gltf.load`, "Read every mesh's primitives once
+(deduplicating instanced meshes)", ~L313-324): each glTF mesh's primitives become
+one `Submesh`, and every node that references the mesh shares that range via
+`Part.SubmeshIndex`/`SubmeshCount`. `loadStaticModel` then uploads each unique
+`Submesh` exactly once as a `StaticMesh` (`world/Assets.fs`), so
+`asset.Submeshes` is the 191 unique submeshes.
+
+The 521 draws come solely from `EnvironmentRender.draw` looping a part's submesh
+range and calling `StaticMesh.draw` per submesh (`world/EnvironmentRender.fs:34-36`),
+each with its own full state block. Nothing needs re-uploading or re-merging —
+but the grouping key is **not** a bare submesh index (see below).
+
+### Grouping key: per-asset submesh identity, not a global index
+
+`EnvironmentRender.SubmeshIndex` is relative to `r.Asset.Submeshes`, and `r.Asset`
+depends on where the instance came from:
+
+- `createPartRender` uses `manager.Environments.[environmentAssetId]`
+  (`world/Assets.fs:255-257`).
+- `createPropRender` uses `manager.Props.[assetId]` (`world/Assets.fs:249-251`).
+- `draw` reads `r.Asset.Submeshes.[i]` (`world/EnvironmentRender.fs:35`).
+
+So the same index can name **different geometry and material** in different
+assets. A placed prop and an environment part can both have submesh index 0
+while pointing at different vertex/index buffers; keying the batch on the bare
+index would put them in one instanced draw and render one with the wrong
+buffers/material. The key must be the shared submesh identity — `(asset,
+submeshIndex)`, or directly the `StaticSubmesh.Mesh` + `Material` pair, since
+that is what actually has to match for a single draw.
+
+Consequently **191 is environment-only**. With props present the distinct-submesh
+total is higher (one per prop asset, plus the environment's 191), still ≪ 521, so
+the conclusion is unchanged. The measured run had `props 0 parts 463`, which is
+why this has not bitten yet; placing a prop in the editor would trigger it.
+
+### Confirmed invariant
+
+The draw set is `Zone.Props` (placed props; each renders its whole asset) plus
+`environment.Parts` (imported parts; each renders its submesh range). The
+environment entity itself draws nothing, and environment parts are *not* in
+`Zone.Props` (`world/Zone.fs`: "Placed props only — an environment's imported
+parts live in its own map"). Both loops go through `EnvironmentRender`, so the
+gather must cover both.
+
+### Approach: one instanced draw per submesh
+
+- Build a **per-frame instance buffer** — one `mat4 model` + `mat3 normal` per
+  instance; 521 × 112 B ≈ 58 KB.
+- Issue **one instanced draw per unique submesh identity** (asset + index) →
+  **521 draws collapse to 191** for the ArtRoom environment alone; more once props
+  are placed, still ≪ 521. Because each submesh has exactly one material, this
+  groups materials for free (and makes the sampler dedup in §5b almost redundant).
+- Move `model`/`normalMatrix` out of the pushed `PerDraw` uniform and into
+  **per-instance vertex attributes** (`location 3..9` in `shaders/static.vert`).
+  `viewProj` stays a pushed uniform (now the only slot it carries).
 - `SDL.DrawGPUIndexedPrimitives` already takes `instance_count`; pass the number
   of instances for that submesh.
 
-### Files to touch
+### Decision: instance *vertex* buffer, not a storage buffer
+
+The original sketch used a vertex storage buffer indexed by `gl_InstanceIndex`
+(Nu's approach, and the documented convention in `RENDERING_NOTES.md` §4). An
+instance **vertex buffer** is preferred here:
+
+- SDL_GPU has `SDL.GPUVertexInputRate.Instance` and `GPUBufferBinding.Offset`
+  (in bytes), so per-submesh ranges bind directly. Note SDL_gpu asserts that
+  `instance_step_rate` is **0** — `InputRate.Instance` alone advances one record
+  per instance; a non-zero step rate fails pipeline creation with
+  "instance_step_rate must be 0!".
+- No `NumStorageBuffers` on the pipeline, no manual `gl_InstanceIndex` indexing,
+  and no storage-buffer binding-slot arithmetic (`RENDERING_NOTES.md` §4).
+- Same result and same shader data; only the binding mechanism differs.
+
+Fall back to the storage-buffer form only if the instance vertex buffer hits an
+SDL_GPU limit.
+
+### Instance layout
+
+One instance = 112 bytes, all `Float4` attributes (7 attributes, stride 112):
+
+| Location | Contents | Offset |
+|---|---|---|
+| 3 | `model` row 0 (M11..M14) | 0 |
+| 4 | `model` row 1 (M21..M24) | 16 |
+| 5 | `model` row 2 (M31..M34) | 32 |
+| 6 | `model` row 3 (M41..M44) | 48 |
+| 7 | `normalMatrix` row 0 | 64 |
+| 8 | `normalMatrix` row 1 | 80 |
+| 9 | `normalMatrix` row 2 | 96 |
+
+Rows are written in the same component order as the existing push, so the
+row-major / no-transpose convention (`RENDERING_NOTES.md` §7) is preserved: the
+shader builds the matrices from these as columns, exactly as the single pushed
+`mat4` did. The normal matrix is stored (not derived via an in-shader `inverse()`)
+to keep today's behavior for non-uniform scale.
+
+### Gather: two-pass, allocation-free
+
+Per frame, into a reusable CPU float/byte array sized to the instance high-water
+mark (521), with a reusable count/cursor table keyed by submesh identity
+(asset + index — see "Grouping key" above), not by a global submesh index:
+
+1. **Count** — walk props + parts; for each submesh in a part's/prop's range,
+   increment the count for its (asset, index) key (~521 increments).
+2. **Prefix-sum** — turn counts into per-submesh start offsets.
+3. **Fill** — reset cursors to the offsets, walk again composing
+   `world = Entity.modelMatrix transform * r.OrientationMatrix` and writing the
+   model + normal rows at the instance slot.
+4. **Upload once** — map a transfer buffer, copy, `UploadToGPUBuffer` in a copy
+   pass before the scene pass (same pattern as `DebugDraw.upload`,
+   `render/DebugDraw.fs:314-332`).
+5. **Draw** — for each submesh with count > 0: push `viewProj` + the fragment
+   material/light uniform, bind vertex buffer slot 0, bind the instance buffer at
+   slot 1 with byte offset `start * 112`, bind the index buffer, and
+   `DrawGPUIndexedPrimitives(indexCount, count, 0, 0, 0)`.
+
+Counts are recomputed each frame for correctness (parts/props can be spawned or
+deleted in the editor); 521 increments is noise next to 20 ms. If profiling ever
+shows the gather, cache the counts at environment load (the part layout is fixed
+until an edit) — but do not build that up front.
+
+### Files to touch (refined)
 
 | File | Change |
 |---|---|
-| `shaders/static.vert` | Read `model` from a vertex storage buffer / instance attribute instead of the `PerDraw` uniform. |
-| `render/StaticMesh.fs` | Add the instance-buffer usage + vertex binding/attribute layout; take an instance count on draw. |
-| pipeline creation (static pipeline) | Add the instance vertex buffer's binding/attribute description. |
-| `world/EnvironmentRender.fs` | Stop drawing its own submeshes; become a producer of instance data. |
-| `screen/GameplayScreen.fs` | `renderScene`: gather visible instances per submesh, upload the instance buffer, issue one instanced draw per submesh. |
-| frustum cull | Now reduces **instances**, not draw-call count. Keeps its value: fewer instances written/processed, but call count is already collapsed. |
+| `shaders/static.vert` | Read `model`/`normalMatrix` from per-instance attributes; `PerDraw` shrinks to `viewProj`. |
+| `shaders/static.vert.spv` | Recompile with `glslc` (same filename; `CopyShaders` target in the `.fsproj` is unchanged). |
+| `render/Gpu.fs` (`createStaticPipeline`) | Add vertex buffer slot 1: pitch 112, `InputRate = Instance`, `InstanceStepRate = 0`; 7 `Float4` attributes at locations 3..9. |
+| `render/StaticMesh.fs` | Instanced-draw variant: push `viewProj` + material, bind slot 0 + slot 1 (with offset), `DrawGPUIndexedPrimitives(count, instanceCount, …)`. |
+| `render/InstanceBuffer.fs` (new) | Grow-only instance GPU buffer + transfer buffer + CPU staging; `ensureCapacity`/`upload`/`bind`. Pure GPU, no `world` dependency. |
+| `world/EnvironmentBatch.fs` (new) | The gather + per-submesh draw. Keyed by `(asset, submeshIndex)` (see "Grouping key"), not a global index. Lives in `world/` because it walks `Zone`; `render/` may not depend on `world/` (see `PROJECT_STRUCTURE.md`). |
+| `screen/GameplayScreen.fs` (`renderScene`, ~L99-107) | Replace the two `EnvironmentRender.draw` loops with one `EnvironmentBatch` call. |
+| `test/EnvironmentBatchTests.fs` (new) | Unit-test the pure count/prefix-sum/fill planner (GPU paths can't run headless). |
+| frustum cull | Still not required. If ever reintroduced it reduces **instances**, not call count — but §5a says don't. |
+
+`EnvironmentRender.draw` stops issuing draws; `EnvironmentRender` becomes a
+producer of instance data (or is retired in favour of `EnvironmentBatch` reading
+its fields).
 
 ### Notes / hazards
 
 - The current design shares one `PerDrawUniformBytes` / `MaterialUniformBytes`
-  array per *mesh*, which is a latent data hazard once multiple instances draw
-  from the same mesh in one frame. Instancing removes it (per-instance data
-  comes from the instance buffer, not a shared scratch array).
-- Per-draw uniform pushes remain for `viewProj` + fragment material/light; these
-  can be hoisted to once per submesh draw (191) instead of once per draw (521).
-- Consider whether `Material` push can be batched too — 51 materials, one draw
-  per submesh already means ≤ 191 pushes, may not be worth more.
+  array per *mesh*, a latent data hazard once multiple instances draw from the
+  same mesh in one frame. Instancing removes it (per-instance data comes from the
+  instance buffer, not a shared scratch array).
+- The vertex uniform push shrinks from 192 B (per draw × 521) to 64 B (per
+  submesh × ≤191); the fragment material/light push stays per submesh.
+- Don't chase the `Material` push further — ≤191 pushes, and §5b showed binds
+  don't matter.
+- Actors keep the existing `Mesh` pipeline (a handful of draws); no scope creep.
 
 ### Cheap confirmation (optional, before the refactor)
 
-Add a temporary "draw only every Nth instance" switch to show `record` scaling
+Add a temporary "draw only every Nth submesh" switch to show `record` scaling
 **linearly with draw count** at constant geometry. The SDL issues in §6 are
 already fairly conclusive, so only do this if certainty is wanted.
 
 ---
 
-## 8. Secondary issue: missing mipmaps
+## 8. Secondary issue: missing mipmaps — FIXED
 
-`render/Texture.fs` sets `Sampler.MipmapMode <- Linear` but textures are created
+`render/Texture.fs` set `Sampler.MipmapMode <- Linear` but textures were created
 with `NumLevels <- 1`, and `SDL3.Image.LoadGPUTexture` creates textures "with no
-mip levels". Minification therefore samples the base level → aliasing plus a
+mip levels", so minification sampled the base level — aliasing plus a
 texture-bandwidth cliff.
 
-Fix: decode → `Surface` → create the texture with a full mip chain →
-`SDL_GenerateMipmapsForGPUTexture` (SDL 3.2+; must be called outside any render
-pass; requires >1 level).
-
-**Lower priority than draw count** on current evidence. Revisit after instancing
-lands.
+**Fixed in `dd7f8b1` (017-texture-mipmaps):** textures are now created with a full
+mip chain and `SDL_GenerateMipmapsForGPUTexture` is called outside any render
+pass. No further action.
 
 ---
 
-## 9. Repository state (as of writing)
+## 9. Repository state
 
-Committed:
+As of `dd7f8b1` (clean working tree):
 
-- `c7b3167` *"Implement 016 walk around…"* — includes the Engine frame timing,
-  the Jolt lifetime fix, `world/Systems.fs`, `test/PlayerTests.fs`,
-  `specs/016-walk-around/`, `.zed/debug.json`. `dotnet build` clean (2 benign
-  `Engine.fs` warnings from `NativePtr.toNativeInt (&&ev)`), `dotnet test` → 102
-  passed.
+- `0174343` *"Close out 016 walk around; document render performance findings"* —
+  this doc, the `RENDERING_NOTES.md` pointer and the `record`/`submit` re-cut
+  (see §3) are committed.
+- `dd7f8b1` *"Add full mip chains to loaded textures (017-texture-mipmaps)"* —
+  §8 is fixed.
+- **No instancing code exists yet** (searched `render/`, `world/`, `screen/`,
+  `shaders/`); §7 is unimplemented and there is no `018-*` spec yet.
+- The §5 attempts remain reverted: `render/Camera.fs`, `render/StaticMesh.fs`,
+  `world/EnvironmentRender.fs`, `world/Assets.fs`, `screen/GameplayScreen.fs`,
+  `test/CameraTests.fs` are back to `c7b3167`; the `draws`/`culled` counters are
+  still absent from the `Engine.fs` log.
 
-Uncommitted:
+**Instancing is now implemented (uncommitted, `specs/018-instanced-draws`).**
+Per §7: `shaders/static.vert` takes per-instance transform attributes, the static
+pipeline gains vertex slot 1 (112-byte instances), `render/InstanceBuffer.fs` and
+`world/EnvironmentBatch.fs` are new, and `Engine.fs` logs `draws`/`instances`.
 
-```
-?? docs/RENDER_PERFORMANCE.md          (this doc)
- M docs/RENDERING_NOTES.md            (perf results + pointer)
- M docs/ROADMAP.md                    (perf section revert)
- M specs/016-walk-around/tasks.md     (perf section revert)
- M Engine.fs                          (record/submit re-cut only)
-```
+**Measured** with the ArtRoom loaded: **`draws 191 instances 521`** (from 521
+draws), and `record` falls from ~20–30 ms to **~1.1–1.6 ms**. Frame `avg` ~16.8 ms
+and `phases` ~4–5 ms — comfortably within the 16.67 ms budget (§1). The
+`instance_step_rate` = 0 assertion was hit once and fixed in `render/Gpu.fs`.
 
-Reverted this session (the perf attempts that had no effect — see §5):
-`render/Camera.fs`, `render/StaticMesh.fs`, `world/EnvironmentRender.fs`,
-`world/Assets.fs`, `screen/GameplayScreen.fs`, `test/CameraTests.fs` are back to
-`c7b3167`, and the `draws`/`culled` counter args were dropped from the `Engine.fs`
-log. The `record`/`submit` re-cut was kept (it is an independent measurement fix).
+**Measured with placed props** (SC-004): adding copies of one prop leaves `draws`
+flat while `instances` grows — the first placement registered the prop asset's 2
+distinct submeshes (`draws 191 → 193`), and 5 more copies added 0 draws
+(`draws 193`, `instances 521 → 531`). With 6 props and a player, `record` is
+~2.7–2.9 ms; with the player actor too it rises to ~5–7 ms (the unchanged actor
+draw path, not the batch).
 
-**Drift to fix when committing:**
+**Measured with different prop assets** (FR-002): three different prop assets each
+added their own 2 distinct submeshes (`draws` 193 → 195 → 197), while a duplicate
+of an existing prop added 0 (`draws` stayed 197). This is the per-asset keying
+working — a bare submesh index would have merged the different assets.
 
-- The `tasks.md` / `ROADMAP.md` edits are *reverts* removing the perf section
-  from 016 — intended.
-- `c7b3167`'s commit message still references "follow-up tasks T023–T025" which
-  no longer exist (in 016). Consider an amend.
+Visual identity (SC-003) still needs a look by eye (quickstart scenarios 3–4).
+
+The last recorded full run was `dotnet build` clean and `dotnet test` → 96 passed
+(the earlier 102 included the frustum `CameraTests` that §5a reverted); the 2
+benign `Engine.fs` warnings (`FS0009`/`FS0051` from `NativePtr.toNativeInt (&&ev)`)
+are noted in `RENDERING_NOTES.md` "Known follow-ups".
 
 ---
 
 ## 10. Next steps (in order)
 
-1. Implement instancing (§7) and re-measure `record` via the per-phase log.
-   Target < ~5 ms.
-2. Fix the missing mipmaps (§8) and re-check quality/bandwidth.
-3. Commit the docs and the `record`/`submit` re-cut (separate from 016); consider
-   amending `c7b3167`'s stale T023–T025 reference.
-4. If culling is reintroduced at instance level, re-add `draws`/`culled` counters.
+1. ~~**Instrument first.**~~ — done: `Engine.fs` now logs `draws`/`instances`
+   from `EnvironmentBatch` (`specs/018-instanced-draws` T012).
+2. ~~**Implement instancing (§7)**~~ — done (uncommitted, `018-instanced-draws`);
+   measured `record` ~1.2 ms and `draws 191 instances 521` with the ArtRoom (§9).
+3. **Only if the gather/upload shows up**, cache per-submesh counts at
+   environment load (Nu's freeze-time pre-batch, §12) — don't build it up front.
+4. ~~Fix the missing mipmaps~~ — done in `dd7f8b1` (§8).
+5. If instance-level culling is ever reintroduced, re-add `draws`/`culled`
+   counters — but §5a says don't reintroduce culling.
 
 ---
 
@@ -292,4 +427,68 @@ log. The `record`/`submit` re-cut was kept (it is an independent measurement fix
 - Headless limits: actors need a GPU device, so actor-mutating `Systems`
   functions and anything drawing can't be unit-tested. Pure helpers and the
   frustum math can be (that's how `CameraTests` covers culling).
+- **Prop-placement hitches are not the batch.** Placing a prop in the editor
+  intermittently stalls `update` for ~200–280 ms (and briefly raises `ui`),
+  because spawning loads the prop asset and builds its Jolt mesh collider.
+  `record` stays ~2–3 ms through it, so it is a separate editor/spawn cost, not
+  instancing. A long debugger pause also leaves `acquire` elevated for a while
+  (swapchain/present backlog), which then recovers.
 - Don't run the game from here (no display) — ask for the log lines.
+
+---
+
+## 12. Prior art: Nu's instancing-by-default
+
+`Repos/Nu` (the F# game engine that inspired this project) hits the same problem
+from the other direction — its renderer is instancing-by-default, and it runs its
+real, unoptimized Debug renderer in budget because it submits ~one draw per unique
+surface instead of one per object. There is **no Debug/JIT-specific code path**:
+`Nu/Nu/Nu/Nu.fsproj` Debug only sets `<Tailcalls>False</Tailcalls>` and
+`DefineConstants=TRACE` (no `DEBUG` define), and nothing in the renderer is
+`#if DEBUG`-gated. This reinforces §4: Debug is not the cause, draw count is.
+
+How Nu does it (source-read of `Repos/Nu`, not measured):
+
+- **Freeze-time grouping** (`Nu/Nu/Nu/World/WorldEntityHierarchy.fs`): a static
+  hierarchy is *frozen*; `getFrozenArtifacts` groups every static-model surface by
+  `(clipped, material, surface, depthTest, renderType)` (~L207-211, ~L266-270),
+  producing `StaticModelSurfacePreBatch` entries whose `StaticModelSurfaces` array
+  is the instance list. `RenderFrozenPreBatches` (~L414-432) culls the hierarchy
+  once by its aggregate bounds and enqueues one `RenderStaticModelSurfacePreBatches`
+  message.
+- **Renderer batching** (`Nu/Nu/Nu/Render/Renderer3d.fs`):
+  `RenderTasks.DeferredStatic : Dictionary<PhysicallyBasedSurface, … List>`
+  (~L1076-1077); `categorizeStaticModelSurface` (~L2447-2458) files each instance
+  under its surface; `renderGeometry` (~L3794-3806) iterates the dictionary, one
+  instanced call per surface.
+- **One instanced draw** (`Nu/Nu/Nu/OpenGL/OpenGL.PhysicallyBased.fs`): all
+  instances are blitted into one reused `renderer.InstanceFields` array, uploaded
+  once, then `Gl.DrawElementsInstanced (…, surfacesCount)` (~L3799/L3945) with
+  `Hl.ReportDrawCall surfacesCount`. Draw calls ≈ unique surfaces, not objects.
+- **Per-instance culling inside the batch** (~L3130-3138) reduces *instances*,
+  never call count.
+- **Amortisation**: the grouping is baked once at freeze; `RenderTasks.clear`
+  (~L1108-1146) retains the dictionaries; `shadowUpToDate` (~L1148-1205) skips
+  rebuilds when nothing changed; `InstanceFields` is grow-only. `BatchPhase`
+  (Starting/Resuming/Stopping) hoists shader/VAO/state binds across the run.
+- **Draw-call instrumentation**: `Nu/Nu/Nu/OpenGL/OpenGL.Hl.fs`
+  (`ReportDrawCall` / `GetDrawCallCount` / `GetDrawInstanceCount`).
+
+Mapping to fsharp-game:
+
+| fsharp-game (now) | Nu |
+|---|---|
+| 1 instanced draw per unique submesh identity (521 → 191) | ~1 instanced draw per unique surface |
+| grouping rebuilt per frame (v1) | baked once at freeze for static hierarchies |
+| per-instance data in one vertex buffer; one shared `viewProj` push | per-instance data in one buffer |
+| `Engine.fs` logs `draws`/`instances` | `Hl.ReportDrawCall` etc. |
+| frustum cull per part (tried, reverted) | per-instance cull inside the batch |
+
+Differences that matter: Nu renders through OpenGL, this project through
+SDL_GPU/Vulkan (whose per-draw CPU cost is the §6 root cause), and Nu defers the
+opaque bulk into a G-buffer while this project is forward per-submesh. Neither
+changes the conclusion: collapse the draw calls. Nu's *freeze* concept is worth
+copying only as the optional §7 step 3 cache; the v1 plan is a per-frame gather.
+
+**Caveat:** this is a source-read of `Repos/Nu`, not a measured run — treat the
+"in budget" claim as inference from the design, not a benchmark.
