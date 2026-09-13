@@ -380,7 +380,11 @@ flat while `instances` grows — the first placement registered the prop asset's
 distinct submeshes (`draws 191 → 193`), and 5 more copies added 0 draws
 (`draws 193`, `instances 521 → 531`). With 6 props and a player, `record` is
 ~2.7–2.9 ms; with the player actor too it rises to ~5–7 ms (the unchanged actor
-draw path, not the batch).
+draw path, not the batch). **Those figures were Debug.** Re-measured with the
+ArtRoom and no props (2026-09-13): one skinned actor adds **~0.1 ms** to `record`
+in Release (~1.1 ms → ~1.2 ms) but **~3 ms** in Debug (~2.8 ms → ~6.1 ms) — a
+~20–30× skew. So the per-actor cost is a Debug-JIT artifact of the CPU skinning
+math (`Actor.samplePose`) plus the bone upload, not a production problem.
 
 **Measured with different prop assets** (FR-002): three different prop assets each
 added their own 2 distinct submeshes (`draws` 193 → 195 → 197), while a duplicate
@@ -412,8 +416,10 @@ are noted in `RENDERING_NOTES.md` "Known follow-ups".
 
 ## 11. Pitfalls / gotchas
 
-- **Do not claim the JIT or Debug configuration is the cause.** Measured and
-  disproved (§4).
+- **Do not blame JIT/Debug for the draw-call cliff.** Measured and disproved
+  (§4) — 521 draws cost in both configs. Debug *does* skew CPU-heavy struct code,
+  though: see the skinned actor path in §9 (~20–30×), and measure actors in
+  Release only.
 - **Do not chase further bind/state deduplication.** Done; proven ineffective
   (§5b).
 - **Don't report `culled` as working until it's been seen non-zero.**

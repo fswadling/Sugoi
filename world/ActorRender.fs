@@ -26,6 +26,7 @@ type ActorRender =
       mutable Animation : Actor.AnimationSlot
       Pose : Actor.PoseFrame
       BoneBuffer : Gpu.Buffer       // GraphicsStorageRead, BonesMax * 64
+      BoneStorageBuffers : nativeint array // [| BoneBuffer |], reused so draw binds without allocating
       BoneTransfer : Gpu.TransferBuffer // upload transfer buffer, same size
       BoneBytes : byte array }    // BonesMax * 64, reused
 
@@ -65,6 +66,7 @@ let create (device: Gpu.Device) (asset: ActorAsset.ActorAsset) : ActorRender =
       Animation = animation
       Pose = Actor.createPoseFrame model.Model
       BoneBuffer = boneBuffer
+      BoneStorageBuffers = [| boneBuffer |]
       BoneTransfer = Gpu.createTransferBuffer device (uint32 (Gpu.BonesMax * 64))
       BoneBytes = Array.zeroCreate<byte> (Gpu.BonesMax * 64) }
 
@@ -113,9 +115,10 @@ let upload (r: ActorRender) (cmd: Gpu.CommandBuffer) : unit =
     do SDL.EndGPUCopyPass(copyPass)
 
 // Bind this instance's bone storage buffer (vertex storage slot 0) and draw.
-// Runs inside the render pass.
+// Runs inside the render pass, so the binding array is preallocated per instance
+// (`BoneStorageBuffers`) rather than rebuilt each frame.
 let draw (r: ActorRender) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (light: Light) (cameraPos: Vector3) : unit =
-    do SDL.BindGPUVertexStorageBuffers(renderPass, 0u, [| r.BoneBuffer |], 1u)
+    do SDL.BindGPUVertexStorageBuffers(renderPass, 0u, r.BoneStorageBuffers, 1u)
     do Mesh.draw r.Asset.Mesh renderPass cmd pipeline viewProjection (upAxisFix * model) light cameraPos
 
 // Free this instance's GPU buffers (bone storage + upload transfer). Called when
