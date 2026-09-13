@@ -181,14 +181,16 @@ let run () : int =
         if swapchainTexture <> IntPtr.Zero then
             do ImGuiSdl3.prepareDrawData(drawData, cmd)
 
-            // Scene pass: clear + draw the active screen's scene (color + depth).
+            // ── Scene pass ──
+            // Clear + draw the active screen's scene (color + depth).
             let shared = manager.Shared
             do Gpu.ensureDepthTexture &shared.Gpu w h
             let mutable depthTarget = Gpu.depthTargetInfo shared.Gpu
             sceneTargets.[0].Texture <- swapchainTexture
             do ScreenManager.renderScene &manager { Cmd = cmd; ColorTargets = sceneTargets; DepthTarget = depthTarget }
 
-            // ImGui pass: load (preserves the scene) + draw ImGui on top.
+            // ── ImGui pass ──
+            // Load (preserves the scene) + draw ImGui on top.
             imguiTargets.[0].Texture <- swapchainTexture
             let imguiPass = SDL.BeginGPURenderPass(cmd, &imguiTargets, 1u, IntPtr.Zero)
             do ImGuiSdl3.renderDrawData(drawData, cmd, imguiPass)
@@ -220,8 +222,8 @@ let run () : int =
                 (match manager.Gameplay.Zone.Environment with
                  | Some environment -> int environment.Parts.Count
                  | _ -> 0)
-                manager.Gameplay.Batch.DrawCalls
-                manager.Gameplay.Batch.InstanceCount
+                manager.Gameplay.Zone.Batch.DrawCalls
+                manager.Gameplay.Zone.Batch.InstanceCount
             do Array.fill phaseNs 0 phaseNs.Length 0.0
             phaseFrames <- 0.0
             phaseFrameMs <- 0.0
@@ -236,6 +238,7 @@ let run () : int =
     do SDL.WaitForGPUIdle(device) |> ignore
     do DebugDraw.release gizmoDraw
     do DebugDraw.release debugDraw
+    do EnvironmentBatch.release manager.Shared.Gpu.Device manager.Gameplay.Zone.Batch
     do Gpu.destroy manager.Shared.Gpu
     do ImGuiSdl3.shutdown()
     do ImGui.destroyContext(IntPtr.Zero)

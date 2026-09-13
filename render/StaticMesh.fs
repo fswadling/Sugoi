@@ -14,6 +14,8 @@ open SDL3
 open Gpu
 open Texture
 
+// ── GPU buffers ──
+
 [<Struct>]
 type StaticMesh =
     { Device : Gpu.Device
@@ -60,6 +62,8 @@ let create (device: Gpu.Device) (positions: float32 array) (normals: float32 arr
       MaterialUniformBytes = Array.zeroCreate<byte> 128  // 8 x vec4 material/light
       VertexBinding = Array.zeroCreate<SDL.GPUBufferBinding> 2
       IndexBinding = indexBinding }
+
+// ── instanced draw ──
 
 // Push the fragment material/light uniform, bind the mesh vertices (slot 0) and the
 // caller's instance range (slot 1), bind the material's samplers, and issue an

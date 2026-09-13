@@ -23,7 +23,7 @@ let init (gpu: Gpu.Gpu) (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.D
       Transition = ScreenTransition.None
       Shared = shared
       ShouldQuit = false
-      Gameplay = GameplayState.create shared debugDraw gizmoDraw }
+      Gameplay = GameplayState.create debugDraw gizmoDraw }
 
 // Advance the active screen; may set a transition. The frame carries the frame
 // time, window size, and the engine-gathered input.

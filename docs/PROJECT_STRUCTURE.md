@@ -106,7 +106,8 @@ fsharp-game/
 │   └── Exr.fs                  #   OpenEXR support (planned)
 ├── world/                      # the game domain: entities, zones, assets
 │   ├── Entity.fs               #   entity kinds, EntityRef, transform, base
-│   ├── Zone.fs                 #   zone + an Environment owning its parts map
+│   ├── EnvironmentBatch.fs     #   per-zone static-scene instancing batch
+│   ├── Zone.fs                 #   zone + an Environment owning its parts map; owns its batch
 │   ├── ZoneMap.fs              #   runtime zone container (planned)
 │   ├── ZoneRegistry.fs         #   editor zone templates (planned)
 │   ├── Assets.fs               #   asset manager + manifests

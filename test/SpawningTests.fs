@@ -69,7 +69,6 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
     { Camera = Camera.create Vector3.Zero Vector3.Zero
       DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
-      Batch = Unchecked.defaultof<EnvironmentBatch.EnvironmentBatch>
       Zone = zone
       Editor = EditorState.create ()
       Editing = true

@@ -10,12 +10,16 @@ module EnvironmentRender
 open System.Numerics
 open EnvironmentAsset
 
+// ── per-instance state ──
+
 [<Struct>]
 type EnvironmentRender =
     { Asset : EnvironmentAsset.EnvironmentAsset
       OrientationMatrix : Matrix4x4
       SubmeshIndex : int
       SubmeshCount : int }
+
+// ── lifecycle ──
 
 let create (asset: EnvironmentAsset.EnvironmentAsset) (orientation: Quaternion) (submeshIndex: int) (submeshCount: int) : EnvironmentRender =
     { Asset = asset

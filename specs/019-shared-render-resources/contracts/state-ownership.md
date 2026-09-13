@@ -50,6 +50,10 @@ val create :
 - Per-screen render buffers (`DebugDraw`, `GizmoDraw`, `Batch`) and the camera
   remain.
 
+> **Superseded (`020-zone-owned-batch`):** the static-scene `Batch` moves to `Zone`,
+> and `GameplayState.create` no longer takes shared state (it becomes
+> `create debugDraw gizmoDraw`). The pipeline removal described here still holds.
+
 ## Screen manager — `screen/ScreenManager.fs`
 
 ```fsharp

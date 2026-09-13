@@ -1,8 +1,9 @@
 module Zone
 
-// The world container for one playable area: actors, placed props, and an optional
-// loaded environment (which owns its own part slot map). Heap-allocated; its
-// entity collections are fixed-size generational slot maps, mutated in place.
+// The world container for one playable area: actors, placed props, an optional
+// loaded environment (which owns its own part slot map), and the static-scene batch
+// that renders its props and parts. Heap-allocated; its entity collections are
+// fixed-size generational slot maps, mutated in place.
 //
 // The zone does not own the physics world — it is shared via `SharedState` and
 // passed in per call; the zone keeps only the body→entity map. Bodies are
@@ -19,6 +20,7 @@ type Zone =
       Actors : SlotMap<Actor>
       mutable Environment : Environment option
       Props : SlotMap<Prop>
+      Batch : EnvironmentBatch.EnvironmentBatch
       mutable NextEnvironmentEpoch : uint32
       BodyToEntity : Dictionary<Physics.BodyId, EntityRef> }
 
@@ -28,8 +30,17 @@ let create () : Zone =
       Environment = None
       // Placed props only — an environment's imported parts live in its own map.
       Props = SlotMap<Prop>(32u)
+      Batch = EnvironmentBatch.create ()
       NextEnvironmentEpoch = 0u
       BodyToEntity = Dictionary<Physics.BodyId, EntityRef>() }
+
+// ── static-scene batch ──
+
+// Gather this zone's static scene through its own batch. The one place that binds a
+// zone to its batch (the batch itself does not reference `Zone`). Created without a
+// device; the buffer is allocated on first gather.
+let gatherStatic (device: Gpu.Device) (zone: Zone) : unit =
+    EnvironmentBatch.gather device zone.Batch zone.Props (zone.Environment |> Option.map (fun e -> e.Parts))
 
 // ── Ref resolution ──
 

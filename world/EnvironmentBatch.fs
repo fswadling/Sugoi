@@ -1,10 +1,13 @@
 module EnvironmentBatch
 
-// Gathers the static scene (placed props + the environment's imported parts) into
-// a per-frame instance buffer and draws one instanced call per distinct submesh.
-// The grouping key is the shared submesh's identity (its uploaded StaticMesh), not
-// a bare submesh index: two assets can use index 0 for different geometry, so they
-// must never be merged. Owns grow-only GPU/CPU buffers; allocates nothing per frame.
+// Gathers a zone's static scene (placed props + the environment's imported parts)
+// into a per-frame instance buffer and draws one instanced call per distinct
+// submesh. A zone owns its batch, so the gather takes the zone's prop/part maps
+// rather than a `Zone` (which would make the compile order cyclic). The grouping
+// key is the shared submesh's identity (its uploaded StaticMesh), not a bare submesh
+// index: two assets can use index 0 for different geometry, so they must never be
+// merged. Owns grow-only GPU/CPU buffers, allocated lazily on first gather;
+// allocates nothing per frame.
 
 open System
 open System.Collections.Generic
@@ -15,10 +18,12 @@ open Gpu
 open Texture
 open StaticMesh
 open EnvironmentAsset
+open Entity
+open SlotMap
 
+// ── batch state ──
 type EnvironmentBatch =
-    { Device : Gpu.Device
-      mutable Instances : InstanceBuffer.InstanceBuffer
+    { mutable Instances : InstanceBuffer.InstanceBuffer
       Registry : ResizeArray<StaticSubmesh>   // dense; index = identity slot
       Lookup : Dictionary<nativeint, int>      // uploaded vertex buffer -> slot
       mutable Counts : int array
@@ -28,9 +33,9 @@ type EnvironmentBatch =
       mutable DrawCalls : int
       mutable InstanceCount : int }
 
-let create (device: Gpu.Device) : EnvironmentBatch =
-    { Device = device
-      Instances = InstanceBuffer.create device 0
+// No device and no GPU allocation; buffers are created on the first gather.
+let create () : EnvironmentBatch =
+    { Instances = InstanceBuffer.create ()
       Registry = ResizeArray()
       Lookup = Dictionary()
       Counts = Array.empty
@@ -103,16 +108,17 @@ let private fillInstance (batch: EnvironmentBatch) (model: Matrix4x4) (r: Enviro
         batch.Cursor.[slot] <- index + 1
         writeInstance (index * InstanceBuffer.stride) world normal batch.Instances.Staging
 
-// Walk props + parts twice: count instances per submesh identity (registering new
-// ones), then fill their transforms. The instance buffer is sized on the first
-// gather and only grows after that.
-let gather (batch: EnvironmentBatch) (zone: Zone.Zone) : unit =
+// Walk the given prop/part maps twice: count instances per submesh identity
+// (registering new ones), then fill their transforms. Takes the maps rather than a
+// `Zone` so the batch type can be compiled before the zone that owns it. The device
+// is needed only to size the instance buffer, allocated on the first gather.
+let gather (device: Gpu.Device) (batch: EnvironmentBatch) (props: SlotMap<Prop>) (parts: SlotMap<Prop> option) : unit =
     for slot in 0 .. batch.Registry.Count - 1 do
         batch.Counts.[slot] <- 0
 
-    do zone.Props.IteriAlive(fun _ _ p -> countInstance batch p.Renderer)
-    match zone.Environment with
-    | Some environment -> environment.Parts.IteriAlive(fun _ _ p -> countInstance batch p.Renderer)
+    do props.IteriAlive(fun _ _ p -> countInstance batch p.Renderer)
+    match parts with
+    | Some ps -> ps.IteriAlive(fun _ _ p -> countInstance batch p.Renderer)
     | None -> ()
 
     let total, groups = planOffsets batch.Counts batch.Starts batch.Registry.Count
@@ -120,18 +126,25 @@ let gather (batch: EnvironmentBatch) (zone: Zone.Zone) : unit =
     batch.InstanceCount <- total
     batch.DrawCalls <- groups
 
-    do InstanceBuffer.ensure batch.Device &batch.Instances total
-    do InstanceBuffer.reclaim batch.Device &batch.Instances
+    do InstanceBuffer.ensure device &batch.Instances total
+    do InstanceBuffer.reclaim device &batch.Instances
 
-    do zone.Props.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.Base.Transform) p.Renderer)
-    match zone.Environment with
-    | Some environment -> environment.Parts.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.Base.Transform) p.Renderer)
+    do props.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.Base.Transform) p.Renderer)
+    match parts with
+    | Some ps -> ps.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.Base.Transform) p.Renderer)
     | None -> ()
 
-// ── GPU upload + draw ──
+// ── upload ──
 
-let upload (batch: EnvironmentBatch) (cmd: Gpu.CommandBuffer) : unit =
-    InstanceBuffer.upload batch.Instances cmd (batch.InstanceCount * InstanceBuffer.stride)
+let upload (device: Gpu.Device) (batch: EnvironmentBatch) (cmd: Gpu.CommandBuffer) : unit =
+    InstanceBuffer.upload device batch.Instances cmd (batch.InstanceCount * InstanceBuffer.stride)
+
+// Free this batch's instance-buffer GPU memory. Called when the owning zone is
+// released (or at shutdown), before the device is destroyed.
+let release (device: Gpu.Device) (batch: EnvironmentBatch) : unit =
+    InstanceBuffer.release device &batch.Instances
+
+// ── draw ──
 
 // Bind the static pipeline, push the shared viewProj once, then one instanced draw
 // per non-empty group.

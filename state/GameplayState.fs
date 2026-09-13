@@ -12,18 +12,16 @@ type GameplayState =
     { mutable Camera : Camera.Camera
       mutable DebugDraw : DebugDraw.DebugDraw
       mutable GizmoDraw : DebugDraw.DebugDraw
-      Batch : EnvironmentBatch.EnvironmentBatch
       Zone : Zone.Zone
       mutable Editor : EditorState.EditorState
       mutable Editing : bool
       mutable Player : SlotMap.Handle option
       mutable Follow : Systems.CameraFollow }
 
-let create (shared: SharedState.SharedState) (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) : GameplayState =
+let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) : GameplayState =
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
       DebugDraw = debugDraw
       GizmoDraw = gizmoDraw
-      Batch = EnvironmentBatch.create shared.Gpu.Device
       Zone = Zone.create ()
       Editor = EditorState.create ()
       Editing = true

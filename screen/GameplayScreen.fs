@@ -75,10 +75,11 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 // the gizmo/marker lines (depth-tested so they are occluded by geometry in
 // front of them).
 let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : unit =
-    // Gather the static scene's instances for this frame (CPU), then upload every
-    // per-frame buffer in copy passes before the render pass.
-    do EnvironmentBatch.gather state.Batch state.Zone
-    do EnvironmentBatch.upload state.Batch pass.Cmd
+    // ── per-frame buffers ──
+    // Gather the static instances (CPU), then upload every per-frame buffer in copy
+    // passes before the render pass.
+    do Zone.gatherStatic shared.Gpu.Device state.Zone
+    do EnvironmentBatch.upload shared.Gpu.Device state.Zone.Batch pass.Cmd
     do DebugDraw.upload state.DebugDraw pass.Cmd
     do DebugDraw.upload state.GizmoDraw pass.Cmd
 
@@ -86,6 +87,7 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
     state.Zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
         ActorRender.upload a.Renderer pass.Cmd)
 
+    // ── scene pass ──
     let mutable depthTarget = pass.DepthTarget
     let scenePass = SDL.BeginGPURenderPass(pass.Cmd, ReadOnlySpan<SDL.GPUColorTargetInfo>(pass.ColorTargets), 1u, &depthTarget)
 
@@ -100,7 +102,7 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
 
     // Static scene: props (placed assets + imported environment parts) batched into
     // one instanced draw per distinct submesh, then the animated actors.
-    do EnvironmentBatch.render state.Batch scenePass pass.Cmd shared.Gpu.StaticPipeline viewProjection light cameraPos
+    do EnvironmentBatch.render state.Zone.Batch scenePass pass.Cmd shared.Gpu.StaticPipeline viewProjection light cameraPos
 
     let meshPipeline = shared.Gpu.MeshPipeline
     do state.Zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
