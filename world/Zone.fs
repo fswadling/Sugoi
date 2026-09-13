@@ -226,15 +226,22 @@ let bindingAt (zone: Zone) (ref: EntityRef) : AssetBinding =
     | _ -> failwithf "bindingAt: kind %A has no asset binding" ref.Kind
 
 // Change a mesh-backed entity's transform in `map` (a placed prop or an
-// environment part), recreating its body so the collider follows.
+// environment part), keeping its body in step. A mesh shape bakes the entity
+// scale into its vertices, so a move or rotate updates the existing body in
+// place; only a scale change rebuilds the shape and its BVH. This keeps dragging
+// off the collider-rebuild path.
 let private setMeshTransform (zone: Zone) (world: Physics.World) (map: SlotMap<Prop>) (ref: EntityRef) (transform: Transform) : unit =
     if not (map.IsAlive(handleOf ref)) then () else
 
     let p = &map.Get(handleOf ref)
-    do destroyBody world zone p.Physics
     let attachment =
         match p.Physics with
-        | Some ph -> Some { ph with Body = meshBody world ph.Collider transform }
+        | Some ph when p.Base.Transform.Scale = transform.Scale ->
+            do Physics.setBodyTransform world ph.Body transform.Position transform.Rotation
+            Some ph
+        | Some ph ->
+            do destroyBody world zone p.Physics
+            Some { ph with Body = meshBody world ph.Collider transform }
         | None -> None
     do mapBody zone attachment ref
     p <- { p with Base = { p.Base with Transform = transform }; Physics = attachment }

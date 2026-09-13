@@ -109,6 +109,21 @@ let private roomAssets () : Assets.AssetManager =
     let submeshes = [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
     headlessAssets [ "room", envAsset "room" submeshes [| assetPart "wall" 0 1 |] ]
 
+// A device-free manager carrying one whole-model prop asset (`crate`), so
+// `Zone.spawnProp` can build a mesh collider + body without a GPU.
+let private propAssets () : Assets.AssetManager =
+    let submeshes = [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
+    let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
+    props.["crate"] <- envAsset "crate" submeshes [||]
+    { Device = IntPtr.Zero
+      Actors = Dictionary()
+      Props = props
+      Environments = Dictionary() }
+
+// The body attached to a live prop ref (spawned through the real mesh-body path).
+let private propBody (zone: Zone) (ref: EntityRef) : BodyId =
+    (zone.Props.Get { Index = ref.Index; Generation = ref.Generation }).Physics.Value.Body
+
 // ── Placed prop refs (through the real remove path) ──
 
 [<Fact>]
@@ -183,6 +198,88 @@ let ``setTransform updates a placed prop in place and keeps its ref valid`` () =
 
     Assert.True(Zone.isAlive zone ref)
     Assert.Equal(moved.Position, (Zone.tryEntityAt zone ref).Value.Transform.Position)
+
+// ── Mesh-body transforms: in place on a move, rebuilt only on a scale change ──
+
+[<Fact>]
+let ``moving a prop updates its body in place instead of rebuilding`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
+    let body = propBody zone ref
+
+    let moved = { transformIdentity with Position = Vector3(1.0f, 2.0f, 3.0f) }
+    Zone.setTransform zone world ref moved
+
+    // Same body (never destroyed/rebuilt), now at the new position.
+    Assert.Equal<BodyId>(body, propBody zone ref)
+    let (position, _) = Physics.getBodyTransform world body
+    Assert.Equal(moved.Position, position)
+    Assert.Equal<EntityRef>(ref, zone.BodyToEntity.[body])
+    Assert.Equal(moved.Position, (Zone.tryEntityAt zone ref).Value.Transform.Position)
+
+[<Fact>]
+let ``rotating a prop updates its body in place instead of rebuilding`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
+    let body = propBody zone ref
+
+    let rotated = { transformIdentity with Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 1.0f) }
+    Zone.setTransform zone world ref rotated
+
+    Assert.Equal<BodyId>(body, propBody zone ref)
+    let (_, rotation) = Physics.getBodyTransform world body
+    Assert.True(MathF.Abs(Quaternion.Dot(rotated.Rotation, rotation)) > 0.9999f, sprintf "expected %A, got %A" rotated.Rotation rotation)
+
+[<Fact>]
+let ``scaling a prop rebuilds its body to match`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
+    let before = propBody zone ref
+
+    // Non-uniform, so a change on any axis must still invalidate the shape.
+    let scaled = { transformIdentity with Scale = Vector3(2.0f, 3.0f, 4.0f) }
+    Zone.setTransform zone world ref scaled
+
+    let after = propBody zone ref
+    Assert.NotEqual<BodyId>(before, after)
+    Assert.False(zone.BodyToEntity.ContainsKey(before))
+    Assert.Equal<EntityRef>(ref, zone.BodyToEntity.[after])
+    Assert.Equal(scaled.Scale, (Zone.tryEntityAt zone ref).Value.Transform.Scale)
+
+[<Fact>]
+let ``a move, scale, move sequence keeps the body mapping consistent`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
+
+    // Move: same body, still one mapping.
+    let moved = { transformIdentity with Position = Vector3(1.0f, 0.0f, 0.0f) }
+    Zone.setTransform zone world ref moved
+    let afterMove = propBody zone ref
+    Assert.Equal(1, zone.BodyToEntity.Count)
+    Assert.Equal<EntityRef>(ref, zone.BodyToEntity.[afterMove])
+
+    // Scale: a fresh body replaces it; the old body's mapping is gone.
+    let scaled = { moved with Scale = Vector3(2.0f, 2.0f, 2.0f) }
+    Zone.setTransform zone world ref scaled
+    let afterScale = propBody zone ref
+    Assert.NotEqual<BodyId>(afterMove, afterScale)
+    Assert.False(zone.BodyToEntity.ContainsKey(afterMove))
+    Assert.Equal(1, zone.BodyToEntity.Count)
+    Assert.Equal<EntityRef>(ref, zone.BodyToEntity.[afterScale])
+
+    // Move again: the rebuilt body is updated in place.
+    let movedAgain = { scaled with Position = Vector3(2.0f, 0.0f, 2.0f) }
+    Zone.setTransform zone world ref movedAgain
+    Assert.Equal<BodyId>(afterScale, propBody zone ref)
+    Assert.Equal(1, zone.BodyToEntity.Count)
 
 // ── Environment parts (their own map, scoped by epoch) ──
 

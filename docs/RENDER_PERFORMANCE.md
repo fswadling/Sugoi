@@ -431,8 +431,11 @@ are noted in `RENDERING_NOTES.md` "Known follow-ups".
   intermittently stalls `update` for ~200–280 ms (and briefly raises `ui`),
   because spawning loads the prop asset and builds its Jolt mesh collider.
   `record` stays ~2–3 ms through it, so it is a separate editor/spawn cost, not
-  instancing. A long debugger pause also leaves `acquire` elevated for a while
-  (swapchain/present backlog), which then recovers.
+  instancing. **Dragging or nudging** a placed prop used to pay that collider
+  rebuild every frame; `021-in-place-mesh-transform` makes a move/rotate update the
+  existing body in place (only a scale change rebuilds), so the per-drag stall is
+  gone. The spawn-time asset load is unchanged. A long debugger pause also leaves
+  `acquire` elevated for a while (swapchain/present backlog), which then recovers.
 - Don't run the game from here (no display) — ask for the log lines.
 
 ---
