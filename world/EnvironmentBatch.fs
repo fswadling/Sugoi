@@ -111,15 +111,16 @@ let private fillInstance (batch: EnvironmentBatch) (model: Matrix4x4) (r: Enviro
 // Walk the given prop/part maps twice: count instances per submesh identity
 // (registering new ones), then fill their transforms. Takes the maps rather than a
 // `Zone` so the batch type can be compiled before the zone that owns it. The device
-// is needed only to size the instance buffer, allocated on the first gather.
-let gather (device: Gpu.Device) (batch: EnvironmentBatch) (props: SlotMap<Prop>) (parts: SlotMap<Prop> option) : unit =
+// is needed only to size the instance buffer, allocated on the first gather. Parts
+// arrive as a `voption` so an absent environment allocates nothing on the hot path.
+let gather (device: Gpu.Device) (batch: EnvironmentBatch) (props: SlotMap<Prop>) (parts: SlotMap<Prop> voption) : unit =
     for slot in 0 .. batch.Registry.Count - 1 do
         batch.Counts.[slot] <- 0
 
     do props.IteriAlive(fun _ _ p -> countInstance batch p.Renderer)
     match parts with
-    | Some ps -> ps.IteriAlive(fun _ _ p -> countInstance batch p.Renderer)
-    | None -> ()
+    | ValueSome ps -> ps.IteriAlive(fun _ _ p -> countInstance batch p.Renderer)
+    | ValueNone -> ()
 
     let total, groups = planOffsets batch.Counts batch.Starts batch.Registry.Count
     do Array.blit batch.Starts 0 batch.Cursor 0 batch.Registry.Count
@@ -131,8 +132,8 @@ let gather (device: Gpu.Device) (batch: EnvironmentBatch) (props: SlotMap<Prop>)
 
     do props.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.Base.Transform) p.Renderer)
     match parts with
-    | Some ps -> ps.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.Base.Transform) p.Renderer)
-    | None -> ()
+    | ValueSome ps -> ps.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.Base.Transform) p.Renderer)
+    | ValueNone -> ()
 
 // ── upload ──
 

@@ -73,8 +73,8 @@ description: "Task list for the Zone-Owned Static Batch feature"
 **Independent Test**: run the app and compare the frame log; run the headless suite.
 
 - [X] T011 [US3] Run `dotnet build` and `dotnet test test/fsharp-game.Tests.fsproj`: the headless suite (which calls `Zone.create ()` with no device) passes, confirming zone creation stayed GPU-free (SC-004/FR-004).
-- [ ] T012 [US3] Run `quickstart.md` scenario 3: the ArtRoom still reports `draws 191 instances 521`, adding a prop still adds only its distinct submeshes, and the scene looks unchanged. Separately (a static check, no run needed) confirm no changes under `physics/` or `state/Command.fs`, and that `world/Zone.fs` changes are limited to the `Batch` field and `gatherStatic` (FR-008).
-- [ ] T013 [US3] Run `quickstart.md` scenario 5: start and quit the app; it shuts down cleanly with the live zone's batch released before the device is destroyed.
+- [X] T012 [US3] Run `quickstart.md` scenario 3: the ArtRoom still reports `draws 191 instances 521`, adding a prop still adds only its distinct submeshes, and the scene looks unchanged. Separately (a static check, no run needed) confirm no changes under `physics/` or `state/Command.fs`, and that `world/Zone.fs` changes are limited to the `Batch` field and `gatherStatic` (FR-008).
+- [X] T013 [US3] Run `quickstart.md` scenario 5: start and quit the app; it shuts down cleanly with the live zone's batch released before the device is destroyed.
 
 **Checkpoint**: The move is behaviour-preserving and lifecycle-correct.
 
@@ -97,7 +97,7 @@ description: "Task list for the Zone-Owned Static Batch feature"
 **Purpose**: Documentation and final validation.
 
 - [X] T015 [P] Update `docs/PROJECT_STRUCTURE.md` / `docs/ARCHITECTURE.md` if they describe the zone or gameplay-screen state, so the zone-owned batch is recorded.
-- [ ] T016 Run the full `quickstart.md` end to end and confirm `dotnet build` + `dotnet test` pass.
+- [X] T016 Run the full `quickstart.md` end to end and confirm `dotnet build` + `dotnet test` pass.
 
 ---
 
@@ -148,3 +148,9 @@ Task: "Update docs/PROJECT_STRUCTURE.md / ARCHITECTURE.md for the zone-owned bat
 - The compile cycle (zone owns batch; batch gathered from zone content) is broken by moving the batch before `Zone.fs` and having `gather` read the maps, not the `Zone` type.
 - `DebugDraw`, `GizmoDraw`, and `Camera` stay on `GameplayState` (view overlays, not zone content).
 - The run-based checks (T012, T013, T016) need a running app; T011, T014, and T015 are static.
+
+---
+
+## Phase 7: Convergence
+
+- [X] T017 Remove the per-frame allocation introduced by `Zone.gatherStatic`: pass the environment's parts as a `SlotMap<Prop> voption` (`ValueSome`/`ValueNone`) instead of `zone.Environment |> Option.map (fun e -> e.Parts)`, and update `EnvironmentBatch.gather` to accept and match that `voption`, so the gather path allocates nothing per frame per FR-007 and Constitution V (contradicts). Measured evidence: `Some` for a reference type allocates 24 B/call, and `gatherStatic` runs every frame from `GameplayScreen.renderScene`.

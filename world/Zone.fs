@@ -40,7 +40,11 @@ let create () : Zone =
 // zone to its batch (the batch itself does not reference `Zone`). Created without a
 // device; the buffer is allocated on first gather.
 let gatherStatic (device: Gpu.Device) (zone: Zone) : unit =
-    EnvironmentBatch.gather device zone.Batch zone.Props (zone.Environment |> Option.map (fun e -> e.Parts))
+    let parts =
+        match zone.Environment with
+        | Some environment -> ValueSome environment.Parts
+        | None -> ValueNone
+    EnvironmentBatch.gather device zone.Batch zone.Props parts
 
 // ── Ref resolution ──
 

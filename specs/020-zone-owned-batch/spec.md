@@ -48,8 +48,9 @@ that rendering one does not use the other's state.
 **Acceptance Scenarios**:
 
 1. **Given** two zones, **When** they are created, **Then** each has its own batch.
-2. **Given** a zone is released, **When** its batch is released, **Then** its GPU
-   buffers are freed without touching another zone's.
+2. **Given** a zone that has rendered, **When** its batch is released (at shutdown
+   today; on unload once zone unload exists), **Then** its GPU buffers are freed
+   without touching another zone's.
 
 ---
 

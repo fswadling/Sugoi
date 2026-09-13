@@ -55,7 +55,7 @@ val create : unit -> EnvironmentBatch                       // device-free, allo
 // CPU pass: register identities, count, ensure capacity (allocates on first use),
 // prefix-sum, and fill transforms from the given maps.
 val gather  : device:Gpu.Device -> batch:EnvironmentBatch ->
-              props:SlotMap<Prop> -> parts:SlotMap<Prop> option -> unit
+              props:SlotMap<Prop> -> parts:SlotMap<Prop> voption -> unit
 
 val upload  : device:Gpu.Device -> batch:EnvironmentBatch -> cmd:Gpu.CommandBuffer -> unit
 val render  : batch:EnvironmentBatch -> renderPass:Gpu.RenderPass -> cmd:Gpu.CommandBuffer ->
