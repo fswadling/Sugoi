@@ -385,6 +385,14 @@ ArtRoom and no props (2026-09-13): one skinned actor adds **~0.1 ms** to `record
 in Release (~1.1 ms → ~1.2 ms) but **~3 ms** in Debug (~2.8 ms → ~6.1 ms) — a
 ~20–30× skew. So the per-actor cost is a Debug-JIT artifact of the CPU skinning
 math (`Actor.samplePose`) plus the bone upload, not a production problem.
+`023-actor-skinning-hot-path` removed a per-joint reference tuple (`sampleJoint`
+now returns a struct tuple) and a redundant multiply in the local joint transform
+(`localMatrix` writes the translation row directly). **Measured outcome: these did
+not reduce the Debug per-actor `record` delta** (~3.2 ms after vs ~3.0 ms before —
+unchanged within run-to-run noise). The per-actor cost is dominated by the
+remaining managed work (channel sampling, `Quaternion.Slerp`, and the rest of the
+joint matrix math), which would need profiling to localise. The 023 changes are
+retained as allocation/multiply hygiene only.
 
 **Measured with different prop assets** (FR-002): three different prop assets each
 added their own 2 distinct submeshes (`draws` 193 → 195 → 197), while a duplicate

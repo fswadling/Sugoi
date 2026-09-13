@@ -36,9 +36,15 @@ type PoseFrame =
 
 // Compose a local joint transform. System.Numerics is row-vector (`v * M`), so
 // TRS is `S * R * T` (scale, then rotate, then translate), matching IQM's
-// "output = (input*scale)*rotation + translation".
+// "output = (input*scale)*rotation + translation". Applying `T` only sets the
+// translation row, so it is written directly instead of composed with a full
+// multiply (this runs once per joint per frame).
 let private localMatrix (t: Vector3) (r: Quaternion) (s: Vector3) : Matrix4x4 =
-    Matrix4x4.CreateScale(s) * Matrix4x4.CreateFromQuaternion(r) * Matrix4x4.CreateTranslation(t)
+    let mutable m = Matrix4x4.CreateScale(s) * Matrix4x4.CreateFromQuaternion(r)
+    m.M41 <- t.X
+    m.M42 <- t.Y
+    m.M43 <- t.Z
+    m
 
 // ── construction ──
 
@@ -105,7 +111,7 @@ let advance (m: ActorModel) (slot: AnimationSlot) (dt: float32) : AnimationSlot 
 
 // Sample one joint's local transform from a pose's frame channels, overriding
 // the bind-pose components for whichever channels the pose's channelmask sets.
-let private sampleJoint (model: Iqm.Model) (p: Iqm.Pose) (joint: Iqm.Joint) (chanBase: int) : Vector3 * Quaternion * Vector3 =
+let private sampleJoint (model: Iqm.Model) (p: Iqm.Pose) (joint: Iqm.Joint) (chanBase: int) : struct (Vector3 * Quaternion * Vector3) =
     let mutable tx = joint.Translate.X
     let mutable ty = joint.Translate.Y
     let mutable tz = joint.Translate.Z
@@ -135,7 +141,7 @@ let private sampleJoint (model: Iqm.Model) (p: Iqm.Pose) (joint: Iqm.Joint) (cha
             | _ -> ()
             c <- c + 1
 
-    Vector3(tx, ty, tz), Quaternion(rx, ry, rz, rw), Vector3(sx, sy, sz)
+    struct (Vector3(tx, ty, tz), Quaternion(rx, ry, rz, rw), Vector3(sx, sy, sz))
 
 // Sample the pose at a local animation frame (0 .. NumFrames-1) and write the
 // per-joint local/world/skinning matrices into `pose`.
@@ -165,8 +171,8 @@ let samplePose (m: ActorModel) (animIndex: int) (frame: float32) (loop: bool) (p
         let chan0 = (anim.FirstFrame + f0) * model.NumFrameChannels + chanBase
         let chan1 = (anim.FirstFrame + f1) * model.NumFrameChannels + chanBase
 
-        let (t0, r0, s0) = sampleJoint model p joint chan0
-        let (t1, r1, s1) = sampleJoint model p joint chan1
+        let struct (t0, r0, s0) = sampleJoint model p joint chan0
+        let struct (t1, r1, s1) = sampleJoint model p joint chan1
 
         let t = Vector3.Lerp(t0, t1, blend)
         let r = Quaternion.Slerp(r0, r1, blend)
