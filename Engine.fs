@@ -73,10 +73,13 @@ let run () : int =
     //    depth-tested in front), the mesh pipeline + depth texture, and the
     //    screen manager ──
     let swapchainFormat = SDL.GetGPUSwapchainTextureFormat(device, window)
-    let mutable gpu = Gpu.create device swapchainFormat
+    // The GPU context is a bootstrap value: it is read for `DepthFormat` and handed
+    // to shared state at init. Thereafter the run loop reaches it through the shared
+    // state (a resized depth target would otherwise be written to a stale copy).
+    let gpu = Gpu.create device swapchainFormat
     let debugDraw = DebugDraw.create device swapchainFormat gpu.DepthFormat false
     let gizmoDraw = DebugDraw.create device swapchainFormat gpu.DepthFormat true
-    let mutable manager = ScreenManager.init debugDraw gizmoDraw gpu.MeshPipeline gpu.StaticPipeline
+    let mutable manager = ScreenManager.init gpu debugDraw gizmoDraw
 
     let mutable running = true
     let mutable ev = SDL.Event()
@@ -179,8 +182,9 @@ let run () : int =
             do ImGuiSdl3.prepareDrawData(drawData, cmd)
 
             // Scene pass: clear + draw the active screen's scene (color + depth).
-            do Gpu.ensureDepthTexture &gpu w h
-            let mutable depthTarget = Gpu.depthTargetInfo gpu
+            let shared = manager.Shared
+            do Gpu.ensureDepthTexture &shared.Gpu w h
+            let mutable depthTarget = Gpu.depthTargetInfo shared.Gpu
             sceneTargets.[0].Texture <- swapchainTexture
             do ScreenManager.renderScene &manager { Cmd = cmd; ColorTargets = sceneTargets; DepthTarget = depthTarget }
 
@@ -232,7 +236,7 @@ let run () : int =
     do SDL.WaitForGPUIdle(device) |> ignore
     do DebugDraw.release gizmoDraw
     do DebugDraw.release debugDraw
-    do Gpu.destroy gpu
+    do Gpu.destroy manager.Shared.Gpu
     do ImGuiSdl3.shutdown()
     do ImGui.destroyContext(IntPtr.Zero)
     do SDL.ReleaseWindowFromGPUDevice(device, window)

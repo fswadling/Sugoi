@@ -123,10 +123,10 @@ fsharp-game/
 │   └── Project.fs              #   DTO persistence (project.json) (planned)
 ├── state/                      # app/screen + editor-command state
 │   ├── Screen.fs               #   kind/transition/input types
-│   ├── SharedState.fs
+│   ├── SharedState.fs          #   cross-screen: GPU context, assets, physics
 │   ├── Command.fs              #   undoable editor commands
 │   ├── EditorState.fs          #   selection + transient UI state
-│   └── GameplayState.fs
+│   └── GameplayState.fs        #   per-screen entities/view + per-screen render buffers
 ├── screen/                     # screens (composed last; consume editor)
 │   ├── ScreenManager.fs
 │   ├── MainMenuScreen.fs

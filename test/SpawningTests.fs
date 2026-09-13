@@ -62,15 +62,13 @@ let private headlessAssets () : Assets.AssetManager =
       Environments = environments }
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
-    { SharedState.Assets = assets; Physics = Physics.create () }
+    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Physics = Physics.create () }
 
 // A minimal gameplay state: the fake draws are never touched on these paths.
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
     { Camera = Camera.create Vector3.Zero Vector3.Zero
       DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
-      MeshPipeline = Unchecked.defaultof<Gpu.Pipeline>
-      StaticPipeline = Unchecked.defaultof<Gpu.Pipeline>
       Batch = Unchecked.defaultof<EnvironmentBatch.EnvironmentBatch>
       Zone = zone
       Editor = EditorState.create ()

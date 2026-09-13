@@ -17,12 +17,13 @@ type ScreenManager =
       mutable ShouldQuit : bool
       mutable Gameplay : GameplayState.GameplayState }
 
-let init (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (meshPipeline: Gpu.Pipeline) (staticPipeline: Gpu.Pipeline) : ScreenManager =
+let init (gpu: Gpu.Gpu) (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) : ScreenManager =
+    let shared = SharedState.create gpu
     { Active = ScreenKind.MainMenu
       Transition = ScreenTransition.None
-      Shared = SharedState.create debugDraw.Device
+      Shared = shared
       ShouldQuit = false
-      Gameplay = GameplayState.create debugDraw.Device debugDraw gizmoDraw meshPipeline staticPipeline }
+      Gameplay = GameplayState.create shared debugDraw gizmoDraw }
 
 // Advance the active screen; may set a transition. The frame carries the frame
 // time, window size, and the engine-gathered input.
@@ -58,7 +59,7 @@ let private clearOnly (pass: ScenePass) : unit =
 let renderScene (m: inref<ScreenManager>) (pass: ScenePass) : unit =
     match m.Active with
     | ScreenKind.MainMenu -> clearOnly pass
-    | ScreenKind.Gameplay -> GameplayScreen.renderScene &m.Gameplay pass
+    | ScreenKind.Gameplay -> GameplayScreen.renderScene m.Shared &m.Gameplay pass
 
 // Apply a pending transition at end of frame. Switching activates the new
 // screen (re-syncing its per-screen state); Quit sets ShouldQuit, which the
