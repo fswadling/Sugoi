@@ -72,7 +72,7 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       Zone = zone
       Editor = EditorState.create ()
       Editing = true
-      Player = None
+      Player = ValueNone
       Follow = Systems.createFollow () }
 
 // ── Duplicate ──

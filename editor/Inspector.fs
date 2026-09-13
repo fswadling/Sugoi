@@ -31,7 +31,7 @@ let draw (state: byref<GameplayState.GameplayState>) =
                 actor <- { actor with ShowCollider = show }
 
             if ImGui.button("Set as Player", ImGui.ImVec2(0.0f, 0.0f)) then
-                state.Player <- Some (Systems.playerHandleOf ref)
+                state.Player <- ValueSome (Systems.playerHandleOf ref)
     | None ->
         do ImGui.text("(no selection)")
 

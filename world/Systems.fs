@@ -51,9 +51,9 @@ let playerHandleOf (ref: EntityRef) : Handle =
 
 // Whether the bound player resolves to a live actor. Each system uses this to decide
 // whether it has anything to do.
-let isPlayerLive (zone: Zone.Zone) (player: Handle option) : bool =
+let isPlayerLive (zone: Zone.Zone) (player: Handle voption) : bool =
     match player with
-    | Some handle -> zone.Actors.IsAlive handle
+    | ValueSome handle -> zone.Actors.IsAlive handle
     | _ -> false
 
 // ── Systems ──
@@ -61,7 +61,7 @@ let isPlayerLive (zone: Zone.Zone) (player: Handle option) : bool =
 // Tank controls: A/D turn the facing and write the body's rotation; W/S write the
 // body's horizontal velocity along the facing, preserving its vertical velocity so
 // gravity still accumulates.
-let playerInput (world: Physics.World) (zone: Zone.Zone) (player: Handle option) (input: Input.Input) (dt: float32) : unit =
+let playerInput (world: Physics.World) (zone: Zone.Zone) (player: Handle voption) (input: Input.Input) (dt: float32) : unit =
     if not (isPlayerLive zone player) then () else
 
     let actor = &zone.Actors.Get player.Value
@@ -113,7 +113,7 @@ let cameraPose (position: Vector3) (yaw: float32) (follow: CameraFollow) : Vecto
     pivot + offset, pivot
 
 // Place the camera behind and above the player from the actor's facing.
-let cameraFollow (zone: Zone.Zone) (player: Handle option) (follow: byref<CameraFollow>) (camera: byref<Camera.Camera>) : unit =
+let cameraFollow (zone: Zone.Zone) (player: Handle voption) (follow: byref<CameraFollow>) (camera: byref<Camera.Camera>) : unit =
     if not (isPlayerLive zone player) then () else
 
     let actor = &zone.Actors.Get player.Value
@@ -133,7 +133,7 @@ let locomotionClip (input: Input.Input) : string =
         "Idle"
 
 // Switch the player actor's animation to match the held movement keys.
-let animate (zone: Zone.Zone) (player: Handle option) (input: Input.Input) : unit =
+let animate (zone: Zone.Zone) (player: Handle voption) (input: Input.Input) : unit =
     if not (isPlayerLive zone player) then () else
 
     let actor = &zone.Actors.Get player.Value

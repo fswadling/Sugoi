@@ -71,17 +71,17 @@ let private actor (name: string) : Actor =
 [<Fact>]
 let ``isPlayerLive is true only for a bound live actor`` () =
     let zone = Zone.create ()
-    Assert.False(isPlayerLive zone None)
+    Assert.False(isPlayerLive zone ValueNone)
 
     let stale : Handle = { Index = 0u; Generation = 99u }
-    Assert.False(isPlayerLive zone (Some stale))
+    Assert.False(isPlayerLive zone (ValueSome stale))
 
     let handle = zone.Actors.Add(actor "player")
-    Assert.True(isPlayerLive zone (Some handle))
+    Assert.True(isPlayerLive zone (ValueSome handle))
 
     // Freeing the actor bumps the generation, so the handle goes stale.
     zone.Actors.Free(handle)
-    Assert.False(isPlayerLive zone (Some handle))
+    Assert.False(isPlayerLive zone (ValueSome handle))
 
 [<Fact>]
 let ``systems are inert with no player bound`` () =
@@ -90,9 +90,9 @@ let ``systems are inert with no player bound`` () =
     let frame = input (Input.Key.mask Input.Key.W)
     let mutable follow = createFollow ()
     let mutable camera = Camera.create Vector3.Zero Vector3.Zero
-    do playerInput world zone None frame 0.016f
-    do cameraFollow zone None &follow &camera
-    do animate zone None frame
+    do playerInput world zone ValueNone frame 0.016f
+    do cameraFollow zone ValueNone &follow &camera
+    do animate zone ValueNone frame
     Assert.Equal(Vector3.Zero, camera.Position)
 
 [<Fact>]
@@ -103,9 +103,9 @@ let ``systems are inert with a stale handle`` () =
     let frame = input (Input.Key.mask Input.Key.W)
     let mutable follow = createFollow ()
     let mutable camera = Camera.create (Vector3(1.0f, 1.0f, 1.0f)) Vector3.Zero
-    do playerInput world zone (Some stale) frame 0.016f
-    do cameraFollow zone (Some stale) &follow &camera
-    do animate zone (Some stale) frame
+    do playerInput world zone (ValueSome stale) frame 0.016f
+    do cameraFollow zone (ValueSome stale) &follow &camera
+    do animate zone (ValueSome stale) frame
     Assert.Equal(Vector3(1.0f, 1.0f, 1.0f), camera.Position)
 
 // Every actor's body is written back, not just a bound player's. A dynamic actor that

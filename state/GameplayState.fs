@@ -15,7 +15,9 @@ type GameplayState =
       Zone : Zone.Zone
       mutable Editor : EditorState.EditorState
       mutable Editing : bool
-      mutable Player : SlotMap.Handle option
+      // A value option so the handle stays inline in this struct instead of pointing
+      // at a heap `Some`; the player systems read it every frame while playing.
+      mutable Player : SlotMap.Handle voption
       mutable Follow : Systems.CameraFollow }
 
 let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) : GameplayState =
@@ -25,5 +27,5 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) : G
       Zone = Zone.create ()
       Editor = EditorState.create ()
       Editing = true
-      Player = None
+      Player = ValueNone
       Follow = Systems.createFollow () }
