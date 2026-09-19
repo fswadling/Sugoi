@@ -33,6 +33,16 @@ let spawnWaypoint (state: byref<GameplayState.GameplayState>) (entity: Entity) :
     let ref = Zone.spawnWaypoint zone entity
     do commit &state (Spawn (ref, entity, Zone.bindingNone)) ref
 
+// Create a waypoint in the active zone, link `from` to it, and select the new one. The
+// spawn and the link are one command (`LinkSpawn`), so one undo removes the waypoint and
+// restores the chain end it extended.
+let spawnLinkedWaypoint (state: byref<GameplayState.GameplayState>) (from: EntityRef) (entity: Entity) : unit =
+    let zone = GameplayState.activeZone state
+    let before = Zone.waypointNext zone from
+    let ref = Zone.spawnWaypoint zone entity
+    do Zone.setWaypointNext zone from (Some ref)
+    do commit &state (LinkSpawn (from, before, ref, entity)) ref
+
 // Copy an existing entity into a new slot, recording the binding it was built from.
 // Dispatching on kind first makes an unsupported kind fail loudly.
 let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (source: EntityRef) (entity: Entity) : unit =

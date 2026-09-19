@@ -21,6 +21,11 @@ type Zone =
       mutable Environment : Environment option
       Props : SlotMap<Prop>
       Waypoints : SlotMap<Waypoint>
+      // Which waypoint each waypoint's chain continues at. Keyed by the source, so a
+      // waypoint has at most one next; a missing entry means it ends a chain. Entries
+      // naming a deleted waypoint are left in place — they are inert (resolution checks
+      // the target), and keeping them is what lets undo of a delete restore a chain.
+      Links : Dictionary<EntityRef, EntityRef>
       Batch : EnvironmentBatch.EnvironmentBatch
       mutable NextEnvironmentEpoch : uint32
       BodyToEntity : Dictionary<Physics.BodyId, EntityRef>
@@ -34,6 +39,7 @@ let create () : Zone =
       Environment = None
       Props = SlotMap<Prop>(32u)
       Waypoints = SlotMap<Waypoint>(128u)
+      Links = Dictionary<EntityRef, EntityRef>()
       Batch = EnvironmentBatch.create ()
       NextEnvironmentEpoch = 0u
       BodyToEntity = Dictionary<Physics.BodyId, EntityRef>()
@@ -456,6 +462,33 @@ let spawnProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) 
 let spawnWaypoint (zone: Zone) (entity: Entity) : EntityRef =
     let handle = zone.Waypoints.Add({ Base = entity })
     waypointRef handle.Index handle.Generation
+
+// The waypoint a waypoint's chain continues at, if that link still resolves: the source
+// must be a live waypoint, the link must exist, and its target must resolve as a live
+// waypoint. Pure: an unresolvable link is left where it is, because it becomes live
+// again if undo restores the waypoint it names.
+let waypointNext (zone: Zone) (ref: EntityRef) : EntityRef option =
+    if not (isAlive zone ref) then None else
+
+    match zone.Links.TryGetValue ref with
+    | true, target when isAlive zone target -> Some target
+    | _ -> None
+
+// Point a waypoint at another (`Some target`), or end its chain (`None`). A waypoint
+// cannot be its own next and a link is only ever between waypoints; both are
+// preconditions the editor's disabled actions keep unreachable. The target is not
+// required to be alive: undoing a delete can restore a link before the waypoint it
+// names is back, and such a link simply does not resolve.
+let setWaypointNext (zone: Zone) (ref: EntityRef) (next: EntityRef option) : unit =
+    if ref.Kind <> EntityKind.Waypoint then invalidOp "setWaypointNext: the source is not a waypoint" else
+    if next = Some ref then invalidOp "setWaypointNext: a waypoint cannot be its own next" else
+
+    match next with
+    | None -> zone.Links.Remove ref |> ignore
+    | Some target ->
+        if target.Kind <> EntityKind.Waypoint then invalidOp "setWaypointNext: the target is not a waypoint" else
+
+        zone.Links.[ref] <- target
 
 // ── Environment parts ──
 //

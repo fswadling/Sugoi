@@ -180,3 +180,74 @@ let ``renaming a ref that no longer resolves changes and records nothing`` () =
     Assert.True(Option.isNone (Zone.tryEntityAt zone ref))
     Assert.Equal(0u, zone.Waypoints.Count)
     Assert.Empty(state.Editor.Undo.Applied)
+
+// ── Chain links ──
+
+[<Fact>]
+let ``linking pushes one Link step carrying both sides, and undo restores the previous`` () =
+    let shared = sharedState ()
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    let c = Zone.spawnWaypoint zone (entity "c")
+    let mutable state = gameplayState zone
+
+    Selection.linkRef shared &state a (Some b)
+
+    Assert.Equal(Some b, Zone.waypointNext zone a)
+    match state.Editor.Undo.Applied with
+    | [ Link (r, None, Some after) ] ->
+        Assert.Equal<EntityRef>(a, r)
+        Assert.Equal<EntityRef>(b, after)
+    | other -> Assert.Fail(sprintf "expected exactly one Link command, got %A" other)
+
+    // Retargeting carries the previous next, so undo restores b rather than nothing.
+    Selection.linkRef shared &state a (Some c)
+    Assert.Equal(Some c, Zone.waypointNext zone a)
+
+    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = undo }
+    Assert.Equal(Some b, Zone.waypointNext zone a)
+
+[<Fact>]
+let ``unlinking is one step and linking to the current next records nothing`` () =
+    let shared = sharedState ()
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    let mutable state = gameplayState zone
+
+    Selection.linkRef shared &state a (Some b)
+    // Already pointing there: no second step.
+    Selection.linkRef shared &state a (Some b)
+    Assert.Equal(1, state.Editor.Undo.Applied.Length)
+
+    Selection.linkRef shared &state a None
+    Assert.True(Option.isNone (Zone.waypointNext zone a))
+    Assert.Equal(2, state.Editor.Undo.Applied.Length)
+
+[<Fact>]
+let ``deleting a mid-chain waypoint and undoing restores the whole chain`` () =
+    let shared = sharedState ()
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    let c = Zone.spawnWaypoint zone (entity "c")
+    do Zone.setWaypointNext zone a (Some b)
+    do Zone.setWaypointNext zone b (Some c)
+    let mutable state = gameplayState zone
+
+    Selection.deleteRef shared &state b
+
+    // The chain stops where the deleted waypoint was.
+    Assert.Equal(2u, zone.Waypoints.Count)
+    Assert.True(Option.isNone (Zone.waypointNext zone a))
+
+    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = undo }
+
+    // Both links resolve again: the entries were never destroyed, and the restored
+    // waypoint re-occupied its slot with the generation the links recorded.
+    Assert.True(Zone.isAlive zone b)
+    Assert.Equal(Some b, Zone.waypointNext zone a)
+    Assert.Equal(Some c, Zone.waypointNext zone b)

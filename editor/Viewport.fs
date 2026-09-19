@@ -19,6 +19,8 @@ let private colliderColor : DebugDraw.Color = { R = 0.2f; G = 1.0f; B = 0.6f; A 
 let private xColor : DebugDraw.Color = { R = 1.0f; G = 0.2f; B = 0.2f; A = 1.0f }
 let private yColor : DebugDraw.Color = { R = 0.2f; G = 1.0f; B = 0.2f; A = 1.0f }
 let private zColor : DebugDraw.Color = { R = 0.3f; G = 0.4f; B = 1.0f; A = 1.0f }
+// A chain link, distinct from the marker colours and from the gizmo axes.
+let private linkColor : DebugDraw.Color = { R = 200.0f / 255.0f; G = 122.0f / 255.0f; B = 1.0f; A = 1.0f }
 
 let private halfExtent = Vector3(0.25f, 0.25f, 0.25f)
 let private gizmoLen = 0.75f
@@ -26,6 +28,14 @@ let private gizmoRadius = 0.75f
 let private headLen = 0.25f
 let private headRadius = 0.12f
 let private hitThreshold = 0.1f
+// Chain-link connector geometry: the segment midpoint is lifted so the line does not sit
+// on the ground between two level waypoints, and the arrow head sits at that midpoint.
+let private linkLift = 0.08f
+let private linkBack = 0.15f
+let private linkWing = 0.07f
+// Below this, two waypoints count as coincident: there is no direction to draw, and
+// normalising the delta would emit invalid vertices.
+let private linkMinLength = 0.001f
 let private tipSize = 0.05f
 let private pickDistance = 1000.0f
 
@@ -102,6 +112,25 @@ let drawGrid (state: byref<GameplayState.GameplayState>) : unit =
     let dd = DebugDraw.clear state.DebugDraw |> DebugDraw.drawGrid
     state.DebugDraw <- dd
 
+// ── Chain links ──
+
+// One link: a line from its waypoint to the midpoint of the segment toward the next,
+// plus a two-wing arrow head at that midpoint, so which way the chain runs is readable.
+// Drawing only the first half is what distinguishes a link from a two-way relation.
+let private drawLink (dd: DebugDraw.DebugDraw) (from: Vector3) (target: Vector3) : DebugDraw.DebugDraw =
+    let delta = target - from
+    let length = delta.Length()
+    if length < linkMinLength then dd else
+
+    let dir = delta / length
+    let mid = from + delta * 0.5f + Vector3(0.0f, linkLift, 0.0f)
+    let dd = DebugDraw.line dd from mid linkColor
+    let side = Vector3.Cross(dir, Vector3.UnitY)
+    let right = if side.Length() < linkMinLength then Vector3.UnitX else Vector3.Normalize side
+    let back = mid - dir * linkBack
+    let dd = DebugDraw.line dd mid (back + right * linkWing) linkColor
+    DebugDraw.line dd mid (back - right * linkWing) linkColor
+
 // ── Markers + gizmo (editor mode only; appends to the gizmo accumulator) ──
 
 let buildLines (state: byref<GameplayState.GameplayState>) : unit =
@@ -151,7 +180,16 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
         dd <- DebugDraw.line dd tip (basePoint + right) c
         dd <- DebugDraw.line dd tip (basePoint - right) c
         dd <- DebugDraw.line dd tip (basePoint + up) c
-        dd <- DebugDraw.line dd tip (basePoint - up) c)
+        dd <- DebugDraw.line dd tip (basePoint - up) c
+
+        // The link out of this waypoint, if it has one. Drawn per link, from the
+        // waypoint that holds it, so a chain shows its order and its direction.
+        match Zone.waypointNext zone (waypointRef i gen) with
+        | Some next ->
+            match Zone.tryEntityAt zone next with
+            | Some target -> dd <- drawLink dd position target.Transform.Position
+            | None -> ()
+        | None -> ())
 
     match gizmoCenter state with
     | Some center -> dd <- drawGizmo state dd center

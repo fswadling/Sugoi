@@ -14,6 +14,9 @@ type Command =
     | Duplicate of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
     | Transform of Ref : EntityRef * Before : Transform * After : Transform
     | Rename of Ref : EntityRef * Before : string * After : string
+    | Link of Ref : EntityRef * Before : EntityRef option * After : EntityRef option
+    // The extend gesture as one step: create `Ref` from `Entity` and point `From` at it.
+    | LinkSpawn of From : EntityRef * Before : EntityRef option * Ref : EntityRef * Entity : Entity
     | SetEnvironment of Previous : Environment option * Next : Environment option
 
 // ── apply / undo a single command ──
@@ -29,6 +32,11 @@ let apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (c
         setTransform zone physics r after
     | Rename (r, _, after) ->
         setName zone r after
+    | Link (r, _, after) ->
+        setWaypointNext zone r after
+    | LinkSpawn (from, _, r, entity) ->
+        setActorWithAsset zone physics assets r entity bindingNone
+        setWaypointNext zone from (Some r)
     | SetEnvironment (_, next) ->
         setEnvironment zone physics assets next
 
@@ -43,6 +51,11 @@ let undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cm
         setTransform zone physics r before
     | Rename (r, before, _) ->
         setName zone r before
+    | Link (r, before, _) ->
+        setWaypointNext zone r before
+    | LinkSpawn (from, before, r, _) ->
+        setWaypointNext zone from before
+        removeEntity zone physics r
     | SetEnvironment (previous, _) ->
         setEnvironment zone physics assets previous
 

@@ -360,6 +360,107 @@ let ``repeated renames add no bodies and no slots`` () =
     Assert.Equal<BodyId>(body, propBody zone ref)
     Assert.Equal("crate-99", (Zone.tryEntityAt zone ref).Value.Name)
 
+// ── Chain links ──
+
+[<Fact>]
+let ``a link resolves to its target and clears when broken`` () =
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+
+    do Zone.setWaypointNext zone a (Some b)
+    Assert.Equal(Some b, Zone.waypointNext zone a)
+    Assert.True(Option.isNone (Zone.waypointNext zone b))
+
+    do Zone.setWaypointNext zone a None
+    Assert.True(Option.isNone (Zone.waypointNext zone a))
+
+[<Fact>]
+let ``a chain reads in the order it was linked`` () =
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    let c = Zone.spawnWaypoint zone (entity "c")
+
+    do Zone.setWaypointNext zone a (Some b)
+    do Zone.setWaypointNext zone b (Some c)
+
+    // Walk the links. Nothing in the app walks a chain yet, so the walk lives here.
+    let rec chain (ref: EntityRef) (acc: EntityRef list) =
+        match Zone.waypointNext zone ref with
+        | Some next -> chain next (next :: acc)
+        | None -> List.rev acc
+
+    Assert.Equal<EntityRef list>([ b; c ], chain a [])
+
+[<Fact>]
+let ``a waypoint cannot be its own next`` () =
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    do Zone.setWaypointNext zone a (Some b)
+
+    let mutable message = ""
+    try
+        Zone.setWaypointNext zone a (Some a)
+    with ex ->
+        message <- ex.Message
+
+    Assert.Contains("cannot be its own next", message)
+    Assert.Equal(Some b, Zone.waypointNext zone a)
+
+[<Fact>]
+let ``a link to a deleted waypoint stops the chain`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    let c = Zone.spawnWaypoint zone (entity "c")
+    do Zone.setWaypointNext zone a (Some b)
+    do Zone.setWaypointNext zone b (Some c)
+
+    Zone.removeEntity zone world b
+
+    // The chain stops at the link that named b; b's own link is inert, not dangling.
+    Assert.True(Option.isNone (Zone.waypointNext zone a))
+    Assert.True(Option.isNone (Zone.waypointNext zone b))
+    Assert.True(Zone.isAlive zone c)
+
+[<Fact>]
+let ``a waypoint reusing a deleted waypoint's slot is not aliased`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    let c = Zone.spawnWaypoint zone (entity "c")
+    do Zone.setWaypointNext zone a (Some b)
+    do Zone.setWaypointNext zone b (Some c)
+
+    Zone.removeEntity zone world b
+
+    // The freed index is reused, so same index but a fresh generation...
+    let newcomer = Zone.spawnWaypoint zone (entity "newcomer")
+    Assert.Equal(b.Index, newcomer.Index)
+    Assert.NotEqual(b.Generation, newcomer.Generation)
+
+    // ...and neither stale link resolves, not even to the replacement, which ends its
+    // own chain.
+    Assert.True(Option.isNone (Zone.waypointNext zone a))
+    Assert.True(Option.isNone (Zone.waypointNext zone newcomer))
+
+[<Fact>]
+let ``chains live with their zone`` () =
+    let first = Zone.create ()
+    let second = Zone.create ()
+    let a = Zone.spawnWaypoint first (entity "a")
+    let b = Zone.spawnWaypoint first (entity "b")
+    do Zone.setWaypointNext first a (Some b)
+
+    Assert.Equal(Some b, Zone.waypointNext first a)
+    // The other zone knows nothing of that waypoint, and its own map is empty.
+    Assert.True(Option.isNone (Zone.waypointNext second a))
+    Assert.Equal(0, second.Links.Count)
+
 // ── Mesh-body transforms: in place on a move, rebuilt only on a scale change ──
 
 [<Fact>]

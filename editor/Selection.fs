@@ -81,6 +81,19 @@ let renameRef (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
 
+// Point a waypoint at another (`Some`), or end its chain (`None`), as one undoable
+// step. No-op when it already points there. Selection and drag are left alone: the
+// chain changes, not what is being edited.
+let linkRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) (next: EntityRef option) : unit =
+    let zone = GameplayState.activeZone state
+    let before = Zone.waypointNext zone ref
+    if before = next then () else
+
+    let cmd = Link (ref, before, next)
+    apply zone shared.Physics shared.Assets cmd
+    let undo = UndoStack.push state.Editor.Undo cmd
+    state.Editor <- { state.Editor with Undo = undo }
+
 // Drop a Part selection left dangling by an environment swap: its epoch no longer
 // resolves, so the inspector would silently show nothing. Actor/Prop selections are
 // left alone — a stale one can resolve again when undo/redo restores its slot.

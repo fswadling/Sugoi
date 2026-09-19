@@ -19,8 +19,8 @@ let private clearName (buf: byte[]) : unit =
     Array.fill buf 0 buf.Length 0uy
 
 // The base entity a freshly-added waypoint is created from: the given transform,
-// with the default editor flags. The name is what the outliner/Inspector show;
-// renaming has no UI yet.
+// with the default editor flags. The name is what the Outliner shows and what the
+// Inspector edits.
 let private newWaypoint (name: string) (transform: Transform) : Entity =
     { Name = name
       Transform = transform
@@ -28,6 +28,12 @@ let private newWaypoint (name: string) (transform: Transform) : Entity =
       Visible = true
       Selectable = true
       Draggable = true }
+
+// A waypoint at the camera, facing the way the camera looks: `CreateWorld` yields the
+// rotation taking -Z (the project's camera-forward convention) onto the view direction.
+let private newWaypointAtCamera (camera: Camera.Camera) : Entity =
+    let rotation = Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(camera.Position, Camera.forward camera, camera.Up))
+    newWaypoint "Waypoint" { transformIdentity with Position = camera.Position; Rotation = rotation }
 
 let private entityRow (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (name: string) (id: string) (ref: EntityRef) : unit =
     if ImGui.button(sprintf "%s##%s" name id, ImGui.ImVec2(0.0f, 0.0f)) then
@@ -120,18 +126,44 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         do ImGui.text("(none)")
 
     if ImGui.collapsingHeader("Waypoints", 0) then
+        // The chain actions act on the selected waypoint, so they are gated on it — and
+        // disabled rather than hidden, so a button never moves the ones beside it.
+        let selected =
+            match state.Editor.Selection with
+            | Some ref when ref.Kind = EntityKind.Waypoint && Zone.isAlive zone ref -> Some ref
+            | _ -> None
+
         if ImGui.button("Add Waypoint", ImGui.ImVec2(0.0f, 0.0f)) then
             Spawning.spawnWaypoint &state (newWaypoint "Waypoint" transformIdentity)
 
         do ImGui.sameLine(0.0f, -1.0f)
 
-        // Seed the waypoint from the camera, so it faces where the editor is looking.
-        // `CreateWorld` yields the rotation taking -Z (the facing convention used by
-        // the waypoint gizmo and the gameplay camera) onto the camera's view direction.
         if ImGui.button("Add at Camera", ImGui.ImVec2(0.0f, 0.0f)) then
-            let camera = state.Camera
-            let rotation = Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(camera.Position, Camera.forward camera, camera.Up))
-            Spawning.spawnWaypoint &state (newWaypoint "Waypoint" { transformIdentity with Position = camera.Position; Rotation = rotation })
+            Spawning.spawnWaypoint &state (newWaypointAtCamera state.Camera)
+
+        do ImGui.sameLine(0.0f, -1.0f)
+
+        // Extend the selected waypoint: a new waypoint at the camera, linked as its next,
+        // which becomes the selection so a chain can be walked out one link at a time.
+        do ImGui.beginDisabled(Option.isNone selected)
+        let extend = ImGui.button("Add Next at Camera", ImGui.ImVec2(0.0f, 0.0f))
+        do ImGui.endDisabled()
+        if extend then
+            match selected with
+            | Some from -> Spawning.spawnLinkedWaypoint &state from (newWaypointAtCamera state.Camera)
+            | None -> ()
+
+        do ImGui.sameLine(0.0f, -1.0f)
+
+        // End the selected waypoint's chain, when it has one.
+        let hasNext = selected |> Option.bind (Zone.waypointNext zone) |> Option.isSome
+        do ImGui.beginDisabled(not hasNext)
+        let unlink = ImGui.button("Unlink", ImGui.ImVec2(0.0f, 0.0f))
+        do ImGui.endDisabled()
+        if unlink then
+            match selected with
+            | Some from -> Selection.linkRef shared &state from None
+            | None -> ()
 
         if zone.Waypoints.Count = 0u then
             do ImGui.text("(none)")
@@ -140,6 +172,20 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             for i in 0 .. slots.Length - 1 do
                 let slot = slots.[i]
                 if slot.Alive then
-                    entityRow shared &state slot.Value.Base.Name (sprintf "waypoint%d" i) (waypointRef (uint32 i) slot.Generation)
+                    let id = sprintf "waypoint%d" i
+                    let ref = waypointRef (uint32 i) slot.Generation
+                    entityRow shared &state slot.Value.Base.Name id ref
+
+                    // Continue the row's line with the link action: point the selected
+                    // waypoint at this one.
+                    do ImGui.sameLine(0.0f, -1.0f)
+                    let canLink = selected |> Option.exists (fun from -> from <> ref)
+                    do ImGui.beginDisabled(not canLink)
+                    let link = ImGui.smallButton(sprintf "Link##link_%s" id)
+                    do ImGui.endDisabled()
+                    if link then
+                        match selected with
+                        | Some from -> Selection.linkRef shared &state from (Some ref)
+                        | None -> ()
 
     do ImGui.endWindow()

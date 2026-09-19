@@ -157,6 +157,82 @@ let ``deleting a waypoint and undoing restores its transform at the recorded slo
     Assert.Equal(moved.Rotation, (Zone.tryEntityAt zone ref).Value.Transform.Rotation)
 
 [<Fact>]
+let ``adding a next waypoint links it and undoes as one step`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let mutable state = gameplayState zone
+
+    Spawning.spawnLinkedWaypoint &state a (entity "b")
+
+    Assert.Equal(2u, zone.Waypoints.Count)
+    let b = state.Editor.Selection.Value
+    Assert.Equal(EntityKind.Waypoint, b.Kind)
+    Assert.Equal("b", (Zone.tryEntityAt zone b).Value.Name)
+    Assert.Equal(Some b, Zone.waypointNext zone a)
+
+    // The spawn and the link are one command, naming the predecessor and the new waypoint.
+    match state.Editor.Undo.Applied with
+    | [ LinkSpawn (from, None, r, _) ] ->
+        Assert.Equal<EntityRef>(a, from)
+        Assert.Equal<EntityRef>(b, r)
+    | other -> Assert.Fail(sprintf "expected exactly one LinkSpawn command, got %A" other)
+
+    // One undo removes the new waypoint and restores the chain end it extended.
+    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = undo }
+    Assert.Equal(1u, zone.Waypoints.Count)
+    Assert.True(Option.isNone (Zone.waypointNext zone a))
+
+    // Redo reapplies both halves at the recorded ref.
+    let redo = UndoStack.redo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = redo }
+    Assert.Equal(2u, zone.Waypoints.Count)
+    Assert.Equal(Some b, Zone.waypointNext zone a)
+
+[<Fact>]
+let ``extending a waypoint that already has a next restores the previous one on undo`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let original = Zone.spawnWaypoint zone (entity "original")
+    do Zone.setWaypointNext zone a (Some original)
+    let mutable state = gameplayState zone
+
+    Spawning.spawnLinkedWaypoint &state a (entity "b")
+
+    Assert.Equal(3u, zone.Waypoints.Count)
+    let b = state.Editor.Selection.Value
+    Assert.Equal(Some b, Zone.waypointNext zone a)
+
+    // Undo puts the previous next back, not none.
+    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = undo }
+    Assert.Equal(Some original, Zone.waypointNext zone a)
+    Assert.True(Option.isNone (Zone.tryEntityAt zone b))
+
+[<Fact>]
+let ``a duplicated waypoint starts its own chain`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    do Zone.setWaypointNext zone a (Some b)
+    let mutable state = gameplayState zone
+
+    Spawning.duplicate shared &state a (entity "a-copy")
+
+    // The copy carries no link — a link belongs to the waypoint it is set on — and the
+    // original's chain is untouched.
+    let copy = state.Editor.Selection.Value
+    Assert.NotEqual<EntityRef>(a, copy)
+    Assert.True(Option.isNone (Zone.waypointNext zone copy))
+    Assert.Equal(Some b, Zone.waypointNext zone a)
+
+[<Fact>]
 let ``duplicating a kind with no entity fails loudly`` () =
     let assets = headlessAssets ()
     let shared = sharedState assets
