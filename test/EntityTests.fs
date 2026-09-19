@@ -32,10 +32,11 @@ let ``Prop composes the shared Entity base`` () =
     Assert.True(prop.Base.Selectable)
 
 [<Fact>]
-let ``Waypoint and Trigger are standalone`` () =
-    let waypoint : Waypoint = { Position = Vector3(1.0f, 2.0f, 3.0f) }
+let ``Waypoint composes the shared Entity base; Trigger is standalone`` () =
+    let waypoint : Waypoint = { Base = baseEntity "start" }
     let trigger : Trigger = { Position = Vector3.Zero }
-    Assert.Equal(1.0f, waypoint.Position.X)
+    Assert.Equal("start", waypoint.Base.Name)
+    Assert.True(waypoint.Base.Selectable)
     Assert.Equal(Vector3.Zero, trigger.Position)
 
 [<Fact>]

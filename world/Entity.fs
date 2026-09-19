@@ -66,6 +66,9 @@ let propRef (index: uint32) (generation: uint32) : EntityRef =
 let partRef (epoch: uint32) (index: uint32) (generation: uint32) : EntityRef =
     { Kind = EntityKind.Part; Index = index; Generation = generation; Epoch = epoch }
 
+let waypointRef (index: uint32) (generation: uint32) : EntityRef =
+    { Kind = EntityKind.Waypoint; Index = index; Generation = generation; Epoch = 0u }
+
 // The slot-map handle a ref names. The ref's kind/epoch select which map it resolves
 // against; the handle itself is only the index + generation.
 let handleOf (ref: EntityRef) : Handle =
@@ -140,7 +143,7 @@ type Prop =
       AssetId : string option
       SubmeshIndex : int
       SubmeshCount : int
-      Physics : PhysicsAttachment<MeshCollider> option
+      mutable Physics : PhysicsAttachment<MeshCollider> option
       mutable Renderer : EnvironmentRender.EnvironmentRender }
 
 // The zone's loaded environment (optional on the zone). It owns its parts slot
@@ -159,9 +162,13 @@ module Prop =
     // Release a prop's renderer GPU buffers.
     let releaseRenderer (p: Prop) : unit = EnvironmentRender.release p.Renderer
 
+// A point of interest placed in a zone: where to stand (the base transform's
+// position) and which way to face (its rotation). Composes the shared base entity
+// — name, transform, and editor flags — like actors and props, so the editor can
+// select, drag, and rotate it, but carries no renderer, collider, or asset binding.
 [<Struct>]
 type Waypoint =
-    { Position : Vector3 }
+    { Base : Entity }
 
 [<Struct>]
 type Trigger =

@@ -199,6 +199,72 @@ let ``setTransform updates a placed prop in place and keeps its ref valid`` () =
     Assert.True(Zone.isAlive zone ref)
     Assert.Equal(moved.Position, (Zone.tryEntityAt zone ref).Value.Transform.Position)
 
+// ── Waypoint refs ──
+
+[<Fact>]
+let ``a spawned waypoint resolves to its base entity's transform`` () =
+    let zone = Zone.create ()
+    let transform =
+        { transformIdentity with
+            Position = Vector3(4.0f, 5.0f, 6.0f)
+            Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 1.5f) }
+    let ref = Zone.spawnWaypoint zone { entity "start" with Transform = transform }
+
+    Assert.True(Zone.isAlive zone ref)
+    Assert.Equal(transform, (Zone.tryEntityAt zone ref).Value.Transform)
+
+[<Fact>]
+let ``setTransform moves and rotates a waypoint in place and keeps its ref valid`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let ref = Zone.spawnWaypoint zone (entity "start")
+    let moved =
+        { transformIdentity with
+            Position = Vector3(1.0f, 2.0f, 3.0f)
+            Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.5f) }
+
+    Zone.setTransform zone world ref moved
+
+    Assert.True(Zone.isAlive zone ref)
+    Assert.Equal(moved, (Zone.tryEntityAt zone ref).Value.Transform)
+
+[<Fact>]
+let ``removing a waypoint makes its ref stale`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let ref = Zone.spawnWaypoint zone (entity "start")
+
+    Zone.removeEntity zone world ref
+
+    Assert.False(Zone.isAlive zone ref)
+    Assert.True(Option.isNone (Zone.tryEntityAt zone ref))
+
+[<Fact>]
+let ``a stale waypoint ref does not alias the waypoint that reuses its slot`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let ref = Zone.spawnWaypoint zone (entity "first")
+
+    Zone.removeEntity zone world ref
+
+    // The freed index is reused, so same index but a fresh generation...
+    let ref2 = Zone.spawnWaypoint zone (entity "second")
+    Assert.Equal(ref.Index, ref2.Index)
+    Assert.NotEqual(ref.Generation, ref2.Generation)
+
+    // ...and the stale ref resolves to neither the old nor the new waypoint.
+    Assert.True(Option.isNone (Zone.tryEntityAt zone ref))
+    Assert.Equal("second", (Zone.tryEntityAt zone ref2).Value.Name)
+
+[<Fact>]
+let ``waypoints live in their own slot map, not the prop map`` () =
+    let zone = Zone.create ()
+    let ref = Zone.spawnWaypoint zone (entity "start")
+
+    Assert.Equal(EntityKind.Waypoint, ref.Kind)
+    Assert.Equal(1u, zone.Waypoints.Count)
+    Assert.Equal(0u, zone.Props.Count)
+
 // ── Mesh-body transforms: in place on a move, rebuilt only on a scale change ──
 
 [<Fact>]

@@ -1,9 +1,9 @@
 module Zone
 
-// The world container for one playable area: actors, placed props, an optional
-// loaded environment (which owns its own part slot map), and the static-scene batch
-// that renders its props and parts. Heap-allocated; its entity collections are
-// fixed-size generational slot maps, mutated in place.
+// The world container for one playable area: actors, placed props, waypoints, an
+// optional loaded environment (which owns its own part slot map), and the
+// static-scene batch that renders its props and parts. Heap-allocated; its entity
+// collections are fixed-size generational slot maps, mutated in place.
 //
 // The zone does not own the physics world — it is shared via `SharedState` and
 // passed in per call; the zone keeps only the body→entity map. Bodies are
@@ -20,6 +20,7 @@ type Zone =
       Actors : SlotMap<Actor>
       mutable Environment : Environment option
       Props : SlotMap<Prop>
+      Waypoints : SlotMap<Waypoint>
       Batch : EnvironmentBatch.EnvironmentBatch
       mutable NextEnvironmentEpoch : uint32
       BodyToEntity : Dictionary<Physics.BodyId, EntityRef>
@@ -32,6 +33,7 @@ let create () : Zone =
       Actors = SlotMap<Actor>(64u)
       Environment = None
       Props = SlotMap<Prop>(32u)
+      Waypoints = SlotMap<Waypoint>(128u)
       Batch = EnvironmentBatch.create ()
       NextEnvironmentEpoch = 0u
       BodyToEntity = Dictionary<Physics.BodyId, EntityRef>()
@@ -60,21 +62,21 @@ let partsFor (zone: Zone) (ref: EntityRef) : SlotMap<Prop> option =
     | _ -> None
 
 // Whether the ref addresses the live slot it originally named. Kinds without slot
-// storage (environment, waypoint, trigger) are never alive.
+// storage (environment, trigger) are never alive.
 let isAlive (zone: Zone) (ref: EntityRef) : bool =
     match ref.Kind with
     | EntityKind.Actor -> zone.Actors.IsAlive(handleOf ref)
     | EntityKind.Prop -> zone.Props.IsAlive(handleOf ref)
+    | EntityKind.Waypoint -> zone.Waypoints.IsAlive(handleOf ref)
     | EntityKind.Part ->
         match partsFor zone ref with
         | Some parts -> parts.IsAlive(handleOf ref)
         | None -> false
     | EntityKind.Environment
-    | EntityKind.Waypoint
     | EntityKind.Trigger -> false
 
-// The base entity behind a ref (Actor/Prop/Part), or None for other kinds or a
-// stale/absent slot. Returned by value (a cheap struct copy) so callers can't
+// The base entity behind a ref (Actor/Prop/Part/Waypoint), or None for other kinds
+// or a stale/absent slot. Returned by value (a cheap struct copy) so callers can't
 // write a transform that would bypass the body recreation in `setTransform`.
 let tryEntityAt (zone: Zone) (ref: EntityRef) : Entity option =
     match ref.Kind with
@@ -86,6 +88,10 @@ let tryEntityAt (zone: Zone) (ref: EntityRef) : Entity option =
         if not (zone.Props.IsAlive(handleOf ref)) then None else
         let prop = &zone.Props.Get(handleOf ref)
         Some prop.Base
+    | EntityKind.Waypoint ->
+        if not (zone.Waypoints.IsAlive(handleOf ref)) then None else
+        let waypoint = &zone.Waypoints.Get(handleOf ref)
+        Some waypoint.Base
     | EntityKind.Part ->
         match partsFor zone ref with
         | None -> None
@@ -210,8 +216,14 @@ let private mapBody (zone: Zone) (attachment: PhysicsAttachment<'T> option) (ref
     | Some ph ->
     do zone.BodyToEntity.[ph.Body] <- ref
 
+// A binding with no asset, for kinds that carry none (waypoints). The delete
+// command stores it so undo can restore the entity; the waypoint restore ignores it.
+let bindingNone : AssetBinding =
+    { AssetId = None; SubmeshIndex = 0; SubmeshCount = 0 }
+
 // The asset binding behind a ref (asset id +, for props/parts, the submesh range).
-// Raises for a stale or absent entity and for kinds without a binding.
+// Raises for a stale or absent entity and for kinds without a binding; a waypoint
+// carries none, so it returns `bindingNone`.
 let bindingAt (zone: Zone) (ref: EntityRef) : AssetBinding =
     match ref.Kind with
     | EntityKind.Actor ->
@@ -226,6 +238,7 @@ let bindingAt (zone: Zone) (ref: EntityRef) : AssetBinding =
         | Some parts ->
         let p = &parts.Get(handleOf ref)
         { AssetId = p.AssetId; SubmeshIndex = p.SubmeshIndex; SubmeshCount = p.SubmeshCount }
+    | EntityKind.Waypoint -> bindingNone
     | _ -> failwithf "bindingAt: kind %A has no asset binding" ref.Kind
 
 // Change a mesh-backed entity's transform in `map` (a placed prop or an
@@ -249,8 +262,8 @@ let private setMeshTransform (zone: Zone) (world: Physics.World) (map: SlotMap<P
     do mapBody zone attachment ref
     p <- { p with Base = { p.Base with Transform = transform }; Physics = attachment }
 
-// Change an existing entity's transform at the ref (Actor/Prop/Part), recreating
-// its body so it follows. No-op for other kinds or a stale/absent ref.
+// Change an existing entity's transform at the ref (Actor/Prop/Part/Waypoint),
+// recreating its body so it follows. No-op for other kinds or a stale/absent ref.
 let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform: Transform) : unit =
     match ref.Kind with
     | EntityKind.Actor ->
@@ -267,6 +280,11 @@ let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform
 
     | EntityKind.Prop ->
         do setMeshTransform zone world zone.Props ref transform
+
+    | EntityKind.Waypoint ->
+        if zone.Waypoints.IsAlive(handleOf ref) then
+            let waypoint = &zone.Waypoints.Get(handleOf ref)
+            waypoint <- { waypoint with Base = { waypoint.Base with Transform = transform } }
 
     | EntityKind.Part ->
         match partsFor zone ref with
@@ -334,6 +352,9 @@ let setActorWithAsset (zone: Zone) (world: Physics.World) (assets: Assets.AssetM
             parts.Occupy(handleOf ref, prop)
             do mapBody zone attachment ref
         | None -> failwithf "setActorWithAsset: part ref %A does not belong to the loaded environment" ref
+    | EntityKind.Waypoint ->
+        do ensureSlotFree zone.Waypoints ref
+        zone.Waypoints.Occupy(handleOf ref, { Base = entity })
     | _ -> ()
 
 // Remove a mesh-backed entity (placed prop or environment part) from `map`,
@@ -345,8 +366,8 @@ let private removeMeshEntity (zone: Zone) (world: Physics.World) (map: SlotMap<P
         do destroyBody world zone physics
         map.Remove(handleOf ref, Some Prop.releaseRenderer)
 
-// Remove the entity at the ref (Actor/Prop/Part), destroying its body. No-op for
-// other kinds or a stale ref (its generation no longer matches the slot).
+// Remove the entity at the ref (Actor/Prop/Part/Waypoint), destroying its body.
+// No-op for other kinds or a stale ref (its generation no longer matches the slot).
 let removeEntity (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
     match ref.Kind with
     | EntityKind.Actor ->
@@ -360,6 +381,9 @@ let removeEntity (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
         match partsFor zone ref with
         | Some parts -> do removeMeshEntity zone world parts ref
         | None -> ()
+    | EntityKind.Waypoint ->
+        if zone.Waypoints.IsAlive(handleOf ref) then
+            zone.Waypoints.Free(handleOf ref)
     | _ -> ()
 
 // Spawn a new actor and return the new ref (renderer + physics attached).
@@ -395,6 +419,14 @@ let spawnPropBinding (zone: Zone) (world: Physics.World) (assets: Assets.AssetMa
 let spawnProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) : EntityRef =
     spawnPropBinding zone world assets entity { AssetId = Some assetId; SubmeshIndex = 0; SubmeshCount = 0 }
 
+// ── Waypoints ──
+
+// Spawn a waypoint from its base entity and return its ref. Waypoints carry no
+// renderer or body, so no world/assets are needed.
+let spawnWaypoint (zone: Zone) (entity: Entity) : EntityRef =
+    let handle = zone.Waypoints.Add({ Base = entity })
+    waypointRef handle.Index handle.Generation
+
 // ── Environment parts ──
 //
 // A swap tears down the outgoing parts' bodies/renderers and rebuilds the incoming
@@ -412,7 +444,8 @@ let private attachPart (zone: Zone) (world: Physics.World) (assets: Assets.Asset
     let binding = { AssetId = p.AssetId; SubmeshIndex = p.SubmeshIndex; SubmeshCount = p.SubmeshCount }
     let renderer = propRenderer zone assets binding
     let attachment = attachPropPhysics world zone assets binding transform
-    p <- { p with Renderer = renderer; Physics = attachment }
+    p.Renderer <- renderer
+    p.Physics <- attachment
     do mapBody zone attachment (partRef environment.Epoch handle.Index handle.Generation)
 
 // Spawn a duplicate of an environment part into the current environment.

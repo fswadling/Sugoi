@@ -23,6 +23,8 @@ let private zColor : DebugDraw.Color = { R = 0.3f; G = 0.4f; B = 1.0f; A = 1.0f 
 let private halfExtent = Vector3(0.25f, 0.25f, 0.25f)
 let private gizmoLen = 0.75f
 let private gizmoRadius = 0.75f
+let private headLen = 0.25f
+let private headRadius = 0.12f
 let private hitThreshold = 0.1f
 let private tipSize = 0.05f
 let private pickDistance = 1000.0f
@@ -128,6 +130,28 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
             let c = if isSelected then selectedColor else white
             dd <- DebugDraw.wireframeBox dd p.Base.Transform.Position halfExtent c)
     | None -> ()
+
+    zone.Waypoints.IteriAlive(fun i gen w ->
+        let isSelected = selection = Some (waypointRef i gen)
+        let c = if isSelected then selectedColor else white
+        let rot = w.Base.Transform.Rotation
+        let position = w.Base.Transform.Position
+        dd <- DebugDraw.wireframeBox dd position halfExtent c
+        // A shaft along the waypoint's facing (its rotation applied to -Z, the
+        // camera-forward convention) so the orientation is visible and rotatable.
+        // The head's barbs reuse the same rotation's X/Y axes, which stay exactly
+        // perpendicular to the shaft (and avoid a degenerate cross product when
+        // the waypoint faces straight up or down).
+        let forward = Vector3.Transform(-Vector3.UnitZ, rot)
+        let tip = position + forward * gizmoLen
+        let basePoint = tip - forward * headLen
+        let right = Vector3.Transform(Vector3.UnitX, rot) * headRadius
+        let up = Vector3.Transform(Vector3.UnitY, rot) * headRadius
+        dd <- DebugDraw.line dd position tip c
+        dd <- DebugDraw.line dd tip (basePoint + right) c
+        dd <- DebugDraw.line dd tip (basePoint - right) c
+        dd <- DebugDraw.line dd tip (basePoint + up) c
+        dd <- DebugDraw.line dd tip (basePoint - up) c)
 
     match gizmoCenter state with
     | Some center -> dd <- drawGizmo state dd center

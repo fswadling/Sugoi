@@ -26,6 +26,13 @@ let spawnProp (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     let binding = { AssetId = Some assetId; SubmeshIndex = 0; SubmeshCount = 0 }
     do commit &state (Spawn (ref, entity, binding)) ref
 
+// Spawn a waypoint into the active zone. It carries no asset, so no shared state is
+// needed; the `Spawn` command's binding is `bindingNone`, which the restore ignores.
+let spawnWaypoint (state: byref<GameplayState.GameplayState>) (entity: Entity) : unit =
+    let zone = GameplayState.activeZone state
+    let ref = Zone.spawnWaypoint zone entity
+    do commit &state (Spawn (ref, entity, Zone.bindingNone)) ref
+
 // Copy an existing entity into a new slot, recording the binding it was built from.
 // Dispatching on kind first makes an unsupported kind fail loudly.
 let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (source: EntityRef) (entity: Entity) : unit =
@@ -46,4 +53,7 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
         let binding = Zone.bindingAt zone source
         let ref = Zone.spawnPartBinding zone shared.Physics shared.Assets entity binding
         do commit &state (Duplicate (ref, entity, binding)) ref
+    | EntityKind.Waypoint ->
+        let ref = Zone.spawnWaypoint zone entity
+        do commit &state (Duplicate (ref, entity, Zone.bindingNone)) ref
     | kind -> failwithf "duplicate: kind %A has no entity to duplicate" kind

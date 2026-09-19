@@ -1,10 +1,11 @@
 module Outliner
 
 // Left tree panel: a **Zones** section (the project's zones, add/select/delete) above
-// the active zone's entities in collapsible sections — actors, props, triggers, and
-// waypoints. Each entity row selects on click and carries inline Del/Dup buttons.
-// Triggers/waypoints have no zone storage yet.
+// the active zone's entities in collapsible sections — actors, props, waypoints, and
+// triggers. Each entity row selects on click and carries inline Del/Dup buttons.
+// Triggers have no zone storage yet.
 
+open System.Numerics
 open System.Text
 open Entity
 
@@ -16,6 +17,17 @@ let private zoneName (buf: byte[]) : string =
 
 let private clearName (buf: byte[]) : unit =
     Array.fill buf 0 buf.Length 0uy
+
+// The base entity a freshly-added waypoint is created from: the given transform,
+// with the default editor flags. The name is what the outliner/Inspector show;
+// renaming has no UI yet.
+let private newWaypoint (name: string) (transform: Transform) : Entity =
+    { Name = name
+      Transform = transform
+      Enabled = true
+      Visible = true
+      Selectable = true
+      Draggable = true }
 
 let private entityRow (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (name: string) (id: string) (ref: EntityRef) : unit =
     if ImGui.button(sprintf "%s##%s" name id, ImGui.ImVec2(0.0f, 0.0f)) then
@@ -108,6 +120,26 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         do ImGui.text("(none)")
 
     if ImGui.collapsingHeader("Waypoints", 0) then
-        do ImGui.text("(none)")
+        if ImGui.button("Add Waypoint", ImGui.ImVec2(0.0f, 0.0f)) then
+            Spawning.spawnWaypoint &state (newWaypoint "Waypoint" transformIdentity)
+
+        do ImGui.sameLine(0.0f, -1.0f)
+
+        // Seed the waypoint from the camera, so it faces where the editor is looking.
+        // `CreateWorld` yields the rotation taking -Z (the facing convention used by
+        // the waypoint gizmo and the gameplay camera) onto the camera's view direction.
+        if ImGui.button("Add at Camera", ImGui.ImVec2(0.0f, 0.0f)) then
+            let camera = state.Camera
+            let rotation = Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(camera.Position, Camera.forward camera, camera.Up))
+            Spawning.spawnWaypoint &state (newWaypoint "Waypoint" { transformIdentity with Position = camera.Position; Rotation = rotation })
+
+        if zone.Waypoints.Count = 0u then
+            do ImGui.text("(none)")
+        else
+            let slots = zone.Waypoints.Slots
+            for i in 0 .. slots.Length - 1 do
+                let slot = slots.[i]
+                if slot.Alive then
+                    entityRow shared &state slot.Value.Base.Name (sprintf "waypoint%d" i) (waypointRef (uint32 i) slot.Generation)
 
     do ImGui.endWindow()

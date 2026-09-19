@@ -110,13 +110,60 @@ let ``duplicating a part spawns a copy, selects it, and pushes the reversing com
     | other -> Assert.Fail(sprintf "expected a Duplicate command, got %A" other)
 
 [<Fact>]
+let ``duplicating a waypoint spawns a copy, selects it, and pushes the reversing command`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let source = Zone.spawnWaypoint zone (entity "start")
+    let mutable state = gameplayState zone
+
+    Spawning.duplicate shared &state source (entity "start-copy")
+
+    Assert.Equal(2u, zone.Waypoints.Count)
+    // The source is untouched and the copy is a distinct, live waypoint ref.
+    Assert.True(Zone.isAlive zone source)
+    match state.Editor.Selection with
+    | Some copy ->
+        Assert.NotEqual(source, copy)
+        Assert.Equal(EntityKind.Waypoint, copy.Kind)
+        Assert.Equal("start-copy", (Zone.tryEntityAt zone copy).Value.Name)
+    | None -> Assert.Fail("duplicate did not select the copy")
+
+    match state.Editor.Undo.Applied with
+    | Duplicate (r, _, _) :: _ -> Assert.Equal(state.Editor.Selection.Value, r)
+    | other -> Assert.Fail(sprintf "expected a Duplicate command, got %A" other)
+
+[<Fact>]
+let ``deleting a waypoint and undoing restores its transform at the recorded slot`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let moved =
+        { transformIdentity with
+            Position = Vector3(1.0f, 2.0f, 3.0f)
+            Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.5f) }
+    let ref = Zone.spawnWaypoint zone { entity "start" with Transform = moved }
+    let mutable state = gameplayState zone
+
+    Selection.deleteRef shared &state ref
+    Assert.False(Zone.isAlive zone ref)
+
+    // Undo re-occupies the recorded slot with the entity the delete captured.
+    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = undo }
+
+    Assert.True(Zone.isAlive zone ref)
+    Assert.Equal(moved.Position, (Zone.tryEntityAt zone ref).Value.Transform.Position)
+    Assert.Equal(moved.Rotation, (Zone.tryEntityAt zone ref).Value.Transform.Rotation)
+
+[<Fact>]
 let ``duplicating a kind with no entity fails loudly`` () =
     let assets = headlessAssets ()
     let shared = sharedState assets
     let zone = Zone.create ()
     let mutable state = gameplayState zone
 
-    for kind in [ EntityKind.Environment; EntityKind.Waypoint; EntityKind.Trigger ] do
+    for kind in [ EntityKind.Environment; EntityKind.Trigger ] do
         let source : EntityRef = { Kind = kind; Index = 0u; Generation = 0u; Epoch = 0u }
         let mutable message = ""
         try
