@@ -419,7 +419,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         do ImGui.endMainMenuBar()
 
     do Outliner.draw shared &state
-    do Inspector.draw &state
+    do Inspector.draw shared &state
     do AssetBrowser.draw shared &state
 
     transition

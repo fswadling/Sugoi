@@ -13,6 +13,7 @@ type Command =
     | Delete of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
     | Duplicate of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
     | Transform of Ref : EntityRef * Before : Transform * After : Transform
+    | Rename of Ref : EntityRef * Before : string * After : string
     | SetEnvironment of Previous : Environment option * Next : Environment option
 
 // ── apply / undo a single command ──
@@ -26,6 +27,8 @@ let apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (c
         removeEntity zone physics r
     | Transform (r, _, after) ->
         setTransform zone physics r after
+    | Rename (r, _, after) ->
+        setName zone r after
     | SetEnvironment (_, next) ->
         setEnvironment zone physics assets next
 
@@ -38,6 +41,8 @@ let undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cm
         setActorWithAsset zone physics assets r entity binding
     | Transform (r, before, _) ->
         setTransform zone physics r before
+    | Rename (r, before, _) ->
+        setName zone r before
     | SetEnvironment (previous, _) ->
         setEnvironment zone physics assets previous
 

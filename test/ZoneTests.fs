@@ -265,6 +265,101 @@ let ``waypoints live in their own slot map, not the prop map`` () =
     Assert.Equal(1u, zone.Waypoints.Count)
     Assert.Equal(0u, zone.Props.Count)
 
+// ── Names ──
+
+[<Fact>]
+let ``setName renames each stored kind in place`` () =
+    let zone = Zone.create ()
+    let actorHandle = zone.Actors.Add(actor "hero")
+    let actorRef = actorRef actorHandle.Index actorHandle.Generation
+    let propHandle = zone.Props.Add(prop "crate")
+    let propRef = propRef propHandle.Index propHandle.Generation
+    let waypointRef = Zone.spawnWaypoint zone (entity "start")
+    let parts = SlotMap<Prop>(4u)
+    let partHandle = parts.Add(part "wall")
+    zone.Environment <- Some (environment 1u parts)
+    let partRef = partRef 1u partHandle.Index partHandle.Generation
+
+    do Zone.setName zone actorRef "villain"
+    do Zone.setName zone propRef "loot"
+    do Zone.setName zone partRef "floor"
+    do Zone.setName zone waypointRef "exit"
+
+    Assert.Equal("villain", (Zone.tryEntityAt zone actorRef).Value.Name)
+    Assert.Equal("loot", (Zone.tryEntityAt zone propRef).Value.Name)
+    Assert.Equal("floor", (Zone.tryEntityAt zone partRef).Value.Name)
+    Assert.Equal("exit", (Zone.tryEntityAt zone waypointRef).Value.Name)
+
+[<Fact>]
+let ``a rename leaves the transform, body, and binding untouched`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
+    let before = (Zone.tryEntityAt zone ref).Value.Transform
+    let body = propBody zone ref
+
+    Zone.setName zone ref "loot"
+
+    Assert.Equal("loot", (Zone.tryEntityAt zone ref).Value.Name)
+    Assert.Equal(before, (Zone.tryEntityAt zone ref).Value.Transform)
+    Assert.Equal<BodyId>(body, propBody zone ref)
+    Assert.Equal<EntityRef>(ref, zone.BodyToEntity.[body])
+    Assert.Equal(Some "crate", (Zone.bindingAt zone ref).AssetId)
+    Assert.True(Zone.isAlive zone ref)
+
+[<Fact>]
+let ``a rename addressed to a stale or unstored ref changes nothing`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let ref = Zone.spawnWaypoint zone (entity "start")
+
+    Zone.removeEntity zone world ref
+
+    do Zone.setName zone ref "ghost"
+    do Zone.setName zone { Kind = EntityKind.Environment; Index = 0u; Generation = 0u; Epoch = 0u } "ghost"
+    do Zone.setName zone { Kind = EntityKind.Trigger; Index = 0u; Generation = 0u; Epoch = 0u } "ghost"
+
+    // Nothing is resurrected and nothing is created: the freed slot stays free.
+    Assert.Equal(0u, zone.Waypoints.Count)
+    Assert.True(Option.isNone (Zone.tryEntityAt zone ref))
+
+[<Fact>]
+let ``two entities may share a name and still resolve separately`` () =
+    let zone = Zone.create ()
+    let first = Zone.spawnWaypoint zone (entity "start")
+    let second = Zone.spawnWaypoint zone (entity "finish")
+
+    Zone.setName zone second "start"
+
+    Assert.Equal("start", (Zone.tryEntityAt zone first).Value.Name)
+    Assert.Equal("start", (Zone.tryEntityAt zone second).Value.Name)
+    Assert.NotEqual<EntityRef>(first, second)
+
+    // Renaming one leaves the other alone, despite the shared name.
+    Zone.setName zone first "renamed"
+    Assert.Equal("renamed", (Zone.tryEntityAt zone first).Value.Name)
+    Assert.Equal("start", (Zone.tryEntityAt zone second).Value.Name)
+
+[<Fact>]
+let ``repeated renames add no bodies and no slots`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
+    let body = propBody zone ref
+    let bodies = zone.BodyToEntity.Count
+
+    for i in 0 .. 99 do
+        Zone.setName zone ref (sprintf "crate-%d" i)
+
+    // A rename is a label change: no body is created or destroyed, no slot moves, and
+    // no renderer is touched (so there is nothing to leak).
+    Assert.Equal(bodies, zone.BodyToEntity.Count)
+    Assert.Equal(1u, zone.Props.Count)
+    Assert.Equal<BodyId>(body, propBody zone ref)
+    Assert.Equal("crate-99", (Zone.tryEntityAt zone ref).Value.Name)
+
 // ── Mesh-body transforms: in place on a move, rebuilt only on a scale change ──
 
 [<Fact>]

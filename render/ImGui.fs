@@ -11,6 +11,12 @@ open System.Runtime.InteropServices
 // (NoDockingOverCentralNode is 1 << 2 — don't confuse the two.)
 let passthruCentralNode = 8
 
+// ImGuiInputTextFlags for the Inspector's name field (values from cimgui.h):
+// submitting the field reports true, and opening it selects the existing text so
+// typing replaces the name in one gesture.
+let enterReturnsTrue = 1 <<< 6
+let autoSelectAll = 1 <<< 12
+
 // cimgui's `ImVec2_c` (see native/cimgui/cimgui.h): a blittable 8-byte pair of
 // floats passed by value into widget calls.
 [<Struct>]
@@ -108,6 +114,12 @@ extern ImVec2 displaySize()
 // (cimgui's igInputText). Returns true while the field is being edited.
 [<DllImport("cimgui", EntryPoint = "igInputText", CallingConvention = CallingConvention.Cdecl)>]
 extern bool inputText(string label, byte[] buf, unativeint bufSize, int flags, nativeint callback, nativeint userData)
+
+// True for the frame in which the last item was deactivated after its value was
+// edited (cimgui's igIsItemDeactivatedAfterEdit). Read immediately after the widget;
+// merely focusing and leaving a field without editing does not set it.
+[<DllImport("cimgui", EntryPoint = "igIsItemDeactivatedAfterEdit", CallingConvention = CallingConvention.Cdecl)>]
+extern bool isItemDeactivatedAfterEdit()
 
 // Visually disable (and block) the widgets drawn between these two calls.
 [<DllImport("cimgui", EntryPoint = "igBeginDisabled", CallingConvention = CallingConvention.Cdecl)>]

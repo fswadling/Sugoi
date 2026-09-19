@@ -173,7 +173,7 @@ rest are in `editor/`.
 |---|---|
 | `Editor` | orchestration: docking workspace, keyboard shortcuts, camera/gizmo interaction |
 | `Spawning` | single entity-creation surface; pairs each spawn with its reversing command |
-| `Selection` | selection edits (delete / duplicate) + stale-part-selection cleanup |
+| `Selection` | selection edits (delete / duplicate / rename) + stale-part-selection cleanup |
 | `EditorState` | selection + transient UI state |
 | `Outliner` | hierarchical entity list |
 | `Inspector` | single editing surface for the selection |

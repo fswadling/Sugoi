@@ -294,6 +294,36 @@ let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform
 
     | _ -> ()
 
+// Change an existing entity's name at the ref (Actor/Prop/Part/Waypoint). No-op for
+// other kinds or a stale/absent ref. A name is a label rather than an identity — refs
+// address entities — so the same name may be given to more than one.
+let setName (zone: Zone) (ref: EntityRef) (name: string) : unit =
+    match ref.Kind with
+    | EntityKind.Actor ->
+        if zone.Actors.IsAlive(handleOf ref) then
+            let actor = &zone.Actors.Get(handleOf ref)
+            actor <- { actor with Base = { actor.Base with Name = name } }
+
+    | EntityKind.Prop ->
+        if zone.Props.IsAlive(handleOf ref) then
+            let p = &zone.Props.Get(handleOf ref)
+            p <- { p with Base = { p.Base with Name = name } }
+
+    | EntityKind.Waypoint ->
+        if zone.Waypoints.IsAlive(handleOf ref) then
+            let waypoint = &zone.Waypoints.Get(handleOf ref)
+            waypoint <- { waypoint with Base = { waypoint.Base with Name = name } }
+
+    | EntityKind.Part ->
+        match partsFor zone ref with
+        | None -> ()
+        | Some parts ->
+        if parts.IsAlive(handleOf ref) then
+            let p = &parts.Get(handleOf ref)
+            p <- { p with Base = { p.Base with Name = name } }
+
+    | _ -> ()
+
 // Build a prop renderer from a binding: a placed prop asset (`Some id`) or an
 // environment part (`None`, the part's submesh range in the zone's environment).
 let private propRenderer (zone: Zone) (assets: Assets.AssetManager) (binding: AssetBinding) : EnvironmentRender.EnvironmentRender =

@@ -48,6 +48,39 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     | None -> ()
     | Some ref -> duplicateRef shared &state ref
 
+// Which entity a finished name-field edit should rename, and to what. `owner` is the
+// entity the edited text was typed for — not necessarily the current selection, which
+// can change underneath an in-progress edit — and `finished` is the field's commit
+// signal (submitted, or left after an edit). None means "commit nothing": nothing was
+// being edited, the edit is not finished, or the text is empty. Whether the name
+// actually changes is left to `renameRef`.
+let renameTarget (owner: EntityRef option) (finished: bool) (text: string) : (EntityRef * string) option =
+    match owner with
+    | Some ref when finished ->
+        let name = text.Trim()
+        if name = "" then None else Some (ref, name)
+    | _ -> None
+
+// Rename a specific entity as one undoable step. No-op when the ref no longer resolves
+// or the name is unchanged; an empty or whitespace-only name is refused (the inspector
+// never commits one). Selection and drag are left alone: a rename is a label change,
+// not a change of what is being edited.
+let renameRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) (name: string) : unit =
+    let name = name.Trim()
+    if name = "" then invalidOp "renameRef: the name is empty" else
+
+    let zone = GameplayState.activeZone state
+    let entity = Zone.tryEntityAt zone ref
+    match entity with
+    | None -> ()
+    | Some e ->
+    if name = e.Name then () else
+
+    let cmd = Rename (ref, e.Name, name)
+    apply zone shared.Physics shared.Assets cmd
+    let undo = UndoStack.push state.Editor.Undo cmd
+    state.Editor <- { state.Editor with Undo = undo }
+
 // Drop a Part selection left dangling by an environment swap: its epoch no longer
 // resolves, so the inspector would silently show nothing. Actor/Prop selections are
 // left alone — a stale one can resolve again when undo/redo restores its slot.
