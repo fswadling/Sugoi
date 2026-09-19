@@ -40,6 +40,9 @@ The `.fsproj` compile list is ordered like this (abridged):
 
 ```xml
 <ItemGroup>
+  <!-- narrative (first, and consumes nothing: the engine cannot reference the game) -->
+  <Compile Include="narrative/Vocabulary.fs" />
+  ...
   <!-- core (structural, no dependencies above it) -->
   <Compile Include="core/SlotMap.fs" />
   <Compile Include="core/Iqm.fs" />
@@ -78,6 +81,16 @@ The `.fsproj` compile list is ordered like this (abridged):
 fsharp-game/
 ├── Program.fs                  # entry point: [<EntryPoint>] main → Engine.run
 ├── Engine.fs                   # top-level run loop (split out of Program.fs)
+├── narrative/                  # the narrative engine: events → facts → rules
+│   ├── Vocabulary.fs           #   the roster, FactKind, and the closed Event / Fact / Trait vocabulary
+│   ├── Canonical.fs            #   canonical text: construct name and argument text (rendering only)
+│   ├── History.fs              #   committed events, game time
+│   ├── Facts.fs                #   the ordered fact map, reasons, fact sources
+│   ├── Rules.fs                #   projections and derivations, and their builders
+│   ├── Derive.fs               #   the fixpoint, its pass restriction and its bound
+│   ├── Engine.fs               #   the public surface: commit, facts, reasons
+│   ├── Harness.fs              #   scenario, run, report, assertions
+│   └── Units/                  #   narrative units: one module of rules each
 ├── core/                       # dependency-free structural utilities
 │   ├── SlotMap.fs              #   generational slot map
 │   ├── Iqm.fs                  #   IQM binary parser (actors)
@@ -158,6 +171,13 @@ fsharp-game/
 
 ## Clusters
 
+- **`narrative/`** — the narrative engine: immutable committed events projected into
+  facts, facts combined by rules, every conclusion carrying the rule and premises behind
+  it. It is compiled **before `core/SlotMap.fs`** and depends on nothing in the repository,
+  which is how "the engine cannot reference the game" is a compile error rather than a
+  convention (`docs/ARCHITECTURE.md`, `specs/025-narrative-core`). Nothing consumes it yet:
+  the engine is complete and tested headlessly, and the integration that makes the game feed
+  it committed events is separate work.
 - **`core/`** — dependency-free structural utilities: the slot map, the IQM/glTF
   parsers, and the input snapshot. Everything may depend on it, and it depends on
   nothing above it. This is the "structural core" from `docs/ARCHITECTURE.md`.
@@ -179,7 +199,9 @@ fsharp-game/
 
 Dependency direction is strictly downward, matching the compile order:
 `Program`/`Engine` → `screen` → `editor` → `state` → `world` → `render` →
-`physics` → `core` → `SlotMap`.
+`physics` → `core` → `SlotMap`. `narrative/` is the one cluster outside that chain: it sits
+below `core/` and above nothing, since it is compiled first and is consumed by no other
+cluster yet.
 
 ## Naming
 

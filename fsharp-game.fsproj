@@ -7,6 +7,25 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The narrative engine (spec 025). A source folder in this project, listed
+         FIRST: F# compiles in list order, so putting it before the game's own files
+         makes "the engine cannot reference the game" a compile error rather than a
+         convention. It also means the engine is compiled into one assembly with no
+         package references of its own, which is what FR-025 asks for: usable with no
+         graphical interface. -->
+    <Compile Include="narrative/Vocabulary.fs" />
+    <Compile Include="narrative/ParticipantIndex.fs" />
+    <Compile Include="narrative/Canonical.fs" />
+    <Compile Include="narrative/History.fs" />
+    <Compile Include="narrative/Facts.fs" />
+    <Compile Include="narrative/Rules.fs" />
+    <Compile Include="narrative/Derive.fs" />
+    <Compile Include="narrative/Units/Cast.fs" />
+    <Compile Include="narrative/Units/Friendship.fs" />
+    <Compile Include="narrative/Units/Romance.fs" />
+    <Compile Include="narrative/Engine.fs" />
+    <Compile Include="narrative/Harness.fs" />
+
     <Compile Include="core/SlotMap.fs" />
     <Compile Include="core/Iqm.fs" />
     <Compile Include="core/Gltf.fs" />

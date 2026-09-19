@@ -21,6 +21,18 @@
     <Compile Include="PlayerTests.fs" />
     <Compile Include="GameplayStateTests.fs" />
     <Compile Include="EnvironmentBatchTests.fs" />
+
+    <!-- Narrative engine tests (spec 025). NarrativeTestSupport is first: the other
+         files open it for the MVP rule set, and it needs no graphics native, so these
+         run headlessly with the rest of the suite. -->
+    <Compile Include="NarrativeTestSupport.fs" />
+    <Compile Include="NarrativeVocabularyTests.fs" />
+    <Compile Include="NarrativeCommitTests.fs" />
+    <Compile Include="NarrativeProjectionTests.fs" />
+    <Compile Include="NarrativeDerivationTests.fs" />
+    <Compile Include="NarrativeRuleSetTests.fs" />
+    <Compile Include="NarrativeHarnessTests.fs" />
+    <Compile Include="NarrativePerformanceTests.fs" />
   </ItemGroup>
 
   <!-- Serialize test collections: `Physics.create` calls Jolt's process-global
@@ -30,6 +42,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="FsCheck" Version="3.4.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">

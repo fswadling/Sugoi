@@ -161,6 +161,68 @@ graph TD
     C --> CSM["state_map: Slot_Map(CueState)"]
 ```
 
+## Narrative engine (events → facts → rules)
+
+`narrative/` is the **emergent** half of the story model; the scenario and cue
+layer above is the scripted half. It is an event-sourced engine for an anime
+high-school social simulation, in which the player directs drama rather than
+steering relationship meters. Events are committed history; facts are what the
+current rule set says that history currently implies.
+
+- `narrative/Vocabulary.fs` — one closed `Event` DU (8 cases), one closed `Fact`
+  DU (7 cases), `FactKind` (the constructs as a value, which is what the index and a rule's reads are
+  keyed by), `Trait = Shy | HotHeaded`, and the closed roster of twenty `Character`
+  cases. Closed deliberately: a rule in the wrong category does not compile, a misspelled
+  character is not a character, and the cast being fixed is what lets the last of those be
+  a type rather than a table to keep in step.
+- `narrative/Canonical.fs` — canonical text `<Construct>(args)`: a **rendering** and nothing more,
+  used by the report and by tests (research D34). Encoding matches on the construct and names its
+  arguments with `nameof`, which measured about fifty times faster than asking the type what a value
+  is (research D30). There is no decoder: nothing in the engine reads text, and nothing stores, keys
+  or identifies a value by it (research D32, D34).
+- `narrative/History.fs` — committed history: append-only, never rewritten, and held
+  newest-first as a list so an append conses one event and copies nothing. An array was
+  tried first, and then chunks of arrays; both copy what a list does not, in exchange for
+  an iteration and an indexed lookup that nothing uses.
+- `narrative/Facts.fs` — the current fact set: a `Map<Fact, Reason list>`, so a fact is its own
+  identity and carries why it holds. Interchangeable participants are put in canonical order on the
+  value as it is stored, a reason is identified by its rule and its premises as a set rather than by
+  their text, and the participant index is keyed by `FactKind` rather than by a construct's name —
+  with the harness, not the engine, sorting facts for a reader (research D33, D34).
+- `narrative/Rules.fs` — the two rule categories, `Projection` (events → facts)
+  and `Derivation` (facts → facts), plus a `let!`-based builder that records each
+  rule's premises at binding time, so attribution cannot be restated wrongly.
+- `narrative/Derive.fs` — the monotone fixpoint over the fact set, recomputed from
+  the projected facts rather than maintained.
+- `narrative/Units/{Cast,Friendship,Romance}.fs` — narrative units, each owning
+  its rules while reading and concluding facts shared with every other unit.
+- `narrative/Engine.fs` — the public surface: commit, read facts, and ask why.
+- `narrative/Harness.fs` — a headless scenario harness, which is how rules are
+  authored (write a rule, run scenarios, read the report), and a consequence of
+  the engine being deliberately usable with no graphical interface.
+
+Two properties the design depends on:
+
+- **Determinism is structural.** Facts live in a `Map`, and the orderings the engine relies on are
+  the values' own structural comparison — with `String.CompareOrdinal` wherever the *renderer* orders
+  strings — because the default string comparer is culture-sensitive and would make the ordering
+  guarantees false in a locale nobody tested in.
+- **History is never rewritten when rules change.** A changed rule set means
+  replaying the same event stream through the new rules, not editing the past;
+  there is no way to assert a fact or to alter a committed event at all.
+
+`narrative/` is listed **first** in `fsharp-game.fsproj`, ahead of the game's own
+files. F# compiles in list order, so that makes "the engine cannot reference the
+game" a compile error rather than a convention — which is why the compile order
+departs from the `core → … → Engine` sequence `docs/PROJECT_STRUCTURE.md`
+records.
+
+**Open: is the narrative engine a roadmap phase of its own, or part of phase
+10?** `specs/025-narrative-core` declines to settle whether it becomes a new
+phase in `docs/ROADMAP.md` or extends phase 10 (story primitives — `world/`'s
+waypoints, triggers, advent and cast); the roadmap's phase table has no entry for
+the narrative engine today.
+
 ## F# port decisions
 
 - **Slot map** → a generic sealed class holding a fixed `Slot` array plus the
