@@ -902,8 +902,9 @@ of it depends on how the game is written rather than on the engine.
 
 ## D28. The roster is closed, and a character is a case rather than a string — superseded in part
 
-**Decision**: `Character` is a union whose cases are the twenty people who can exist in the
-story. It is no longer a newtype over a `string`. Which of them is *in play* is still decided
+**Decision**: `Character` is a union whose cases are the people who can exist in the story —
+twenty of them when this was decided, four since 2026-09-20, and `cast/Roster.fs`'s since
+`specs/032-cast-binding`. It is no longer a newtype over a `string`. Which of them is *in play* is still decided
 by `CharacterDeclared` events, exactly as it was.
 
 *(Superseded in part, 2026-09-19: `CharacterDeclared` no longer decides who is in play. Once the
@@ -937,9 +938,11 @@ it does not have. Three things follow, and each is one the string form could onl
   decoder and no saved history for a rename to invalidate (research D32, which withdrew the caveat
   this bullet used to carry). The name is still what canonical text writes, so a rename renames the
   fact in every report and test that asserts one — visibly, at compile time or the first run.
-- Twenty is the cast size SC-005 and SC-009 measure at, so the roster is twenty, and
-  `Vocabulary.characters` enumerates the cases by reflection rather than repeating them as a
-  list, so the number cannot drift from the type without something noticing.
+- The roster was twenty because that was the cast size SC-005 and SC-009 measured at. It is four
+  since 2026-09-20, when those criteria and their worlds were withdrawn and the cast shrank to the
+  members the scenarios name (`spec.md`, Amendments); `Roster.characters` still enumerates the
+  cases by reflection rather than repeating them as a list, so the number cannot drift from the
+  type without something noticing.
 
 **What it looked like when it went wrong, because the next reader may meet it again**: the
 first implementation of `characterName` was `string character`, which for a union goes through

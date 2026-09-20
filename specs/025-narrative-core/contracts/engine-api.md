@@ -18,8 +18,10 @@ to which one it is, or why an event was supplied (spec FR-005, FR-032).
 ```fsharp
 namespace Narrative
 
-/// The roster: the twenty characters who can exist, as cases (research D28).
-type Character = Aiko | Akane | Shinji | Yuki | /* ... twenty cases in all */
+/// The roster: the four characters who can exist, as cases (research D28). Since 2026-09-20 it is
+/// `cast/Roster.fs`'s — hoisted out of this namespace so the engine and the game share one
+/// declaration (specs/032-cast-binding) — and it was twenty cases before that.
+type Character = Aiko | Akane | Shinji | Yuki
 
 type Trait = Shy | HotHeaded
 

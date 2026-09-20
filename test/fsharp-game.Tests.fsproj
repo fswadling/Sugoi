@@ -24,6 +24,11 @@
     <Compile Include="GameplayStateTests.fs" />
     <Compile Include="EnvironmentBatchTests.fs" />
 
+    <!-- The cast (spec 032): the roster is not the engine's, so this opens `Roster` and not
+         `Narrative`. -->
+    <Compile Include="RosterTests.fs" />
+    <Compile Include="CastingTests.fs" />
+
     <!-- Narrative engine tests (spec 025). NarrativeTestSupport is first: the other
          files open it for the MVP rule set, and it needs no graphics native, so these
          run headlessly with the rest of the suite. -->

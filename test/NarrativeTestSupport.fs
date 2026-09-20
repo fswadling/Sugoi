@@ -5,6 +5,7 @@ module NarrativeTestSupport
 // units — so the engine embeds no content (contracts/engine-api.md § Harness).
 
 open Narrative
+open Roster
 
 let aiko = Aiko
 let akane = Akane

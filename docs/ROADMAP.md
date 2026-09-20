@@ -289,8 +289,10 @@ between them at runtime. *(complete — `specs/024`)*
 **Deliverables**
 - `Waypoint` / `Trigger` entities in `world/Entity.fs` (or `world/Zone.fs`).
 - `world/Advent.fs` — named flag set.
-- `world/Cast.fs` — name → asset id map.
-- `editor/CastPanel.fs` / `editor/AdventPanel.fs` docked panels.
+- cast — delivered ahead of this phase by `specs/032-cast-binding`: the roster is `cast/Roster.fs`
+  (one declaration, shared with the narrative engine), the look vocabulary and the slot → actor
+  asset binding are `world/Casting.fs`, and the panel is `editor/CastPanel.fs`.
+- `editor/AdventPanel.fs` — docked panel.
 - Trigger→cue wiring inline in the Inspector.
 
 **Done when**: you can place waypoints/triggers, wire triggers to cues, set

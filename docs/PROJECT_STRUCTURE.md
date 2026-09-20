@@ -15,9 +15,10 @@ marks a file that is not created yet — the marker is dropped when the file lan
 
 ## Principles
 
-1. **Organise by domain cluster, one level deep.** Seven stable clusters —
-   `core`, `physics`, `render`, `world`, `state`, `screen`, `editor` — plus a
-   top-level `Engine.fs` loop and a thin `Program.fs` entry point.
+1. **Organise by domain cluster, one level deep.** Eight stable clusters —
+   `cast`, `core`, `physics`, `render`, `world`, `state`, `screen`, `editor` — plus the
+   `narrative` engine below them, a top-level `Engine.fs` loop and a thin `Program.fs`
+   entry point.
 2. **Flat module namespace.** One top-level `module X` per file, no namespace.
    `core/SlotMap.fs` declares `module SlotMap`, exactly as if it lived at the
    root. (Rejects `namespace FSharpGame.Core` to avoid churning references.)
@@ -40,7 +41,9 @@ The `.fsproj` compile list is ordered like this (abridged):
 
 ```xml
 <ItemGroup>
-  <!-- narrative (first, and consumes nothing: the engine cannot reference the game) -->
+  <!-- cast (first, and consumes nothing: the engine cannot reference the game) -->
+  <Compile Include="cast/Roster.fs" />
+  <!-- narrative (after the cast, and still before the game) -->
   <Compile Include="narrative/Vocabulary.fs" />
   ...
   <!-- core (structural, no dependencies above it) -->
@@ -81,8 +84,10 @@ The `.fsproj` compile list is ordered like this (abridged):
 fsharp-game/
 ├── Program.fs                  # entry point: [<EntryPoint>] main → Engine.run
 ├── Engine.fs                   # top-level run loop (split out of Program.fs)
+├── cast/                       # the shared cast vocabulary
+│   └── Roster.fs               #   the closed roster, characterName, characters (asset-free)
 ├── narrative/                  # the narrative engine: events → facts → rules
-│   ├── Vocabulary.fs           #   the roster, FactKind, and the closed Event / Fact / Trait vocabulary
+│   ├── Vocabulary.fs           #   FactKind and the closed Event / Fact / Trait vocabulary
 │   ├── Canonical.fs            #   canonical text: construct name and argument text (rendering only)
 │   ├── History.fs              #   committed events, game time
 │   ├── Facts.fs                #   the ordered fact map, reasons, fact sources
@@ -129,7 +134,7 @@ fsharp-game/
 │   ├── EnvironmentAsset.fs     #   static-model asset record
 │   ├── EnvironmentRender.fs    #   static environment + prop rendering
 │   ├── Advent.fs               #   adventure flag set (planned)
-│   ├── Cast.fs                 #   name → asset id map (planned)
+│   ├── Casting.fs              #   Look, Slot and the sparse slot → actor asset binding
 │   ├── Cue.fs                  #   Cue_Op (template) + CueState (runtime) (planned)
 │   ├── Scenario.fs             #   scenario library (planned)
 │   ├── Systems.fs              #   named play-mode systems
@@ -155,7 +160,7 @@ fsharp-game/
 │   ├── Outliner.fs
 │   ├── Inspector.fs            #   single editing surface for the selection
 │   ├── AssetBrowser.fs
-│   ├── CastPanel.fs            #   (planned)
+│   ├── CastPanel.fs            #   the cast tree: a look per row, an asset per slot
 │   ├── AdventPanel.fs          #   (planned)
 │   ├── CueEditor.fs            #   (planned)
 │   ├── CueTree.fs              #   shared recursive cue-tree renderer (planned)
@@ -171,10 +176,16 @@ fsharp-game/
 
 ## Clusters
 
+- **`cast/`** — the shared cast vocabulary: one closed `Character` roster, declared once and
+  consumed by both the engine and the game, and asset-free. It is compiled first and consumes
+  nothing, which is what lets the engine see it while still being unable to reference the game
+  (`docs/ARCHITECTURE.md`, `specs/032-cast-binding`). The game's half — the look vocabulary and the
+  binding from a member and a look to an actor asset — is `world/Casting.fs`, above the engine and
+  out of its reach.
 - **`narrative/`** — the narrative engine: immutable committed events projected into
   facts, facts combined by rules, every conclusion carrying the rule and premises behind
-  it. It is compiled **before `core/SlotMap.fs`** and depends on nothing in the repository,
-  which is how "the engine cannot reference the game" is a compile error rather than a
+  it. It is compiled **after `cast/` and before `core/SlotMap.fs`**, and depends on no game
+  module, which is how "the engine cannot reference the game" is a compile error rather than a
   convention (`docs/ARCHITECTURE.md`, `specs/025-narrative-core`). Nothing consumes it yet:
   the engine is complete and tested headlessly, and the integration that makes the game feed
   it committed events is separate work.
@@ -199,9 +210,9 @@ fsharp-game/
 
 Dependency direction is strictly downward, matching the compile order:
 `Program`/`Engine` → `screen` → `editor` → `state` → `world` → `render` →
-`physics` → `core` → `SlotMap`. `narrative/` is the one cluster outside that chain: it sits
-below `core/` and above nothing, since it is compiled first and is consumed by no other
-cluster yet.
+`physics` → `core` → `SlotMap`. Two clusters sit below that chain: `narrative/`
+(below `core/`, and consumed by no other cluster yet) and `cast/` below it, which the engine
+and the game both consume and which consumes nothing.
 
 ## Naming
 

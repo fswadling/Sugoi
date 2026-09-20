@@ -7,12 +7,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The narrative engine (spec 025). A source folder in this project, listed
-         FIRST: F# compiles in list order, so putting it before the game's own files
-         makes "the engine cannot reference the game" a compile error rather than a
-         convention. It also means the engine is compiled into one assembly with no
-         package references of its own, which is what FR-025 asks for: usable with no
-         graphical interface. -->
+    <!-- The cast (spec 032), listed FIRST: the engine and the game name one roster, and neither
+         owns it. It consumes nothing and is asset-free, so it sits below the engine — which is
+         what keeps "the engine cannot reference the game" a compile error rather than a
+         convention. -->
+    <Compile Include="cast/Roster.fs" />
+
+    <!-- The narrative engine (spec 025). A source folder in this project, listed before the
+         game's own files: F# compiles in list order, so putting it after the cast and before the
+         game makes "the engine cannot reference the game" a compile error rather than a
+         convention. It also means the engine is compiled into one assembly with no package
+         references of its own, which is what FR-025 asks for: usable with no graphical
+         interface. -->
     <Compile Include="narrative/Vocabulary.fs" />
     <Compile Include="narrative/ParticipantIndex.fs" />
     <Compile Include="narrative/Canonical.fs" />
@@ -46,6 +52,7 @@
     <Compile Include="world/EnvironmentAsset.fs" />
     <Compile Include="world/EnvironmentRender.fs" />
     <Compile Include="world/Assets.fs" />
+    <Compile Include="world/Casting.fs" />
     <Compile Include="world/Entity.fs" />
     <Compile Include="world/EnvironmentBatch.fs" />
     <Compile Include="world/Zone.fs" />
@@ -62,6 +69,7 @@
     <Compile Include="editor/Outliner.fs" />
     <Compile Include="editor/Inspector.fs" />
     <Compile Include="editor/AssetBrowser.fs" />
+    <Compile Include="editor/CastPanel.fs" />
     <Compile Include="editor/Editor.fs" />
     <Compile Include="screen/MainMenuScreen.fs" />
     <Compile Include="screen/GameplayScreen.fs" />

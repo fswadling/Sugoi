@@ -12,9 +12,11 @@ module SharedState
 type SharedState =
     { mutable Gpu : Gpu.Gpu
       Assets : Assets.AssetManager
+      Cast : Casting.Cast
       Physics : Physics.World }
 
 let create (gpu: Gpu.Gpu) : SharedState =
     { Gpu = gpu
       Assets = Assets.scan "assets" gpu.Device
+      Cast = { Casting.Bindings = System.Collections.Generic.Dictionary() }
       Physics = Physics.create () }

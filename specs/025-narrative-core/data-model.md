@@ -17,13 +17,11 @@ of them, so a construct's name identifies it unambiguously in canonical text.
 
 ```fsharp
 type Character =
-    | Aiko | Akane | Shinji | Yuki            // the four the scenarios and quickstart use
-    | Ayumi | Daichi | Haruka | Hina | Kaito | Kaede | Mei | Misaki
-    | Naoki | Natsuki | Ren | Rin | Sakura | Shouta | Sora | Tsubasa
+    | Aiko | Akane | Shinji | Yuki            // the four the story has
 ```
 
-The roster: everyone who can exist in the story, and twenty of them, which is the cast size
-the success criteria are stated at (research D28). A union rather than a `string`, so a name
+The roster: everyone who can exist in the story, and four of them since 2026-09-20, where it was
+twenty (research D28, and the roster's amendment in `spec.md`). A union rather than a `string`, so a name
 cannot be misspelled, so matching on a character is exhaustive, and so no part of a
 character's identity depends on a string comparison.
 

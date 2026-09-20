@@ -139,3 +139,26 @@ extern void beginDisabled(bool disabled)
 
 [<DllImport("cimgui", EntryPoint = "igEndDisabled", CallingConvention = CallingConvention.Cdecl)>]
 extern void endDisabled()
+
+// Push/pop an ID onto ImGui's ID stack (cimgui's igPushID_Str / igPopID). Widgets are keyed by
+// their label plus this stack, so the cast panel pushes a member's name before drawing her rows:
+// the look labels repeat under every member, and without this they would share one ID.
+[<DllImport("cimgui", EntryPoint = "igPushID_Str", CallingConvention = CallingConvention.Cdecl)>]
+extern void pushId(string strId)
+
+[<DllImport("cimgui", EntryPoint = "igPopID", CallingConvention = CallingConvention.Cdecl)>]
+extern void popId()
+
+// A drop-down over a caller-supplied preview (cimgui's igBeginCombo). Returns true while the popup
+// is open, in which case the caller draws `selectableBool` items and calls `endCombo`. The label is
+// what the widget is keyed by, and an empty preview draws nothing where the current value goes.
+[<DllImport("cimgui", EntryPoint = "igBeginCombo", CallingConvention = CallingConvention.Cdecl)>]
+extern bool beginCombo(string label, string previewValue, int flags)
+
+[<DllImport("cimgui", EntryPoint = "igEndCombo", CallingConvention = CallingConvention.Cdecl)>]
+extern void endCombo()
+
+// A selectable row (cimgui's igSelectable_Bool), returning true when it is clicked. `selected`
+// marks the row as the current value; `size` of (0, 0) spans the available width.
+[<DllImport("cimgui", EntryPoint = "igSelectable_Bool", CallingConvention = CallingConvention.Cdecl)>]
+extern bool selectableBool(string label, bool selected, int flags, ImVec2 size)

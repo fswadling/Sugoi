@@ -8,6 +8,7 @@ open FsCheck
 open FsCheck.FSharp
 open Xunit
 open Narrative
+open Roster
 
 let private aiko = NarrativeTestSupport.aiko
 let private akane = NarrativeTestSupport.akane
@@ -167,7 +168,7 @@ let private pairGen (cast: Character list) : Gen<Character * Character> =
 let private castGen : Gen<Character list> =
     Gen.choose (2, 4)
     |> Gen.bind (fun count ->
-        Gen.shuffle Vocabulary.characters
+        Gen.shuffle Roster.characters
         |> Gen.map (fun shuffled -> shuffled |> Array.toList |> List.truncate count))
 
 let private scenarioGen : Gen<GeneratedScenario> =

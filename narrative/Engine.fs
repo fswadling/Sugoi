@@ -6,6 +6,7 @@ namespace Narrative
 // than discouragement (FR-007, FR-032).
 
 open System
+open Roster
 
 module Engine =
 

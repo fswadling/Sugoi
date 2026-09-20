@@ -128,23 +128,23 @@ differently (FR-021, research D13).
 
 ## 3. Performance, measured where it matters
 
-Five tests, deliberately not a benchmark harness (research D15):
+One test, deliberately not a benchmark harness (research D15):
 
-- **SC-005** — rebuild from a history of 10,000 events, then commit one further event at
-  a cast of 20. Rebuild under 1 s, one event under 10 ms. Two tests, because the two halves
-  fail for different reasons.
-- **SC-009** — with all 20 cast members active, sustained commits at ≥1,000/s.
-- **No criterion behind it** — a commit's cost must not grow with the length of the
-  history: 1,000 commits no projection reads, then two runs of 500 that each flip a
-  projected fact, asserting the second run is not materially slower than the first. This is
-  the regression guard for an append that copied more as history grew, which is a cost
-  SC-009 is the first to notice.
 - **No criterion behind it** — rendering a canonical text must not go back through the
   type: a bound of 5 µs a render, against ~0.3 µs written out and ~17 µs asked for. This
   guards the second cost found by measuring, which was nearly all of a commit's time
   (research D30), and it is the test that would have failed on the day that was introduced.
 
-The question being answered, stated before measuring, per the constitution: *at a cast of
+SC-005 (rebuild from 10,000 events, and one further event, at a cast of 20) and SC-009 (sustained
+throughput with all 20 cast members active) were **withdrawn on 2026-09-20**: both were stated at a
+cast of twenty, and their worlds — the 10,000-event history, the saturated active cast — and the
+commit-cost guard that shared them went with the cast when it became four. The properties are
+unchanged and the criteria return with a performance suite measured at the story's cast size. See
+`spec.md` Amendments.
+
+*(Recorded when the suite measured at twenty; retained because the fixes it names are still why the
+engine is shaped the way it is.)* The question being answered, stated before measuring, per the
+constitution: *at a cast of
 20, does the engine meet the throughput and latency the game needs, and does it hold
 under sustained load?* The prototype's figures — 29.6 ms falling to 4.0 ms for one
 further event, and a sustained rate below 1,000/s rising to ~2,300/s at this cast — are
@@ -155,7 +155,7 @@ investigation is a data structure before a backend: one of the prototype's two f
 a join re-scanning a bucket it could have indexed, and the other was evaluating every rule
 on a pass that could only conclude nothing.
 
-The suite as last run, on 2026-09-19, printed ~9 ms for the rebuild of 10,000 events and ~6,410
+The suite as last measured, on 2026-09-19, printed ~9 ms for the rebuild of 10,000 events and ~6,410
 events per second sustained — inside every bound above, and past every figure the prototype
 recorded. The sustained figure is lower than the batched version it replaced, because a commit is
 now one event and the derivation fixpoint runs per event; the rebuild is unaffected, because most

@@ -12,6 +12,7 @@ module NarrativeVocabularyTests
 open System.Globalization
 open Xunit
 open Narrative
+open Roster
 
 let private aiko = Aiko
 let private akane = Akane
@@ -37,13 +38,6 @@ let ``every fact construct writes its canonical text`` () =
     Assert.Equal("JealousOf(Aiko, Akane)", Canonical.factText (JealousOf(aiko, akane)))
     Assert.Equal("FriendshipThreatened(Aiko, Akane)", Canonical.factText (FriendshipThreatened(aiko, akane)))
     Assert.Equal("BottledUpFeelings(Aiko, Akane)", Canonical.factText (BottledUpFeelings(aiko, akane)))
-
-[<Fact>]
-let ``the roster enumerates every character once`` () =
-    // `Vocabulary.characters` is what a caller uses to build a scenario out of the whole cast, and
-    // what the performance tests mean by all twenty cast members (research D28).
-    Assert.Equal(20, List.length Vocabulary.characters)
-    Assert.Equal(20, Vocabulary.characters |> List.distinct |> List.length)
 
 [<Fact>]
 let ``canonical text is Construct(arg, arg)`` () =

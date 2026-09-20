@@ -12,6 +12,7 @@ module NarrativeDerivationTests
 open System.Diagnostics
 open Xunit
 open Narrative
+open Roster
 
 let private aiko = Aiko
 let private akane = Akane

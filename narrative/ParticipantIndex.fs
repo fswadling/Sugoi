@@ -9,6 +9,8 @@ namespace Narrative
 // here rather than inside `Facts` because the fact set does not need it: it is built for the rules
 // that read a set, and handed to them, not stored with it.
 
+open Roster
+
 /// Facts by construct and participant. A fact naming two characters is filed under both, so a lookup
 /// answers for either position — which is what makes a mutual relation match however its names were
 /// ordered when it was recorded (research D22).

@@ -312,8 +312,9 @@ and assert a generated cast replays identically from its seed.
 
 **Scope**
 
-- **FR-030**: The engine MUST be correct at a cast of at most 20 characters, and
-  MUST NOT depend on mechanisms that only pay off at a much larger scale.
+- **FR-030**: The engine MUST be correct at the cast the story has, and MUST NOT
+  depend on mechanisms that only pay off at a much larger scale. *(Restated 2026-09-20:
+  the cast is four, where it was twenty. See Amendments.)*
 - **FR-031**: The engine MUST interpret and never decide. It is told what
   happened; it MUST NOT schedule, pace, order, or advise on what should happen
   next.
@@ -341,8 +342,8 @@ and assert a generated cast replays identically from its seed.
   and contributes its conclusions to it.
 - **Rule**: one authored step of reasoning, in exactly one of two categories
   (history to facts, facts to facts).
-- **Cast member**: a member of the engine's closed roster of twenty `Character`
-  cases (research D28). Entering the story is recorded by an `Arrived` event, which
+- **Cast member**: a member of the engine's closed roster of four `Character`
+  cases (research D28; twenty before 2026-09-20). Entering the story is recorded by an `Arrived` event, which
   gates nothing: any event may name any roster member.
 - **Scenario**: an initial history and a sequence of events; the harness's unit of
   work. A scenario that wants a character present from the start names her
@@ -363,9 +364,10 @@ and assert a generated cast replays identically from its seed.
   conclusion is still reported, with exactly the surviving reason.
 - **SC-004**: Repeating any scenario one hundred times yields identical
   observable results in one hundred runs out of one hundred.
-- **SC-005**: Rebuilding state from a history of 10,000 events completes in
-  under one second, and processing one further event takes under ten
-  milliseconds, at a cast of 20.
+- **SC-005**: *(Withdrawn 2026-09-20: the criterion was stated at a cast of 20, and the
+  10,000-event world and the test that measured it went with the cast. The property itself
+  is unchanged, and the criterion returns with a performance suite at the story's cast.
+  See Amendments.)*
 - **SC-006**: Exhausting the derivation bound is raised as a failure naming
   the rules involved, in under a second, rather than hanging — and the bound can
   be reached deliberately, so this is asserted rather than assumed.
@@ -374,9 +376,9 @@ and assert a generated cast replays identically from its seed.
 - **SC-008**: *(Withdrawn 2026-09-19: a commit is one event, so there is no second
   delivery mode to compare and the criterion compares a run against itself. FR-023
   and FR-024 still state the ordering it was built on. See Amendments.)*
-- **SC-009**: With all 20 cast members active at once, the engine sustains at
-  least 1,000 committed events per second, measured as the rate at which it
-  accepts committed events and its facts stay current with them.
+- **SC-009**: *(Withdrawn 2026-09-20: "all 20 cast members active at once" no longer
+  describes the engine, whose cast is four, and the throughput test that measured it was
+  deleted with the cast. See Amendments.)*
 
 ## Assumptions
 
@@ -418,7 +420,7 @@ and assert a generated cast replays identically from its seed.
 ### Given
 
 - **The roster is fixed; the story is not.** A participant is any member of the
-  engine's closed roster of twenty (research D28). Naming a character is always
+  engine's closed roster (research D28) — of four members since 2026-09-20. Naming a character is always
   admissible: an `Arrived` event records that one entered the story and gates
   nothing, so a character can be in the roster long before she walks into it, and
   an event about somebody who has not arrived is accepted rather than reported
@@ -492,7 +494,7 @@ and assert a generated cast replays identically from its seed.
   left to whichever spec first needs it. This spec must not be blocked on that
   question, and must not quietly settle it either.
 - **The engine owns no visual identity.** The people who can exist at all are the engine's,
-  as a closed roster of twenty (research D28): a misspelled character does not compile, and a
+  as a closed roster (research D28): a misspelled character does not compile, and a
   rule that matches on a character matches all of them. An `Arrived` event records that one
   entered the story, but it gates nothing: any event may name any roster member, and one about
   somebody who has not arrived is accepted rather than reported (Amendments, 2026-09-19). The
@@ -513,7 +515,38 @@ written, not as they stand now. The list has been renumbered twice since, once
 within a single day, so a number in an earlier entry can name a different
 requirement today. The list above is current.
 
-- **2026-09-19**: **The batch entry point is removed; a commit is one event.** `Engine.commit`
+- **2026-09-20**: **The roster is hoisted out of the engine.** `Character` and its two readers —
+  `characterName` and `characters` — are now `cast/Roster.fs`, a cluster compiled **before** this
+  engine (`specs/032-cast-binding`). The roster is content the engine consumes rather than
+  vocabulary it owns, which is what this spec already said of it in as many words: the types are
+  the engine's, the rules are the caller's. Nothing else moved: `Vocabulary` keeps `Trait`,
+  `Event`, `Fact`, `FactKind` and the construct readers, the units and their rules are untouched,
+  and the engine's output is identical — its only edit is an `open Roster`, and the four character
+  renderings in `Canonical` now read `Roster.characterName`. The invariant this spec relied on
+  survives with its mechanism moved one position: `narrative/` was compiled first so that "the
+  engine cannot reference the game" was a compile error rather than a convention, and it is now
+  compiled immediately *after* `cast/` and still ahead of the game, which is the same property for
+  the same reason — `cast/` consumes nothing and is asset-free, so the engine can see the roster
+  and still cannot see the assets, entities, or the GPU. The roster stays closed (research D28): a
+  misspelled character is still not a character. The game's half of the cast — the look vocabulary,
+  and the binding from a member and a look to a discovered actor asset — is `world/Casting.fs`,
+  above this engine and out of its reach, so nothing here names a model.
+    **The cast is four, and the performance suite went with it.** The roster is now Aiko, Akane,
+    Shinji and Yuki — the members this spec's rules, fixtures and harness actually name — where it was
+    twenty, of which sixteen were named nowhere outside the roster itself. FR-030 is restated at the
+    story's cast, and SC-005 and SC-009 are withdrawn rather than restated: both were stated at a cast
+    of twenty, and SC-009's wording ("all 20 cast members active at once") no longer describes the
+    engine at all. The 10,000-event and active-cast worlds, the rebuild and throughput measurements,
+    and the commit-cost guard are deleted with them; what remains of
+    `test/NarrativePerformanceTests.fs` is the canonical-render guard (research D30), which measures a
+    cost per value rather than a rate over a cast. The properties those criteria named are unchanged —
+    only unmeasured, which the suite's own rule ("a claim that is not measured is not a claim") says is
+    the reason to withdraw rather than leave them standing. They return with a performance suite
+    measured at the story's cast size, not at twenty. Nothing else in the engine changes: the rules
+    are written over characters, not over a count of them, and the harness's generator follows
+    `Roster.characters` wherever it goes.
+
+  - **2026-09-19**: **The batch entry point is removed; a commit is one event.** `Engine.commit`
   and `History.append` now take a single `(GameTime * Event)`, and committing a run is a
   caller-side fold — `List.fold Engine.commit` — which is what the harness does over a
   scenario's initial events and steps. The batch existed to run the derivation fixpoint once

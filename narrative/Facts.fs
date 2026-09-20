@@ -8,6 +8,7 @@ namespace Narrative
 // Sorting for a reader is the harness's job, not this file's.
 
 open System
+open Roster
 
 /// What a reason applied to. A projection applies an event; a derivation applies facts
 /// (research D6).

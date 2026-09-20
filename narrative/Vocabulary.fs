@@ -1,50 +1,13 @@
 namespace Narrative
 
-// The closed vocabulary: one event type, one fact type, one trait type, one roster (research
-// D20, D28). Adding a construct is one case here, after which the compiler reports every rule
-// that must account for it — which is the deliberate cost of the closure (research D16, D26).
+// The closed vocabulary: one event type, one fact type, one trait type (research D20, D28).
+// Adding a construct is one case here, after which the compiler reports every rule that must
+// account for it — which is the deliberate cost of the closure (research D16, D26).
+//
+// The roster is not here. `cast/Roster.fs` declares it, below this engine, so that the engine
+// and the game name one cast without either owning it (spec 032).
 
-open Microsoft.FSharp.Reflection
-
-/// A member of the roster: everyone who can exist in this story, which is fixed, so the type
-/// is closed (research D28). A union rather than a string so that a name cannot be misspelled,
-/// so matching on a character is exhaustive, and so nothing about a character's identity is
-/// decided by a string comparison.
-///
-/// The name *is* the case name, which is what canonical text writes — so a report, a test and the
-/// code all spell a character the same way. Nothing reads that text back, so renaming a case breaks
-/// no stored state (research D32).
-///
-/// This is the vocabulary's one piece of content, and it is content of the same kind as `Trait`
-/// below: the types are the engine's, the rules are the caller's. Being in the roster is not the
-/// same as being in the story: nothing here says who is in play, and nothing gates an event on
-/// it. An `Arrived` event is how history records a character entering the story, so a character
-/// can be in the roster long before she walks into it.
-///
-/// Visual identity is the game's, not the engine's: nothing here names a portrait, an asset or
-/// an actor.
-type Character =
-    | Aiko
-    | Akane
-    | Shinji
-    /// The transfer student: in the roster from the start, in the story only once declared.
-    | Yuki
-    | Ayumi
-    | Daichi
-    | Haruka
-    | Hina
-    | Kaito
-    | Kaede
-    | Mei
-    | Misaki
-    | Naoki
-    | Natsuki
-    | Ren
-    | Rin
-    | Sakura
-    | Shouta
-    | Sora
-    | Tsubasa
+open Roster
 
 /// Traits arrive as events and are never fields on a cast member, so there is no second
 /// source of truth for something history already records (spec Assumptions).
@@ -108,38 +71,7 @@ type FactKind =
 
 module Vocabulary =
 
-    /// The renderable name of a character — the case name, so canonical text, a report and the code
-    /// all spell a character the same way.
-    ///
-    /// A match on the cases rather than `string` or `ToString()`, both of which go through F#'s
-    /// formatting machinery for a union. Canonical text is report-facing only — nothing stores,
-    /// keys or identifies by it — but a report renders every value it shows, and the difference
-    /// between the two was measured at ~17 us against ~0.3 us a value, which the render
-    /// regression guard in the performance tests holds (research D30).
-    let characterName (character: Character) : string =
-        match character with
-        | Aiko -> nameof Aiko
-        | Akane -> nameof Akane
-        | Shinji -> nameof Shinji
-        | Yuki -> nameof Yuki
-        | Ayumi -> nameof Ayumi
-        | Daichi -> nameof Daichi
-        | Haruka -> nameof Haruka
-        | Hina -> nameof Hina
-        | Kaito -> nameof Kaito
-        | Kaede -> nameof Kaede
-        | Mei -> nameof Mei
-        | Misaki -> nameof Misaki
-        | Naoki -> nameof Naoki
-        | Natsuki -> nameof Natsuki
-        | Ren -> nameof Ren
-        | Rin -> nameof Rin
-        | Sakura -> nameof Sakura
-        | Shouta -> nameof Shouta
-        | Sora -> nameof Sora
-        | Tsubasa -> nameof Tsubasa
-
-    /// The renderable name of a trait, matched for the same reason `characterName` is: a fieldless
+    /// The renderable name of a trait, matched for the same reason `Roster.characterName` is: a fieldless
     /// union is rendered by matching on its cases rather than by `string` or `ToString`. A trait
     /// appears in far fewer facts than a character does, so this is symmetry rather than a
     /// measured win — but it is one rule for rendering a fieldless union rather than one rule and
@@ -148,14 +80,6 @@ module Vocabulary =
         match ascribed with
         | Shy -> nameof Shy
         | HotHeaded -> nameof HotHeaded
-
-    /// Everyone in the roster, in declaration order. Enumerated from the type rather than listed
-    /// again, so a case cannot be left out of it — which matters because a caller building a
-    /// scenario out of the whole cast has no other way to ask for one.
-    let characters : Character list =
-        FSharpType.GetUnionCases typeof<Character>
-        |> Array.toList
-        |> List.map (fun case -> unbox<Character> (FSharpValue.MakeUnion(case, [||])))
 
     /// The participants a fact names, in order: which arguments are people, said by matching on the
     /// construct rather than by asking the type of each argument, because asking was measured at

@@ -9,6 +9,7 @@ module NarrativeProjectionTests
 
 open Xunit
 open Narrative
+open Roster
 
 let private aiko = Aiko
 let private akane = Akane

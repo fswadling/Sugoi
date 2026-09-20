@@ -23,7 +23,10 @@ scripts, and assemble scenarios from zones and cast members.
    not the reference's fragmented `Shift+1..6` screens.
 3. **Live-edit** — the editor and runtime share one live cue tree; backtick (`` ` ``)
    toggles between play and edit with no cloning.
-4. **Undo everywhere** — every editor mutation is an undoable command.
+4. **Undo everywhere** — every editor mutation of *scene* state is an undoable command.
+   Session- and project-scoped authoring state that outlives a zone — a zone's player
+   designation, the collider overlay's visualisation preference, and the cast binding — is a
+   direct write instead, because the undo stacks are per zone (D-011, D-022).
 5. **Data-oriented** — editor state is a small record (mode, selection, tool,
    camera, undo stack); no per-field text-buffer bloat.
 
@@ -35,14 +38,15 @@ A single editor workspace with a menu bar and dockable panels (ImGui docking):
 |-------|------|---------|
 | **Viewport** | center | 3D scene, selection, gizmos, waypoint/trigger overlays |
 | **Outliner** | left | hierarchical tree: Zone → Actors/Props/Waypoints/Triggers; tabs with Cast, Advent, Cue, Scenario, and Zone Registry |
-| **Inspector** | right | the single editing surface: the selected item's properties (entity / cast member / scenario / zone entry) |
+| **Inspector** | right | the single editing surface: the selected item's properties (entity / scenario / zone entry) |
 | **Asset Browser** | bottom | actors/environments/props; drag into the viewport to spawn |
 
 The sub-editors are dockable windows/tabs opened from a **Window** menu, not
 separate screens. Cast, Advent, Cue, Scenario, and Zone Registry dock as tabs in
 the **left** panel (alongside the Outliner) and are shown by default:
 
-- **Cast** — list of members (name → asset); selecting a member edits it in the Inspector.
+- **Cast** — the cast as a tree: each member a collapsible node, and under her one row per
+  look with the actor asset bound to that slot (D-022).
 - **Advent** — named flag set.
 - **Cue** — recursive tree-list editor for the top-level cue.
 - **Scenario** — scenario list; selecting one shows its Cue/Scene tabs in the Inspector.
@@ -51,7 +55,9 @@ the **left** panel (alongside the Outliner) and are shown by default:
 The **Inspector** is the single editing surface (one selection → one Inspector):
 list panels navigate/select/add/delete, and the Inspector shows the selected
 item's settings. A trigger's cue is edited inline in the Inspector; a scenario's
-cue/scene are Inspector tabs.
+cue/scene are Inspector tabs. The Cast panel is the one surface that edits in
+place rather than through the Inspector (D-022), because a slot is not a
+selectable item and there are forty of them.
 
 ## Interaction model
 
@@ -112,8 +118,12 @@ undo stack. Commands store **values** (not closures):
   is classified as authored, derived, or runtime. Recording an entity is reading
   that value, and producing a live entity from it happens in one place per kind
   (`Zone.occupy*`/`spawn*`, which rebuild the body and renderer).
-- Non-entity surfaces (cast, scenario, zone registry, advent flags, cue root)
-  store **name-keyed before/after snapshots** of the immutable map/set entry.
+- Non-entity surfaces (scenario, zone registry, advent flags, cue root) store
+  **name-keyed before/after snapshots** of the immutable map/set entry. Note that none of
+  them is zone-scoped, so none has a stack today: only zone-scoped state is undoable, and
+  each of these needs a project-scoped stack when it lands. The cast binding is not one of
+  them (D-022) — a model assignment is a binding action rather than a scene edit, so it is
+  a direct write and no command records it.
 - Property edits are per-kind rather than generic: `Transform` and `Rename` cover
   the properties every kind shares, and a kind with an editable property of its own
   has its own command for it (`TriggerSet` for a trigger's volume and prompt, `Link`
@@ -145,6 +155,27 @@ The cue editor presents the recursive cue tree as a recursive **tree list**
 structure that is a recursive union with live `*_State` nodes during execution.
 The interaction is select, indent, per-node properties, reorder (mirroring the
 reference's recursive-tree editor).
+
+## Cast panel (D-022)
+
+The cast panel is a tree that assigns **in place**: each member is a collapsible node, and
+under her one row per look, each row naming the look and holding the actor asset bound to
+that slot. An earlier shape — a list of members, each selected and then edited in the
+Inspector — is rejected for two reasons: a *slot* (a member and a look) is not a selectable
+item in the one-selection model, so the Inspector would need a second notion of what is
+being edited; and binding forty slots through a two-step round trip each is worse than
+doing it in the list, which is where a member's other looks are visible for comparison.
+
+This is why the binding is neither undoable nor routed through the command system at all.
+The undo stacks are per zone (`GameplayState.UndoByZone`), swapped on a zone switch so an
+edit's undo always applies to the zone it was recorded in — and the cast binding outlives
+every zone, so an assignment parked in one zone's stack would be unreachable from every
+other, and would be discarded outright when that zone is deleted. Assigning to it is a
+direct write, like a zone's player designation and the collider overlay's visualisation
+preference, both of which the code already treats as binding actions rather than scene
+edits. A project-scoped stack is a real gap, but it is a gap for the *editable* surfaces
+that do not exist yet (scenario, zone registry, advent flags, cue root), not for this one:
+an assignment is two clicks in a list, and re-making it by hand costs less than undoing it.
 
 ## Selection and gizmos (D-012, D-015, D-016)
 

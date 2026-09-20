@@ -115,8 +115,8 @@ bool cimgui_is_window_active(const char* name)
     return window != nullptr && window->Active;
 }
 
-// Build the default editor dock layout: Outliner (left), Inspector (right),
-// Asset Browser (bottom), and a passthru central node for the 3D viewport.
+// Build the default editor dock layout: Outliner with the Cast panel (left), Inspector
+// (right), Asset Browser (bottom), and a passthru central node for the 3D viewport.
 void cimgui_setup_dock_layout(ImGuiID dockspace_id)
 {
     ImGui::DockBuilderRemoveNode(dockspace_id);
@@ -137,6 +137,8 @@ void cimgui_setup_dock_layout(ImGuiID dockspace_id)
         center->SetLocalFlags(center->LocalFlags | ImGuiDockNodeFlags_CentralNode);
 
     ImGui::DockBuilderDockWindow("Outliner", left);
+    // Cast is a tab beside the Outliner, per docs/EDITOR_DESIGN.md's Workspace table.
+    ImGui::DockBuilderDockWindow("Cast", left);
     ImGui::DockBuilderDockWindow("Inspector", right);
     ImGui::DockBuilderDockWindow("Asset Browser", bottom);
     ImGui::DockBuilderFinish(dockspace_id);

@@ -13,6 +13,7 @@ namespace Narrative
 // a stored fact is canonical and this is canonical text for it.
 
 open System
+open Roster
 
 module Canonical =
 
@@ -28,19 +29,19 @@ module Canonical =
     // re-derives a union's cases on every call, and measured at ~17 us against ~0.3 us for the
     // same text written out, which is what a commit's time used to go on (research D30).
 
-    let private one (character: Character) : string list = [ Vocabulary.characterName character ]
+    let private one (character: Character) : string list = [ Roster.characterName character ]
 
     /// The two names of a fact, in the order the value has them. Where the construct declares its
     /// participants interchangeable, the *value* is the way the engine guarantees that the order they
     /// were written in cannot distinguish two facts (research D22, D33).
     let private pair (a: Character) (b: Character) : string list =
-        [ Vocabulary.characterName a; Vocabulary.characterName b ]
+        [ Roster.characterName a; Roster.characterName b ]
 
     let private eventParts (event: Event) : string * string list =
         match event with
         | Arrived a -> nameof Arrived, one a
         | TraitAssigned (a, ascribed) ->
-            nameof TraitAssigned, [ Vocabulary.characterName a; Vocabulary.traitName ascribed ]
+            nameof TraitAssigned, [ Roster.characterName a; Vocabulary.traitName ascribed ]
         | FriendshipStarted (a, b) -> nameof FriendshipStarted, pair a b
         | FriendshipEnded (a, b) -> nameof FriendshipEnded, pair a b
         | CrushStarted (a, b) -> nameof CrushStarted, pair a b
@@ -50,7 +51,7 @@ module Canonical =
 
     let private factParts (fact: Fact) : string * string list =
         match fact with
-        | HasTrait (a, ascribed) -> nameof HasTrait, [ Vocabulary.characterName a; Vocabulary.traitName ascribed ]
+        | HasTrait (a, ascribed) -> nameof HasTrait, [ Roster.characterName a; Vocabulary.traitName ascribed ]
         | Friends (a, b) -> nameof Friends, pair a b
         | AttractedTo (a, b) -> nameof AttractedTo, pair a b
         | InRelationship (a, b) -> nameof InRelationship, pair a b

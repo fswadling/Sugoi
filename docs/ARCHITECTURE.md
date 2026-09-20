@@ -173,12 +173,15 @@ high-school social simulation, in which the player directs drama rather than
 steering relationship meters. Events are committed history; facts are what the
 current rule set says that history currently implies.
 
+- `cast/Roster.fs` — the closed roster of four `Character` cases, and the **one declaration of
+  the cast**: hoisted out of the engine (`specs/032-cast-binding`) so that the engine and the game
+  name the same cast without either owning it. Closed deliberately: a wrong case name does not
+  compile, a misspelled character is not a character, and the cast being fixed is what lets that be
+  a type rather than a table to keep in step. It is asset-free — the game binds a member and a look
+  to an actor asset in `world/Casting.fs`, and nothing here names a portrait, an asset or an actor.
 - `narrative/Vocabulary.fs` — one closed `Event` DU (8 cases), one closed `Fact`
   DU (7 cases), `FactKind` (the constructs as a value, which is what the index and a rule's reads are
-  keyed by), `Trait = Shy | HotHeaded`, and the closed roster of twenty `Character`
-  cases. Closed deliberately: a rule in the wrong category does not compile, a misspelled
-  character is not a character, and the cast being fixed is what lets the last of those be
-  a type rather than a table to keep in step.
+  keyed by), and `Trait = Shy | HotHeaded`. The roster is `Roster`'s rather than this module's.
 - `narrative/Canonical.fs` — canonical text `<Construct>(args)`: a **rendering** and nothing more,
   used by the report and by tests (research D34). Encoding matches on the construct and names its
   arguments with `nameof`, which measured about fifty times faster than asking the type what a value
@@ -215,11 +218,11 @@ Two properties the design depends on:
   replaying the same event stream through the new rules, not editing the past;
   there is no way to assert a fact or to alter a committed event at all.
 
-`narrative/` is listed **first** in `fsharp-game.fsproj`, ahead of the game's own
-files. F# compiles in list order, so that makes "the engine cannot reference the
-game" a compile error rather than a convention — which is why the compile order
-departs from the `core → … → Engine` sequence `docs/PROJECT_STRUCTURE.md`
-records.
+`cast/` is listed **first** in `fsharp-game.fsproj`, with `narrative/` immediately after it and
+ahead of the game's own files. F# compiles in list order, so the roster sits low enough that the
+engine can see it, while the engine still cannot reference the game — a compile error rather than
+a convention. That is why the compile order departs from the `core → … → Engine` sequence
+`docs/PROJECT_STRUCTURE.md` records.
 
 **Open: is the narrative engine a roadmap phase of its own, or part of phase
 10?** `specs/025-narrative-core` declines to settle whether it becomes a new
