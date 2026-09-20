@@ -22,11 +22,6 @@ type Zone =
       Props : SlotMap<Prop>
       Waypoints : SlotMap<Waypoint>
       Triggers : SlotMap<Trigger>
-      // Which waypoint each waypoint's chain continues at. Keyed by the source, so a
-      // waypoint has at most one next; a missing entry means it ends a chain. Entries
-      // naming a deleted waypoint are left in place — they are inert (resolution checks
-      // the target), and keeping them is what lets undo of a delete restore a chain.
-      Links : Dictionary<EntityRef, EntityRef>
       Batch : EnvironmentBatch.EnvironmentBatch
       mutable NextEnvironmentEpoch : uint32
       BodyToEntity : Dictionary<Physics.BodyId, EntityRef>
@@ -41,7 +36,6 @@ let create () : Zone =
       Props = SlotMap<Prop>(32u)
       Waypoints = SlotMap<Waypoint>(128u)
       Triggers = SlotMap<Trigger>(32u)
-      Links = Dictionary<EntityRef, EntityRef>()
       Batch = EnvironmentBatch.create ()
       NextEnvironmentEpoch = 0u
       BodyToEntity = Dictionary<Physics.BodyId, EntityRef>()
@@ -111,7 +105,7 @@ let tryEntityAt (zone: Zone) (ref: EntityRef) : Entity option =
         if not (parts.IsAlive(handleOf ref)) then None else
         let part = &parts.Get(handleOf ref)
         Some part.Base
-    | _ -> None
+    | EntityKind.Environment -> None
 
 // ── Collider derivation ──
 
@@ -228,10 +222,57 @@ let private mapBody (zone: Zone) (attachment: PhysicsAttachment<'T> option) (ref
     | Some ph ->
     do zone.BodyToEntity.[ph.Body] <- ref
 
-// A binding with no asset, for kinds that carry none (waypoints and triggers). The
-// delete command stores it so undo can restore the entity; those kinds' restore ignores it.
-let bindingNone : AssetBinding =
-    { AssetId = None; SubmeshIndex = 0; SubmeshCount = 0 }
+// ── Recorded state ──
+//
+// A command carries a kind's own record, taken through `capture*`. Each returns the live
+// record with the fields a restore must not reuse cleared: the derived resources (body
+// attachment, renderer) and any runtime flag, so a recorded command can hold neither a
+// released GPU object nor a stale body id. The copy is a record-update, so a field added
+// to a kind later is carried without an edit here; its mirror is the matching `occupy*`,
+// which builds its record field by field and so fails to build until that field is
+// classified as authored, derived, or runtime.
+//
+// Each raises for a stale or wrong-kind ref: every caller resolves the ref through
+// `tryEntityAt` first, so a miss here is a broken invariant rather than a condition.
+
+let captureActor (zone: Zone) (ref: EntityRef) : Actor =
+    if ref.Kind <> EntityKind.Actor || not (zone.Actors.IsAlive(handleOf ref)) then
+        invalidOp (sprintf "captureActor: %A is not a live actor" ref)
+
+    let actor = zone.Actors.Get(handleOf ref)
+    { actor with Physics = None; Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
+
+let captureProp (zone: Zone) (ref: EntityRef) : Prop =
+    if ref.Kind <> EntityKind.Prop || not (zone.Props.IsAlive(handleOf ref)) then
+        invalidOp (sprintf "captureProp: %A is not a live prop" ref)
+
+    let prop = zone.Props.Get(handleOf ref)
+    { prop with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
+
+// A part's record is captured through its environment, so a ref whose epoch no longer
+// matches the loaded environment is not a part at all.
+let capturePart (zone: Zone) (ref: EntityRef) : Prop =
+    match partsFor zone ref with
+    | Some parts when parts.IsAlive(handleOf ref) ->
+        let part = parts.Get(handleOf ref)
+        { part with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
+    | _ -> invalidOp (sprintf "capturePart: %A is not a live part" ref)
+
+let captureWaypoint (zone: Zone) (ref: EntityRef) : Waypoint =
+    if ref.Kind <> EntityKind.Waypoint || not (zone.Waypoints.IsAlive(handleOf ref)) then
+        invalidOp (sprintf "captureWaypoint: %A is not a live waypoint" ref)
+
+    let waypoint = zone.Waypoints.Get(handleOf ref)
+    waypoint
+
+// The runtime `Triggered` flag is cleared: the trigger system recomputes it, so a
+// restore must not put back the value the entity happened to have when it was recorded.
+let captureTrigger (zone: Zone) (ref: EntityRef) : Trigger =
+    if ref.Kind <> EntityKind.Trigger || not (zone.Triggers.IsAlive(handleOf ref)) then
+        invalidOp (sprintf "captureTrigger: %A is not a live trigger" ref)
+
+    let trigger = zone.Triggers.Get(handleOf ref)
+    { trigger with Triggered = false }
 
 // The payload a trigger is created with: a one-metre radius two metres tall, not
 // interactable, with no prompt. A trigger's authored shape is what `Command.TriggerSet`
@@ -246,26 +287,7 @@ let private defaultTrigger (entity: Entity) : Trigger =
       Prompt = ""
       Triggered = false }
 
-// The asset binding behind a ref (asset id +, for props/parts, the submesh range).
-// Raises for a stale or absent entity and for kinds without a binding; a waypoint
-// carries none, so it returns `bindingNone`.
-let bindingAt (zone: Zone) (ref: EntityRef) : AssetBinding =
-    match ref.Kind with
-    | EntityKind.Actor ->
-        let a = &zone.Actors.Get(handleOf ref)
-        { AssetId = Some a.AssetId; SubmeshIndex = 0; SubmeshCount = 0 }
-    | EntityKind.Prop ->
-        let p = &zone.Props.Get(handleOf ref)
-        { AssetId = p.AssetId; SubmeshIndex = p.SubmeshIndex; SubmeshCount = p.SubmeshCount }
-    | EntityKind.Part ->
-        match partsFor zone ref with
-        | None -> failwithf "bindingAt: part ref %A does not belong to the loaded environment" ref
-        | Some parts ->
-        let p = &parts.Get(handleOf ref)
-        { AssetId = p.AssetId; SubmeshIndex = p.SubmeshIndex; SubmeshCount = p.SubmeshCount }
-    | EntityKind.Waypoint -> bindingNone
-    | EntityKind.Trigger -> bindingNone
-    | _ -> failwithf "bindingAt: kind %A has no asset binding" ref.Kind
+
 
 // Change a mesh-backed entity's transform in `map` (a placed prop or an
 // environment part), keeping its body in step. A mesh shape bakes the entity
@@ -323,7 +345,7 @@ let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform
         | Some parts ->
         do setMeshTransform zone world parts ref transform
 
-    | _ -> ()
+    | EntityKind.Environment -> ()
 
 // Change an existing entity's name at the ref (Actor/Prop/Part/Waypoint/Trigger). No-op
 // for other kinds or a stale/absent ref. A name is a label rather than an identity — refs
@@ -358,7 +380,7 @@ let setName (zone: Zone) (ref: EntityRef) (name: string) : unit =
             let p = &parts.Get(handleOf ref)
             p <- { p with Base = { p.Base with Name = name } }
 
-    | _ -> ()
+    | EntityKind.Environment -> ()
 
 // Build a prop renderer from a binding: a placed prop asset (`Some id`) or an
 // environment part (`None`, the part's submesh range in the zone's environment).
@@ -378,59 +400,86 @@ let private ensureSlotFree (map: SlotMap<'T>) (ref: EntityRef) : unit =
         invalidOp (sprintf "slot %d of ref %A is occupied — a recorded slot was reused by an untracked Add" ref.Index ref)
 
 // Place a trigger payload at a ref's slot: the restore path for a deleted or copied
-// trigger, whose shape the shared `Delete`/`Duplicate` payload (a base entity) cannot
-// carry. Raises when the slot is not free.
+// trigger. Built field by field from the payload, with the runtime flag cleared.
+// Raises when the slot is not free.
 let occupyTrigger (zone: Zone) (ref: EntityRef) (trigger: Trigger) : unit =
     do ensureSlotFree zone.Triggers ref
-    zone.Triggers.Occupy(handleOf ref, trigger)
+    let restored = { Base = trigger.Base; Radius = trigger.Radius; Height = trigger.Height; Interactable = trigger.Interactable; Prompt = trigger.Prompt; Triggered = false }
+    zone.Triggers.Occupy(handleOf ref, restored)
 
-// Write an entity (base + binding + collider + body) back at the ref, for command
-// apply/undo to re-create one that was removed. The recorded slot is always free
-// here — entities are only ever added to their own kind's map by `Spawning`, which
-// pairs every `Add` with a command — so a taken slot means an untracked `Add` and
-// `Occupy` raises rather than clobbering the occupant.
-let setActorWithAsset (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (entity: Entity) (binding: AssetBinding) : unit =
-    match ref.Kind with
-    | EntityKind.Actor ->
-        do ensureSlotFree zone.Actors ref
-        let assetId =
-            match binding.AssetId with
-            | Some id -> id
-            | None -> failwith "actor binding without an asset id"
-        let renderer = Assets.createActorRender assets assetId
-        let attachment = attachActorPhysics world assets assetId entity.Transform
-        let actor = { Base = entity; AssetId = assetId; Physics = attachment; ShowCollider = false; Renderer = renderer }
-        zone.Actors.Occupy(handleOf ref, actor)
-        do mapBody zone attachment ref
-    | EntityKind.Prop ->
-        do ensureSlotFree zone.Props ref
-        let renderer = propRenderer zone assets binding
-        let attachment = attachPropPhysics world zone assets binding entity.Transform
-        let prop =
-            { Base = entity; AssetId = binding.AssetId; SubmeshIndex = binding.SubmeshIndex; SubmeshCount = binding.SubmeshCount; Physics = attachment; Renderer = renderer }
-        zone.Props.Occupy(handleOf ref, prop)
-        do mapBody zone attachment ref
-    | EntityKind.Part ->
-        // A part restore only runs while the environment it names is loaded: swaps
-        // are commands and the stack is LIFO, so a swap is undone before the part
-        // commands that followed it. An epoch mismatch is therefore a broken
-        // invariant, not a no-op.
-        match partsFor zone ref with
-        | Some parts ->
-            do ensureSlotFree parts ref
-            let renderer = propRenderer zone assets binding
-            let attachment = attachPropPhysics world zone assets binding entity.Transform
-            let prop =
-                { Base = entity; AssetId = binding.AssetId; SubmeshIndex = binding.SubmeshIndex; SubmeshCount = binding.SubmeshCount; Physics = attachment; Renderer = renderer }
-            parts.Occupy(handleOf ref, prop)
-            do mapBody zone attachment ref
-        | None -> failwithf "setActorWithAsset: part ref %A does not belong to the loaded environment" ref
-    | EntityKind.Waypoint ->
-        do ensureSlotFree zone.Waypoints ref
-        zone.Waypoints.Occupy(handleOf ref, { Base = entity })
-    | EntityKind.Trigger ->
-        do occupyTrigger zone ref (defaultTrigger entity)
-    | _ -> ()
+// ── Restoring a recorded record ──
+//
+// The mirror of `capture*`: each builds its kind's record field by field from the payload
+// and rebuilds what a command does not carry — the body and the renderer — so a field
+// added to a kind fails to build here until its author says whether it is authored (copied
+// from the payload), derived (rebuilt), or runtime (left blank).
+//
+// The recorded slot is always free when a restore runs: entities are only ever added to
+// their own kind's map by `Spawning`, which pairs every add with the command that reverses
+// it. `ensureSlotFree` therefore turns a slot stolen by an untracked add into a loud
+// failure, and does so before any GPU or physics resource is built.
+
+let occupyActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (actor: Actor) : unit =
+    do ensureSlotFree zone.Actors ref
+    let renderer = Assets.createActorRender assets actor.AssetId
+    let attachment = attachActorPhysics world assets actor.AssetId actor.Base.Transform
+    zone.Actors.Occupy(handleOf ref, { Base = actor.Base
+                                       AssetId = actor.AssetId
+                                       Physics = attachment
+                                       ShowCollider = actor.ShowCollider
+                                       Renderer = renderer })
+    do mapBody zone attachment ref
+
+let occupyProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (prop: Prop) : unit =
+    do ensureSlotFree zone.Props ref
+    let binding = { AssetId = prop.AssetId; SubmeshIndex = prop.SubmeshIndex; SubmeshCount = prop.SubmeshCount }
+    let renderer = propRenderer zone assets binding
+    let attachment = attachPropPhysics world zone assets binding prop.Base.Transform
+    zone.Props.Occupy(handleOf ref, { Base = prop.Base
+                                      AssetId = prop.AssetId
+                                      SubmeshIndex = prop.SubmeshIndex
+                                      SubmeshCount = prop.SubmeshCount
+                                      Physics = attachment
+                                      Renderer = renderer })
+    do mapBody zone attachment ref
+
+// A part restore only runs while the environment it names is loaded: swaps are commands
+// and the stack is LIFO, so a swap is undone before the part commands that followed it.
+// An epoch mismatch is therefore a broken invariant, not a no-op.
+let occupyPart (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (part: Prop) : unit =
+    match partsFor zone ref with
+    | None -> failwithf "occupyPart: part ref %A does not belong to the loaded environment" ref
+    | Some parts ->
+    do ensureSlotFree parts ref
+    let binding = { AssetId = part.AssetId; SubmeshIndex = part.SubmeshIndex; SubmeshCount = part.SubmeshCount }
+    let renderer = propRenderer zone assets binding
+    let attachment = attachPropPhysics world zone assets binding part.Base.Transform
+    parts.Occupy(handleOf ref, { Base = part.Base
+                                 AssetId = part.AssetId
+                                 SubmeshIndex = part.SubmeshIndex
+                                 SubmeshCount = part.SubmeshCount
+                                 Physics = attachment
+                                 Renderer = renderer })
+    do mapBody zone attachment ref
+
+// Toggle an actor's collider overlay. A direct write rather than a command: the overlay
+// is an editor visualisation preference, not a scene edit, so toggling it is not an undo
+// step. Its value is still carried by whatever command records the actor, so a delete or
+// a copy takes it along.
+let setShowCollider (zone: Zone) (ref: EntityRef) (show: bool) : unit =
+    if zone.Actors.IsAlive(handleOf ref) then
+        let actor = &zone.Actors.Get(handleOf ref)
+        actor <- { actor with ShowCollider = show }
+
+let occupyWaypoint (zone: Zone) (ref: EntityRef) (waypoint: Waypoint) : unit =
+    do ensureSlotFree zone.Waypoints ref
+    zone.Waypoints.Occupy(handleOf ref, { Base = waypoint.Base; Next = waypoint.Next })
+
+// ── Removing an entity ──
+//
+// The teardown half of a delete: free the slot and release what the kind owns. Each is a
+// no-op for a stale ref, so a command that runs against an entity the editor has already
+// removed does nothing rather than raising.
 
 // Remove a mesh-backed entity (placed prop or environment part) from `map`,
 // destroying its body. No-op for a stale ref.
@@ -441,28 +490,27 @@ let private removeMeshEntity (zone: Zone) (world: Physics.World) (map: SlotMap<P
         do destroyBody world zone physics
         map.Remove(handleOf ref, Some Prop.releaseRenderer)
 
-// Remove the entity at the ref (Actor/Prop/Part/Waypoint/Trigger), destroying its body.
-// No-op for other kinds or a stale ref (its generation no longer matches the slot).
-let removeEntity (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
-    match ref.Kind with
-    | EntityKind.Actor ->
-        if isAlive zone ref then
-            let physics = (zone.Actors.Get(handleOf ref)).Physics
-            do destroyBody world zone physics
-            zone.Actors.Remove(handleOf ref, Some Actor.releaseRenderer)
-    | EntityKind.Prop ->
-        do removeMeshEntity zone world zone.Props ref
-    | EntityKind.Part ->
-        match partsFor zone ref with
-        | Some parts -> do removeMeshEntity zone world parts ref
-        | None -> ()
-    | EntityKind.Waypoint ->
-        if zone.Waypoints.IsAlive(handleOf ref) then
-            zone.Waypoints.Free(handleOf ref)
-    | EntityKind.Trigger ->
-        if zone.Triggers.IsAlive(handleOf ref) then
-            zone.Triggers.Free(handleOf ref)
-    | _ -> ()
+let removeActor (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
+    if zone.Actors.IsAlive(handleOf ref) then
+        let physics = (zone.Actors.Get(handleOf ref)).Physics
+        do destroyBody world zone physics
+        zone.Actors.Remove(handleOf ref, Some Actor.releaseRenderer)
+
+let removeProp (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
+    do removeMeshEntity zone world zone.Props ref
+
+let removePart (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
+    match partsFor zone ref with
+    | Some parts -> do removeMeshEntity zone world parts ref
+    | None -> ()
+
+let removeWaypoint (zone: Zone) (ref: EntityRef) : unit =
+    if zone.Waypoints.IsAlive(handleOf ref) then
+        zone.Waypoints.Free(handleOf ref)
+
+let removeTrigger (zone: Zone) (ref: EntityRef) : unit =
+    if zone.Triggers.IsAlive(handleOf ref) then
+        zone.Triggers.Free(handleOf ref)
 
 // Spawn a new actor and return the new ref (renderer + physics attached).
 let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) : EntityRef =
@@ -502,18 +550,23 @@ let spawnProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) 
 // Spawn a waypoint from its base entity and return its ref. Waypoints carry no
 // renderer or body, so no world/assets are needed.
 let spawnWaypoint (zone: Zone) (entity: Entity) : EntityRef =
-    let handle = zone.Waypoints.Add({ Base = entity })
+    let handle = zone.Waypoints.Add({ Base = entity; Next = None })
     waypointRef handle.Index handle.Generation
 
 // The waypoint a waypoint's chain continues at, if that link still resolves: the source
 // must be a live waypoint, the link must exist, and its target must resolve as a live
 // waypoint. Pure: an unresolvable link is left where it is, because it becomes live
 // again if undo restores the waypoint it names.
+// The waypoint a waypoint's chain continues at, if that link still resolves: the source
+// must be a live waypoint and the target must resolve as a live waypoint. Otherwise
+// there is no next. Pure: a link whose target is gone is left exactly as it is and simply
+// stops resolving, so it becomes live again if undo restores the waypoint it names.
 let waypointNext (zone: Zone) (ref: EntityRef) : EntityRef option =
-    if not (isAlive zone ref) then None else
+    if ref.Kind <> EntityKind.Waypoint then None else
+    if not (zone.Waypoints.IsAlive(handleOf ref)) then None else
 
-    match zone.Links.TryGetValue ref with
-    | true, target when isAlive zone target -> Some target
+    match (zone.Waypoints.Get(handleOf ref)).Next with
+    | Some target when isAlive zone target -> Some target
     | _ -> None
 
 // Point a waypoint at another (`Some target`), or end its chain (`None`). A waypoint
@@ -521,16 +574,25 @@ let waypointNext (zone: Zone) (ref: EntityRef) : EntityRef option =
 // preconditions the editor's disabled actions keep unreachable. The target is not
 // required to be alive: undoing a delete can restore a link before the waypoint it
 // names is back, and such a link simply does not resolve.
+// Point a waypoint at another (`Some target`), or end its chain (`None`). A waypoint
+// cannot be its own next and a link is only ever between waypoints; both are
+// preconditions the editor's disabled actions keep unreachable. The target is not
+// required to be alive: undoing a delete can restore a link while the waypoint it names
+// is momentarily gone, and such a link simply does not resolve.
 let setWaypointNext (zone: Zone) (ref: EntityRef) (next: EntityRef option) : unit =
     if ref.Kind <> EntityKind.Waypoint then invalidOp "setWaypointNext: the source is not a waypoint" else
     if next = Some ref then invalidOp "setWaypointNext: a waypoint cannot be its own next" else
+    if not (zone.Waypoints.IsAlive(handleOf ref)) then () else
 
-    match next with
-    | None -> zone.Links.Remove ref |> ignore
-    | Some target ->
-        if target.Kind <> EntityKind.Waypoint then invalidOp "setWaypointNext: the target is not a waypoint" else
+    let target =
+        match next with
+        | None -> None
+        | Some t ->
+        if t.Kind <> EntityKind.Waypoint then invalidOp "setWaypointNext: the target is not a waypoint" else
+        Some t
 
-        zone.Links.[ref] <- target
+    let waypoint = &zone.Waypoints.Get(handleOf ref)
+    waypoint <- { waypoint with Next = target }
 
 // ── Triggers ──
 

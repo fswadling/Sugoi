@@ -4,75 +4,112 @@ module Command
 // mutation over the active zone, plus the affected `EntityRef` (kind, index,
 // generation, and — for a part — its environment epoch). The generation and epoch
 // are what let a restored entity be told apart from one that reused its slot.
+//
+// A create and a delete exist per entity kind, each carrying that kind's own record
+// — the record as `Zone.capture*` takes it, with derived resources and runtime flags
+// cleared. There is no kind-agnostic payload: the base entity every kind shares could
+// not carry a kind's own authored state, which is what this shape exists to fix.
+// A `*Create` serves both spawning a new entity and duplicating an existing one,
+// since the two were always the same operation and differ only in where the payload
+// came from.
 
 open Entity
 open Zone
 
 type Command =
-    | Spawn of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
-    | Delete of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
-    | Duplicate of Ref : EntityRef * Entity : Entity * Binding : AssetBinding
+    // An edit of the properties every kind shares.
     | Transform of Ref : EntityRef * Before : Transform * After : Transform
     | Rename of Ref : EntityRef * Before : string * After : string
-    | Link of Ref : EntityRef * Before : EntityRef option * After : EntityRef option
-    // The extend gesture as one step: create `Ref` from `Entity` and point `From` at it.
-    | LinkSpawn of From : EntityRef * Before : EntityRef option * Ref : EntityRef * Entity : Entity
-    // A trigger's payload is richer than the base entity the shared cases carry, so the
-    // kinds that destroy or copy one record it here.
-    | TriggerSet of Ref : EntityRef * Before : Trigger * After : Trigger
+    // One create and one delete per kind, carrying the kind's own record.
+    | ActorCreate of Ref : EntityRef * Actor : Actor
+    | ActorDelete of Ref : EntityRef * Actor : Actor
+    | PropCreate of Ref : EntityRef * Prop : Prop
+    | PropDelete of Ref : EntityRef * Prop : Prop
+    | PartCreate of Ref : EntityRef * Part : Prop
+    | PartDelete of Ref : EntityRef * Part : Prop
+    | WaypointCreate of Ref : EntityRef * Waypoint : Waypoint
+    | WaypointDelete of Ref : EntityRef * Waypoint : Waypoint
+    | TriggerCreate of Ref : EntityRef * Trigger : Trigger
     | TriggerDelete of Ref : EntityRef * Trigger : Trigger
-    | TriggerDuplicate of Ref : EntityRef * Trigger : Trigger
+    // A property edit that belongs to one kind: a waypoint's link, a trigger's shape.
+    | Link of Ref : EntityRef * Before : EntityRef option * After : EntityRef option
+    | TriggerSet of Ref : EntityRef * Before : Trigger * After : Trigger
+    // The extend gesture as one step: create `Ref` from `Waypoint` and point `From` at it.
+    | LinkSpawn of From : EntityRef * Before : EntityRef option * Ref : EntityRef * Waypoint : Waypoint
+    // Zone-level rather than an entity: swapping the loaded environment.
     | SetEnvironment of Previous : Environment option * Next : Environment option
 
 // ── apply / undo a single command ──
 
 let apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
-    | Spawn (r, entity, binding)
-    | Duplicate (r, entity, binding) ->
-        setActorWithAsset zone physics assets r entity binding
-    | Delete (r, _, _) ->
-        removeEntity zone physics r
     | Transform (r, _, after) ->
         setTransform zone physics r after
     | Rename (r, _, after) ->
         setName zone r after
+    | ActorCreate (r, actor) ->
+        occupyActor zone physics assets r actor
+    | ActorDelete (r, _) ->
+        removeActor zone physics r
+    | PropCreate (r, prop) ->
+        occupyProp zone physics assets r prop
+    | PropDelete (r, _) ->
+        removeProp zone physics r
+    | PartCreate (r, part) ->
+        occupyPart zone physics assets r part
+    | PartDelete (r, _) ->
+        removePart zone physics r
+    | WaypointCreate (r, waypoint) ->
+        occupyWaypoint zone r waypoint
+    | WaypointDelete (r, _) ->
+        removeWaypoint zone r
+    | TriggerCreate (r, trigger) ->
+        occupyTrigger zone r trigger
+    | TriggerDelete (r, _) ->
+        removeTrigger zone r
     | Link (r, _, after) ->
         setWaypointNext zone r after
-    | LinkSpawn (from, _, r, entity) ->
-        setActorWithAsset zone physics assets r entity bindingNone
-        setWaypointNext zone from (Some r)
     | TriggerSet (r, _, after) ->
         setTrigger zone r after
-    | TriggerDelete (r, _) ->
-        removeEntity zone physics r
-    | TriggerDuplicate (r, trigger) ->
-        occupyTrigger zone r trigger
+    | LinkSpawn (from, _, r, waypoint) ->
+        occupyWaypoint zone r waypoint
+        setWaypointNext zone from (Some r)
     | SetEnvironment (_, next) ->
         setEnvironment zone physics assets next
 
 let undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
-    | Spawn (r, _, _)
-    | Duplicate (r, _, _) ->
-        removeEntity zone physics r
-    | Delete (r, entity, binding) ->
-        setActorWithAsset zone physics assets r entity binding
     | Transform (r, before, _) ->
         setTransform zone physics r before
     | Rename (r, before, _) ->
         setName zone r before
-    | Link (r, before, _) ->
-        setWaypointNext zone r before
-    | LinkSpawn (from, before, r, _) ->
-        setWaypointNext zone from before
-        removeEntity zone physics r
-    | TriggerSet (r, before, _) ->
-        setTrigger zone r before
+    | ActorCreate (r, _) ->
+        removeActor zone physics r
+    | ActorDelete (r, actor) ->
+        occupyActor zone physics assets r actor
+    | PropCreate (r, _) ->
+        removeProp zone physics r
+    | PropDelete (r, prop) ->
+        occupyProp zone physics assets r prop
+    | PartCreate (r, _) ->
+        removePart zone physics r
+    | PartDelete (r, part) ->
+        occupyPart zone physics assets r part
+    | WaypointCreate (r, _) ->
+        removeWaypoint zone r
+    | WaypointDelete (r, waypoint) ->
+        occupyWaypoint zone r waypoint
+    | TriggerCreate (r, _) ->
+        removeTrigger zone r
     | TriggerDelete (r, trigger) ->
         occupyTrigger zone r trigger
-    | TriggerDuplicate (r, _) ->
-        removeEntity zone physics r
+    | Link (r, before, _) ->
+        setWaypointNext zone r before
+    | TriggerSet (r, before, _) ->
+        setTrigger zone r before
+    | LinkSpawn (from, before, r, _) ->
+        setWaypointNext zone from before
+        removeWaypoint zone r
     | SetEnvironment (previous, _) ->
         setEnvironment zone physics assets previous
 

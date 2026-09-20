@@ -33,7 +33,7 @@ let ``Prop composes the shared Entity base`` () =
 
 [<Fact>]
 let ``Waypoint and Trigger compose the shared Entity base`` () =
-    let waypoint : Waypoint = { Base = baseEntity "start" }
+    let waypoint : Waypoint = { Base = baseEntity "start"; Next = None }
     let trigger : Trigger =
         { Base = baseEntity "area"
           Radius = 1.5f

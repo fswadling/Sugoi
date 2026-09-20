@@ -107,8 +107,8 @@ let ``duplicating a part spawns a copy, selects it, and pushes the reversing com
 
     // The paired command must name the copy, so undoing it removes exactly that.
     match state.Editor.Undo.Applied with
-    | Duplicate (r, _, _) :: _ -> Assert.Equal(state.Editor.Selection.Value, r)
-    | other -> Assert.Fail(sprintf "expected a Duplicate command, got %A" other)
+    | PartCreate (r, _) :: _ -> Assert.Equal(state.Editor.Selection.Value, r)
+    | other -> Assert.Fail(sprintf "expected a PartCreate command, got %A" other)
 
 [<Fact>]
 let ``duplicating a waypoint spawns a copy, selects it, and pushes the reversing command`` () =
@@ -131,8 +131,8 @@ let ``duplicating a waypoint spawns a copy, selects it, and pushes the reversing
     | None -> Assert.Fail("duplicate did not select the copy")
 
     match state.Editor.Undo.Applied with
-    | Duplicate (r, _, _) :: _ -> Assert.Equal(state.Editor.Selection.Value, r)
-    | other -> Assert.Fail(sprintf "expected a Duplicate command, got %A" other)
+    | WaypointCreate (r, _) :: _ -> Assert.Equal(state.Editor.Selection.Value, r)
+    | other -> Assert.Fail(sprintf "expected a WaypointCreate command, got %A" other)
 
 [<Fact>]
 let ``deleting a waypoint and undoing restores its transform at the recorded slot`` () =
@@ -215,7 +215,7 @@ let ``extending a waypoint that already has a next restores the previous one on 
     Assert.True(Option.isNone (Zone.tryEntityAt zone b))
 
 [<Fact>]
-let ``a duplicated waypoint starts its own chain`` () =
+let ``a duplicated waypoint carries the link to the same successor`` () =
     let assets = headlessAssets ()
     let shared = sharedState assets
     let zone = Zone.create ()
@@ -226,12 +226,18 @@ let ``a duplicated waypoint starts its own chain`` () =
 
     Spawning.duplicate shared &state a (entity "a-copy")
 
-    // The copy carries no link — a link belongs to the waypoint it is set on — and the
-    // original's chain is untouched.
+    // A copy carries every property of the original, its link included, so the chain now
+    // branches at `b`; the original's own link is untouched.
     let copy = state.Editor.Selection.Value
     Assert.NotEqual<EntityRef>(a, copy)
-    Assert.True(Option.isNone (Zone.waypointNext zone copy))
+    Assert.Equal(Some b, Zone.waypointNext zone copy)
     Assert.Equal(Some b, Zone.waypointNext zone a)
+
+    // The copy's link is a reference like any other: it goes stale rather than pointing
+    // somewhere else when its target is deleted.
+    do Zone.removeWaypoint zone b
+    Assert.True(Option.isNone (Zone.waypointNext zone copy))
+    Assert.True(Option.isNone (Zone.waypointNext zone a))
 
 [<Fact>]
 let ``duplicating a trigger copies its payload but not its runtime state`` () =
@@ -256,8 +262,8 @@ let ``duplicating a trigger copies its payload but not its runtime state`` () =
     Assert.False(copied.Triggered)
 
     match state.Editor.Undo.Applied with
-    | [ TriggerDuplicate (r, _) ] -> Assert.Equal<EntityRef>(copy, r)
-    | other -> Assert.Fail(sprintf "expected exactly one TriggerDuplicate command, got %A" other)
+    | [ TriggerCreate (r, _) ] -> Assert.Equal<EntityRef>(copy, r)
+    | other -> Assert.Fail(sprintf "expected exactly one TriggerCreate command, got %A" other)
 
 [<Fact>]
 let ``deleting a trigger and undoing restores its authored shape`` () =
@@ -301,7 +307,7 @@ let ``duplicating a kind with no entity fails loudly`` () =
             Spawning.duplicate shared &state source (entity "ghost")
         with ex ->
             message <- ex.Message
-        Assert.Contains("has no entity to duplicate", message)
+        Assert.Contains("is not an addressable entity", message)
 
 // ── Restore onto an occupied slot ──
 
@@ -313,11 +319,11 @@ let ``restoring onto an occupied slot reports the reused slot instead of clobber
     let environment = Zone.loadEnvironment zone shared.Physics assets "room"
     // The part's slot is live, so restoring a recorded ref that names it is a bug.
     let ref = partRef environment.Epoch 0u 0u
-    let binding = Zone.bindingAt zone ref
+    let record = Zone.capturePart zone ref
 
     let mutable message = ""
     try
-        Zone.setActorWithAsset zone shared.Physics assets ref (entity "restored") binding
+        Zone.occupyPart zone shared.Physics assets ref record
     with ex ->
         message <- ex.Message
 

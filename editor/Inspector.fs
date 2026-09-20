@@ -99,11 +99,9 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         // Actor-only: bind this actor as the played character. A deliberate
         // play-binding action, not an undoable scene edit, and it touches no physics.
         if ref.Kind = EntityKind.Actor then
-            let handle : SlotMap.Handle = { Index = ref.Index; Generation = ref.Generation }
-            let mutable show = (zone.Actors.Get(handle)).ShowCollider
+            let mutable show = (Zone.captureActor zone ref).ShowCollider
             if ImGui.checkbox("Show Collider", &show) then
-                let actor = &zone.Actors.Get(handle)
-                actor <- { actor with ShowCollider = show }
+                do Zone.setShowCollider zone ref show
 
             if ImGui.button("Set as Player", ImGui.ImVec2(0.0f, 0.0f)) then
                 zone.Player <- ValueSome (Systems.playerHandleOf ref)

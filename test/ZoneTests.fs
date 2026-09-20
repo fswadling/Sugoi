@@ -141,7 +141,7 @@ let ``removing a prop makes its ref stale`` () =
     let handle = zone.Props.Add(prop "crate")
     let ref = propRef handle.Index handle.Generation
 
-    Zone.removeEntity zone world ref
+    Zone.removeProp zone world ref
 
     Assert.False(Zone.isAlive zone ref)
     Assert.True(Option.isNone (Zone.tryEntityAt zone ref))
@@ -153,7 +153,7 @@ let ``a stale prop ref does not alias the prop that reuses its slot`` () =
     let handle = zone.Props.Add(prop "first")
     let ref = propRef handle.Index handle.Generation
 
-    Zone.removeEntity zone world ref
+    Zone.removeProp zone world ref
 
     // The freed index is reused, so same index but a fresh generation...
     let handle2 = zone.Props.Add(prop "second")
@@ -173,7 +173,7 @@ let ``undo restores the recorded generation and redo removes it again`` () =
     let handle = zone.Props.Add(original)
     let ref = propRef handle.Index handle.Generation
 
-    Zone.removeEntity zone world ref
+    Zone.removeProp zone world ref
     Assert.True(Option.isNone (Zone.tryEntityAt zone ref))
 
     // Undo re-occupies the freed slot, restoring the generation the ref recorded.
@@ -183,7 +183,7 @@ let ``undo restores the recorded generation and redo removes it again`` () =
     Assert.Equal(1u, zone.Props.Count)
 
     // Redo deletes it once more; the ref goes stale again.
-    Zone.removeEntity zone world ref
+    Zone.removeProp zone world ref
     Assert.True(Option.isNone (Zone.tryEntityAt zone ref))
 
 [<Fact>]
@@ -234,7 +234,7 @@ let ``removing a waypoint makes its ref stale`` () =
     let world = Physics.create ()
     let ref = Zone.spawnWaypoint zone (entity "start")
 
-    Zone.removeEntity zone world ref
+    Zone.removeWaypoint zone ref
 
     Assert.False(Zone.isAlive zone ref)
     Assert.True(Option.isNone (Zone.tryEntityAt zone ref))
@@ -245,7 +245,7 @@ let ``a stale waypoint ref does not alias the waypoint that reuses its slot`` ()
     let world = Physics.create ()
     let ref = Zone.spawnWaypoint zone (entity "first")
 
-    Zone.removeEntity zone world ref
+    Zone.removeWaypoint zone ref
 
     // The freed index is reused, so same index but a fresh generation...
     let ref2 = Zone.spawnWaypoint zone (entity "second")
@@ -305,7 +305,7 @@ let ``a rename leaves the transform, body, and binding untouched`` () =
     Assert.Equal(before, (Zone.tryEntityAt zone ref).Value.Transform)
     Assert.Equal<BodyId>(body, propBody zone ref)
     Assert.Equal<EntityRef>(ref, zone.BodyToEntity.[body])
-    Assert.Equal(Some "crate", (Zone.bindingAt zone ref).AssetId)
+    Assert.Equal(Some "crate", (Zone.captureProp zone ref).AssetId)
     Assert.True(Zone.isAlive zone ref)
 
 [<Fact>]
@@ -314,7 +314,7 @@ let ``a rename addressed to a stale or unstored ref changes nothing`` () =
     let world = Physics.create ()
     let ref = Zone.spawnWaypoint zone (entity "start")
 
-    Zone.removeEntity zone world ref
+    Zone.removeWaypoint zone ref
 
     do Zone.setName zone ref "ghost"
     do Zone.setName zone { Kind = EntityKind.Environment; Index = 0u; Generation = 0u; Epoch = 0u } "ghost"
@@ -419,7 +419,7 @@ let ``a link to a deleted waypoint stops the chain`` () =
     do Zone.setWaypointNext zone a (Some b)
     do Zone.setWaypointNext zone b (Some c)
 
-    Zone.removeEntity zone world b
+    Zone.removeWaypoint zone b
 
     // The chain stops at the link that named b; b's own link is inert, not dangling.
     Assert.True(Option.isNone (Zone.waypointNext zone a))
@@ -436,7 +436,7 @@ let ``a waypoint reusing a deleted waypoint's slot is not aliased`` () =
     do Zone.setWaypointNext zone a (Some b)
     do Zone.setWaypointNext zone b (Some c)
 
-    Zone.removeEntity zone world b
+    Zone.removeWaypoint zone b
 
     // The freed index is reused, so same index but a fresh generation...
     let newcomer = Zone.spawnWaypoint zone (entity "newcomer")
@@ -457,9 +457,9 @@ let ``chains live with their zone`` () =
     do Zone.setWaypointNext first a (Some b)
 
     Assert.Equal(Some b, Zone.waypointNext first a)
-    // The other zone knows nothing of that waypoint, and its own map is empty.
+    // The other zone holds no waypoints at all, so none can resolve there.
     Assert.True(Option.isNone (Zone.waypointNext second a))
-    Assert.Equal(0, second.Links.Count)
+    Assert.Equal(0u, second.Waypoints.Count)
 
 // ── Triggers ──
 
@@ -476,7 +476,6 @@ let ``a spawned trigger resolves with the default shape and no binding`` () =
     Assert.Equal(2.0f, trigger.Height)
     Assert.False(trigger.Interactable)
     Assert.False(trigger.Triggered)
-    Assert.True(Option.isNone (Zone.bindingAt zone ref).AssetId)
 
 [<Fact>]
 let ``setTrigger, setName and setTransform all work on a trigger`` () =
@@ -523,7 +522,7 @@ let ``removing a trigger makes its ref stale and a reused slot is not aliased`` 
     let world = Physics.create ()
     let ref = Zone.spawnTrigger zone (entity "first")
 
-    Zone.removeEntity zone world ref
+    Zone.removeTrigger zone ref
     Assert.True(ValueOption.isNone (Zone.tryTriggerAt zone ref))
 
     // The freed index is reused, so same index but a fresh generation...
@@ -675,7 +674,7 @@ let ``removing a part frees its slot without disturbing placed props`` () =
     zone.Environment <- Some (environment 1u parts)
     let wallRef = partRef 1u partHandle.Index partHandle.Generation
 
-    Zone.removeEntity zone world wallRef
+    Zone.removePart zone world wallRef
 
     Assert.False(Zone.isAlive zone wallRef)
     // The placed prop and its map are untouched.
@@ -699,7 +698,7 @@ let ``removing a foreign part ref leaves the current environment's part intact``
 
     // A ref naming environment A is a no-op while B is loaded, even though B has a
     // live part at the same index/generation.
-    Zone.removeEntity zone world refA
+    Zone.removePart zone world refA
 
     Assert.True(Zone.isAlive zone refB)
     Assert.Equal(1u, partsB.Count)
@@ -720,18 +719,18 @@ let ``setTransform updates an environment part in place`` () =
     Assert.Equal(moved.Position, (Zone.tryEntityAt zone ref).Value.Transform.Position)
 
 [<Fact>]
-let ``bindingAt resolves an environment part's submesh range`` () =
+let ``a captured part carries its submesh range`` () =
     let zone = Zone.create ()
     let parts = SlotMap<Prop>(8u)
     let handle = parts.Add({ part "wall" with SubmeshIndex = 2; SubmeshCount = 3 })
     zone.Environment <- Some (environment 1u parts)
     let ref = partRef 1u handle.Index handle.Generation
 
-    let binding = Zone.bindingAt zone ref
+    let record = Zone.capturePart zone ref
 
-    Assert.Equal(None, binding.AssetId)
-    Assert.Equal(2, binding.SubmeshIndex)
-    Assert.Equal(3, binding.SubmeshCount)
+    Assert.Equal(None, record.AssetId)
+    Assert.Equal(2, record.SubmeshIndex)
+    Assert.Equal(3, record.SubmeshCount)
 
 // ── Actor refs (slot map, to avoid the renderer release) ──
 
@@ -828,3 +827,106 @@ let ``undo and redo of an environment load route through the real lifecycle`` ()
     let stack = UndoStack.redo stack zone world assets
     Assert.True(Option.isSome zone.Environment)
     Assert.True(Zone.isAlive zone reference)
+
+// ── Recorded state: what a command carries ──
+
+[<Fact>]
+let ``a captured prop carries its authored fields and no body`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
+
+    // Live, the prop has a body. Recorded, it has the same authored fields and no
+    // attachment: the body and renderer are the restore's to rebuild.
+    Assert.True(Option.isSome (zone.Props.Get(handleOf ref)).Physics)
+    let captured = Zone.captureProp zone ref
+    Assert.Equal(Some "crate", captured.AssetId)
+    Assert.Equal("crate", captured.Base.Name)
+    Assert.True(Option.isNone captured.Physics)
+
+[<Fact>]
+let ``a captured trigger carries its shape and clears the runtime flag`` () =
+    let zone = Zone.create ()
+    let ref = Zone.spawnTrigger zone (entity "area")
+    let payload = (Zone.tryTriggerAt zone ref).Value
+    do Zone.setTrigger zone ref { payload with Radius = 4.0f; Prompt = "Open"; Interactable = true; Triggered = true }
+
+    let captured = Zone.captureTrigger zone ref
+
+    Assert.Equal(4.0f, captured.Radius)
+    Assert.Equal("Open", captured.Prompt)
+    Assert.True(captured.Interactable)
+    // The runtime flag is the trigger system's to recompute, so it is never recorded.
+    Assert.False(captured.Triggered)
+
+[<Fact>]
+let ``a captured waypoint carries its link`` () =
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    do Zone.setWaypointNext zone b (Some a)
+
+    // The link is authored state, so the record carries it - and a fresh waypoint's
+    // absence of one is carried just as faithfully.
+    Assert.Equal(Some a, (Zone.captureWaypoint zone b).Next)
+    Assert.True(Option.isNone (Zone.captureWaypoint zone a).Next)
+
+[<Fact>]
+let ``delete and undo restore a prop exactly`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
+    let cmd = PropDelete (ref, Zone.captureProp zone ref)
+
+    do apply zone world assets cmd
+    Assert.False(Zone.isAlive zone ref)
+
+    let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
+    Assert.True(Zone.isAlive zone ref)
+    Assert.Equal("crate", (Zone.tryEntityAt zone ref).Value.Name)
+    Assert.Equal(Some "crate", (zone.Props.Get(handleOf ref)).AssetId)
+    // The body is rebuilt rather than reused: the recorded one was destroyed.
+    Assert.True(Option.isSome (zone.Props.Get(handleOf ref)).Physics)
+
+    let stack = UndoStack.redo stack zone world assets
+    Assert.False(Zone.isAlive zone ref)
+    ignore stack
+
+[<Fact>]
+let ``delete and undo restore an environment part exactly`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = roomAssets ()
+    let environment = Zone.loadEnvironment zone world assets "room"
+    let ref = partRef environment.Epoch 0u 0u
+    let cmd = PartDelete (ref, Zone.capturePart zone ref)
+
+    do apply zone world assets cmd
+    Assert.False(Zone.isAlive zone ref)
+
+    let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
+    Assert.True(Zone.isAlive zone ref)
+    Assert.Equal("wall", (Zone.tryEntityAt zone ref).Value.Name)
+    Assert.Equal(0, (Zone.capturePart zone ref).SubmeshIndex)
+    ignore stack
+
+[<Fact>]
+let ``repeated delete and undo cycles leave no body behind`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
+    let baseline = zone.BodyToEntity.Count
+
+    for _ in 1 .. 50 do
+        let cmd = PropDelete (ref, Zone.captureProp zone ref)
+        do apply zone world assets cmd
+        // Undo rebuilds the body. A leaked one would still be attached to the world and
+        // would keep its entry in the body map.
+        UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets |> ignore
+
+    Assert.Equal(baseline, zone.BodyToEntity.Count)
+    Assert.Equal(1u, zone.Props.Count)
+    Assert.True(Zone.isAlive zone ref)

@@ -169,9 +169,13 @@ module Prop =
 // position) and which way to face (its rotation). Composes the shared base entity
 // — name, transform, and editor flags — like actors and props, so the editor can
 // select, drag, and rotate it, but carries no renderer, collider, or asset binding.
+// `Next` is the waypoint this one's chain continues at, in this zone: authored state,
+// so it is carried by whichever operation records the waypoint and dies with it.
+// `None` ends a chain.
 [<Struct>]
 type Waypoint =
-    { Base : Entity }
+    { Base : Entity
+      Next : EntityRef option }
 
 // A cylindrical volume that detects the player. The base transform's position is the
 // centre of the cylinder's base, `Height` extends up from it, and `Radius` is its

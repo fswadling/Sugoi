@@ -7,22 +7,25 @@ module Selection
 open Entity
 open Command
 
-// Delete a specific entity. Clears the selection only when it was the deleted
-// entity; otherwise leaves selection/drag untouched.
+// Delete a specific entity, recording it by kind so undo restores it in full. Clears the
+// selection only when it was the deleted entity; otherwise leaves selection/drag untouched.
 let deleteRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) : unit =
     let zone = GameplayState.activeZone state
     let entity = Zone.tryEntityAt zone ref
     match entity with
     | None -> ()
-    | Some e ->
+    | Some _ ->
 
-    let binding = Zone.bindingAt zone ref
-    // A trigger's payload is richer than the base entity the shared case carries, so its
-    // deletion records the whole payload; every other kind records the entity.
+    // Every kind records its own record; there is no kind-agnostic payload left to fall
+    // back to, so an unhandled kind cannot slip through quietly.
     let cmd =
-        match Zone.tryTriggerAt zone ref with
-        | ValueSome trigger -> TriggerDelete (ref, trigger)
-        | ValueNone -> Delete (ref, e, binding)
+        match ref.Kind with
+        | EntityKind.Actor -> ActorDelete (ref, Zone.captureActor zone ref)
+        | EntityKind.Prop -> PropDelete (ref, Zone.captureProp zone ref)
+        | EntityKind.Part -> PartDelete (ref, Zone.capturePart zone ref)
+        | EntityKind.Waypoint -> WaypointDelete (ref, Zone.captureWaypoint zone ref)
+        | EntityKind.Trigger -> TriggerDelete (ref, Zone.captureTrigger zone ref)
+        | EntityKind.Environment -> invalidOp "deleteRef: the environment is not an addressable entity"
     apply zone shared.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     let editor =

@@ -173,7 +173,7 @@ let ``renaming a ref that no longer resolves changes and records nothing`` () =
     let ref = Zone.spawnWaypoint zone (entity "start")
     let mutable state = gameplayState zone
 
-    Zone.removeEntity zone shared.Physics ref
+    Zone.removeWaypoint zone ref
 
     Selection.renameRef shared &state ref "ghost"
 
@@ -247,8 +247,129 @@ let ``deleting a mid-chain waypoint and undoing restores the whole chain`` () =
     let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
 
-    // Both links resolve again: the entries were never destroyed, and the restored
-    // waypoint re-occupied its slot with the generation the links recorded.
+    // Both links resolve again: the restored waypoint re-occupied its slot with the
+    // generation the links recorded, and its own link came back with the record the
+    // delete carried.
     Assert.True(Zone.isAlive zone b)
     Assert.Equal(Some b, Zone.waypointNext zone a)
     Assert.Equal(Some c, Zone.waypointNext zone b)
+
+// ── Recorded state through the editor paths ──
+
+[<Fact>]
+let ``deleting a waypoint and undoing restores every authored field`` () =
+    let shared = sharedState ()
+    let zone = Zone.create ()
+    let moved = { transformIdentity with Position = Vector3(1.0f, 2.0f, 3.0f) }
+    let ref = Zone.spawnWaypoint zone { entity "start" with Transform = moved }
+    let next = Zone.spawnWaypoint zone (entity "next")
+    do Zone.setWaypointNext zone ref (Some next)
+    let mutable state = gameplayState zone
+
+    Selection.deleteRef shared &state ref
+    Assert.False(Zone.isAlive zone ref)
+
+    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = undo }
+
+    // Name, transform, and the link are all back; none of them was reset to a default.
+    let restored = (Zone.tryEntityAt zone ref).Value
+    Assert.Equal("start", restored.Name)
+    Assert.Equal(moved, restored.Transform)
+    Assert.Equal(Some next, Zone.waypointNext zone ref)
+
+[<Fact>]
+let ``deleting a trigger and undoing restores its shape but not its runtime flag`` () =
+    let shared = sharedState ()
+    let zone = Zone.create ()
+    let ref = Zone.spawnTrigger zone (entity "area")
+    let payload = (Zone.tryTriggerAt zone ref).Value
+    do Zone.setTrigger zone ref { payload with Radius = 3.0f; Height = 4.0f; Interactable = true; Prompt = "Open"; Triggered = true }
+    let mutable state = gameplayState zone
+
+    Selection.deleteRef shared &state ref
+
+    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = undo }
+
+    let restored = (Zone.tryTriggerAt zone ref).Value
+    Assert.Equal(3.0f, restored.Radius)
+    Assert.Equal(4.0f, restored.Height)
+    Assert.Equal("Open", restored.Prompt)
+    Assert.True(restored.Interactable)
+    // Runtime state is the trigger system's to recompute.
+    Assert.False(restored.Triggered)
+
+[<Fact>]
+let ``repeating delete, undo, and redo leaves the entity identical`` () =
+    let shared = sharedState ()
+    let zone = Zone.create ()
+    let ref = Zone.spawnWaypoint zone (entity "start")
+    let mutable state = gameplayState zone
+
+    for _ in 1 .. 50 do
+        Selection.deleteRef shared &state ref
+        Assert.False(Zone.isAlive zone ref)
+        let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+        let redo = UndoStack.redo undo zone shared.Physics shared.Assets
+        let undone = UndoStack.undo redo zone shared.Physics shared.Assets
+        state.Editor <- { state.Editor with Undo = undone }
+
+    // Fifty cycles leave exactly the entity the first one did, with no drift.
+    Assert.True(Zone.isAlive zone ref)
+    Assert.Equal("start", (Zone.tryEntityAt zone ref).Value.Name)
+    Assert.Equal(1u, zone.Waypoints.Count)
+
+[<Fact>]
+let ``the collider overlay is recorded with the actor and is not an undo step`` () =
+    let zone = Zone.create ()
+    // Added straight to the slot map: an actor's renderer needs a GPU device both to build
+    // and to release, so this test stops at what a delete records. Undoing an actor delete
+    // is covered by the interactive walk in the quickstart.
+    let handle =
+        zone.Actors.Add({ Base = entity "hero"
+                          AssetId = "character"
+                          Physics = None
+                          ShowCollider = false
+                          Renderer = Unchecked.defaultof<ActorRender.ActorRender> })
+    let ref = actorRef handle.Index handle.Generation
+    let mutable state = gameplayState zone
+
+    do Zone.setShowCollider zone ref true
+
+    // The overlay is a visualisation preference rather than a scene edit, so toggling it
+    // records nothing.
+    Assert.Empty(state.Editor.Undo.Applied)
+
+    // The overlay is part of the record a delete carries, which is what makes it
+    // round-trip. The shared payload this feature removes held only the base entity, so
+    // undoing a delete silently turned the overlay off.
+    Assert.True((Zone.captureActor zone ref).ShowCollider)
+
+// ── Undo granularity ──
+
+[<Fact>]
+let ``consecutive transforms on one ref merge into a single step`` () =
+    let shared = sharedState ()
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    let mutable state = gameplayState zone
+
+    let first = { transformIdentity with Position = Vector3(1.0f, 0.0f, 0.0f) }
+    let second = { transformIdentity with Position = Vector3(2.0f, 0.0f, 0.0f) }
+
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (a, transformIdentity, first)) }
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (a, first, second)) }
+
+    // One step spanning the whole gesture, from its first transform to its last.
+    match state.Editor.Undo.Applied with
+    | [ Transform (r, before, after) ] ->
+        Assert.Equal<EntityRef>(a, r)
+        Assert.Equal(transformIdentity, before)
+        Assert.Equal(second, after)
+    | other -> Assert.Fail(sprintf "expected one merged Transform, got %A" other)
+
+    // Another ref's transform is a step of its own.
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (b, transformIdentity, first)) }
+    Assert.Equal(2, state.Editor.Undo.Applied.Length)
