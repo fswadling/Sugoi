@@ -50,14 +50,17 @@ the **left** panel (alongside the Outliner) and are shown by default:
 - **Advent** — named flag set.
 - **Cue** — recursive tree-list editor for the top-level cue.
 - **Scenario** — scenario list; selecting one shows its Cue/Scene tabs in the Inspector.
-- **Zone Registry** — zone list; selecting one shows its details in the Inspector.
+- **Zone Registry** — the game's places as a tree: a zone per node and one row per variant it
+  declares, each row registering the active zone's environment against that place or instantiating
+  one into the active zone (D-023).
 
 The **Inspector** is the single editing surface (one selection → one Inspector):
 list panels navigate/select/add/delete, and the Inspector shows the selected
 item's settings. A trigger's cue is edited inline in the Inspector; a scenario's
-cue/scene are Inspector tabs. The Cast panel is the one surface that edits in
-place rather than through the Inspector (D-022), because a slot is not a
-selectable item and there is one for every look of every member.
+cue/scene are Inspector tabs. Cast and the Zone Registry are the two surfaces that
+edit in place rather than through the Inspector (D-022, D-023), because what they
+edit — a slot, a place — is not a selectable item: there is one for every look of
+every member, and one for every variant of every zone.
 
 ## Interaction model
 
@@ -118,12 +121,13 @@ undo stack. Commands store **values** (not closures):
   is classified as authored, derived, or runtime. Recording an entity is reading
   that value, and producing a live entity from it happens in one place per kind
   (`Zone.occupy*`/`spawn*`, which rebuild the body and renderer).
-- Non-entity surfaces (scenario, zone registry, advent flags, cue root) store
+- Non-entity surfaces (scenario, advent flags, cue root) store
   **name-keyed before/after snapshots** of the immutable map/set entry. Note that none of
   them is zone-scoped, so none has a stack today: only zone-scoped state is undoable, and
-  each of these needs a project-scoped stack when it lands. The cast binding is not one of
-  them (D-022) — a model assignment is a binding action rather than a scene edit, so it is
-  a direct write and no command records it.
+  each of these needs a project-scoped stack when it lands. Two surfaces that were expected
+  to need one are not among them: the cast binding (D-022) and the zone registry (D-023)
+  are both direct writes, because neither is a scene edit and re-making an entry by hand
+  costs less than the stack would.
 - Property edits are per-kind rather than generic: `Transform` and `Rename` cover
   the properties every kind shares, and a kind with an editable property of its own
   has its own command for it (`TriggerSet` for a trigger's volume and prompt, `Link`
@@ -174,8 +178,9 @@ other, and would be discarded outright when that zone is deleted. Assigning to i
 direct write, like a zone's player designation and the collider overlay's visualisation
 preference, both of which the code already treats as binding actions rather than scene
 edits. A project-scoped stack is a real gap, but it is a gap for the *editable* surfaces
-that do not exist yet (scenario, zone registry, advent flags, cue root), not for this one:
-an assignment is two clicks in a list, and re-making it by hand costs less than undoing it.
+that do not exist yet (scenario, advent flags, cue root), not for this one: an assignment
+is two clicks in a list, and re-making it by hand costs less than undoing it. The zone
+registry, which since `specs/034-zone-registry` does exist, answered the same way (D-023).
 
 Assigning is not the panel's only act. A slot with an asset bound can also **place** it: the panel's
 Spawn control creates an actor in the active zone, drawn with that asset and named for the member,
@@ -183,6 +188,28 @@ through `editor/Spawning.fs` — the one place the editor creates entities, whic
 create with the command that reverses it and selects what it made (`specs/033-cast-spawn`). So the
 panel assigns directly and places undoably, side by side in one panel, and the difference between
 them is exactly the difference between a binding and a scene edit.
+
+## Zone registry panel (D-023)
+
+The zone registry panel shows the game's **places** as a tree — one node per zone, one row per
+variant that zone declares — and each row carries two controls: one that files the active zone's
+loaded environment against that place, and one that puts a registered zone back into the active
+zone. The tree is derived from the zone union (`world/ZoneRegistry.fs`) rather than maintained
+beside it, so a new zone or a new variant needs no panel change, and two zones are free to declare
+entirely different variant sets — unlike the cast, where one `Look` union is shared by every member.
+
+The two controls behave differently on purpose, for the reason D-022 gives. **Registering** is a
+direct write: the registry outlives every zone, the undo stacks are per zone, so an entry recorded
+in one zone's stack would be unreachable from the others and discarded when that zone is deleted —
+and a registration is one click to make again by hand. **Instantiating** is a scene edit, and is
+undoable through the command that already carries a whole environment (`SetEnvironment`), so putting
+a registered zone into the scene is one step and one Ctrl+Z like anything else placed there.
+
+An entry holds the environment asset, the environment's own settings, and the environment's parts as
+the author left them — including a part she deleted and a part she duplicated, because the record is
+a copy of the live parts rather than a reference to the asset's own list. It does not yet hold placed
+props, waypoints, triggers or splat maps: those are the `prop_template` and the rest of
+`docs/ARCHITECTURE.md`'s `Zone_Registry` entry, and they join as siblings of the parts.
 
 ## Selection and gizmos (D-012, D-015, D-016)
 
@@ -231,6 +258,6 @@ rest are in `editor/`.
 | `Viewport` | 3D viewport + transform gizmo |
 | `CastPanel` / `AdventPanel` / `AssetBrowser` | docked list panels |
 | `CueEditor` / `CueTree` | cue template editor + shared recursive tree renderer |
-| `ScenarioEditor` / `ZoneEditor` | scenario / zone registry editors |
+| `ScenarioEditor` / `ZoneRegistryPanel` | scenario / zone registry editors |
 | `Command` | undoable editor commands |
 | `Raycast` | screen-ray picking math |

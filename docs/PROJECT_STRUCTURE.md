@@ -60,7 +60,9 @@ The `.fsproj` compile list is ordered like this (abridged):
   ...
   <!-- world (the game domain: entities, zones, assets) -->
   <Compile Include="world/Entity.fs" />
+  <Compile Include="world/ZoneTemplate.fs" />
   <Compile Include="world/Zone.fs" />
+  <Compile Include="world/ZoneRegistry.fs" />
   ...
   <!-- state (app + editor-command state) -->
   <Compile Include="state/Screen.fs" />
@@ -125,8 +127,9 @@ fsharp-game/
 ├── world/                      # the game domain: entities, zones, assets
 │   ├── Entity.fs               #   entity kinds, EntityRef, transform, base
 │   ├── EnvironmentBatch.fs     #   per-zone static-scene instancing batch
+│   ├── ZoneTemplate.fs         #   a registered zone's authored record
 │   ├── Zone.fs                 #   zone + an Environment owning its parts map; owns its batch
-│   ├── ZoneRegistry.fs         #   editor zone templates (planned)
+│   ├── ZoneRegistry.fs         #   the game's places, and the zone registered at each
 │   ├── Assets.fs               #   asset manager + manifests
 │   ├── Actor.fs                #   IQM model + morphs
 │   ├── ActorAsset.fs           #   actor asset record
@@ -161,11 +164,11 @@ fsharp-game/
 │   ├── Inspector.fs            #   single editing surface for the selection
 │   ├── AssetBrowser.fs
 │   ├── CastPanel.fs            #   the cast tree: a look per row, an asset per slot
+│   ├── ZoneRegistryPanel.fs    #   the places tree: register a zone against one, instantiate one
 │   ├── AdventPanel.fs          #   (planned)
 │   ├── CueEditor.fs            #   (planned)
 │   ├── CueTree.fs              #   shared recursive cue-tree renderer (planned)
-│   ├── ScenarioEditor.fs       #   (planned)
-│   └── ZoneEditor.fs           #   (planned)
+│   └── ScenarioEditor.fs       #   (planned)
 ├── native/                     # native libs (ImGui + cimgui + backends)
 ├── test/                       # one <Module>Tests.fs per module (flat)
 ├── assets/                     # data: glTF, IQM, textures, manifests

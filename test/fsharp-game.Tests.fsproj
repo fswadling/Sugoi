@@ -29,6 +29,10 @@
     <Compile Include="RosterTests.fs" />
     <Compile Include="CastingTests.fs" />
 
+    <!-- The zone registry (spec 034): the places, the sparse map, and the round trip through the real
+         environment load path. -->
+    <Compile Include="ZoneRegistryTests.fs" />
+
     <!-- Narrative engine tests (spec 025). NarrativeTestSupport is first: the other
          files open it for the MVP rule set, and it needs no graphics native, so these
          run headlessly with the rest of the suite. -->

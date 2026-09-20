@@ -76,7 +76,7 @@ content-authoring and polish on top.
 | **9** | **Cue engine + editor** | author and run a scripted sequence | `odin-game/src/{cue,cue_editor}.odin`; `ocaml-game/lib/core/cue.ml`, `docs/CUE_DESIGN.md` |
 | **10** | **Story primitives** | waypoints, triggers, advent, cast | `odin-game/src/{cast,advent}.odin` + zone waypoints/triggers; `ocaml-game` M7 |
 | **11** | **Scenario editor** | assemble a scenario from zones + cast + cues | `odin-game/src/{scenario,scenario_editor}.odin`; `ocaml-game` M9 |
-| **12** | **Zone registry + editor** | author zone templates/settings | `odin-game/src/{zone_registry,zone_editor}.odin`; `ocaml-game` M10 |
+| **12** | **Zone registry + editor** | author zone templates/settings | `odin-game/src/{zone_registry,zone_editor}.odin`; `ocaml-game` M10; `specs/034-zone-registry` |
 | **13** | **Systems + fixed timestep + immutable cue** (refactor) | named systems, live-edit-safe cues | `odin-game` systems-extraction commits; `ocaml-game` M11 / D-010 |
 | **14** | **Advanced rendering** | shadows → water → grass → sky → ocean → sway → cel-shading | `odin-game/src/{shadow,water,grass,skydome,ocean,sway}.odin`; one spec each |
 | **15** | **Persistence + perf** | save/load `project.json`, async loading, LRU cache | `odin-game/src/project.odin`; `ocaml-game` M12/M14 |
@@ -309,16 +309,21 @@ adventure flags, and manage the cast.
 
 **Done when**: you can assemble and run a scenario.
 
-### 12 · Zone registry + editor
+### 12 · Zone registry + editor ✅
 
 **Goal**: author zone templates/settings.
 
 **Deliverables**
-- `world/ZoneRegistry.fs` — editor zone templates (environment asset id, settings,
-  prop templates, splat maps, `template_saved`).
-- `editor/ZoneEditor.fs`.
+- `world/ZoneRegistry.fs` — the game's places, a union whose cases carry their own variant sets,
+  and the sparse map from a place to the zone registered there. `world/ZoneTemplate.fs` holds one
+  entry's record: the environment asset, the environment's settings, and its parts as the author
+  left them.
+- `editor/ZoneRegistryPanel.fs` — the places as a tree, with a register control and an instantiate
+  control per place.
 
-**Done when**: you can author zone templates/settings in the editor.
+**Done when**: you can author zone templates/settings in the editor. *(complete —
+`specs/034-zone-registry`. Placed props, waypoints, triggers and splat maps are deferred siblings of
+an entry's parts; persisting the registry is phase 15.)*
 
 ### 13 · Systems + fixed timestep + immutable cue (refactor)
 

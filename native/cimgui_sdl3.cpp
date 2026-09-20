@@ -139,6 +139,8 @@ void cimgui_setup_dock_layout(ImGuiID dockspace_id)
     ImGui::DockBuilderDockWindow("Outliner", left);
     // Cast is a tab beside the Outliner, per docs/EDITOR_DESIGN.md's Workspace table.
     ImGui::DockBuilderDockWindow("Cast", left);
+    // So is the Zone Registry, which the same table places here (spec 034).
+    ImGui::DockBuilderDockWindow("Zone Registry", left);
     ImGui::DockBuilderDockWindow("Inspector", right);
     ImGui::DockBuilderDockWindow("Asset Browser", bottom);
     ImGui::DockBuilderFinish(dockspace_id);

@@ -14,6 +14,7 @@ open System.Collections.Generic
 open System.Numerics
 open Entity
 open SlotMap
+open ZoneTemplate
 
 type Zone =
     { Name : string
@@ -642,33 +643,49 @@ let spawnPartBinding (zone: Zone) (world: Physics.World) (assets: Assets.AssetMa
     do attachPart zone world assets environment handle
     ref
 
-// Build a fresh environment value from an asset: one part per mesh-bearing node,
-// with no resources yet (the caller activates to attach them).
-let private buildEnvironment (assets: Assets.AssetManager) (assetId: string) (epoch: uint32) : Environment =
-    let asset = assets.Environments.[assetId]
-    let baseEntity : Entity =
-        { Name = asset.Name
-          Transform = transformIdentity
-          Enabled = true
-          Visible = true
-          Selectable = true
-          Draggable = true }
-    let parts = SlotMap<Prop>(512u)
-    for part in asset.Parts do
+// Parts carry headroom beyond the count an environment starts with: `spawnPartBinding` adds to this
+// map too, so one sized to its starting count would fail its `Add` the moment the author duplicates a
+// part.
+let private partsCapacity = 512u
+
+// The parts map an authored part list describes, with no resources yet (the caller activates to
+// attach them).
+let private partsOf (states: PropState array) : SlotMap<Prop> =
+    let parts = SlotMap<Prop>(max partsCapacity (uint32 states.Length))
+    for state in states do
+        let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
+        parts.Add(meshProp state.Base binding) |> ignore
+    parts
+
+// The authored part states an environment asset starts with: one per mesh-bearing node, with the
+// node's accumulated transform decomposed onto the part's entity.
+let private assetPartStates (asset: EnvironmentAsset.EnvironmentAsset) : PropState array =
+    asset.Parts
+    |> Array.map (fun part ->
         let mutable scale = Vector3.One
         let mutable rotation = Quaternion.Identity
         let mutable translation = Vector3.Zero
         do Matrix4x4.Decompose(part.World, &scale, &rotation, &translation) |> ignore
-        let entity : Entity =
+        { Base =
             { Name = if part.Name = "" then part.HierarchyPath else part.Name
               Transform = { Position = translation; Rotation = rotation; Scale = scale }
               Enabled = true
               Visible = true
               Selectable = true
               Draggable = true }
-        let binding = { AssetId = None; SubmeshIndex = part.SubmeshIndex; SubmeshCount = part.SubmeshCount }
-        parts.Add(meshProp entity binding) |> ignore
-    { Base = baseEntity; AssetId = assetId; Orientation = asset.Orientation; Epoch = epoch; Parts = parts }
+          AssetId = None
+          SubmeshIndex = part.SubmeshIndex
+          SubmeshCount = part.SubmeshCount })
+
+// Build a fresh environment value from an authored record: an asset's own part states, or a
+// registered template's. One builder for both, so an instantiated zone and a loaded asset cannot
+// diverge in how their parts are built, activated or stamped with an epoch.
+let private buildEnvironment (assetId: string) (baseEntity: Entity) (orientation: Quaternion) (states: PropState array) (epoch: uint32) : Environment =
+    { Base = baseEntity
+      AssetId = assetId
+      Orientation = orientation
+      Epoch = epoch
+      Parts = partsOf states }
 
 // Tear down the current environment's part resources (bodies + renderers) but keep
 // its slot map, so its slots survive the swap and rebuild on the way back.
@@ -709,9 +726,28 @@ let setEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetMana
 // so the caller's `SetEnvironment` command can retain it. Each load takes a fresh
 // epoch, so refs from a previously loaded environment never resolve against this one.
 let loadEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (assetId: string) : Environment =
+    let asset = assets.Environments.[assetId]
     let epoch = zone.NextEnvironmentEpoch + 1u
     zone.NextEnvironmentEpoch <- epoch
-    let environment = buildEnvironment assets assetId epoch
+    let baseEntity : Entity =
+        { Name = asset.Name
+          Transform = transformIdentity
+          Enabled = true
+          Visible = true
+          Selectable = true
+          Draggable = true }
+    let environment = buildEnvironment assetId baseEntity asset.Orientation (assetPartStates asset) epoch
+    do setEnvironment zone world assets (Some environment)
+    environment
+
+// Load a registered zone — the record an author filed away — in place of the asset's own part list.
+// The same path as `loadEnvironment`, a fresh epoch included, so the two cannot diverge; what differs
+// is only where the settings and the parts come from, which is what makes a registration reproducible
+// (spec 034 FR-012).
+let loadEnvironmentFrom (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (template: ZoneTemplate) : Environment =
+    let epoch = zone.NextEnvironmentEpoch + 1u
+    zone.NextEnvironmentEpoch <- epoch
+    let environment = buildEnvironment template.AssetId template.Base template.Orientation template.Parts epoch
     do setEnvironment zone world assets (Some environment)
     environment
 

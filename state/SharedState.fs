@@ -13,10 +13,14 @@ type SharedState =
     { mutable Gpu : Gpu.Gpu
       Assets : Assets.AssetManager
       Cast : Casting.Cast
+      // Project state that belongs to no zone, like the cast binding: the undo stacks are per zone, so
+      // anything that must outlive every zone lives here (spec 034).
+      ZoneRegistry : ZoneRegistry.Registry
       Physics : Physics.World }
 
 let create (gpu: Gpu.Gpu) : SharedState =
     { Gpu = gpu
       Assets = Assets.scan "assets" gpu.Device
       Cast = { Casting.Bindings = System.Collections.Generic.Dictionary() }
+      ZoneRegistry = ZoneRegistry.create ()
       Physics = Physics.create () }

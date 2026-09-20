@@ -55,7 +55,13 @@
     <Compile Include="world/Casting.fs" />
     <Compile Include="world/Entity.fs" />
     <Compile Include="world/EnvironmentBatch.fs" />
+    <!-- The record of a registered zone (spec 034): listed before `Zone.fs`, because the loader there
+         takes one as its argument. -->
+    <Compile Include="world/ZoneTemplate.fs" />
     <Compile Include="world/Zone.fs" />
+    <!-- The game's places and the zone registered at each (spec 034). Listed after `Zone.fs`, and it
+         needs neither that module nor any editor one: it records environments, not zones. -->
+    <Compile Include="world/ZoneRegistry.fs" />
     <Compile Include="world/Systems.fs" />
     <Compile Include="state/Screen.fs" />
     <Compile Include="state/SharedState.fs" />
@@ -70,6 +76,7 @@
     <Compile Include="editor/Inspector.fs" />
     <Compile Include="editor/AssetBrowser.fs" />
     <Compile Include="editor/CastPanel.fs" />
+    <Compile Include="editor/ZoneRegistryPanel.fs" />
     <Compile Include="editor/Editor.fs" />
     <Compile Include="screen/MainMenuScreen.fs" />
     <Compile Include="screen/GameplayScreen.fs" />

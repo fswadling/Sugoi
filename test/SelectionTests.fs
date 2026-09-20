@@ -30,6 +30,7 @@ let private sharedState () : SharedState.SharedState =
           Props = Dictionary()
           Environments = Dictionary() }
       Cast = { Casting.Bindings = Dictionary() }
+      ZoneRegistry = ZoneRegistry.create ()
       Physics = Physics.create () }
 
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =

@@ -980,3 +980,83 @@ let ``repeated delete and undo cycles leave no body behind`` () =
     Assert.Equal(baseline, zone.BodyToEntity.Count)
     Assert.Equal(1u, zone.Props.Count)
     Assert.True(Zone.isAlive zone ref)
+
+// ── A registered zone, loaded back (spec 034) ──
+//
+// The record of an environment is taken from the live parts map and loaded through the same path an
+// asset takes, so these assert the claim the registry rests on: what a registration records is enough
+// to put the zone back.
+
+// A three-part hall, so a record can be taken after one part has moved, one has been renamed, one has
+// been deleted and one has been duplicated — the arrangements a registration exists to keep.
+let private hallAssets () : Assets.AssetManager =
+    let submesh = assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |]
+    let partAt (name: string) (index: int) (x: float32) : EnvironmentPart =
+        { assetPart name index 1 with World = Matrix4x4.CreateTranslation(Vector3(x, 0.0f, 0.0f)) }
+    headlessAssets
+        [ "hall",
+          envAsset "hall" [| submesh; submesh; submesh |] [| partAt "north" 0 0.0f; partAt "east" 1 1.0f; partAt "south" 2 2.0f |] ]
+
+[<Fact>]
+let ``a registered zone loads back part for part, deletions and duplicates included`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = hallAssets ()
+
+    // The zone as an author leaves it.
+    let loaded = Zone.loadEnvironment zone world assets "hall"
+    Assert.Equal(3u, loaded.Parts.Count)
+    let north = partRef loaded.Epoch 0u 0u
+    let east = partRef loaded.Epoch 1u 0u
+    let south = partRef loaded.Epoch 2u 0u
+    do Zone.setTransform zone world north { transformIdentity with Position = Vector3(5.0f, 0.0f, 0.0f) }
+    do Zone.setName zone east "east wing"
+    do apply zone world assets (PartDelete (south, Zone.capturePart zone south))
+
+    // And one duplicated, through the real part path — what `Spawning.duplicate` does for a part. The
+    // copy is a live part of its own, so the record has to carry it and its source rather than
+    // collapsing the two.
+    let source = (loaded.Parts.Get(handleOf north)).State
+    let binding : AssetBinding = { AssetId = source.AssetId; SubmeshIndex = source.SubmeshIndex; SubmeshCount = source.SubmeshCount }
+    let copied = { entity "north copy" with Transform = { transformIdentity with Position = Vector3(9.0f, 0.0f, 0.0f) } }
+    do Zone.spawnPartBinding zone world assets copied binding |> ignore
+    Assert.Equal(3u, loaded.Parts.Count)
+
+    // The record of that arrangement, taken from the live environment: the deleted part is simply not
+    // in it, and the duplicate is in it as a part of its own.
+    let template = ZoneTemplate.ofEnvironment loaded
+    Assert.Equal("hall", template.AssetId)
+    Assert.Equal("hall", template.Base.Name)
+    Assert.Equal(3, template.Parts.Length)
+
+    // Loaded into a fresh zone it comes back exactly — the asset, the settings, and the parts in the
+    // state they were left in.
+    let fresh = Zone.create ()
+    let reinstated = Zone.loadEnvironmentFrom fresh world assets template
+    Assert.Equal(template.AssetId, reinstated.AssetId)
+    Assert.Equal(template.Base, reinstated.Base)
+    Assert.Equal(template.Orientation, reinstated.Orientation)
+    Assert.Equal(template, ZoneTemplate.ofEnvironment reinstated)
+    // Order is not what the record is for, so the names are compared sorted: what matters is that the
+    // moved, the renamed and the duplicated part are all there, and the deleted one is not.
+    Assert.Equal<string list>(
+        [ "east wing"; "north"; "north copy" ],
+        template.Parts |> Array.map (fun (part: PropState) -> part.Base.Name) |> Array.toList |> List.sort)
+    let northPart : PropState = template.Parts.[0]
+    Assert.Equal(Vector3(5.0f, 0.0f, 0.0f), northPart.Base.Transform.Position)
+    // The copy draws the same piece of the asset as its source, at the transform it was given.
+    let copy : PropState = Array.find (fun (part: PropState) -> part.Base.Name = "north copy") template.Parts
+    Assert.Equal(Vector3(9.0f, 0.0f, 0.0f), copy.Base.Transform.Position)
+    Assert.Equal(northPart.SubmeshIndex, copy.SubmeshIndex)
+    Assert.Equal(northPart.SubmeshCount, copy.SubmeshCount)
+    // The deleted part is gone rather than reinstated from the asset it came from.
+    Assert.DoesNotContain("south", template.Parts |> Array.map (fun part -> part.Base.Name))
+
+    // And what came back is a live environment, not just a record: its parts resolve and carry bodies,
+    // which is what the activation path attaches.
+    Assert.True(Option.isSome fresh.Environment)
+    Assert.Equal(3u, reinstated.Parts.Count)
+    for i in 0 .. template.Parts.Length - 1 do
+        let handle : Handle = { Index = uint32 i; Generation = 0u }
+        Assert.True((reinstated.Parts.Get handle).Physics.IsSome)
+        Assert.True(Zone.isAlive fresh (partRef reinstated.Epoch handle.Index handle.Generation))
