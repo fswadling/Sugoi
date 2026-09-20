@@ -103,3 +103,46 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
         do Zone.setTrigger zone ref original
         do commit &state (TriggerCreate (ref, Zone.captureTrigger zone ref)) ref
     | EntityKind.Environment -> invalidOp "duplicate: the environment is not an addressable entity"
+
+// Instantiate a registered zone into the active zone: the environment it records, its parts, and its
+// props in place of the zone's own. One gesture, so **one** undo step whatever it replaces and whatever
+// it places — which is what `Command.Batch` is for (spec 035 FR-005). It is here rather than in the
+// panel because it creates entities, and creating them in this module is what pairs each create with
+// the command that reverses it (FR-004, FR-005, FR-006).
+let instantiateZone (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (template: ZoneTemplate.ZoneTemplate) : unit =
+    let zone = GameplayState.activeZone state
+    let previous = zone.Environment
+
+    // The props being replaced are removed through the very commands the step records, so the mutation
+    // and its reversal are one piece of code rather than two that have to agree.
+    let replaced = Zone.captureProps zone
+    for (ref, prop) in replaced do
+        apply zone shared.Physics shared.Assets (PropDelete (ref, prop))
+
+    let next = Zone.loadEnvironmentFrom zone shared.Physics shared.Assets template
+
+    // The entry's props, each at a fresh slot. A recorded prop that names no asset is shaped like a
+    // part, and would be built as a piece of the environment rather than as the prop it is.
+    let placed =
+        template.Props
+        |> Array.map (fun (prop: PropState) ->
+            let assetId =
+                match prop.AssetId with
+                | Some assetId -> assetId
+                | None -> failwith "instantiateZone: a recorded prop must name an asset"
+
+            let binding = { AssetId = Some assetId; SubmeshIndex = prop.SubmeshIndex; SubmeshCount = prop.SubmeshCount }
+            (Zone.spawnPropBinding zone shared.Physics shared.Assets prop.Base binding, prop))
+
+    // The deletes, the swap and the creates, in the order they happened: undo runs the batch backwards,
+    // which frees the slots the placed props took before restoring the replaced ones at their own refs.
+    let step =
+        Batch ([ for (ref, prop) in replaced -> PropDelete (ref, prop) ]
+               @ [ SetEnvironment (previous, Some next) ]
+               @ [ for (ref, prop) in placed -> PropCreate (ref, prop) ])
+
+    // Nothing is selected: an instantiation may place none, one or twenty props, so there is nothing to
+    // select that would not be arbitrary. A selection naming a replaced prop goes stale and resolves
+    // again when the step is undone, which is why the caller only reconciles a part selection.
+    let undo = UndoStack.push state.Editor.Undo step
+    state.Editor <- { state.Editor with Undo = undo }

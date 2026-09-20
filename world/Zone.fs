@@ -276,6 +276,25 @@ let captureTrigger (zone: Zone) (ref: EntityRef) : TriggerState =
     let trigger = zone.Triggers.Get(handleOf ref)
     trigger.State
 
+// The zone's placed props, each with the ref it stands at: the authored value a registration records,
+// and the slot a replacement has to name to put the prop back where it was — at the generation it had,
+// so a ref the author held before an instantiation resolves again afterwards.
+let captureProps (zone: Zone) : (EntityRef * PropState) array =
+    let props = ResizeArray<EntityRef * PropState>(int zone.Props.Count)
+    zone.Props.IteriAlive (fun index generation prop -> props.Add(propRef index generation, prop.State))
+    props.ToArray()
+
+// The whole record of a zone: the environment it has loaded, its parts, and the props standing in it.
+// `None` when no environment is loaded, which is what registering a place requires — the same condition
+// the panel's register control is disabled by, expressed once here rather than at each caller.
+let captureTemplate (zone: Zone) : ZoneTemplate option =
+    match zone.Environment with
+    | None -> None
+    | Some environment ->
+
+    let props = captureProps zone |> Array.map snd
+    Some (ZoneTemplate.ofEnvironment environment props)
+
 // The authored value a trigger is created with: a one-metre radius two metres tall, not
 // interactable, with no prompt. It is only ever a new trigger's starting point — what a
 // command records is the value the live trigger holds, so a delete or a copy carries the

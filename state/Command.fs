@@ -15,6 +15,10 @@ module Command
 // A payload is the authored record itself, so it cannot express a physics attachment, a
 // renderer, or a runtime flag: those are different types, held by the entity beside its
 // `State` and rebuilt by `Zone.occupy*`.
+//
+// A command may also be several mutations that were one gesture (`Batch`), which keeps the
+// rule that one command is one undo step true for a gesture that has to replace a zone's
+// environment and every prop in it at once.
 
 open Entity
 open Zone
@@ -41,10 +45,14 @@ type Command =
     | LinkSpawn of From : EntityRef * Before : EntityRef option * Ref : EntityRef * Waypoint : Waypoint
     // Zone-level rather than an entity: swapping the loaded environment.
     | SetEnvironment of Previous : Environment option * Next : Environment option
+    // Several mutations that were one gesture: applied forwards, reversed backwards, so a create and
+    // the delete that preceded it cannot come apart. One entry on the stack, like any other command,
+    // and a step that puts a zone back exactly is what needs it (spec 035 FR-005).
+    | Batch of Commands : Command list
 
 // ── apply / undo a single command ──
 
-let apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
+let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
     | Transform (r, _, after) ->
         setTransform zone physics r after
@@ -79,8 +87,10 @@ let apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (c
         setWaypointNext zone from (Some r)
     | SetEnvironment (_, next) ->
         setEnvironment zone physics assets next
+    | Batch commands ->
+        for cmd in commands do apply zone physics assets cmd
 
-let undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
+let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
     | Transform (r, before, _) ->
         setTransform zone physics r before
@@ -115,6 +125,9 @@ let undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cm
         removeWaypoint zone r
     | SetEnvironment (previous, _) ->
         setEnvironment zone physics assets previous
+    | Batch commands ->
+        // Backwards, so the reversal of a mutation happens before the reversal of what it depended on.
+        for cmd in List.rev commands do undo zone physics assets cmd
 
 // ── undo stack ──
 

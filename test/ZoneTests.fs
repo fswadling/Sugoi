@@ -1022,9 +1022,9 @@ let ``a registered zone loads back part for part, deletions and duplicates inclu
     do Zone.spawnPartBinding zone world assets copied binding |> ignore
     Assert.Equal(3u, loaded.Parts.Count)
 
-    // The record of that arrangement, taken from the live environment: the deleted part is simply not
-    // in it, and the duplicate is in it as a part of its own.
-    let template = ZoneTemplate.ofEnvironment loaded
+    // The record of that arrangement, taken from the live zone: the deleted part is simply not in it,
+    // and the duplicate is in it as a part of its own.
+    let template = (Zone.captureTemplate zone).Value
     Assert.Equal("hall", template.AssetId)
     Assert.Equal("hall", template.Base.Name)
     Assert.Equal(3, template.Parts.Length)
@@ -1036,7 +1036,7 @@ let ``a registered zone loads back part for part, deletions and duplicates inclu
     Assert.Equal(template.AssetId, reinstated.AssetId)
     Assert.Equal(template.Base, reinstated.Base)
     Assert.Equal(template.Orientation, reinstated.Orientation)
-    Assert.Equal(template, ZoneTemplate.ofEnvironment reinstated)
+    Assert.Equal(template, (Zone.captureTemplate fresh).Value)
     // Order is not what the record is for, so the names are compared sorted: what matters is that the
     // moved, the renamed and the duplicated part are all there, and the deleted one is not.
     Assert.Equal<string list>(
@@ -1060,3 +1060,68 @@ let ``a registered zone loads back part for part, deletions and duplicates inclu
         let handle : Handle = { Index = uint32 i; Generation = 0u }
         Assert.True((reinstated.Parts.Get handle).Physics.IsSome)
         Assert.True(Zone.isAlive fresh (partRef reinstated.Epoch handle.Index handle.Generation))
+
+// ── What a record takes from a zone's props (spec 035) ──
+
+// The hall's environments with the crate's props: what a test that places props in a registered zone
+// needs, composed from the two fixtures already here rather than a third copy of their shape.
+let private hallAndCrateAssets () : Assets.AssetManager =
+    { hallAssets () with Props = (propAssets ()).Props }
+
+[<Fact>]
+let ``a record carries the zone's props as the author left them`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = hallAndCrateAssets ()
+    do Zone.loadEnvironment zone world assets "hall" |> ignore
+
+    // Four props and the arrangements the spec names: one moved, one renamed, one deleted, one
+    // duplicated — the duplicate through the real prop path, which is what `Spawning.duplicate` makes.
+    let lectern = Zone.spawnProp zone world assets (entity "lectern") "crate"
+    let books = Zone.spawnProp zone world assets (entity "books") "crate"
+    let chair = Zone.spawnProp zone world assets (entity "chair") "crate"
+    do Zone.setTransform zone world lectern { transformIdentity with Position = Vector3(1.0f, 2.0f, 3.0f) }
+    do Zone.setName zone books "book stack"
+    do apply zone world assets (PropDelete (chair, Zone.captureProp zone chair))
+    do Zone.spawnPropBinding zone world assets (entity "lectern copy") { AssetId = Some "crate"; SubmeshIndex = 0; SubmeshCount = 0 } |> ignore
+
+    let template = (Zone.captureTemplate zone).Value
+    Assert.Equal(3, template.Props.Length)
+    Assert.Equal<string list>(
+        [ "book stack"; "lectern"; "lectern copy" ],
+        template.Props |> Array.map (fun (prop: PropState) -> prop.Base.Name) |> Array.toList |> List.sort)
+    let carried : PropState = Array.find (fun (prop: PropState) -> prop.Base.Name = "lectern") template.Props
+    Assert.Equal(Vector3(1.0f, 2.0f, 3.0f), carried.Base.Transform.Position)
+    // The deleted one is gone rather than being taken from the asset it was placed from.
+    Assert.DoesNotContain("chair", template.Props |> Array.map (fun (prop: PropState) -> prop.Base.Name))
+
+    // A prop names the asset it stands from and a part names a piece of the environment, which is the
+    // whole of what tells them apart and what stops one being drawn as the other.
+    for prop in template.Props do
+        Assert.True(prop.AssetId.IsSome, sprintf "prop '%s' names no asset" prop.Base.Name)
+    for part in template.Parts do
+        Assert.True(part.AssetId.IsNone)
+
+[<Fact>]
+let ``capturing a zone is a copy, and a zone with no props is a complete entry`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = hallAndCrateAssets ()
+    do Zone.loadEnvironment zone world assets "hall" |> ignore
+    let crate = Zone.spawnProp zone world assets (entity "crate") "crate"
+
+    let taken = (Zone.captureTemplate zone).Value
+    // Taking a record does not disturb the zone...
+    Assert.Equal(taken, (Zone.captureTemplate zone).Value)
+
+    // ...and the zone moving on afterwards does not reach it.
+    do Zone.setName zone crate "crate moved on"
+    do apply zone world assets (PropDelete (crate, Zone.captureProp zone crate))
+    Assert.Equal(1, taken.Props.Length)
+    Assert.Equal("crate", taken.Props.[0].Base.Name)
+
+    // No props at all is a complete entry rather than a partial one, and it is the state every entry
+    // registered before props were recorded is in.
+    let bare = Zone.create ()
+    do Zone.loadEnvironment bare world assets "hall" |> ignore
+    Assert.Empty((Zone.captureTemplate bare).Value.Props)

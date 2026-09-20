@@ -137,6 +137,15 @@ headless fixture in `test/SpawningTests.fs`).
   reconcile inside `Spawning` (two copies of a selection rule, in a module about entities); having
   `Register` reconcile the selection (wrong direction — registering is not a scene edit and must not
   touch the scene).
+- **Superseded in part by `specs/035-zone-template-props`, and the trigger above did not fire.** That
+  feature's instantiation replaces a zone's props as well as its environment, so it creates entities
+  and cannot be a panel's work either; the swap therefore *moved* into `editor/Spawning.fs` (as
+  `instantiateZone`) rather than being extracted at a third call site, and the reconcile became the
+  panel's own step — the idiom `Editor.undoStep`/`redoStep` already use, which is why `Spawning` no
+  longer needs `Selection`. There are still two environment-loading sites, and they still build
+  different things: one loads an asset, the other installs what an entry recorded along with its props.
+  What they share is the three-line tail, which is not worth a function with two callers; the trigger
+  for extracting it is now a **third** environment-loading path, the scenario work being the likely one.
 
 ## Decision 8 — The vocabulary and the map share one file
 

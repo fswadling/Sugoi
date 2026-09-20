@@ -176,7 +176,11 @@ for group in ZoneRegistry.byZone do
   no-op, which is how a broken precondition reports itself instead of looking like a click that did
   nothing (constitution II).
 - The five-line instantiate block is the Asset Browser's, repeated: the compile order forbids sharing
-  it today (`research.md` Decision 7).
+  it today (`research.md` Decision 7). **Superseded by `specs/035-zone-template-props`**, which
+  replaces the zone's props as well as its environment: that block moved to `editor/Spawning.fs` as
+  `instantiateZone`, where the swap stopped needing the panel at all, and the panel now calls it and
+  reconciles the stale part selection itself. The rest of this section still stands — the row, the two
+  controls, and the direct write the Register control performs.
 - No new ImGui binding: `text`, `sameLine`, `smallButton`, `beginDisabled`/`endDisabled`,
   `collapsingHeader` and `pushId`/`popId` are all already declared in `render/ImGui.fs`.
 

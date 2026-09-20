@@ -121,6 +121,12 @@ undo stack. Commands store **values** (not closures):
   is classified as authored, derived, or runtime. Recording an entity is reading
   that value, and producing a live entity from it happens in one place per kind
   (`Zone.occupy*`/`spawn*`, which rebuild the body and renderer).
+- A command may be **several mutations that were one gesture** (`Batch`): applied forwards,
+  reversed backwards, so one command stays one undo step for a gesture that has to replace a
+  zone's environment and every prop standing in it at once (`specs/035-zone-template-props`).
+  It is not a transaction: the commands inside carry their own payloads and are commands that
+  already exist, so a batch says nothing a sequence of commands could not — only that they
+  were one action.
 - Non-entity surfaces (scenario, advent flags, cue root) store
   **name-keyed before/after snapshots** of the immutable map/set entry. Note that none of
   them is zone-scoped, so none has a stack today: only zone-scoped state is undoable, and
@@ -205,11 +211,12 @@ and a registration is one click to make again by hand. **Instantiating** is a sc
 undoable through the command that already carries a whole environment (`SetEnvironment`), so putting
 a registered zone into the scene is one step and one Ctrl+Z like anything else placed there.
 
-An entry holds the environment asset, the environment's own settings, and the environment's parts as
-the author left them — including a part she deleted and a part she duplicated, because the record is
-a copy of the live parts rather than a reference to the asset's own list. It does not yet hold placed
-props, waypoints, triggers or splat maps: those are the `prop_template` and the rest of
-`docs/ARCHITECTURE.md`'s `Zone_Registry` entry, and they join as siblings of the parts.
+An entry holds the environment asset, the environment's own settings, the environment's parts and the
+zone's placed props, each as the author left them — including a part or a prop she deleted and one she
+duplicated, because the record is a copy of the live maps rather than a reference to the asset's own
+list. Instantiating puts both back, and does it in **one** undo step however much it replaced
+(`specs/035-zone-template-props`). It does not yet hold waypoints, triggers or splat maps: those are
+the rest of `docs/ARCHITECTURE.md`'s `Zone_Registry` entry, and they join as siblings of the parts.
 
 ## Selection and gizmos (D-012, D-015, D-016)
 

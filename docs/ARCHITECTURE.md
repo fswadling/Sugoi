@@ -76,10 +76,10 @@ Two zone containers exist on purpose:
 - `Zone_Map` — runtime. `Slot_Map(^Zone)` + an `active` index ("which zones
   exist, which is active").
 - `Zone_Registry` — editor templates. An entry carries the environment asset, the
-  environment's settings, and the environment's parts as the author left them
-  (`specs/034-zone-registry`, which lands those three). The reference's `prop_template`
-  and splat maps are deferred siblings of the parts, and `template_saved` belongs to
-  persistence (`docs/ROADMAP.md` phase 15).
+  environment's settings, the environment's parts and the zone's placed props, each as
+  the author left them (`specs/034-zone-registry`, and `specs/035-zone-template-props` for
+  the props — the reference's `prop_template`). Splat maps are the deferred sibling of
+  those, and `template_saved` belongs to persistence (`docs/ROADMAP.md` phase 15).
 
 In the F# port the runtime container is folded into the gameplay screen: zones live
 in a `Dictionary<string, Zone>` keyed by the zone's unique name, with `ActiveZone`

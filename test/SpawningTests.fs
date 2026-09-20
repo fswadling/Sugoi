@@ -409,3 +409,93 @@ let ``restoring onto an occupied slot reports the reused slot instead of clobber
     Assert.Contains("is occupied", message)
     Assert.Contains("reused by an untracked Add", message)
     Assert.Equal("wall", (Zone.tryEntityAt zone ref).Value.Name)
+
+// ── Instantiating a registered zone (spec 035) ──
+//
+// The replacement runs through `Spawning`, so these drive the real editor path: a zone's contents are
+// recorded, the zone moves on, and one instantiation puts the recorded ones back in one step.
+
+[<Fact>]
+let ``instantiate replaces the zone's props with the entry's, and one undo puts them back`` () =
+    let assets = headlessAssets ()
+    let zone = Zone.create ()
+    let shared = sharedState assets
+    let mutable state = gameplayState zone
+
+    // A zone as an author leaves it: an environment loaded, and two props standing in it, one moved.
+    do Zone.loadEnvironment zone shared.Physics assets "room" |> ignore
+    let lectern = Zone.spawnProp zone shared.Physics assets (entity "lectern") "crate"
+    let books = Zone.spawnProp zone shared.Physics assets (entity "books") "crate"
+    do Zone.setTransform zone shared.Physics lectern { transformIdentity with Position = Vector3(1.0f, 0.0f, 0.0f) }
+    let registered = (Zone.captureTemplate zone).Value
+    let previousEnvironment = zone.Environment.Value
+    Assert.Equal(2, registered.Props.Length)
+
+    // The zone moves on: both props gone, one of its own in their place, and a waypoint and a trigger
+    // standing there that an instantiation must leave alone.
+    do Zone.removeProp zone shared.Physics lectern
+    do Zone.removeProp zone shared.Physics books
+    let desk = Zone.spawnProp zone shared.Physics assets (entity "desk") "crate"
+    let marker = Zone.spawnWaypoint zone (entity "marker")
+    let door = Zone.spawnTrigger zone (entity "door")
+    Assert.Equal(1u, zone.Props.Count)
+
+    do Zone.setName zone desk "desk of my own"
+
+    // One gesture.
+    do Spawning.instantiateZone shared &state registered
+
+    // The zone's props are the entry's and nothing else: same count, same names, same placement — and
+    // the desk it held is gone rather than left standing beside them.
+    let after = (Zone.captureTemplate zone).Value
+    Assert.Equal(2, after.Props.Length)
+    Assert.Equal<string list>(
+        [ "books"; "lectern" ],
+        after.Props |> Array.map (fun (prop: PropState) -> prop.Base.Name) |> Array.toList |> List.sort)
+    let placed : PropState = Array.find (fun (prop: PropState) -> prop.Base.Name = "lectern") after.Props
+    Assert.Equal(Vector3(1.0f, 0.0f, 0.0f), placed.Base.Transform.Position)
+    Assert.DoesNotContain("desk", after.Props |> Array.map (fun (prop: PropState) -> prop.Base.Name))
+    // The entry is unchanged, and the zone records what it recorded: the same asset, settings, parts and
+    // props. The props are compared sorted by name because the order they come back in is not part of
+    // the record — the slots they land in are the free list's business, and here they land in the order
+    // the replaced ones were freed in, which is the reverse of the order they were placed.
+    let ignoringOrder (template: ZoneTemplate.ZoneTemplate) =
+        { template with Props = Array.sortBy (fun (prop: PropState) -> prop.Base.Name) template.Props }
+    Assert.Equal(ignoringOrder registered, ignoringOrder after)
+    // And nothing else in the zone moved.
+    Assert.True(Zone.isAlive zone marker)
+    Assert.True(Zone.isAlive zone door)
+
+    // One step, whatever it replaced and whatever it placed. Undoing it once must restore the previous
+    // environment and the prop that stood there — at the ref it had, not as a copy at a fresh slot,
+    // which is the half a values-only comparison would not notice. (`lectern` and `books` are not this
+    // assertion's business: the setup removed them by hand, outside any command, so nothing could
+    // bring them back and nothing should.)
+    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone shared.Physics assets }
+    Assert.Equal(previousEnvironment, zone.Environment.Value)
+    Assert.Equal(1u, zone.Props.Count)
+    Assert.True(Zone.isAlive zone desk)
+    Assert.Equal("desk of my own", (Zone.tryEntityAt zone desk).Value.Name)
+
+[<Fact>]
+let ``an entry that records no props clears the zone's, and one undo brings them back`` () =
+    let assets = headlessAssets ()
+    let zone = Zone.create ()
+    let shared = sharedState assets
+    let mutable state = gameplayState zone
+
+    // Registered from a zone with nothing placed in it: an entry with no props is a complete entry, not
+    // a partial one — and it is the state every entry registered before props were recorded is in.
+    do Zone.loadEnvironment zone shared.Physics assets "room" |> ignore
+    let registered = (Zone.captureTemplate zone).Value
+    Assert.Empty(registered.Props)
+
+    // The zone is set out afterwards, then instantiated from the bare entry: the entry is the whole of
+    // what the zone's props become, so they are cleared rather than left standing.
+    let lectern = Zone.spawnProp zone shared.Physics assets (entity "lectern") "crate"
+    do Spawning.instantiateZone shared &state registered
+    Assert.Equal(0u, zone.Props.Count)
+
+    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone shared.Physics assets }
+    Assert.Equal(1u, zone.Props.Count)
+    Assert.True(Zone.isAlive zone lectern)

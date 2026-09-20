@@ -322,8 +322,9 @@ adventure flags, and manage the cast.
   control per place.
 
 **Done when**: you can author zone templates/settings in the editor. *(complete —
-`specs/034-zone-registry`. Placed props, waypoints, triggers and splat maps are deferred siblings of
-an entry's parts; persisting the registry is phase 15.)*
+`specs/034-zone-registry`, and an entry's placed props are `specs/035-zone-template-props`. Waypoints,
+triggers and splat maps are the deferred siblings of an entry's parts; persisting the registry is
+phase 15.)*
 
 ### 13 · Systems + fixed timestep + immutable cue (refactor)
 
