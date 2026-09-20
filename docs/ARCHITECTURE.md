@@ -56,7 +56,9 @@ heap-allocated per entity.
     mesh indices, renderer, splat/grass pointers.
   - `Prop_Entity` — a placed prop: collision data, render-transform cache, water
     params. Environment parts reuse the same shape.
-  - `Waypoint`, `Trigger` — standalone (no `Entity` base).
+  - `Waypoint`, `Trigger` — compose the base like the rest, carrying no renderer,
+    collider, or asset binding. A waypoint adds the ref of the waypoint its chain
+    continues at; a trigger adds its volume, prompt, and flags.
 - A part is addressed by `EntityKind.Part` into the current environment's own
   parts map, scoped by the ref's `epoch`, so environment churn never touches the
   zone's placed props/actors and a stale part ref can't alias another

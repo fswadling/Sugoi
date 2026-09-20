@@ -90,9 +90,9 @@ undo stack. Commands store **values** (not closures):
   environment epoch for parts) so undo survives entity deletion and slot reuse.
   Restoring a deleted entity re-occupies its recorded slot via `Occupy`, which
   raises if the slot is taken. Each kind's entities live in their own slot map —
-  actors, placed props, and the current environment's parts — and changing
-  environments moves the `Environment` value (and its part map) rather than
-  respawning, so a recorded slot is always free when undo runs. That rests on no
+  actors, placed props, the current environment's parts, waypoints, and triggers —
+  and changing environments moves the `Environment` value (and its part map) rather
+  than respawning, so a recorded slot is always free when undo runs. That rests on no
   untracked `Add` ever reusing a recorded slot, so entity creation is funnelled
   through `editor/Spawning.fs`, which pairs every `Zone.spawn*` with the command
   that reverses it; `AssetBrowser`/`Selection` must not call `Zone.spawn*`
@@ -103,9 +103,19 @@ undo stack. Commands store **values** (not closures):
   on the wrong part. Swapping environments (a load, or undo/redo of the swap)
   drops a part selection whose epoch no longer matches, so the inspector never
   shows a dangling entity.
+- A create or delete carries the kind's **own record**: the authored state as the
+  editor records it, with the derived body and renderer cleared, because a restore
+  rebuilds them. There is deliberately no kind-agnostic create/delete payload, so
+  undo restores every authored property of a kind rather than only the ones all
+  kinds share, and a field added to a kind is either carried automatically or fails
+  the build until it is classified as authored, derived, or runtime.
 - Non-entity surfaces (cast, scenario, zone registry, advent flags, cue root)
   store **name-keyed before/after snapshots** of the immutable map/set entry.
-- A generic `Field` command covers arbitrary entity property edits.
+- Property edits are per-kind rather than generic: `Transform` and `Rename` cover
+  the properties every kind shares, and a kind with an editable property of its own
+  has its own command for it (`TriggerSet` for a trigger's volume and prompt, `Link`
+  for a waypoint's link). A kind-specific edit is recorded by that kind's command, so
+  a new kind brings its own rather than widening a shared one.
 - Continuous edits (gizmo/slider drag) coalesce into a single undo step by
   merging consecutive commands with the same key.
 
