@@ -15,9 +15,9 @@ let baseEntity name =
 
 [<Fact>]
 let ``Actor composes the shared Entity base`` () =
-    let actor : Actor = { Base = baseEntity "akane"; AssetId = "akane"; Physics = None; ShowCollider = false; Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
-    Assert.Equal("akane", actor.Base.Name)
-    Assert.True(actor.Base.Enabled)
+    let actor : Actor = { State = { Base = baseEntity "akane"; AssetId = "akane"; ShowCollider = false }; Physics = None; Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
+    Assert.Equal("akane", actor.State.Base.Name)
+    Assert.True(actor.State.Base.Enabled)
 
 [<Fact>]
 let ``Environment composes the shared Entity base`` () =
@@ -27,25 +27,26 @@ let ``Environment composes the shared Entity base`` () =
 
 [<Fact>]
 let ``Prop composes the shared Entity base`` () =
-    let prop : Prop = { Base = baseEntity "crate"; AssetId = Some "crate"; SubmeshIndex = 0; SubmeshCount = 0; Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
-    Assert.Equal("crate", prop.Base.Name)
-    Assert.True(prop.Base.Selectable)
+    let prop : Prop = { State = { Base = baseEntity "crate"; AssetId = Some "crate"; SubmeshIndex = 0; SubmeshCount = 0 }; Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
+    Assert.Equal("crate", prop.State.Base.Name)
+    Assert.True(prop.State.Base.Selectable)
 
 [<Fact>]
 let ``Waypoint and Trigger compose the shared Entity base`` () =
     let waypoint : Waypoint = { Base = baseEntity "start"; Next = None }
     let trigger : Trigger =
-        { Base = baseEntity "area"
-          Radius = 1.5f
-          Height = 2.0f
-          Interactable = false
-          Prompt = ""
+        { State =
+            { Base = baseEntity "area"
+              Radius = 1.5f
+              Height = 2.0f
+              Interactable = false
+              Prompt = "" }
           Triggered = false }
     Assert.Equal("start", waypoint.Base.Name)
     Assert.True(waypoint.Base.Selectable)
-    Assert.Equal("area", trigger.Base.Name)
-    Assert.True(trigger.Base.Draggable)
-    Assert.Equal(1.5f, trigger.Radius)
+    Assert.Equal("area", trigger.State.Base.Name)
+    Assert.True(trigger.State.Base.Draggable)
+    Assert.Equal(1.5f, trigger.State.Radius)
 
 [<Fact>]
 let ``eulerDegrees of identity is zero`` () =

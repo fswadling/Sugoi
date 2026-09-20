@@ -74,7 +74,7 @@ let private drawTriggerOverlay (state: GameplayState.GameplayState) : unit =
     let prompt =
         state.InteractableTrigger
         |> ValueOption.bind (Zone.tryTriggerAt zone)
-        |> ValueOption.map (fun trigger -> trigger.Prompt.Trim())
+        |> ValueOption.map (fun trigger -> trigger.State.Prompt.Trim())
         |> ValueOption.defaultValue ""
 
     if prompt = "" && not (anyInside zone) then () else
@@ -82,7 +82,7 @@ let private drawTriggerOverlay (state: GameplayState.GameplayState) : unit =
     do ImGui.beginWindow("Status", System.IntPtr.Zero, 0) |> ignore
     if prompt <> "" then do ImGui.text(prompt)
     zone.Triggers.IteriAlive(fun _ _ t ->
-        if t.Triggered then do ImGui.text(sprintf "inside %s" t.Base.Name))
+        if t.Triggered then do ImGui.text(sprintf "inside %s" t.State.Base.Name))
     do ImGui.endWindow()
 
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
@@ -136,7 +136,7 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
 
     let meshPipeline = shared.Gpu.MeshPipeline
     do zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
-           let model = Entity.modelMatrix a.Base.Transform
+           let model = Entity.modelMatrix a.State.Base.Transform
            do ActorRender.draw a.Renderer scenePass pass.Cmd meshPipeline viewProjection model light cameraPos)
 
     // Editor markers + gizmos, depth-tested against the meshes drawn above.

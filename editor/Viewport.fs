@@ -142,23 +142,23 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
     zone.Actors.IteriAlive(fun i gen a ->
         let isSelected = selection = Some (actorRef i gen)
         let c = if isSelected then selectedColor else white
-        dd <- DebugDraw.wireframeBox dd a.Base.Transform.Position halfExtent c
-        if a.ShowCollider then
+        dd <- DebugDraw.wireframeBox dd a.State.Base.Transform.Position halfExtent c
+        if a.State.ShowCollider then
             match a.Physics with
-            | Some ph -> dd <- DebugDraw.capsule dd (Zone.capsuleCenter a.Base.Transform ph.Collider) ph.Collider.HalfHeight ph.Collider.Radius colliderColor
+            | Some ph -> dd <- DebugDraw.capsule dd (Zone.capsuleCenter a.State.Base.Transform ph.Collider) ph.Collider.HalfHeight ph.Collider.Radius colliderColor
             | None -> ())
 
     zone.Props.IteriAlive(fun i gen p ->
         let isSelected = selection = Some (propRef i gen)
         let c = if isSelected then selectedColor else white
-        dd <- DebugDraw.wireframeBox dd p.Base.Transform.Position halfExtent c)
+        dd <- DebugDraw.wireframeBox dd p.State.Base.Transform.Position halfExtent c)
 
     match zone.Environment with
     | Some environment ->
         environment.Parts.IteriAlive(fun i gen p ->
             let isSelected = selection = Some (partRef environment.Epoch i gen)
             let c = if isSelected then selectedColor else white
-            dd <- DebugDraw.wireframeBox dd p.Base.Transform.Position halfExtent c)
+            dd <- DebugDraw.wireframeBox dd p.State.Base.Transform.Position halfExtent c)
     | None -> ()
 
     zone.Waypoints.IteriAlive(fun i gen w ->
@@ -195,10 +195,10 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
     zone.Triggers.IteriAlive(fun i gen t ->
         let isSelected = selection = Some (triggerRef i gen)
         let c = if isSelected then selectedColor else triggerColor
-        let basePosition = t.Base.Transform.Position
+        let basePosition = t.State.Base.Transform.Position
         // The primitive takes a centre and a half-height; the volume's base is its position.
-        let centre = basePosition + Vector3(0.0f, t.Height * 0.5f, 0.0f)
-        dd <- DebugDraw.cylinder dd centre (t.Height * 0.5f) t.Radius c)
+        let centre = basePosition + Vector3(0.0f, t.State.Height * 0.5f, 0.0f)
+        dd <- DebugDraw.cylinder dd centre (t.State.Height * 0.5f) t.State.Radius c)
 
     match gizmoCenter state with
     | Some center -> dd <- drawGizmo state dd center

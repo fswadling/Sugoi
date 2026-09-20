@@ -53,41 +53,42 @@ let spawnLinkedWaypoint (state: byref<GameplayState.GameplayState>) (from: Entit
 
 // Copy an existing entity into a new slot, recording the create that reverses it. The
 // copy carries every authored property of the original — a waypoint's link included —
-// because the payload is the captured record; it carries no runtime state.
+// because the captured value is written into it; it carries no runtime state. What the
+// command records is the copy's own authored value, so redo restores the copy rather than
+// a second original.
 // Dispatching on kind first makes an unsupported kind fail loudly.
 let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (source: EntityRef) (entity: Entity) : unit =
     let zone = GameplayState.activeZone state
     match source.Kind with
     | EntityKind.Actor ->
-        let record = Zone.captureActor zone source
-        let ref = Zone.spawnActor zone shared.Physics shared.Assets entity record.AssetId
-        // `spawnActor` opens with the overlay off; the copy takes the original's value, so
-        // the live copy matches the command that reverses it.
-        do Zone.setShowCollider zone ref record.ShowCollider
-        do commit &state (ActorCreate (ref, record)) ref
+        let original = Zone.captureActor zone source
+        let ref = Zone.spawnActor zone shared.Physics shared.Assets entity original.AssetId
+        // `spawnActor` opens with the overlay off; the copy takes the original's value.
+        do Zone.setShowCollider zone ref original.ShowCollider
+        do commit &state (ActorCreate (ref, Zone.captureActor zone ref)) ref
     | EntityKind.Prop ->
-        let record = Zone.captureProp zone source
-        let binding = { AssetId = record.AssetId; SubmeshIndex = record.SubmeshIndex; SubmeshCount = record.SubmeshCount }
+        let original = Zone.captureProp zone source
+        let binding = { AssetId = original.AssetId; SubmeshIndex = original.SubmeshIndex; SubmeshCount = original.SubmeshCount }
         let ref = Zone.spawnPropBinding zone shared.Physics shared.Assets entity binding
-        do commit &state (PropCreate (ref, record)) ref
+        do commit &state (PropCreate (ref, Zone.captureProp zone ref)) ref
     | EntityKind.Part ->
-        let record = Zone.capturePart zone source
-        let binding = { AssetId = record.AssetId; SubmeshIndex = record.SubmeshIndex; SubmeshCount = record.SubmeshCount }
+        let original = Zone.capturePart zone source
+        let binding = { AssetId = original.AssetId; SubmeshIndex = original.SubmeshIndex; SubmeshCount = original.SubmeshCount }
         let ref = Zone.spawnPartBinding zone shared.Physics shared.Assets entity binding
-        do commit &state (PartCreate (ref, record)) ref
+        do commit &state (PartCreate (ref, Zone.capturePart zone ref)) ref
     | EntityKind.Waypoint ->
-        // The captured record carries the original's link, so the copy links to the same
+        // The captured value carries the original's link, so the copy links to the same
         // successor (FR-013). `spawnWaypoint` starts a chain of its own, so the link is
-        // written after it, keeping the live copy in step with the command.
-        let record = Zone.captureWaypoint zone source
+        // written after it.
+        let original = Zone.captureWaypoint zone source
         let ref = Zone.spawnWaypoint zone entity
-        do Zone.setWaypointNext zone ref record.Next
-        do commit &state (WaypointCreate (ref, record)) ref
+        do Zone.setWaypointNext zone ref original.Next
+        do commit &state (WaypointCreate (ref, Zone.captureWaypoint zone ref)) ref
     | EntityKind.Trigger ->
         // The copy carries the authored shape but not the runtime flag, so write the
-        // captured record over the shape the spawn created.
-        let record = Zone.captureTrigger zone source
+        // original's value over the shape the spawn created.
+        let original = Zone.captureTrigger zone source
         let ref = Zone.spawnTrigger zone entity
-        do Zone.setTrigger zone ref record
-        do commit &state (TriggerCreate (ref, record)) ref
+        do Zone.setTrigger zone ref original
+        do commit &state (TriggerCreate (ref, Zone.captureTrigger zone ref)) ref
     | EntityKind.Environment -> invalidOp "duplicate: the environment is not an addressable entity"

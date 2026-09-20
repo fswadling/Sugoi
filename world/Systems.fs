@@ -62,12 +62,12 @@ let isPlayerLive (zone: Zone.Zone) : bool =
 // between the base and the top vertically, inclusively at every boundary. The volume is
 // radially symmetric, so the trigger's rotation and scale are not consulted.
 let private contains (trigger: Trigger) (p: Vector3) : bool =
-    let basePosition = trigger.Base.Transform.Position
+    let basePosition = trigger.State.Base.Transform.Position
     let dx = p.X - basePosition.X
     let dz = p.Z - basePosition.Z
-    dx * dx + dz * dz <= trigger.Radius * trigger.Radius
+    dx * dx + dz * dz <= trigger.State.Radius * trigger.State.Radius
     && p.Y >= basePosition.Y
-    && p.Y <= basePosition.Y + trigger.Height
+    && p.Y <= basePosition.Y + trigger.State.Height
 
 // Detect the player in the active zone's triggers: write each trigger's `Triggered` flag
 // in place, and answer the nearest enabled interactable trigger the player is inside —
@@ -83,7 +83,7 @@ let updateTriggers (zone: Zone.Zone) : EntityRef voption =
         match zone.Player with
         | ValueSome handle when zone.Actors.IsAlive handle ->
             let actor = &zone.Actors.Get handle
-            ValueSome actor.Base.Transform.Position
+            ValueSome actor.State.Base.Transform.Position
         | _ -> ValueNone
 
     let mutable closest : EntityRef voption = ValueNone
@@ -97,12 +97,12 @@ let updateTriggers (zone: Zone.Zone) : EntityRef voption =
         let generation = slot.Generation
         let trigger = &slot.Value
         match playerPosition with
-        | ValueSome p when trigger.Base.Enabled && contains trigger p ->
+        | ValueSome p when trigger.State.Base.Enabled && contains trigger p ->
             trigger.Triggered <- true
 
             // The nearest interactable one wins; distance is measured to the volume's centre.
-            if trigger.Interactable then
-                let centre = trigger.Base.Transform.Position + Vector3(0.0f, trigger.Height * 0.5f, 0.0f)
+            if trigger.State.Interactable then
+                let centre = trigger.State.Base.Transform.Position + Vector3(0.0f, trigger.State.Height * 0.5f, 0.0f)
                 let distance = (p - centre).LengthSquared()
                 if distance < closestDistance then
                     closestDistance <- distance
@@ -124,7 +124,7 @@ let playerInput (world: Physics.World) (zone: Zone.Zone) (input: Input.Input) (d
     let turn =
         (if Input.isHeld Input.Key.A input then 1.0f else 0.0f)
         - (if Input.isHeld Input.Key.D input then 1.0f else 0.0f)
-    let yaw = yawOf actor.Base.Transform.Rotation + turn * turnRate * dt
+    let yaw = yawOf actor.State.Base.Transform.Rotation + turn * turnRate * dt
     let drive =
         (if Input.isHeld Input.Key.W input then 1.0f else 0.0f)
         - (if Input.isHeld Input.Key.S input then 1.0f else 0.0f)
@@ -152,8 +152,8 @@ let syncActors (world: Physics.World) (zone: Zone.Zone) : unit =
         | Some attachment ->
         let offset = Vector3(0.0f, attachment.Collider.HalfHeight + attachment.Collider.Radius, 0.0f)
         let (position, rotation) = Physics.getBodyTransform world attachment.Body
-        actor.Base.Transform.Position <- position - offset
-        actor.Base.Transform.Rotation <- rotation
+        actor.State.Base.Transform.Position <- position - offset
+        actor.State.Base.Transform.Rotation <- rotation
 
 
 // Third-person camera position and target for a player position and facing. Pure.
@@ -171,9 +171,9 @@ let cameraFollow (zone: Zone.Zone) (follow: byref<CameraFollow>) (camera: byref<
     if not (isPlayerLive zone) then () else
 
     let actor = &zone.Actors.Get zone.Player.Value
-    let yaw = yawOf actor.Base.Transform.Rotation
+    let yaw = yawOf actor.State.Base.Transform.Rotation
     follow.Yaw <- yaw
-    let (cameraPosition, target) = cameraPose actor.Base.Transform.Position yaw follow
+    let (cameraPosition, target) = cameraPose actor.State.Base.Transform.Position yaw follow
     camera.Position <- cameraPosition
     camera.Target <- target
 

@@ -103,15 +103,16 @@ let linkRef (shared: SharedState.SharedState) (state: byref<GameplayState.Gamepl
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
 
-// Apply `change` to a trigger's payload as one undoable step, recorded against the ref the
-// edit was made for (which is not always the selected one: a text field can outlive a
-// selection change). No-op when the ref no longer resolves or the change is a no-op, so
+// Apply `change` to a trigger's authored value as one undoable step, recorded against the
+// ref the edit was made for (which is not always the selected one: a text field can outlive
+// a selection change). No-op when the ref no longer resolves or the change is a no-op, so
 // leaving a widget without editing it records nothing.
-let updateTriggerRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) (change: Trigger -> Trigger) : unit =
+let updateTriggerRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) (change: TriggerState -> TriggerState) : unit =
     let zone = GameplayState.activeZone state
     match Zone.tryTriggerAt zone ref with
     | ValueNone -> ()
-    | ValueSome before ->
+    | ValueSome trigger ->
+    let before = trigger.State
     let after = change before
     if after = before then () else
 

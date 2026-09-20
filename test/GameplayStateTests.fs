@@ -62,10 +62,11 @@ let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>)
 
 let private actor (name: string) : Actor =
-    { Base = entity name
-      AssetId = ""
+    { State =
+        { Base = entity name
+          AssetId = ""
+          ShowCollider = false }
       Physics = None
-      ShowCollider = false
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 
 // A device-free manager carrying one environment (`room`) with a single part.
@@ -245,7 +246,7 @@ let ``switching re-frames the camera on the incoming zone`` () =
     let classroom = GameplayState.activeZone state
     let handle = classroom.Actors.Add(actor "player")
     let a = &classroom.Actors.Get handle
-    a.Base.Transform.Position <- Vector3(8.0f, 0.0f, 8.0f)
+    a <- { a with State.Base.Transform = { a.State.Base.Transform with Position = Vector3(8.0f, 0.0f, 8.0f) } }
     classroom.Player <- ValueSome handle
 
     // Switch away and move the camera, then switch back: the camera pivots on the

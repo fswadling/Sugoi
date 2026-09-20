@@ -56,16 +56,17 @@ let ``cameraPose sits behind and above the player`` () =
 
 // A minimal actor value for liveness tests (its renderer is never touched).
 let private actor (name: string) : Actor =
-    { Base =
-        { Name = name
-          Transform = transformIdentity
-          Enabled = true
-          Visible = true
-          Selectable = true
-          Draggable = true }
-      AssetId = ""
+    { State =
+        { Base =
+            { Name = name
+              Transform = transformIdentity
+              Enabled = true
+              Visible = true
+              Selectable = true
+              Draggable = true }
+          AssetId = ""
+          ShowCollider = false }
       Physics = None
-      ShowCollider = false
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 
 [<Fact>]
@@ -129,7 +130,7 @@ let ``syncActors writes back every actor body`` () =
     // The entity position is the feet: the capsule centre shifted down by its offset.
     let feetOf (handle: Handle) : Vector3 =
         let a = &zone.Actors.Get handle
-        a.Base.Transform.Position
+        a.State.Base.Transform.Position
     Assert.True(abs (feetOf(first).Y + 0.85f) < 1e-4f, sprintf "expected feet at y=-0.85, got %f" (feetOf(first).Y))
     Assert.True(abs (feetOf(second).Y + 0.85f) < 1e-4f, sprintf "expected feet at y=-0.85, got %f" (feetOf(second).Y))
     Assert.True(abs (feetOf(first).X - 1.0f) < 1e-4f)

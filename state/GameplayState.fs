@@ -66,7 +66,7 @@ let private enterZone (state: byref<GameplayState>) (outgoing: string) : unit =
         match zone.Player with
         | ValueSome handle when zone.Actors.IsAlive handle ->
             let actor = &zone.Actors.Get handle
-            actor.Base.Transform.Position + Vector3(0.0f, state.Follow.Height, 0.0f)
+            actor.State.Base.Transform.Position + Vector3(0.0f, state.Follow.Height, 0.0f)
         | _ -> Vector3.Zero
     let offset = state.Camera.Position - state.Camera.Target
     state.Camera <- { state.Camera with Target = pivot; Position = pivot + offset }

@@ -130,9 +130,9 @@ let gather (device: Gpu.Device) (batch: EnvironmentBatch) (props: SlotMap<Prop>)
     do InstanceBuffer.ensure device &batch.Instances total
     do InstanceBuffer.reclaim device &batch.Instances
 
-    do props.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.Base.Transform) p.Renderer)
+    do props.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.State.Base.Transform) p.Renderer)
     match parts with
-    | ValueSome ps -> ps.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.Base.Transform) p.Renderer)
+    | ValueSome ps -> ps.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.State.Base.Transform) p.Renderer)
     | ValueNone -> ()
 
 // ── upload ──

@@ -126,12 +126,22 @@ type AssetBinding =
       SubmeshIndex : int
       SubmeshCount : int }
 
+// What the editor authors for an actor: everything a command must carry, and nothing an
+// engine rebuilds.
+[<Struct>]
+type ActorState =
+    { Base : Entity
+      AssetId : string
+      ShowCollider : bool }
+
+// An actor is its authored state plus the resources derived from it. They are different
+// types, so nothing recorded can hold a body or a renderer, and which half a site is
+// touching is visible in the spelling: `State` is what a command records, and the two
+// mutable fields beside it are what a restore rebuilds.
 [<Struct>]
 type Actor =
-    { mutable Base : Entity
-      AssetId : string
-      Physics : PhysicsAttachment<CapsuleCollider> option
-      ShowCollider : bool
+    { State : ActorState
+      mutable Physics : PhysicsAttachment<CapsuleCollider> option
       mutable Renderer : ActorRender.ActorRender }
 
 module Actor =
@@ -141,11 +151,17 @@ module Actor =
 // A placed prop asset (`AssetId = Some id`, whole model) or an environment part
 // (`AssetId = None`, the part's submesh range in the zone's environment).
 [<Struct>]
-type Prop =
+type PropState =
     { Base : Entity
       AssetId : string option
       SubmeshIndex : int
-      SubmeshCount : int
+      SubmeshCount : int }
+
+// A prop is its authored state plus the resources derived from it, the same split an
+// actor has: a command carries the state, a restore rebuilds the rest.
+[<Struct>]
+type Prop =
+    { State : PropState
       mutable Physics : PhysicsAttachment<MeshCollider> option
       mutable Renderer : EnvironmentRender.EnvironmentRender }
 
@@ -183,13 +199,17 @@ type Waypoint =
 // containment is radially symmetric and the scale is not the volume's size. Composes
 // the shared base entity like actors, props and waypoints, and carries no renderer,
 // collider, or asset binding. `Base.Enabled` is the trigger's disabled flag.
-// `Triggered` is runtime state — whether the player was inside as of the last update —
-// written in place by the trigger system and never authored.
 [<Struct>]
-type Trigger =
+type TriggerState =
     { Base : Entity
       Radius : float32
       Height : float32
       Interactable : bool
-      Prompt : string
+      Prompt : string }
+
+// A trigger is its authored shape plus its runtime flag, which is neither authored nor
+// derived: it is recomputed in place by the trigger system and never recorded.
+[<Struct>]
+type Trigger =
+    { State : TriggerState
       mutable Triggered : bool }

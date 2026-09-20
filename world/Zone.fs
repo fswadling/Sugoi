@@ -85,11 +85,11 @@ let tryEntityAt (zone: Zone) (ref: EntityRef) : Entity option =
     | EntityKind.Actor ->
         if not (zone.Actors.IsAlive(handleOf ref)) then None else
         let actor = &zone.Actors.Get(handleOf ref)
-        Some actor.Base
+        Some actor.State.Base
     | EntityKind.Prop ->
         if not (zone.Props.IsAlive(handleOf ref)) then None else
         let prop = &zone.Props.Get(handleOf ref)
-        Some prop.Base
+        Some prop.State.Base
     | EntityKind.Waypoint ->
         if not (zone.Waypoints.IsAlive(handleOf ref)) then None else
         let waypoint = &zone.Waypoints.Get(handleOf ref)
@@ -97,14 +97,14 @@ let tryEntityAt (zone: Zone) (ref: EntityRef) : Entity option =
     | EntityKind.Trigger ->
         if not (zone.Triggers.IsAlive(handleOf ref)) then None else
         let trigger = &zone.Triggers.Get(handleOf ref)
-        Some trigger.Base
+        Some trigger.State.Base
     | EntityKind.Part ->
         match partsFor zone ref with
         | None -> None
         | Some parts ->
         if not (parts.IsAlive(handleOf ref)) then None else
         let part = &parts.Get(handleOf ref)
-        Some part.Base
+        Some part.State.Base
     | EntityKind.Environment -> None
 
 // ── Collider derivation ──
@@ -224,38 +224,38 @@ let private mapBody (zone: Zone) (attachment: PhysicsAttachment<'T> option) (ref
 
 // ── Recorded state ──
 //
-// A command carries a kind's own record, taken through `capture*`. Each returns the live
-// record with the fields a restore must not reuse cleared: the derived resources (body
-// attachment, renderer) and any runtime flag, so a recorded command can hold neither a
-// released GPU object nor a stale body id. The copy is a record-update, so a field added
-// to a kind later is carried without an edit here; its mirror is the matching `occupy*`,
-// which builds its record field by field and so fails to build until that field is
-// classified as authored, derived, or runtime.
+// A command carries a kind's authored value, taken through `capture*`. Each resolves the
+// ref and reads the entity's `State`: the properties the editor authors for that kind, and
+// nothing an engine rebuilds. There is no clearing step — a payload is a different type
+// from the entity it came from, so it cannot hold a body, a renderer, or a runtime flag in
+// the first place. Its mirror is the matching `occupy*`, which builds the entity field by
+// field and so fails to build until a new field has been classified as authored, derived,
+// or runtime.
 //
 // Each raises for a stale or wrong-kind ref: every caller resolves the ref through
 // `tryEntityAt` first, so a miss here is a broken invariant rather than a condition.
 
-let captureActor (zone: Zone) (ref: EntityRef) : Actor =
+let captureActor (zone: Zone) (ref: EntityRef) : ActorState =
     if ref.Kind <> EntityKind.Actor || not (zone.Actors.IsAlive(handleOf ref)) then
         invalidOp (sprintf "captureActor: %A is not a live actor" ref)
 
     let actor = zone.Actors.Get(handleOf ref)
-    { actor with Physics = None; Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
+    actor.State
 
-let captureProp (zone: Zone) (ref: EntityRef) : Prop =
+let captureProp (zone: Zone) (ref: EntityRef) : PropState =
     if ref.Kind <> EntityKind.Prop || not (zone.Props.IsAlive(handleOf ref)) then
         invalidOp (sprintf "captureProp: %A is not a live prop" ref)
 
     let prop = zone.Props.Get(handleOf ref)
-    { prop with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
+    prop.State
 
 // A part's record is captured through its environment, so a ref whose epoch no longer
 // matches the loaded environment is not a part at all.
-let capturePart (zone: Zone) (ref: EntityRef) : Prop =
+let capturePart (zone: Zone) (ref: EntityRef) : PropState =
     match partsFor zone ref with
     | Some parts when parts.IsAlive(handleOf ref) ->
         let part = parts.Get(handleOf ref)
-        { part with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
+        part.State
     | _ -> invalidOp (sprintf "capturePart: %A is not a live part" ref)
 
 let captureWaypoint (zone: Zone) (ref: EntityRef) : Waypoint =
@@ -265,27 +265,26 @@ let captureWaypoint (zone: Zone) (ref: EntityRef) : Waypoint =
     let waypoint = zone.Waypoints.Get(handleOf ref)
     waypoint
 
-// The runtime `Triggered` flag is cleared: the trigger system recomputes it, so a
-// restore must not put back the value the entity happened to have when it was recorded.
-let captureTrigger (zone: Zone) (ref: EntityRef) : Trigger =
+// The runtime `Triggered` flag is not part of a trigger's authored value, so there is
+// nothing to clear here: the trigger system recomputes the flag, and a restore never puts
+// back the value the entity happened to have when it was recorded.
+let captureTrigger (zone: Zone) (ref: EntityRef) : TriggerState =
     if ref.Kind <> EntityKind.Trigger || not (zone.Triggers.IsAlive(handleOf ref)) then
         invalidOp (sprintf "captureTrigger: %A is not a live trigger" ref)
 
     let trigger = zone.Triggers.Get(handleOf ref)
-    { trigger with Triggered = false }
+    trigger.State
 
-// The payload a trigger is created with: a one-metre radius two metres tall, not
-// interactable, with no prompt. A trigger's authored shape is what `Command.TriggerSet`
-// records, so the one restore path that holds only a base entity (the shared spawn and
-// duplicate cases) reconstructs these defaults and the authored shape arrives with its
-// own command.
-let private defaultTrigger (entity: Entity) : Trigger =
+// The authored value a trigger is created with: a one-metre radius two metres tall, not
+// interactable, with no prompt. It is only ever a new trigger's starting point — what a
+// command records is the value the live trigger holds, so a delete or a copy carries the
+// trigger's own shape rather than these defaults.
+let private defaultTrigger (entity: Entity) : TriggerState =
     { Base = entity
       Radius = 1.0f
       Height = 2.0f
       Interactable = false
-      Prompt = ""
-      Triggered = false }
+      Prompt = "" }
 
 
 
@@ -300,7 +299,7 @@ let private setMeshTransform (zone: Zone) (world: Physics.World) (map: SlotMap<P
     let p = &map.Get(handleOf ref)
     let attachment =
         match p.Physics with
-        | Some ph when p.Base.Transform.Scale = transform.Scale ->
+        | Some ph when p.State.Base.Transform.Scale = transform.Scale ->
             do Physics.setBodyTransform world ph.Body transform.Position transform.Rotation
             Some ph
         | Some ph ->
@@ -308,7 +307,7 @@ let private setMeshTransform (zone: Zone) (world: Physics.World) (map: SlotMap<P
             Some { ph with Body = meshBody world ph.Collider transform }
         | None -> None
     do mapBody zone attachment ref
-    p <- { p with Base = { p.Base with Transform = transform }; Physics = attachment }
+    p <- { p with State.Base.Transform = transform; Physics = attachment }
 
 // Change an existing entity's transform at the ref (Actor/Prop/Part/Waypoint/Trigger),
 // recreating its body so it follows. No-op for other kinds or a stale/absent ref.
@@ -324,7 +323,7 @@ let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform
             | Some ph -> Some { ph with Body = capsuleBody world ph.Collider transform }
             | None -> None
         do mapBody zone attachment ref
-        a <- { a with Base = { a.Base with Transform = transform }; Physics = attachment }
+        a <- { a with State.Base.Transform = transform; Physics = attachment }
 
     | EntityKind.Prop ->
         do setMeshTransform zone world zone.Props ref transform
@@ -337,7 +336,7 @@ let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform
     | EntityKind.Trigger ->
         if zone.Triggers.IsAlive(handleOf ref) then
             let trigger = &zone.Triggers.Get(handleOf ref)
-            trigger <- { trigger with Base = { trigger.Base with Transform = transform } }
+            trigger <- { trigger with State.Base.Transform = transform }
 
     | EntityKind.Part ->
         match partsFor zone ref with
@@ -355,12 +354,12 @@ let setName (zone: Zone) (ref: EntityRef) (name: string) : unit =
     | EntityKind.Actor ->
         if zone.Actors.IsAlive(handleOf ref) then
             let actor = &zone.Actors.Get(handleOf ref)
-            actor <- { actor with Base = { actor.Base with Name = name } }
+            actor <- { actor with State.Base.Name = name }
 
     | EntityKind.Prop ->
         if zone.Props.IsAlive(handleOf ref) then
             let p = &zone.Props.Get(handleOf ref)
-            p <- { p with Base = { p.Base with Name = name } }
+            p <- { p with State.Base.Name = name }
 
     | EntityKind.Waypoint ->
         if zone.Waypoints.IsAlive(handleOf ref) then
@@ -370,7 +369,7 @@ let setName (zone: Zone) (ref: EntityRef) (name: string) : unit =
     | EntityKind.Trigger ->
         if zone.Triggers.IsAlive(handleOf ref) then
             let trigger = &zone.Triggers.Get(handleOf ref)
-            trigger <- { trigger with Base = { trigger.Base with Name = name } }
+            trigger <- { trigger with State.Base.Name = name }
 
     | EntityKind.Part ->
         match partsFor zone ref with
@@ -378,7 +377,7 @@ let setName (zone: Zone) (ref: EntityRef) (name: string) : unit =
         | Some parts ->
         if parts.IsAlive(handleOf ref) then
             let p = &parts.Get(handleOf ref)
-            p <- { p with Base = { p.Base with Name = name } }
+            p <- { p with State.Base.Name = name }
 
     | EntityKind.Environment -> ()
 
@@ -399,13 +398,12 @@ let private ensureSlotFree (map: SlotMap<'T>) (ref: EntityRef) : unit =
     if map.IsOccupied(ref.Index) then
         invalidOp (sprintf "slot %d of ref %A is occupied — a recorded slot was reused by an untracked Add" ref.Index ref)
 
-// Place a trigger payload at a ref's slot: the restore path for a deleted or copied
-// trigger. Built field by field from the payload, with the runtime flag cleared.
+// Place an authored trigger value at a ref's slot: the restore path for a deleted or
+// copied trigger. The runtime flag starts clear — it is the trigger system's to recompute.
 // Raises when the slot is not free.
-let occupyTrigger (zone: Zone) (ref: EntityRef) (trigger: Trigger) : unit =
+let occupyTrigger (zone: Zone) (ref: EntityRef) (state: TriggerState) : unit =
     do ensureSlotFree zone.Triggers ref
-    let restored = { Base = trigger.Base; Radius = trigger.Radius; Height = trigger.Height; Interactable = trigger.Interactable; Prompt = trigger.Prompt; Triggered = false }
-    zone.Triggers.Occupy(handleOf ref, restored)
+    zone.Triggers.Occupy(handleOf ref, { State = state; Triggered = false })
 
 // ── Restoring a recorded record ──
 //
@@ -419,26 +417,21 @@ let occupyTrigger (zone: Zone) (ref: EntityRef) (trigger: Trigger) : unit =
 // it. `ensureSlotFree` therefore turns a slot stolen by an untracked add into a loud
 // failure, and does so before any GPU or physics resource is built.
 
-let occupyActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (actor: Actor) : unit =
+let occupyActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (state: ActorState) : unit =
     do ensureSlotFree zone.Actors ref
-    let renderer = Assets.createActorRender assets actor.AssetId
-    let attachment = attachActorPhysics world assets actor.AssetId actor.Base.Transform
-    zone.Actors.Occupy(handleOf ref, { Base = actor.Base
-                                       AssetId = actor.AssetId
+    let renderer = Assets.createActorRender assets state.AssetId
+    let attachment = attachActorPhysics world assets state.AssetId state.Base.Transform
+    zone.Actors.Occupy(handleOf ref, { State = state
                                        Physics = attachment
-                                       ShowCollider = actor.ShowCollider
                                        Renderer = renderer })
     do mapBody zone attachment ref
 
-let occupyProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (prop: Prop) : unit =
+let occupyProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (state: PropState) : unit =
     do ensureSlotFree zone.Props ref
-    let binding = { AssetId = prop.AssetId; SubmeshIndex = prop.SubmeshIndex; SubmeshCount = prop.SubmeshCount }
+    let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
     let renderer = propRenderer zone assets binding
-    let attachment = attachPropPhysics world zone assets binding prop.Base.Transform
-    zone.Props.Occupy(handleOf ref, { Base = prop.Base
-                                      AssetId = prop.AssetId
-                                      SubmeshIndex = prop.SubmeshIndex
-                                      SubmeshCount = prop.SubmeshCount
+    let attachment = attachPropPhysics world zone assets binding state.Base.Transform
+    zone.Props.Occupy(handleOf ref, { State = state
                                       Physics = attachment
                                       Renderer = renderer })
     do mapBody zone attachment ref
@@ -446,18 +439,15 @@ let occupyProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager)
 // A part restore only runs while the environment it names is loaded: swaps are commands
 // and the stack is LIFO, so a swap is undone before the part commands that followed it.
 // An epoch mismatch is therefore a broken invariant, not a no-op.
-let occupyPart (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (part: Prop) : unit =
+let occupyPart (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (state: PropState) : unit =
     match partsFor zone ref with
     | None -> failwithf "occupyPart: part ref %A does not belong to the loaded environment" ref
     | Some parts ->
     do ensureSlotFree parts ref
-    let binding = { AssetId = part.AssetId; SubmeshIndex = part.SubmeshIndex; SubmeshCount = part.SubmeshCount }
+    let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
     let renderer = propRenderer zone assets binding
-    let attachment = attachPropPhysics world zone assets binding part.Base.Transform
-    parts.Occupy(handleOf ref, { Base = part.Base
-                                 AssetId = part.AssetId
-                                 SubmeshIndex = part.SubmeshIndex
-                                 SubmeshCount = part.SubmeshCount
+    let attachment = attachPropPhysics world zone assets binding state.Base.Transform
+    parts.Occupy(handleOf ref, { State = state
                                  Physics = attachment
                                  Renderer = renderer })
     do mapBody zone attachment ref
@@ -469,7 +459,7 @@ let occupyPart (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager)
 let setShowCollider (zone: Zone) (ref: EntityRef) (show: bool) : unit =
     if zone.Actors.IsAlive(handleOf ref) then
         let actor = &zone.Actors.Get(handleOf ref)
-        actor <- { actor with ShowCollider = show }
+        actor <- { actor with State.ShowCollider = show }
 
 let occupyWaypoint (zone: Zone) (ref: EntityRef) (waypoint: Waypoint) : unit =
     do ensureSlotFree zone.Waypoints ref
@@ -516,7 +506,8 @@ let removeTrigger (zone: Zone) (ref: EntityRef) : unit =
 let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) : EntityRef =
     let renderer = Assets.createActorRender assets assetId
     let attachment = attachActorPhysics world assets assetId entity.Transform
-    let handle = zone.Actors.Add({ Base = entity; AssetId = assetId; Physics = attachment; ShowCollider = false; Renderer = renderer })
+    let state = { Base = entity; AssetId = assetId; ShowCollider = false }
+    let handle = zone.Actors.Add({ State = state; Physics = attachment; Renderer = renderer })
     let ref = actorRef handle.Index handle.Generation
     do mapBody zone attachment ref
     ref
@@ -524,10 +515,8 @@ let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager)
 // Build a mesh-backed prop value from an entity + binding, with no resources yet
 // (used while building an environment's parts map; activation attaches them).
 let private meshProp (entity: Entity) (binding: AssetBinding) : Prop =
-    { Base = entity
-      AssetId = binding.AssetId
-      SubmeshIndex = binding.SubmeshIndex
-      SubmeshCount = binding.SubmeshCount
+    let state = { Base = entity; AssetId = binding.AssetId; SubmeshIndex = binding.SubmeshIndex; SubmeshCount = binding.SubmeshCount }
+    { State = state
       Physics = None
       Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
 
@@ -599,7 +588,7 @@ let setWaypointNext (zone: Zone) (ref: EntityRef) (next: EntityRef option) : uni
 // Spawn a trigger from its base entity and return its ref, with the default shape.
 // Triggers carry no renderer or body, so no world/assets are needed.
 let spawnTrigger (zone: Zone) (entity: Entity) : EntityRef =
-    let handle = zone.Triggers.Add(defaultTrigger entity)
+    let handle = zone.Triggers.Add({ State = defaultTrigger entity; Triggered = false })
     triggerRef handle.Index handle.Generation
 
 // The trigger behind a ref, or ValueNone for another kind or a stale/absent slot. The
@@ -612,14 +601,14 @@ let tryTriggerAt (zone: Zone) (ref: EntityRef) : Trigger voption =
 
     ValueSome (zone.Triggers.Get(handleOf ref))
 
-// Replace a trigger's payload. Raises for a ref of another kind; no-op for a stale or
-// absent one. The runtime `Triggered` flag rides along; nothing authors it.
-let setTrigger (zone: Zone) (ref: EntityRef) (trigger: Trigger) : unit =
+// Replace a trigger's authored value, leaving its runtime flag alone. Raises for a ref of
+// another kind; no-op for a stale or absent one.
+let setTrigger (zone: Zone) (ref: EntityRef) (state: TriggerState) : unit =
     if ref.Kind <> EntityKind.Trigger then invalidOp "setTrigger: the ref is not a trigger" else
     if not (zone.Triggers.IsAlive(handleOf ref)) then () else
 
     let slot = &zone.Triggers.Get(handleOf ref)
-    slot <- trigger
+    slot <- { slot with State = state }
 
 // ── Environment parts ──
 //
@@ -634,8 +623,8 @@ let setTrigger (zone: Zone) (ref: EntityRef) (trigger: Trigger) : unit =
 let private attachPart (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (environment: Environment) (handle: Handle) : unit =
     let parts = environment.Parts
     let p = &parts.Get(handle)
-    let transform = p.Base.Transform
-    let binding = { AssetId = p.AssetId; SubmeshIndex = p.SubmeshIndex; SubmeshCount = p.SubmeshCount }
+    let transform = p.State.Base.Transform
+    let binding = { AssetId = p.State.AssetId; SubmeshIndex = p.State.SubmeshIndex; SubmeshCount = p.State.SubmeshCount }
     let renderer = propRenderer zone assets binding
     let attachment = attachPropPhysics world zone assets binding transform
     p.Renderer <- renderer

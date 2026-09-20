@@ -95,7 +95,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             for i in 0 .. slots.Length - 1 do
                 let slot = slots.[i]
                 if slot.Alive then
-                    entityRow shared &state slot.Value.Base.Name (sprintf "actor%d" i) (actorRef (uint32 i) slot.Generation)
+                    entityRow shared &state slot.Value.State.Base.Name (sprintf "actor%d" i) (actorRef (uint32 i) slot.Generation)
 
     if ImGui.collapsingHeader("Props", 0) then
         if zone.Props.Count = 0u then
@@ -105,7 +105,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             for i in 0 .. slots.Length - 1 do
                 let slot = slots.[i]
                 if slot.Alive then
-                    entityRow shared &state slot.Value.Base.Name (sprintf "prop%d" i) (propRef (uint32 i) slot.Generation)
+                    entityRow shared &state slot.Value.State.Base.Name (sprintf "prop%d" i) (propRef (uint32 i) slot.Generation)
 
     if ImGui.collapsingHeader("Parts", 0) then
         match zone.Environment with
@@ -119,7 +119,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             for i in 0 .. slots.Length - 1 do
                 let slot = slots.[i]
                 if slot.Alive then
-                    entityRow shared &state slot.Value.Base.Name (sprintf "part%d" i) (partRef environment.Epoch (uint32 i) slot.Generation)
+                    entityRow shared &state slot.Value.State.Base.Name (sprintf "part%d" i) (partRef environment.Epoch (uint32 i) slot.Generation)
 
     if ImGui.collapsingHeader("Triggers", 0) then
         if ImGui.button("Add Trigger", ImGui.ImVec2(0.0f, 0.0f)) then
@@ -132,7 +132,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             for i in 0 .. slots.Length - 1 do
                 let slot = slots.[i]
                 if slot.Alive then
-                    entityRow shared &state slot.Value.Base.Name (sprintf "trigger%d" i) (triggerRef (uint32 i) slot.Generation)
+                    entityRow shared &state slot.Value.State.Base.Name (sprintf "trigger%d" i) (triggerRef (uint32 i) slot.Generation)
 
     if ImGui.collapsingHeader("Waypoints", 0) then
         // The chain actions act on the selected waypoint, so they are gated on it — and

@@ -55,15 +55,18 @@ type EditorState =
       // A reused UTF-8 buffer for the pending zone name (Outliner zones section);
       // one buffer so typing allocates nothing per frame.
       NewZoneName : byte[]
-      // The Inspector's entity-name field: the text, re-seeded from the selected
-      // entity every frame, and the ref that text belongs to, so a pending edit is
-      // never applied to a different entity than the one it was typed for.
+      // The Inspector's entity-name field: the text, the ref that text belongs to, and
+      // whether the field was live as of the last draw. The buffer is re-seeded — and the ref
+      // re-pointed — only while the field is not live, so an edit in progress is never
+      // overwritten and its text can never be applied to a different entity.
       NameBuffer : byte[]
       NameEditRef : EntityRef option
+      NameEditing : bool
       // The Inspector's trigger-prompt field. The same shape as the name field, in its
       // own buffer because a selected trigger draws both.
       PromptBuffer : byte[]
-      PromptEditRef : EntityRef option }
+      PromptEditRef : EntityRef option
+      PromptEditing : bool }
 
 let create () : EditorState =
     { Selection = None
@@ -77,5 +80,7 @@ let create () : EditorState =
       NewZoneName = Array.zeroCreate zoneNameBufferSize
       NameBuffer = Array.zeroCreate entityNameBufferSize
       NameEditRef = None
+      NameEditing = false
       PromptBuffer = Array.zeroCreate entityNameBufferSize
-      PromptEditRef = None }
+      PromptEditRef = None
+      PromptEditing = false }

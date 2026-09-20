@@ -53,12 +53,24 @@ let private roomAsset () : EnvironmentAsset.EnvironmentAsset =
       Submeshes = [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
       Parts = [| assetPart 0 1 |] }
 
+// A whole-model placed prop asset, so a created prop builds a mesh collider and a body.
+let private propAsset () : EnvironmentAsset.EnvironmentAsset =
+    { Id = "crate"
+      Name = "crate"
+      ModelPath = ""
+      Orientation = Quaternion.Identity
+      Bounds = bounds Vector3.Zero Vector3.One
+      Submeshes = [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
+      Parts = [||] }
+
 let private headlessAssets () : Assets.AssetManager =
     let environments = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
     environments.["room"] <- roomAsset ()
+    let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
+    props.["crate"] <- propAsset ()
     { Device = IntPtr.Zero
       Actors = Dictionary()
-      Props = Dictionary()
+      Props = props
       Environments = environments }
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
@@ -79,6 +91,39 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       Follow = Systems.createFollow ()
       UndoByZone = Dictionary()
       InteractableTrigger = ValueNone }
+
+// ── Create ──
+
+[<Fact>]
+let ``a create carries the authored value it was given, and redo rebuilds the resources`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let mutable state = gameplayState zone
+
+    Spawning.spawnProp shared &state (entity "crate") "crate"
+
+    let ref = state.Editor.Selection.Value
+    let live = (zone.Props.Get(handleOf ref)).State
+    // The create records the authored value it was given, field for field.
+    match state.Editor.Undo.Applied with
+    | [ PropCreate (r, created) ] ->
+        Assert.Equal<EntityRef>(ref, r)
+        Assert.Equal(live, created)
+    | other -> Assert.Fail(sprintf "expected exactly one PropCreate command, got %A" other)
+
+    Assert.True(Option.isSome (zone.Props.Get(handleOf ref)).Physics)
+
+    // Undo destroys the entity and its body, redo rebuilds both from the recorded value.
+    let undone = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    Assert.False(Zone.isAlive zone ref)
+
+    let redone = UndoStack.redo undone zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = redone }
+
+    Assert.True(Zone.isAlive zone ref)
+    Assert.Equal(live, (zone.Props.Get(handleOf ref)).State)
+    Assert.True(Option.isSome (zone.Props.Get(handleOf ref)).Physics)
 
 // ── Duplicate ──
 
@@ -133,6 +178,35 @@ let ``duplicating a waypoint spawns a copy, selects it, and pushes the reversing
     match state.Editor.Undo.Applied with
     | WaypointCreate (r, _) :: _ -> Assert.Equal(state.Editor.Selection.Value, r)
     | other -> Assert.Fail(sprintf "expected a WaypointCreate command, got %A" other)
+
+[<Fact>]
+let ``a duplicate records the copy's own authored value, so redo restores the copy`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let source = Zone.spawnWaypoint zone (entity "start")
+    let mutable state = gameplayState zone
+
+    Spawning.duplicate shared &state source (entity "start-copy")
+
+    let copy = state.Editor.Selection.Value
+    match state.Editor.Undo.Applied with
+    | [ WaypointCreate (r, recorded) ] ->
+        Assert.Equal<EntityRef>(copy, r)
+        // The value belongs to the copy, not to the original: a redo must restore the copy
+        // as the duplicate left it rather than a second original.
+        Assert.Equal(Zone.captureWaypoint zone copy, recorded)
+        Assert.Equal("start-copy", recorded.Base.Name)
+    | other -> Assert.Fail(sprintf "expected exactly one WaypointCreate command, got %A" other)
+
+    let undone = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    Assert.False(Zone.isAlive zone copy)
+
+    let redone = UndoStack.redo undone zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = redone }
+
+    Assert.True(Zone.isAlive zone copy)
+    Assert.Equal("start-copy", (Zone.tryEntityAt zone copy).Value.Name)
 
 [<Fact>]
 let ``deleting a waypoint and undoing restores its transform at the recorded slot`` () =
@@ -245,8 +319,12 @@ let ``duplicating a trigger copies its payload but not its runtime state`` () =
     let shared = sharedState assets
     let zone = Zone.create ()
     let source = Zone.spawnTrigger zone (entity "area")
-    let payload = (Zone.tryTriggerAt zone source).Value
-    do Zone.setTrigger zone source { payload with Radius = 4.0f; Prompt = "Open"; Interactable = true; Triggered = true }
+    let payload = Zone.captureTrigger zone source
+    do Zone.setTrigger zone source { payload with Radius = 4.0f; Prompt = "Open"; Interactable = true }
+    // The flag is the trigger system's and nothing authors it through a command, so it is
+    // set here straight on the slot: the copy must not pick it up.
+    let slot = &zone.Triggers.Get(handleOf source)
+    slot.Triggered <- true
     let mutable state = gameplayState zone
 
     Spawning.duplicate shared &state source (entity "area")
@@ -255,9 +333,9 @@ let ``duplicating a trigger copies its payload but not its runtime state`` () =
     let copy = state.Editor.Selection.Value
     let copied = (Zone.tryTriggerAt zone copy).Value
     Assert.NotEqual<EntityRef>(source, copy)
-    Assert.Equal(4.0f, copied.Radius)
-    Assert.Equal("Open", copied.Prompt)
-    Assert.True(copied.Interactable)
+    Assert.Equal(4.0f, copied.State.Radius)
+    Assert.Equal("Open", copied.State.Prompt)
+    Assert.True(copied.State.Interactable)
     // The runtime flag is the next update's to recompute, so it is not copied.
     Assert.False(copied.Triggered)
 
@@ -271,7 +349,7 @@ let ``deleting a trigger and undoing restores its authored shape`` () =
     let shared = sharedState assets
     let zone = Zone.create ()
     let ref = Zone.spawnTrigger zone (entity "area")
-    let payload = (Zone.tryTriggerAt zone ref).Value
+    let payload = Zone.captureTrigger zone ref
     do Zone.setTrigger zone ref { payload with Radius = 5.0f; Height = 9.0f; Prompt = "Here"; Interactable = true }
     let mutable state = gameplayState zone
 
@@ -288,10 +366,10 @@ let ``deleting a trigger and undoing restores its authored shape`` () =
     state.Editor <- { state.Editor with Undo = undo }
 
     let restored = (Zone.tryTriggerAt zone ref).Value
-    Assert.Equal(5.0f, restored.Radius)
-    Assert.Equal(9.0f, restored.Height)
-    Assert.Equal("Here", restored.Prompt)
-    Assert.True(restored.Interactable)
+    Assert.Equal(5.0f, restored.State.Radius)
+    Assert.Equal(9.0f, restored.State.Height)
+    Assert.Equal("Here", restored.State.Prompt)
+    Assert.True(restored.State.Interactable)
 
 [<Fact>]
 let ``duplicating a kind with no entity fails loudly`` () =

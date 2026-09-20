@@ -103,12 +103,15 @@ undo stack. Commands store **values** (not closures):
   on the wrong part. Swapping environments (a load, or undo/redo of the swap)
   drops a part selection whose epoch no longer matches, so the inspector never
   shows a dangling entity.
-- A create or delete carries the kind's **own record**: the authored state as the
-  editor records it, with the derived body and renderer cleared, because a restore
-  rebuilds them. There is deliberately no kind-agnostic create/delete payload, so
-  undo restores every authored property of a kind rather than only the ones all
-  kinds share, and a field added to a kind is either carried automatically or fails
-  the build until it is classified as authored, derived, or runtime.
+- A create or delete carries the kind's **own authored value**: a record of its
+  own holding the authored state and nothing the engine rebuilds, so no step has to
+  clear a derived body or renderer to make it storable — a payload cannot hold one.
+  There is deliberately no kind-agnostic create/delete payload, so undo restores
+  every authored property of a kind rather than only the ones all kinds share, and a
+  field added to a kind is either carried automatically or fails the build until it
+  is classified as authored, derived, or runtime. Recording an entity is reading
+  that value, and producing a live entity from it happens in one place per kind
+  (`Zone.occupy*`/`spawn*`, which rebuild the body and renderer).
 - Non-entity surfaces (cast, scenario, zone registry, advent flags, cue root)
   store **name-keyed before/after snapshots** of the immutable map/set entry.
 - Property edits are per-kind rather than generic: `Transform` and `Rename` cover

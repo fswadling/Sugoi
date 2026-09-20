@@ -283,8 +283,11 @@ let ``deleting a trigger and undoing restores its shape but not its runtime flag
     let shared = sharedState ()
     let zone = Zone.create ()
     let ref = Zone.spawnTrigger zone (entity "area")
-    let payload = (Zone.tryTriggerAt zone ref).Value
-    do Zone.setTrigger zone ref { payload with Radius = 3.0f; Height = 4.0f; Interactable = true; Prompt = "Open"; Triggered = true }
+    let payload = Zone.captureTrigger zone ref
+    do Zone.setTrigger zone ref { payload with Radius = 3.0f; Height = 4.0f; Interactable = true; Prompt = "Open" }
+    // The flag is the trigger system's; nothing authors it through a command.
+    let slot = &zone.Triggers.Get(handleOf ref)
+    slot.Triggered <- true
     let mutable state = gameplayState zone
 
     Selection.deleteRef shared &state ref
@@ -293,10 +296,10 @@ let ``deleting a trigger and undoing restores its shape but not its runtime flag
     state.Editor <- { state.Editor with Undo = undo }
 
     let restored = (Zone.tryTriggerAt zone ref).Value
-    Assert.Equal(3.0f, restored.Radius)
-    Assert.Equal(4.0f, restored.Height)
-    Assert.Equal("Open", restored.Prompt)
-    Assert.True(restored.Interactable)
+    Assert.Equal(3.0f, restored.State.Radius)
+    Assert.Equal(4.0f, restored.State.Height)
+    Assert.Equal("Open", restored.State.Prompt)
+    Assert.True(restored.State.Interactable)
     // Runtime state is the trigger system's to recompute.
     Assert.False(restored.Triggered)
 
@@ -327,10 +330,11 @@ let ``the collider overlay is recorded with the actor and is not an undo step`` 
     // and to release, so this test stops at what a delete records. Undoing an actor delete
     // is covered by the interactive walk in the quickstart.
     let handle =
-        zone.Actors.Add({ Base = entity "hero"
-                          AssetId = "character"
+        zone.Actors.Add({ State =
+                            { Base = entity "hero"
+                              AssetId = "character"
+                              ShowCollider = false }
                           Physics = None
-                          ShowCollider = false
                           Renderer = Unchecked.defaultof<ActorRender.ActorRender> })
     let ref = actorRef handle.Index handle.Generation
     let mutable state = gameplayState zone

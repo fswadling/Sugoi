@@ -32,28 +32,31 @@ let private entity (name: string) : Entity =
       Draggable = true }
 
 let private prop (name: string) : Prop =
-    { Base = entity name
-      AssetId = Some "crate"
-      SubmeshIndex = 0
-      SubmeshCount = 0
+    { State =
+        { Base = entity name
+          AssetId = Some "crate"
+          SubmeshIndex = 0
+          SubmeshCount = 0 }
       Physics = None
       Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
 
 // An environment part: a prop with no asset id, which is how `buildEnvironment`
 // populates an environment's own parts map.
 let private part (name: string) : Prop =
-    { Base = entity name
-      AssetId = None
-      SubmeshIndex = 0
-      SubmeshCount = 0
+    { State =
+        { Base = entity name
+          AssetId = None
+          SubmeshIndex = 0
+          SubmeshCount = 0 }
       Physics = None
       Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
 
 let private actor (name: string) : Actor =
-    { Base = entity name
-      AssetId = "character"
+    { State =
+        { Base = entity name
+          AssetId = "character"
+          ShowCollider = false }
       Physics = None
-      ShowCollider = false
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 
 // An environment owning `parts`, installed directly (loading one needs assets).
@@ -472,9 +475,9 @@ let ``a spawned trigger resolves with the default shape and no binding`` () =
     Assert.True(Zone.isAlive zone ref)
     Assert.Equal("area", (Zone.tryEntityAt zone ref).Value.Name)
     let trigger = (Zone.tryTriggerAt zone ref).Value
-    Assert.Equal(1.0f, trigger.Radius)
-    Assert.Equal(2.0f, trigger.Height)
-    Assert.False(trigger.Interactable)
+    Assert.Equal(1.0f, trigger.State.Radius)
+    Assert.Equal(2.0f, trigger.State.Height)
+    Assert.False(trigger.State.Interactable)
     Assert.False(trigger.Triggered)
 
 [<Fact>]
@@ -482,18 +485,18 @@ let ``setTrigger, setName and setTransform all work on a trigger`` () =
     let zone = Zone.create ()
     let world = Physics.create ()
     let ref = Zone.spawnTrigger zone (entity "area")
-    let payload = (Zone.tryTriggerAt zone ref).Value
+    let payload = Zone.captureTrigger zone ref
 
     do Zone.setTrigger zone ref { payload with Radius = 3.5f; Prompt = "Open"; Interactable = true }
     do Zone.setName zone ref "hallway"
     do Zone.setTransform zone world ref { transformIdentity with Position = Vector3(1.0f, 2.0f, 3.0f) }
 
     let updated = (Zone.tryTriggerAt zone ref).Value
-    Assert.Equal(3.5f, updated.Radius)
-    Assert.Equal("Open", updated.Prompt)
-    Assert.True(updated.Interactable)
-    Assert.Equal("hallway", updated.Base.Name)
-    Assert.Equal(Vector3(1.0f, 2.0f, 3.0f), updated.Base.Transform.Position)
+    Assert.Equal(3.5f, updated.State.Radius)
+    Assert.Equal("Open", updated.State.Prompt)
+    Assert.True(updated.State.Interactable)
+    Assert.Equal("hallway", updated.State.Base.Name)
+    Assert.Equal(Vector3(1.0f, 2.0f, 3.0f), updated.State.Base.Transform.Position)
     Assert.True(Zone.isAlive zone ref)
 
 [<Fact>]
@@ -505,8 +508,7 @@ let ``setTrigger refuses a ref of another kind`` () =
           Radius = 1.0f
           Height = 1.0f
           Interactable = false
-          Prompt = ""
-          Triggered = false }
+          Prompt = "" }
 
     let mutable message = ""
     try
@@ -532,7 +534,7 @@ let ``removing a trigger makes its ref stale and a reused slot is not aliased`` 
 
     // ...and the stale ref resolves to neither the old nor the new trigger.
     Assert.True(ValueOption.isNone (Zone.tryTriggerAt zone ref))
-    Assert.Equal("second", (Zone.tryTriggerAt zone second).Value.Base.Name)
+    Assert.Equal("second", (Zone.tryTriggerAt zone second).Value.State.Base.Name)
 
 // ── Mesh-body transforms: in place on a move, rebuilt only on a scale change ──
 
@@ -722,7 +724,8 @@ let ``setTransform updates an environment part in place`` () =
 let ``a captured part carries its submesh range`` () =
     let zone = Zone.create ()
     let parts = SlotMap<Prop>(8u)
-    let handle = parts.Add({ part "wall" with SubmeshIndex = 2; SubmeshCount = 3 })
+    let wall = part "wall"
+    let handle = parts.Add({ wall with State.SubmeshIndex = 2; State.SubmeshCount = 3 })
     zone.Environment <- Some (environment 1u parts)
     let ref = partRef 1u handle.Index handle.Generation
 
@@ -803,10 +806,10 @@ let ``a part transform is inert while a different environment is loaded`` () =
     Zone.setTransform zone world firstRef moved
 
     // The current environment's same-index part is untouched...
-    Assert.Equal(Vector3.Zero, (second.Parts.Get { Index = 0u; Generation = 0u }).Base.Transform.Position)
+    Assert.Equal(Vector3.Zero, (second.Parts.Get { Index = 0u; Generation = 0u }).State.Base.Transform.Position)
     // ...and the stale ref never reaches its own (inactive) environment's part.
     Zone.setEnvironment zone world assets (Some first)
-    Assert.Equal(Vector3.Zero, (first.Parts.Get { Index = 0u; Generation = 0u }).Base.Transform.Position)
+    Assert.Equal(Vector3.Zero, (first.Parts.Get { Index = 0u; Generation = 0u }).State.Base.Transform.Position)
 
 [<Fact>]
 let ``undo and redo of an environment load route through the real lifecycle`` () =
@@ -831,34 +834,46 @@ let ``undo and redo of an environment load route through the real lifecycle`` ()
 // ── Recorded state: what a command carries ──
 
 [<Fact>]
+let ``an authored value cannot expose a resource or a runtime flag`` () =
+    // SC-001, read off the types rather than a value: a payload that cannot name a body, a
+    // renderer, or a runtime flag cannot carry one, whatever a given value happens to hold.
+    let forbidden = [ "Physics"; "Renderer"; "Triggered"; "Attachment"; "Body"; "Collider" ]
+    for state in [ typeof<ActorState>; typeof<PropState>; typeof<TriggerState> ] do
+        for member' in state.GetMembers() do
+            Assert.False(List.contains member'.Name forbidden, sprintf "%s exposes %s" state.Name member'.Name)
+
+[<Fact>]
 let ``a captured prop carries its authored fields and no body`` () =
     let zone = Zone.create ()
     let world = Physics.create ()
     let assets = propAssets ()
     let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
 
-    // Live, the prop has a body. Recorded, it has the same authored fields and no
-    // attachment: the body and renderer are the restore's to rebuild.
+    // Live, the prop has a body. What a command records is the authored value, a type that
+    // cannot hold one: the body and renderer are the restore's to rebuild.
     Assert.True(Option.isSome (zone.Props.Get(handleOf ref)).Physics)
     let captured = Zone.captureProp zone ref
     Assert.Equal(Some "crate", captured.AssetId)
     Assert.Equal("crate", captured.Base.Name)
-    Assert.True(Option.isNone captured.Physics)
 
 [<Fact>]
-let ``a captured trigger carries its shape and clears the runtime flag`` () =
+let ``a captured trigger carries its shape and never its runtime flag`` () =
     let zone = Zone.create ()
     let ref = Zone.spawnTrigger zone (entity "area")
-    let payload = (Zone.tryTriggerAt zone ref).Value
-    do Zone.setTrigger zone ref { payload with Radius = 4.0f; Prompt = "Open"; Interactable = true; Triggered = true }
+    let payload = Zone.captureTrigger zone ref
+    do Zone.setTrigger zone ref { payload with Radius = 4.0f; Prompt = "Open"; Interactable = true }
+    // The flag is the trigger system's; nothing authors it through a command, so it is set
+    // here straight on the slot.
+    let slot = &zone.Triggers.Get(handleOf ref)
+    slot.Triggered <- true
 
     let captured = Zone.captureTrigger zone ref
 
     Assert.Equal(4.0f, captured.Radius)
     Assert.Equal("Open", captured.Prompt)
     Assert.True(captured.Interactable)
-    // The runtime flag is the trigger system's to recompute, so it is never recorded.
-    Assert.False(captured.Triggered)
+    // Recording reads the authored value, so the runtime flag is left exactly where it was.
+    Assert.True(slot.Triggered)
 
 [<Fact>]
 let ``a captured waypoint carries its link`` () =
@@ -878,15 +893,22 @@ let ``delete and undo restore a prop exactly`` () =
     let world = Physics.create ()
     let assets = propAssets ()
     let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
-    let cmd = PropDelete (ref, Zone.captureProp zone ref)
+    let live = (zone.Props.Get(handleOf ref)).State
+    let recorded = Zone.captureProp zone ref
+
+    // Recording is a read: what a command carries is the live authored value, whole.
+    Assert.Equal(live, recorded)
+
+    let cmd = PropDelete (ref, recorded)
 
     do apply zone world assets cmd
     Assert.False(Zone.isAlive zone ref)
 
     let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
     Assert.True(Zone.isAlive zone ref)
+    Assert.Equal(live, (zone.Props.Get(handleOf ref)).State)
     Assert.Equal("crate", (Zone.tryEntityAt zone ref).Value.Name)
-    Assert.Equal(Some "crate", (zone.Props.Get(handleOf ref)).AssetId)
+    Assert.Equal(Some "crate", (zone.Props.Get(handleOf ref)).State.AssetId)
     // The body is rebuilt rather than reused: the recorded one was destroyed.
     Assert.True(Option.isSome (zone.Props.Get(handleOf ref)).Physics)
 
@@ -901,15 +923,43 @@ let ``delete and undo restore an environment part exactly`` () =
     let assets = roomAssets ()
     let environment = Zone.loadEnvironment zone world assets "room"
     let ref = partRef environment.Epoch 0u 0u
-    let cmd = PartDelete (ref, Zone.capturePart zone ref)
+    let live = (environment.Parts.Get(handleOf ref)).State
+    let recorded = Zone.capturePart zone ref
+    Assert.Equal(live, recorded)
+
+    let cmd = PartDelete (ref, recorded)
 
     do apply zone world assets cmd
     Assert.False(Zone.isAlive zone ref)
 
     let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
     Assert.True(Zone.isAlive zone ref)
+    Assert.Equal(live, (environment.Parts.Get(handleOf ref)).State)
     Assert.Equal("wall", (Zone.tryEntityAt zone ref).Value.Name)
-    Assert.Equal(0, (Zone.capturePart zone ref).SubmeshIndex)
+    Assert.True(Option.isSome (environment.Parts.Get(handleOf ref)).Physics)
+    ignore stack
+
+[<Fact>]
+let ``delete and undo restore a trigger exactly, without its runtime flag`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnTrigger zone (entity "area")
+    do Zone.setTrigger zone ref { (Zone.captureTrigger zone ref) with Radius = 2.5f; Height = 3.0f; Interactable = true; Prompt = "Open" }
+    let live = (zone.Triggers.Get(handleOf ref)).State
+    let recorded = Zone.captureTrigger zone ref
+    Assert.Equal(live, recorded)
+
+    let cmd = TriggerDelete (ref, recorded)
+
+    do apply zone world assets cmd
+    Assert.False(Zone.isAlive zone ref)
+
+    let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
+    Assert.True(Zone.isAlive zone ref)
+    Assert.Equal(live, (zone.Triggers.Get(handleOf ref)).State)
+    // The runtime flag is the trigger system's to recompute, never a restore's to put back.
+    Assert.False((zone.Triggers.Get(handleOf ref)).Triggered)
     ignore stack
 
 [<Fact>]

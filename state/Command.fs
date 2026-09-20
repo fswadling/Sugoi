@@ -5,13 +5,16 @@ module Command
 // generation, and — for a part — its environment epoch). The generation and epoch
 // are what let a restored entity be told apart from one that reused its slot.
 //
-// A create and a delete exist per entity kind, each carrying that kind's own record
-// — the record as `Zone.capture*` takes it, with derived resources and runtime flags
-// cleared. There is no kind-agnostic payload: the base entity every kind shares could
-// not carry a kind's own authored state, which is what this shape exists to fix.
-// A `*Create` serves both spawning a new entity and duplicating an existing one,
-// since the two were always the same operation and differ only in where the payload
-// came from.
+// A create and a delete exist per entity kind, each carrying that kind's own authored
+// value — what `Zone.capture*` reads off a live entity. There is no kind-agnostic payload:
+// the base entity every kind shares could not carry a kind's own authored state, which is
+// what this shape exists to fix. A `*Create` serves both spawning a new entity and
+// duplicating an existing one, since the two were always the same operation and differ
+// only in where the payload came from.
+//
+// A payload is the authored record itself, so it cannot express a physics attachment, a
+// renderer, or a runtime flag: those are different types, held by the entity beside its
+// `State` and rebuilt by `Zone.occupy*`.
 
 open Entity
 open Zone
@@ -20,20 +23,20 @@ type Command =
     // An edit of the properties every kind shares.
     | Transform of Ref : EntityRef * Before : Transform * After : Transform
     | Rename of Ref : EntityRef * Before : string * After : string
-    // One create and one delete per kind, carrying the kind's own record.
-    | ActorCreate of Ref : EntityRef * Actor : Actor
-    | ActorDelete of Ref : EntityRef * Actor : Actor
-    | PropCreate of Ref : EntityRef * Prop : Prop
-    | PropDelete of Ref : EntityRef * Prop : Prop
-    | PartCreate of Ref : EntityRef * Part : Prop
-    | PartDelete of Ref : EntityRef * Part : Prop
+    // One create and one delete per kind, carrying the kind's own authored value.
+    | ActorCreate of Ref : EntityRef * Actor : ActorState
+    | ActorDelete of Ref : EntityRef * Actor : ActorState
+    | PropCreate of Ref : EntityRef * Prop : PropState
+    | PropDelete of Ref : EntityRef * Prop : PropState
+    | PartCreate of Ref : EntityRef * Part : PropState
+    | PartDelete of Ref : EntityRef * Part : PropState
     | WaypointCreate of Ref : EntityRef * Waypoint : Waypoint
     | WaypointDelete of Ref : EntityRef * Waypoint : Waypoint
-    | TriggerCreate of Ref : EntityRef * Trigger : Trigger
-    | TriggerDelete of Ref : EntityRef * Trigger : Trigger
+    | TriggerCreate of Ref : EntityRef * Trigger : TriggerState
+    | TriggerDelete of Ref : EntityRef * Trigger : TriggerState
     // A property edit that belongs to one kind: a waypoint's link, a trigger's shape.
     | Link of Ref : EntityRef * Before : EntityRef option * After : EntityRef option
-    | TriggerSet of Ref : EntityRef * Before : Trigger * After : Trigger
+    | TriggerSet of Ref : EntityRef * Before : TriggerState * After : TriggerState
     // The extend gesture as one step: create `Ref` from `Waypoint` and point `From` at it.
     | LinkSpawn of From : EntityRef * Before : EntityRef option * Ref : EntityRef * Waypoint : Waypoint
     // Zone-level rather than an entity: swapping the loaded environment.

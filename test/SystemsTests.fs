@@ -21,11 +21,12 @@ let private entity (name: string) : Entity =
 // A zone whose only actor is the designated player, standing at `position`.
 let private zoneWithPlayer (position: Vector3) : Zone.Zone =
     let zone = Zone.create ()
-    let hero =
-        { Base = { entity "hero" with Transform = { transformIdentity with Position = position } }
-          AssetId = "character"
+    let hero : Actor =
+        { State =
+            { Base = { entity "hero" with Transform = { transformIdentity with Position = position } }
+              AssetId = "character"
+              ShowCollider = false }
           Physics = None
-          ShowCollider = false
           Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
     zone.Player <- ValueSome (zone.Actors.Add hero)
     zone
@@ -33,7 +34,7 @@ let private zoneWithPlayer (position: Vector3) : Zone.Zone =
 // A trigger at `position`, with the given shape and settings.
 let private add (zone: Zone.Zone) (position: Vector3) (radius: float32) (height: float32) (interactable: bool) (enabled: bool) (prompt: string) : EntityRef =
     let ref = Zone.spawnTrigger zone { entity "area" with Transform = { transformIdentity with Position = position } }
-    let payload = (Zone.tryTriggerAt zone ref).Value
+    let payload = Zone.captureTrigger zone ref
     do Zone.setTrigger
         zone
         ref
@@ -84,8 +85,8 @@ let ``the volume is not affected by the trigger's rotation or scale`` () =
             Scale = Vector3(8.0f, 8.0f, 8.0f) }
 
     Assert.True(inside zone ref)
-    Assert.Equal(2.0f, (Zone.tryTriggerAt zone ref).Value.Radius)
-    Assert.Equal(payload.Height, (Zone.tryTriggerAt zone ref).Value.Height)
+    Assert.Equal(2.0f, (Zone.tryTriggerAt zone ref).Value.State.Radius)
+    Assert.Equal(payload.State.Height, (Zone.tryTriggerAt zone ref).Value.State.Height)
 
 [<Fact>]
 let ``standing inside stays inside across updates`` () =
@@ -149,7 +150,7 @@ let ``the nearest interactable trigger the player is inside is the tracked one``
     | ValueNone -> Assert.Fail "expected the nearer interactable trigger"
 
     // The prompt is what an overlay shows, and it comes from the tracked trigger.
-    Assert.Equal("Near", (Zone.tryTriggerAt zone near).Value.Prompt)
+    Assert.Equal("Near", (Zone.tryTriggerAt zone near).Value.State.Prompt)
     Assert.True((Zone.tryTriggerAt zone far).Value.Triggered)
 
 [<Fact>]
@@ -168,7 +169,7 @@ let ``leaving clears the inside state and the tracked trigger`` () =
     // Move the player well outside the volume.
     let handle = zone.Player.Value
     let actor = &zone.Actors.Get handle
-    actor.Base.Transform.Position <- Vector3(20.0f, 1.0f, 0.0f)
+    actor <- { actor with State.Base.Transform = { actor.State.Base.Transform with Position = Vector3(20.0f, 1.0f, 0.0f) } }
 
     Assert.True(ValueOption.isNone (updateTriggers zone))
     Assert.False((Zone.tryTriggerAt zone ref).Value.Triggered)

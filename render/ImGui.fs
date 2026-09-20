@@ -121,6 +121,12 @@ extern bool inputText(string label, byte[] buf, unativeint bufSize, int flags, n
 [<DllImport("cimgui", EntryPoint = "igIsItemDeactivatedAfterEdit", CallingConvention = CallingConvention.Cdecl)>]
 extern bool isItemDeactivatedAfterEdit()
 
+// True while the last item is the active one (cimgui's igIsItemActive), i.e. it still has
+// the keyboard or mouse focus, so an edit of it may be in progress. Read straight after the
+// widget, like `isItemDeactivatedAfterEdit`.
+[<DllImport("cimgui", EntryPoint = "igIsItemActive", CallingConvention = CallingConvention.Cdecl)>]
+extern bool isItemActive()
+
 // A draggable float field over a caller-owned value (cimgui's igDragFloat). Returns true
 // while the value is being dragged; a caller wanting one commit per drag reads
 // `isItemDeactivatedAfterEdit` straight after it.

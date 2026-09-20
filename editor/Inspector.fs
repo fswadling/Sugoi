@@ -35,23 +35,26 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         | Some e ->
 
         // ── Name (editable) ──
-        // One buffer serves every selected entity. Re-seeding it each frame cannot
-        // disturb typing: while the field is active ImGui's own text takes priority
-        // over the buffer, and it writes the final text back when the field is
-        // submitted or left, which keeps the field in step with undo/redo and with
-        // re-selection. The text present here at commit time belongs to the entity it
-        // was typed for, which is what `NameEditRef` records: the selection can change
-        // underneath an in-progress edit, and the edit must not follow it.
-        do seedName state.Editor.NameBuffer e.Name
+        // One buffer serves every selected entity, and `NameEditRef` records the entity its
+        // text belongs to. The buffer is re-seeded — which is also what re-points that ref —
+        // only while the field is *not* live: overwriting a field that is being edited would
+        // both lose the edit and hand the commit below the newly selected entity's name, to be
+        // applied to the old one. The panels draw outliner-first, so changing the selection
+        // with the field live is one click away, and that ordering is what used to rename the
+        // previous selection to the new one's name.
+        if not state.Editor.NameEditing then
+            do seedName state.Editor.NameBuffer e.Name
+            state.Editor <- { state.Editor with NameEditRef = Some ref }
+
         let submitted =
             ImGui.inputText("Name", state.Editor.NameBuffer, unativeint state.Editor.NameBuffer.Length, ImGui.enterReturnsTrue ||| ImGui.autoSelectAll, System.IntPtr.Zero, System.IntPtr.Zero)
-        // The edit is committed to the entity it was typed for, which is not always the
-        // selected one — `Selection.renameTarget` decides that.
         let finished = submitted || ImGui.isItemDeactivatedAfterEdit()
+        // The commit goes to the entity the buffer's text belongs to — `NameEditRef`, the one it
+        // was typed for, which is not always the selected one.
         match Selection.renameTarget state.Editor.NameEditRef finished (bufferText state.Editor.NameBuffer) with
         | Some (target, name) -> Selection.renameRef shared &state target name
         | None -> ()
-        state.Editor <- { state.Editor with NameEditRef = Some ref }
+        state.Editor <- { state.Editor with NameEditing = ImGui.isItemActive() }
 
         do ImGui.text(sprintf "Position: %A" e.Transform.Position)
         do ImGui.text(sprintf "Rotation: %A" (eulerDegrees e.Transform.Rotation))
@@ -65,34 +68,37 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             | ValueNone -> ()
             | ValueSome trigger ->
 
-            let mutable radius = trigger.Radius
+            let mutable radius = trigger.State.Radius
             do ImGui.dragFloat("Radius", &radius, 0.05f, 0.0f, 1000.0f, "%.2f", 0) |> ignore
             if ImGui.isItemDeactivatedAfterEdit() then
                 Selection.updateTriggerRef shared &state ref (fun t -> { t with Radius = radius })
 
-            let mutable height = trigger.Height
+            let mutable height = trigger.State.Height
             do ImGui.dragFloat("Height", &height, 0.05f, 0.0f, 1000.0f, "%.2f", 0) |> ignore
             if ImGui.isItemDeactivatedAfterEdit() then
                 Selection.updateTriggerRef shared &state ref (fun t -> { t with Height = height })
 
-            let mutable interactable = trigger.Interactable
+            let mutable interactable = trigger.State.Interactable
             if ImGui.checkbox("Interactable", &interactable) then
                 Selection.updateTriggerRef shared &state ref (fun t -> { t with Interactable = interactable })
 
-            // The prompt commits like the entity name and is attributed the same way: a
-            // pending edit belongs to the trigger it was typed for.
-            do seedName state.Editor.PromptBuffer trigger.Prompt
+            // The prompt commits like the entity name and has the same seed rule: it is
+            // re-seeded, and re-pointed at the selected trigger, only while it is not live.
+            if not state.Editor.PromptEditing then
+                do seedName state.Editor.PromptBuffer trigger.State.Prompt
+                state.Editor <- { state.Editor with PromptEditRef = Some ref }
+
             let submitted =
                 ImGui.inputText("Prompt", state.Editor.PromptBuffer, unativeint state.Editor.PromptBuffer.Length, ImGui.enterReturnsTrue ||| ImGui.autoSelectAll, System.IntPtr.Zero, System.IntPtr.Zero)
             let finished = submitted || ImGui.isItemDeactivatedAfterEdit()
             match Selection.renameTarget state.Editor.PromptEditRef finished (bufferText state.Editor.PromptBuffer) with
             | Some (owner, prompt) -> Selection.updateTriggerRef shared &state owner (fun t -> { t with Prompt = prompt })
             | None -> ()
-            state.Editor <- { state.Editor with PromptEditRef = Some ref }
+            state.Editor <- { state.Editor with PromptEditing = ImGui.isItemActive() }
 
             // The enabled flag is the shared entity one: for a trigger it means it can
             // detect the player.
-            let mutable enabled = trigger.Base.Enabled
+            let mutable enabled = trigger.State.Base.Enabled
             if ImGui.checkbox("Enabled", &enabled) then
                 Selection.updateTriggerRef shared &state ref (fun t -> { t with Base = { t.Base with Enabled = enabled } })
 

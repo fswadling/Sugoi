@@ -235,7 +235,12 @@ the narrative engine today.
   stay `[<Struct>]`, `Slots` is a `Span` (payload writes go through it), and `Get`
   returns a `byref` into the payload for handle-addressed access.
 - **`using entity: Entity`** → no struct inheritance in F#; model as a nested
-  `Entity` field inside each specialized record.
+  `Entity` field inside each specialized record. The kinds that carry something
+  derived (a body, a renderer) or runtime (a trigger's detection flag) also nest
+  their **authored state** as a record of its own — `ActorState`, `PropState`,
+  `TriggerState` — so an undo payload is that record's type and cannot hold a
+  resource, and producing a live entity from it is the one place per kind that
+  rebuilds them.
 - **Inline `[N]u8` strings → `string`.** The runtime `Entity.name` in odin-game
   is already a heap `string`; the fixed `[N]u8` fields appear only in
   `Waypoint`, `Trigger`, `Zone`, cue/scenario templates, and the `Project_*`
