@@ -13,9 +13,10 @@ open Command
 [<Literal>]
 let zoneNameBufferSize = 64
 
-// The Inspector's entity-name buffer and the longest name it accepts. Sized for
-// UTF-8's worst case (3 bytes for a BMP character) so encoding a name of up to
-// `entityNameMaxChars` characters always fits and never needs a clamp mid-character.
+// The Inspector's text-field buffers and the longest value each accepts. Sized for
+// UTF-8's worst case (3 bytes for a BMP character) so encoding a value of up to
+// `entityNameMaxChars` characters always fits and never needs a clamp mid-character. The
+// prompt shares the name field's size, which is what the reference projects use for it.
 [<Literal>]
 let entityNameBufferSize = 256
 
@@ -58,7 +59,11 @@ type EditorState =
       // entity every frame, and the ref that text belongs to, so a pending edit is
       // never applied to a different entity than the one it was typed for.
       NameBuffer : byte[]
-      NameEditRef : EntityRef option }
+      NameEditRef : EntityRef option
+      // The Inspector's trigger-prompt field. The same shape as the name field, in its
+      // own buffer because a selected trigger draws both.
+      PromptBuffer : byte[]
+      PromptEditRef : EntityRef option }
 
 let create () : EditorState =
     { Selection = None
@@ -71,4 +76,6 @@ let create () : EditorState =
       NudgeBefore = None
       NewZoneName = Array.zeroCreate zoneNameBufferSize
       NameBuffer = Array.zeroCreate entityNameBufferSize
-      NameEditRef = None }
+      NameEditRef = None
+      PromptBuffer = Array.zeroCreate entityNameBufferSize
+      PromptEditRef = None }

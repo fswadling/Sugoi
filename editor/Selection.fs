@@ -17,7 +17,12 @@ let deleteRef (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     | Some e ->
 
     let binding = Zone.bindingAt zone ref
-    let cmd = Delete (ref, e, binding)
+    // A trigger's payload is richer than the base entity the shared case carries, so its
+    // deletion records the whole payload; every other kind records the entity.
+    let cmd =
+        match Zone.tryTriggerAt zone ref with
+        | ValueSome trigger -> TriggerDelete (ref, trigger)
+        | ValueNone -> Delete (ref, e, binding)
     apply zone shared.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     let editor =
@@ -48,12 +53,13 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     | None -> ()
     | Some ref -> duplicateRef shared &state ref
 
-// Which entity a finished name-field edit should rename, and to what. `owner` is the
+// Which entity a finished text-field edit should rename, and to what. `owner` is the
 // entity the edited text was typed for — not necessarily the current selection, which
 // can change underneath an in-progress edit — and `finished` is the field's commit
 // signal (submitted, or left after an edit). None means "commit nothing": nothing was
-// being edited, the edit is not finished, or the text is empty. Whether the name
-// actually changes is left to `renameRef`.
+// being edited, the edit is not finished, or the text is empty. Whether the value
+// actually changes is left to the caller. The Inspector uses this for both its text
+// fields, the entity name and a trigger's prompt.
 let renameTarget (owner: EntityRef option) (finished: bool) (text: string) : (EntityRef * string) option =
     match owner with
     | Some ref when finished ->
@@ -90,6 +96,23 @@ let linkRef (shared: SharedState.SharedState) (state: byref<GameplayState.Gamepl
     if before = next then () else
 
     let cmd = Link (ref, before, next)
+    apply zone shared.Physics shared.Assets cmd
+    let undo = UndoStack.push state.Editor.Undo cmd
+    state.Editor <- { state.Editor with Undo = undo }
+
+// Apply `change` to a trigger's payload as one undoable step, recorded against the ref the
+// edit was made for (which is not always the selected one: a text field can outlive a
+// selection change). No-op when the ref no longer resolves or the change is a no-op, so
+// leaving a widget without editing it records nothing.
+let updateTriggerRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) (change: Trigger -> Trigger) : unit =
+    let zone = GameplayState.activeZone state
+    match Zone.tryTriggerAt zone ref with
+    | ValueNone -> ()
+    | ValueSome before ->
+    let after = change before
+    if after = before then () else
+
+    let cmd = TriggerSet (ref, before, after)
     apply zone shared.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }

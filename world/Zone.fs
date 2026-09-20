@@ -1,9 +1,9 @@
 module Zone
 
-// The world container for one playable area: actors, placed props, waypoints, an
-// optional loaded environment (which owns its own part slot map), and the
-// static-scene batch that renders its props and parts. Heap-allocated; its entity
-// collections are fixed-size generational slot maps, mutated in place.
+// The world container for one playable area: actors, placed props, waypoints, triggers,
+// an optional loaded environment (which owns its own part slot map), and the static-scene
+// batch that renders its props and parts. Heap-allocated; its entity collections are
+// fixed-size generational slot maps, mutated in place.
 //
 // The zone does not own the physics world — it is shared via `SharedState` and
 // passed in per call; the zone keeps only the body→entity map. Bodies are
@@ -21,6 +21,7 @@ type Zone =
       mutable Environment : Environment option
       Props : SlotMap<Prop>
       Waypoints : SlotMap<Waypoint>
+      Triggers : SlotMap<Trigger>
       // Which waypoint each waypoint's chain continues at. Keyed by the source, so a
       // waypoint has at most one next; a missing entry means it ends a chain. Entries
       // naming a deleted waypoint are left in place — they are inert (resolution checks
@@ -39,6 +40,7 @@ let create () : Zone =
       Environment = None
       Props = SlotMap<Prop>(32u)
       Waypoints = SlotMap<Waypoint>(128u)
+      Triggers = SlotMap<Trigger>(32u)
       Links = Dictionary<EntityRef, EntityRef>()
       Batch = EnvironmentBatch.create ()
       NextEnvironmentEpoch = 0u
@@ -74,15 +76,15 @@ let isAlive (zone: Zone) (ref: EntityRef) : bool =
     | EntityKind.Actor -> zone.Actors.IsAlive(handleOf ref)
     | EntityKind.Prop -> zone.Props.IsAlive(handleOf ref)
     | EntityKind.Waypoint -> zone.Waypoints.IsAlive(handleOf ref)
+    | EntityKind.Trigger -> zone.Triggers.IsAlive(handleOf ref)
     | EntityKind.Part ->
         match partsFor zone ref with
         | Some parts -> parts.IsAlive(handleOf ref)
         | None -> false
-    | EntityKind.Environment
-    | EntityKind.Trigger -> false
+    | EntityKind.Environment -> false
 
-// The base entity behind a ref (Actor/Prop/Part/Waypoint), or None for other kinds
-// or a stale/absent slot. Returned by value (a cheap struct copy) so callers can't
+// The base entity behind a ref (Actor/Prop/Part/Waypoint/Trigger), or None for other
+// kinds or a stale/absent slot. Returned by value (a cheap struct copy) so callers can't
 // write a transform that would bypass the body recreation in `setTransform`.
 let tryEntityAt (zone: Zone) (ref: EntityRef) : Entity option =
     match ref.Kind with
@@ -98,6 +100,10 @@ let tryEntityAt (zone: Zone) (ref: EntityRef) : Entity option =
         if not (zone.Waypoints.IsAlive(handleOf ref)) then None else
         let waypoint = &zone.Waypoints.Get(handleOf ref)
         Some waypoint.Base
+    | EntityKind.Trigger ->
+        if not (zone.Triggers.IsAlive(handleOf ref)) then None else
+        let trigger = &zone.Triggers.Get(handleOf ref)
+        Some trigger.Base
     | EntityKind.Part ->
         match partsFor zone ref with
         | None -> None
@@ -222,10 +228,23 @@ let private mapBody (zone: Zone) (attachment: PhysicsAttachment<'T> option) (ref
     | Some ph ->
     do zone.BodyToEntity.[ph.Body] <- ref
 
-// A binding with no asset, for kinds that carry none (waypoints). The delete
-// command stores it so undo can restore the entity; the waypoint restore ignores it.
+// A binding with no asset, for kinds that carry none (waypoints and triggers). The
+// delete command stores it so undo can restore the entity; those kinds' restore ignores it.
 let bindingNone : AssetBinding =
     { AssetId = None; SubmeshIndex = 0; SubmeshCount = 0 }
+
+// The payload a trigger is created with: a one-metre radius two metres tall, not
+// interactable, with no prompt. A trigger's authored shape is what `Command.TriggerSet`
+// records, so the one restore path that holds only a base entity (the shared spawn and
+// duplicate cases) reconstructs these defaults and the authored shape arrives with its
+// own command.
+let private defaultTrigger (entity: Entity) : Trigger =
+    { Base = entity
+      Radius = 1.0f
+      Height = 2.0f
+      Interactable = false
+      Prompt = ""
+      Triggered = false }
 
 // The asset binding behind a ref (asset id +, for props/parts, the submesh range).
 // Raises for a stale or absent entity and for kinds without a binding; a waypoint
@@ -245,6 +264,7 @@ let bindingAt (zone: Zone) (ref: EntityRef) : AssetBinding =
         let p = &parts.Get(handleOf ref)
         { AssetId = p.AssetId; SubmeshIndex = p.SubmeshIndex; SubmeshCount = p.SubmeshCount }
     | EntityKind.Waypoint -> bindingNone
+    | EntityKind.Trigger -> bindingNone
     | _ -> failwithf "bindingAt: kind %A has no asset binding" ref.Kind
 
 // Change a mesh-backed entity's transform in `map` (a placed prop or an
@@ -268,7 +288,7 @@ let private setMeshTransform (zone: Zone) (world: Physics.World) (map: SlotMap<P
     do mapBody zone attachment ref
     p <- { p with Base = { p.Base with Transform = transform }; Physics = attachment }
 
-// Change an existing entity's transform at the ref (Actor/Prop/Part/Waypoint),
+// Change an existing entity's transform at the ref (Actor/Prop/Part/Waypoint/Trigger),
 // recreating its body so it follows. No-op for other kinds or a stale/absent ref.
 let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform: Transform) : unit =
     match ref.Kind with
@@ -292,6 +312,11 @@ let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform
             let waypoint = &zone.Waypoints.Get(handleOf ref)
             waypoint <- { waypoint with Base = { waypoint.Base with Transform = transform } }
 
+    | EntityKind.Trigger ->
+        if zone.Triggers.IsAlive(handleOf ref) then
+            let trigger = &zone.Triggers.Get(handleOf ref)
+            trigger <- { trigger with Base = { trigger.Base with Transform = transform } }
+
     | EntityKind.Part ->
         match partsFor zone ref with
         | None -> ()
@@ -300,8 +325,8 @@ let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform
 
     | _ -> ()
 
-// Change an existing entity's name at the ref (Actor/Prop/Part/Waypoint). No-op for
-// other kinds or a stale/absent ref. A name is a label rather than an identity — refs
+// Change an existing entity's name at the ref (Actor/Prop/Part/Waypoint/Trigger). No-op
+// for other kinds or a stale/absent ref. A name is a label rather than an identity — refs
 // address entities — so the same name may be given to more than one.
 let setName (zone: Zone) (ref: EntityRef) (name: string) : unit =
     match ref.Kind with
@@ -319,6 +344,11 @@ let setName (zone: Zone) (ref: EntityRef) (name: string) : unit =
         if zone.Waypoints.IsAlive(handleOf ref) then
             let waypoint = &zone.Waypoints.Get(handleOf ref)
             waypoint <- { waypoint with Base = { waypoint.Base with Name = name } }
+
+    | EntityKind.Trigger ->
+        if zone.Triggers.IsAlive(handleOf ref) then
+            let trigger = &zone.Triggers.Get(handleOf ref)
+            trigger <- { trigger with Base = { trigger.Base with Name = name } }
 
     | EntityKind.Part ->
         match partsFor zone ref with
@@ -346,6 +376,13 @@ let private propRenderer (zone: Zone) (assets: Assets.AssetManager) (binding: As
 let private ensureSlotFree (map: SlotMap<'T>) (ref: EntityRef) : unit =
     if map.IsOccupied(ref.Index) then
         invalidOp (sprintf "slot %d of ref %A is occupied — a recorded slot was reused by an untracked Add" ref.Index ref)
+
+// Place a trigger payload at a ref's slot: the restore path for a deleted or copied
+// trigger, whose shape the shared `Delete`/`Duplicate` payload (a base entity) cannot
+// carry. Raises when the slot is not free.
+let occupyTrigger (zone: Zone) (ref: EntityRef) (trigger: Trigger) : unit =
+    do ensureSlotFree zone.Triggers ref
+    zone.Triggers.Occupy(handleOf ref, trigger)
 
 // Write an entity (base + binding + collider + body) back at the ref, for command
 // apply/undo to re-create one that was removed. The recorded slot is always free
@@ -391,6 +428,8 @@ let setActorWithAsset (zone: Zone) (world: Physics.World) (assets: Assets.AssetM
     | EntityKind.Waypoint ->
         do ensureSlotFree zone.Waypoints ref
         zone.Waypoints.Occupy(handleOf ref, { Base = entity })
+    | EntityKind.Trigger ->
+        do occupyTrigger zone ref (defaultTrigger entity)
     | _ -> ()
 
 // Remove a mesh-backed entity (placed prop or environment part) from `map`,
@@ -402,7 +441,7 @@ let private removeMeshEntity (zone: Zone) (world: Physics.World) (map: SlotMap<P
         do destroyBody world zone physics
         map.Remove(handleOf ref, Some Prop.releaseRenderer)
 
-// Remove the entity at the ref (Actor/Prop/Part/Waypoint), destroying its body.
+// Remove the entity at the ref (Actor/Prop/Part/Waypoint/Trigger), destroying its body.
 // No-op for other kinds or a stale ref (its generation no longer matches the slot).
 let removeEntity (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
     match ref.Kind with
@@ -420,6 +459,9 @@ let removeEntity (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
     | EntityKind.Waypoint ->
         if zone.Waypoints.IsAlive(handleOf ref) then
             zone.Waypoints.Free(handleOf ref)
+    | EntityKind.Trigger ->
+        if zone.Triggers.IsAlive(handleOf ref) then
+            zone.Triggers.Free(handleOf ref)
     | _ -> ()
 
 // Spawn a new actor and return the new ref (renderer + physics attached).
@@ -489,6 +531,33 @@ let setWaypointNext (zone: Zone) (ref: EntityRef) (next: EntityRef option) : uni
         if target.Kind <> EntityKind.Waypoint then invalidOp "setWaypointNext: the target is not a waypoint" else
 
         zone.Links.[ref] <- target
+
+// ── Triggers ──
+
+// Spawn a trigger from its base entity and return its ref, with the default shape.
+// Triggers carry no renderer or body, so no world/assets are needed.
+let spawnTrigger (zone: Zone) (entity: Entity) : EntityRef =
+    let handle = zone.Triggers.Add(defaultTrigger entity)
+    triggerRef handle.Index handle.Generation
+
+// The trigger behind a ref, or ValueNone for another kind or a stale/absent slot. The
+// authored payload (shape, flags, prompt), which the shared editor paths cannot reach
+// through `tryEntityAt` because that answers the base entity alone. A `voption` because
+// the play-mode overlay reads it every frame, and `Trigger` is a struct.
+let tryTriggerAt (zone: Zone) (ref: EntityRef) : Trigger voption =
+    if ref.Kind <> EntityKind.Trigger then ValueNone else
+    if not (zone.Triggers.IsAlive(handleOf ref)) then ValueNone else
+
+    ValueSome (zone.Triggers.Get(handleOf ref))
+
+// Replace a trigger's payload. Raises for a ref of another kind; no-op for a stale or
+// absent one. The runtime `Triggered` flag rides along; nothing authors it.
+let setTrigger (zone: Zone) (ref: EntityRef) (trigger: Trigger) : unit =
+    if ref.Kind <> EntityKind.Trigger then invalidOp "setTrigger: the ref is not a trigger" else
+    if not (zone.Triggers.IsAlive(handleOf ref)) then () else
+
+    let slot = &zone.Triggers.Get(handleOf ref)
+    slot <- trigger
 
 // ── Environment parts ──
 //
@@ -564,7 +633,7 @@ let private deactivateEnvironment (zone: Zone) (world: Physics.World) : unit =
             let p = slot.Value
             do destroyBody world zone p.Physics
             do Prop.releaseRenderer p
-            parts.Get { Index = uint32 i; Generation = slot.Generation } <- { p with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
+            slot.Value <- { p with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
     zone.Environment <- None
 
 // Rebuild an environment's part resources and make it the current environment.
@@ -611,13 +680,13 @@ let deactivatePhysics (zone: Zone) (world: Physics.World) : unit =
     for i in 0 .. actorSlots.Length - 1 do
         let slot = &actorSlots.[i]
         if slot.Alive then
-            detach (zone.Actors.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+            detach slot.Value.Physics
 
     let propSlots = zone.Props.Slots
     for i in 0 .. propSlots.Length - 1 do
         let slot = &propSlots.[i]
         if slot.Alive then
-            detach (zone.Props.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+            detach slot.Value.Physics
 
     match zone.Environment with
     | Some environment ->
@@ -625,7 +694,7 @@ let deactivatePhysics (zone: Zone) (world: Physics.World) : unit =
         for i in 0 .. partSlots.Length - 1 do
             let slot = &partSlots.[i]
             if slot.Alive then
-                detach (environment.Parts.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+                detach slot.Value.Physics
     | None -> ()
 
 let activatePhysics (zone: Zone) (world: Physics.World) : unit =
@@ -638,13 +707,13 @@ let activatePhysics (zone: Zone) (world: Physics.World) : unit =
     for i in 0 .. actorSlots.Length - 1 do
         let slot = &actorSlots.[i]
         if slot.Alive then
-            attach (zone.Actors.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+            attach slot.Value.Physics
 
     let propSlots = zone.Props.Slots
     for i in 0 .. propSlots.Length - 1 do
         let slot = &propSlots.[i]
         if slot.Alive then
-            attach (zone.Props.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+            attach slot.Value.Physics
 
     match zone.Environment with
     | Some environment ->
@@ -652,7 +721,7 @@ let activatePhysics (zone: Zone) (world: Physics.World) : unit =
         for i in 0 .. partSlots.Length - 1 do
             let slot = &partSlots.[i]
             if slot.Alive then
-                attach (environment.Parts.Get { Index = uint32 i; Generation = slot.Generation }).Physics
+                attach slot.Value.Physics
     | None -> ()
 
     Physics.optimizeBroadPhase world
@@ -665,7 +734,7 @@ let release (zone: Zone) (world: Physics.World) (device: Gpu.Device) : unit =
     for i in 0 .. actorSlots.Length - 1 do
         let slot = &actorSlots.[i]
         if slot.Alive then
-            let a = &zone.Actors.Get { Index = uint32 i; Generation = slot.Generation }
+            let a = &slot.Value
             match a.Physics with
             | Some ph -> do Physics.releaseBody world ph.Body
             | None -> ()
@@ -675,7 +744,7 @@ let release (zone: Zone) (world: Physics.World) (device: Gpu.Device) : unit =
     for i in 0 .. propSlots.Length - 1 do
         let slot = &propSlots.[i]
         if slot.Alive then
-            let p = &zone.Props.Get { Index = uint32 i; Generation = slot.Generation }
+            let p = &slot.Value
             match p.Physics with
             | Some ph -> do Physics.releaseBody world ph.Body
             | None -> ()
@@ -687,7 +756,7 @@ let release (zone: Zone) (world: Physics.World) (device: Gpu.Device) : unit =
         for i in 0 .. partSlots.Length - 1 do
             let slot = &partSlots.[i]
             if slot.Alive then
-                let p = &environment.Parts.Get { Index = uint32 i; Generation = slot.Generation }
+                let p = &slot.Value
                 match p.Physics with
                 | Some ph -> do Physics.releaseBody world ph.Body
                 | None -> ()

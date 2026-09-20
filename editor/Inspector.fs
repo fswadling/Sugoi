@@ -57,6 +57,45 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         do ImGui.text(sprintf "Rotation: %A" (eulerDegrees e.Transform.Rotation))
         do ImGui.text(sprintf "Scale: %A" e.Transform.Scale)
 
+        // Trigger-only: the volume's shape and its interaction settings. Each committed
+        // edit is one `TriggerSet` step — a drag commits when it is released or left, like
+        // the text fields commit when they are submitted or left.
+        if ref.Kind = EntityKind.Trigger then
+            match Zone.tryTriggerAt zone ref with
+            | ValueNone -> ()
+            | ValueSome trigger ->
+
+            let mutable radius = trigger.Radius
+            do ImGui.dragFloat("Radius", &radius, 0.05f, 0.0f, 1000.0f, "%.2f", 0) |> ignore
+            if ImGui.isItemDeactivatedAfterEdit() then
+                Selection.updateTriggerRef shared &state ref (fun t -> { t with Radius = radius })
+
+            let mutable height = trigger.Height
+            do ImGui.dragFloat("Height", &height, 0.05f, 0.0f, 1000.0f, "%.2f", 0) |> ignore
+            if ImGui.isItemDeactivatedAfterEdit() then
+                Selection.updateTriggerRef shared &state ref (fun t -> { t with Height = height })
+
+            let mutable interactable = trigger.Interactable
+            if ImGui.checkbox("Interactable", &interactable) then
+                Selection.updateTriggerRef shared &state ref (fun t -> { t with Interactable = interactable })
+
+            // The prompt commits like the entity name and is attributed the same way: a
+            // pending edit belongs to the trigger it was typed for.
+            do seedName state.Editor.PromptBuffer trigger.Prompt
+            let submitted =
+                ImGui.inputText("Prompt", state.Editor.PromptBuffer, unativeint state.Editor.PromptBuffer.Length, ImGui.enterReturnsTrue ||| ImGui.autoSelectAll, System.IntPtr.Zero, System.IntPtr.Zero)
+            let finished = submitted || ImGui.isItemDeactivatedAfterEdit()
+            match Selection.renameTarget state.Editor.PromptEditRef finished (bufferText state.Editor.PromptBuffer) with
+            | Some (owner, prompt) -> Selection.updateTriggerRef shared &state owner (fun t -> { t with Prompt = prompt })
+            | None -> ()
+            state.Editor <- { state.Editor with PromptEditRef = Some ref }
+
+            // The enabled flag is the shared entity one: for a trigger it means it can
+            // detect the player.
+            let mutable enabled = trigger.Base.Enabled
+            if ImGui.checkbox("Enabled", &enabled) then
+                Selection.updateTriggerRef shared &state ref (fun t -> { t with Base = { t.Base with Enabled = enabled } })
+
         // Actor-only: bind this actor as the played character. A deliberate
         // play-binding action, not an undoable scene edit, and it touches no physics.
         if ref.Kind = EntityKind.Actor then

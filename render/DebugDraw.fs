@@ -277,6 +277,38 @@ let capsule (dd: DebugDraw) (center: Vector3) (halfHeight: float32) (radius: flo
     let dd = arc dd bottom Vector3.UnitX -Vector3.UnitY
     arc dd bottom Vector3.UnitZ -Vector3.UnitY
 
+// Cylinder wireframe: the two end rings and a vertical line at each segment angle. The
+// centre and half-height form matches `capsule`, so a caller that has a base and a height
+// passes `base + height / 2` and `height / 2`.
+let cylinder (dd: DebugDraw) (center: Vector3) (halfHeight: float32) (radius: float32) (c: Color) : DebugDraw =
+    let segments = 16
+    let top = center + Vector3(0.0f, halfHeight, 0.0f)
+    let bottom = center - Vector3(0.0f, halfHeight, 0.0f)
+
+    // A horizontal ring of `segments` edges centred at `o`.
+    let ring (dd: DebugDraw) (o: Vector3) : DebugDraw =
+        let mutable dd = dd
+        let mutable prev = None
+        for i in 0 .. segments do
+            let a = 2.0f * MathF.PI * float32 i / float32 segments
+            let p = o + Vector3(radius * MathF.Cos a, 0.0f, radius * MathF.Sin a)
+            match prev with
+            | Some q -> dd <- line dd q p c
+            | None -> ()
+            prev <- Some p
+        dd
+
+    let dd = ring dd top
+    let dd = ring dd bottom
+
+    // One vertical edge per segment, at the same angles as the rings' vertices.
+    let mutable dd = dd
+    for i in 0 .. segments - 1 do
+        let a = 2.0f * MathF.PI * float32 i / float32 segments
+        let offset = Vector3(radius * MathF.Cos a, 0.0f, radius * MathF.Sin a)
+        dd <- line dd (bottom + offset) (top + offset) c
+    dd
+
 let drawGrid (dd: DebugDraw) : DebugDraw =
     let minor = { R = 0.4f; G = 0.4f; B = 0.4f; A = 1.0f }
     let major = { R = 0.6f; G = 0.6f; B = 0.6f; A = 1.0f }

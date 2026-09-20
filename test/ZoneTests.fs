@@ -461,6 +461,80 @@ let ``chains live with their zone`` () =
     Assert.True(Option.isNone (Zone.waypointNext second a))
     Assert.Equal(0, second.Links.Count)
 
+// ── Triggers ──
+
+[<Fact>]
+let ``a spawned trigger resolves with the default shape and no binding`` () =
+    let zone = Zone.create ()
+    let ref = Zone.spawnTrigger zone (entity "area")
+
+    Assert.Equal(EntityKind.Trigger, ref.Kind)
+    Assert.True(Zone.isAlive zone ref)
+    Assert.Equal("area", (Zone.tryEntityAt zone ref).Value.Name)
+    let trigger = (Zone.tryTriggerAt zone ref).Value
+    Assert.Equal(1.0f, trigger.Radius)
+    Assert.Equal(2.0f, trigger.Height)
+    Assert.False(trigger.Interactable)
+    Assert.False(trigger.Triggered)
+    Assert.True(Option.isNone (Zone.bindingAt zone ref).AssetId)
+
+[<Fact>]
+let ``setTrigger, setName and setTransform all work on a trigger`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let ref = Zone.spawnTrigger zone (entity "area")
+    let payload = (Zone.tryTriggerAt zone ref).Value
+
+    do Zone.setTrigger zone ref { payload with Radius = 3.5f; Prompt = "Open"; Interactable = true }
+    do Zone.setName zone ref "hallway"
+    do Zone.setTransform zone world ref { transformIdentity with Position = Vector3(1.0f, 2.0f, 3.0f) }
+
+    let updated = (Zone.tryTriggerAt zone ref).Value
+    Assert.Equal(3.5f, updated.Radius)
+    Assert.Equal("Open", updated.Prompt)
+    Assert.True(updated.Interactable)
+    Assert.Equal("hallway", updated.Base.Name)
+    Assert.Equal(Vector3(1.0f, 2.0f, 3.0f), updated.Base.Transform.Position)
+    Assert.True(Zone.isAlive zone ref)
+
+[<Fact>]
+let ``setTrigger refuses a ref of another kind`` () =
+    let zone = Zone.create ()
+    let waypoint = Zone.spawnWaypoint zone (entity "start")
+    let payload =
+        { Base = entity "area"
+          Radius = 1.0f
+          Height = 1.0f
+          Interactable = false
+          Prompt = ""
+          Triggered = false }
+
+    let mutable message = ""
+    try
+        Zone.setTrigger zone waypoint payload
+    with ex ->
+        message <- ex.Message
+
+    Assert.Contains("is not a trigger", message)
+
+[<Fact>]
+let ``removing a trigger makes its ref stale and a reused slot is not aliased`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let ref = Zone.spawnTrigger zone (entity "first")
+
+    Zone.removeEntity zone world ref
+    Assert.True(ValueOption.isNone (Zone.tryTriggerAt zone ref))
+
+    // The freed index is reused, so same index but a fresh generation...
+    let second = Zone.spawnTrigger zone (entity "second")
+    Assert.Equal(ref.Index, second.Index)
+    Assert.NotEqual(ref.Generation, second.Generation)
+
+    // ...and the stale ref resolves to neither the old nor the new trigger.
+    Assert.True(ValueOption.isNone (Zone.tryTriggerAt zone ref))
+    Assert.Equal("second", (Zone.tryTriggerAt zone second).Value.Base.Name)
+
 // ── Mesh-body transforms: in place on a move, rebuilt only on a scale change ──
 
 [<Fact>]

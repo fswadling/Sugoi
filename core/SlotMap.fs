@@ -38,9 +38,12 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
     let mutable activeCount = 0u
     let mutable freeHead = if slotCount > 0 then 0u else noneIndex
 
-    // Read-only view of the backing slots for systems that scan directly; writes go
-    // through `Get`, so no caller can desync the free list.
-    member _.Slots : ReadOnlySpan<Slot<'T>> = ReadOnlySpan<Slot<'T>>(slots)
+    // The backing slots, for systems that scan directly. `Value` is the only mutable
+    // field, so a scan can write a payload in place through `&slots.[i]` without being
+    // able to poke `Generation`, `Alive` or `NextFree` and desync the free list.
+    // Replacing a whole slot (`slots.[i] <- { ... }`) is still possible and still wrong;
+    // that is what `Add`/`Free`/`Occupy` are for.
+    member _.Slots : Span<Slot<'T>> = Span<Slot<'T>>(slots)
 
     member _.Count : uint32 = activeCount
 
@@ -86,7 +89,7 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
 
     // Scan the alive slots. `[<InlineIfLambda>]` inlines a statically-known lambda
     // (no closure or indirect call). The value is passed by copy, so a loop that
-    // mutates a payload in place resolves it through `Get` instead.
+    // mutates a payload in place scans `Slots` itself instead.
     member inline this.IteriAlive([<InlineIfLambda>] f: uint32 -> uint32 -> 'T -> unit) : unit =
         let slots = this.Slots
         for i in 0 .. slots.Length - 1 do

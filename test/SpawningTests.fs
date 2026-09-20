@@ -77,7 +77,8 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       Editor = EditorState.create ()
       Editing = true
       Follow = Systems.createFollow ()
-      UndoByZone = Dictionary() }
+      UndoByZone = Dictionary()
+      InteractableTrigger = ValueNone }
 
 // ── Duplicate ──
 
@@ -233,13 +234,67 @@ let ``a duplicated waypoint starts its own chain`` () =
     Assert.Equal(Some b, Zone.waypointNext zone a)
 
 [<Fact>]
+let ``duplicating a trigger copies its payload but not its runtime state`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let source = Zone.spawnTrigger zone (entity "area")
+    let payload = (Zone.tryTriggerAt zone source).Value
+    do Zone.setTrigger zone source { payload with Radius = 4.0f; Prompt = "Open"; Interactable = true; Triggered = true }
+    let mutable state = gameplayState zone
+
+    Spawning.duplicate shared &state source (entity "area")
+
+    Assert.Equal(2u, zone.Triggers.Count)
+    let copy = state.Editor.Selection.Value
+    let copied = (Zone.tryTriggerAt zone copy).Value
+    Assert.NotEqual<EntityRef>(source, copy)
+    Assert.Equal(4.0f, copied.Radius)
+    Assert.Equal("Open", copied.Prompt)
+    Assert.True(copied.Interactable)
+    // The runtime flag is the next update's to recompute, so it is not copied.
+    Assert.False(copied.Triggered)
+
+    match state.Editor.Undo.Applied with
+    | [ TriggerDuplicate (r, _) ] -> Assert.Equal<EntityRef>(copy, r)
+    | other -> Assert.Fail(sprintf "expected exactly one TriggerDuplicate command, got %A" other)
+
+[<Fact>]
+let ``deleting a trigger and undoing restores its authored shape`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let ref = Zone.spawnTrigger zone (entity "area")
+    let payload = (Zone.tryTriggerAt zone ref).Value
+    do Zone.setTrigger zone ref { payload with Radius = 5.0f; Height = 9.0f; Prompt = "Here"; Interactable = true }
+    let mutable state = gameplayState zone
+
+    Selection.deleteRef shared &state ref
+    Assert.True(ValueOption.isNone (Zone.tryTriggerAt zone ref))
+
+    // The delete records the whole payload, because a trigger's shape is not carried by
+    // the base entity the shared Delete command stores.
+    match state.Editor.Undo.Applied with
+    | [ TriggerDelete (_, recorded) ] -> Assert.Equal(5.0f, recorded.Radius)
+    | other -> Assert.Fail(sprintf "expected exactly one TriggerDelete command, got %A" other)
+
+    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = undo }
+
+    let restored = (Zone.tryTriggerAt zone ref).Value
+    Assert.Equal(5.0f, restored.Radius)
+    Assert.Equal(9.0f, restored.Height)
+    Assert.Equal("Here", restored.Prompt)
+    Assert.True(restored.Interactable)
+
+[<Fact>]
 let ``duplicating a kind with no entity fails loudly`` () =
     let assets = headlessAssets ()
     let shared = sharedState assets
     let zone = Zone.create ()
     let mutable state = gameplayState zone
 
-    for kind in [ EntityKind.Environment; EntityKind.Trigger ] do
+    for kind in [ EntityKind.Environment ] do
         let source : EntityRef = { Kind = kind; Index = 0u; Generation = 0u; Epoch = 0u }
         let mutable message = ""
         try

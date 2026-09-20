@@ -3,7 +3,6 @@ module Outliner
 // Left tree panel: a **Zones** section (the project's zones, add/select/delete) above
 // the active zone's entities in collapsible sections — actors, props, waypoints, and
 // triggers. Each entity row selects on click and carries inline Del/Dup buttons.
-// Triggers have no zone storage yet.
 
 open System.Numerics
 open System.Text
@@ -18,10 +17,10 @@ let private zoneName (buf: byte[]) : string =
 let private clearName (buf: byte[]) : unit =
     Array.fill buf 0 buf.Length 0uy
 
-// The base entity a freshly-added waypoint is created from: the given transform,
-// with the default editor flags. The name is what the Outliner shows and what the
-// Inspector edits.
-let private newWaypoint (name: string) (transform: Transform) : Entity =
+// The base entity a freshly-added waypoint or trigger is created from: the given name
+// and transform, with the default editor flags. The name is what the Outliner shows and
+// what the Inspector edits.
+let private newEntity (name: string) (transform: Transform) : Entity =
     { Name = name
       Transform = transform
       Enabled = true
@@ -33,7 +32,7 @@ let private newWaypoint (name: string) (transform: Transform) : Entity =
 // rotation taking -Z (the project's camera-forward convention) onto the view direction.
 let private newWaypointAtCamera (camera: Camera.Camera) : Entity =
     let rotation = Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(camera.Position, Camera.forward camera, camera.Up))
-    newWaypoint "Waypoint" { transformIdentity with Position = camera.Position; Rotation = rotation }
+    newEntity "Waypoint" { transformIdentity with Position = camera.Position; Rotation = rotation }
 
 let private entityRow (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (name: string) (id: string) (ref: EntityRef) : unit =
     if ImGui.button(sprintf "%s##%s" name id, ImGui.ImVec2(0.0f, 0.0f)) then
@@ -123,7 +122,17 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                     entityRow shared &state slot.Value.Base.Name (sprintf "part%d" i) (partRef environment.Epoch (uint32 i) slot.Generation)
 
     if ImGui.collapsingHeader("Triggers", 0) then
-        do ImGui.text("(none)")
+        if ImGui.button("Add Trigger", ImGui.ImVec2(0.0f, 0.0f)) then
+            Spawning.spawnTrigger &state (newEntity "Trigger" transformIdentity)
+
+        if zone.Triggers.Count = 0u then
+            do ImGui.text("(none)")
+        else
+            let slots = zone.Triggers.Slots
+            for i in 0 .. slots.Length - 1 do
+                let slot = slots.[i]
+                if slot.Alive then
+                    entityRow shared &state slot.Value.Base.Name (sprintf "trigger%d" i) (triggerRef (uint32 i) slot.Generation)
 
     if ImGui.collapsingHeader("Waypoints", 0) then
         // The chain actions act on the selected waypoint, so they are gated on it — and
@@ -134,7 +143,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             | _ -> None
 
         if ImGui.button("Add Waypoint", ImGui.ImVec2(0.0f, 0.0f)) then
-            Spawning.spawnWaypoint &state (newWaypoint "Waypoint" transformIdentity)
+            Spawning.spawnWaypoint &state (newEntity "Waypoint" transformIdentity)
 
         do ImGui.sameLine(0.0f, -1.0f)
 

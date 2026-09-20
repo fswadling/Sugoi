@@ -9,6 +9,7 @@ module GameplayState
 open System.Collections.Generic
 open System.Numerics
 open Command
+open Entity
 
 [<Struct>]
 type GameplayState =
@@ -22,7 +23,12 @@ type GameplayState =
       mutable Follow : Systems.CameraFollow
       // Per-zone undo/redo history, swapped in on a switch so an edit's undo always
       // applies to the zone it was recorded in.
-      UndoByZone : Dictionary<string, UndoStack> }
+      UndoByZone : Dictionary<string, UndoStack>
+      // The interactable trigger the player was last inside: what an interact prompt is
+      // shown for. Runtime state, set by the trigger system each play frame, never
+      // authored, and never read while editing. A `voption`, like `Zone.Player`, so
+      // re-answering it every frame allocates nothing.
+      mutable InteractableTrigger : EntityRef voption }
 
 let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) : GameplayState =
     let zones = Dictionary<string, Zone.Zone>()
@@ -35,7 +41,8 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) : G
       Editor = EditorState.create ()
       Editing = true
       Follow = Systems.createFollow ()
-      UndoByZone = Dictionary() }
+      UndoByZone = Dictionary()
+      InteractableTrigger = ValueNone }
 
 // The active zone (one dictionary lookup).
 let activeZone (state: GameplayState) : Zone.Zone =

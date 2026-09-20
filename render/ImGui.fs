@@ -121,6 +121,12 @@ extern bool inputText(string label, byte[] buf, unativeint bufSize, int flags, n
 [<DllImport("cimgui", EntryPoint = "igIsItemDeactivatedAfterEdit", CallingConvention = CallingConvention.Cdecl)>]
 extern bool isItemDeactivatedAfterEdit()
 
+// A draggable float field over a caller-owned value (cimgui's igDragFloat). Returns true
+// while the value is being dragged; a caller wanting one commit per drag reads
+// `isItemDeactivatedAfterEdit` straight after it.
+[<DllImport("cimgui", EntryPoint = "igDragFloat", CallingConvention = CallingConvention.Cdecl)>]
+extern bool dragFloat(string label, float32& v, float32 speed, float32 min, float32 max, string format, int flags)
+
 // Visually disable (and block) the widgets drawn between these two calls.
 [<DllImport("cimgui", EntryPoint = "igBeginDisabled", CallingConvention = CallingConvention.Cdecl)>]
 extern void beginDisabled(bool disabled)

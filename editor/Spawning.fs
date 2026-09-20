@@ -33,6 +33,13 @@ let spawnWaypoint (state: byref<GameplayState.GameplayState>) (entity: Entity) :
     let ref = Zone.spawnWaypoint zone entity
     do commit &state (Spawn (ref, entity, Zone.bindingNone)) ref
 
+// Spawn a trigger into the active zone. It carries no asset and no body, so no shared
+// state is needed; the `Spawn` command's binding is `bindingNone`.
+let spawnTrigger (state: byref<GameplayState.GameplayState>) (entity: Entity) : unit =
+    let zone = GameplayState.activeZone state
+    let ref = Zone.spawnTrigger zone entity
+    do commit &state (Spawn (ref, entity, Zone.bindingNone)) ref
+
 // Create a waypoint in the active zone, link `from` to it, and select the new one. The
 // spawn and the link are one command (`LinkSpawn`), so one undo removes the waypoint and
 // restores the chain end it extended.
@@ -66,4 +73,15 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     | EntityKind.Waypoint ->
         let ref = Zone.spawnWaypoint zone entity
         do commit &state (Duplicate (ref, entity, Zone.bindingNone)) ref
+    | EntityKind.Trigger ->
+        let trigger =
+            match Zone.tryTriggerAt zone source with
+            | ValueSome t -> t
+            | ValueNone -> failwith "duplicate: the trigger has no payload"
+        // The copy carries the authored payload but not the runtime flag, which the next
+        // update recomputes anyway.
+        let copy = { trigger with Base = entity; Triggered = false }
+        let ref = Zone.spawnTrigger zone entity
+        do Zone.setTrigger zone ref copy
+        do commit &state (TriggerDuplicate (ref, copy)) ref
     | kind -> failwithf "duplicate: kind %A has no entity to duplicate" kind

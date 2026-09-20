@@ -69,6 +69,9 @@ let partRef (epoch: uint32) (index: uint32) (generation: uint32) : EntityRef =
 let waypointRef (index: uint32) (generation: uint32) : EntityRef =
     { Kind = EntityKind.Waypoint; Index = index; Generation = generation; Epoch = 0u }
 
+let triggerRef (index: uint32) (generation: uint32) : EntityRef =
+    { Kind = EntityKind.Trigger; Index = index; Generation = generation; Epoch = 0u }
+
 // The slot-map handle a ref names. The ref's kind/epoch select which map it resolves
 // against; the handle itself is only the index + generation.
 let handleOf (ref: EntityRef) : Handle =
@@ -170,6 +173,19 @@ module Prop =
 type Waypoint =
     { Base : Entity }
 
+// A cylindrical volume that detects the player. The base transform's position is the
+// centre of the cylinder's base, `Height` extends up from it, and `Radius` is its
+// cross-section; the rotation exists so the volume can be aimed like any entity, but
+// containment is radially symmetric and the scale is not the volume's size. Composes
+// the shared base entity like actors, props and waypoints, and carries no renderer,
+// collider, or asset binding. `Base.Enabled` is the trigger's disabled flag.
+// `Triggered` is runtime state — whether the player was inside as of the last update —
+// written in place by the trigger system and never authored.
 [<Struct>]
 type Trigger =
-    { Position : Vector3 }
+    { Base : Entity
+      Radius : float32
+      Height : float32
+      Interactable : bool
+      Prompt : string
+      mutable Triggered : bool }

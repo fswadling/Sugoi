@@ -28,9 +28,9 @@ let private advanceActorAnimations (dt: float32) (zone: Zone.Zone) : unit =
     let slots = zone.Actors.Slots
     for i in 0 .. slots.Length - 1 do
         let slot = &slots.[i]
-        if slot.Alive then
-            let actor = &zone.Actors.Get { Index = uint32 i; Generation = slot.Generation }
-            do ActorRender.advanceInPlace &actor.Renderer dt
+        if not slot.Alive then () else
+        let actor = &slot.Value
+        do ActorRender.advanceInPlace &actor.Renderer dt
 
 // Advance non-render logic: refresh the camera aspect from the frame's window
 // size, advance the actor animations, then hand the frame's input to the editor
@@ -51,6 +51,7 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
         do Systems.playerInput shared.Physics zone frame.Input frame.Dt
         do Physics.step shared.Physics frame.Dt
         do Systems.syncActors shared.Physics zone
+        state.InteractableTrigger <- Systems.updateTriggers zone
         do Systems.cameraFollow zone &state.Follow &state.Camera
         do Systems.animate zone frame.Input
 
@@ -58,6 +59,32 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
 
 // Draw the editor workspace (when editing) and always emit the reference grid
 // so the scene stays visible in both edit and play modes.
+// Whether any trigger of the zone reports the player inside.
+let private anyInside (zone: Zone.Zone) : bool =
+    let mutable found = false
+    zone.Triggers.IteriAlive(fun _ _ t -> found <- found || t.Triggered)
+    found
+
+// While playing: the interact prompt of the trigger the player is inside, and the names of
+// the triggers they are in. This is the editor's read-out of trigger detection, standing in
+// for the cue a trigger will run once one exists, and it disappears when there is nothing
+// to report.
+let private drawTriggerOverlay (state: GameplayState.GameplayState) : unit =
+    let zone = GameplayState.activeZone state
+    let prompt =
+        state.InteractableTrigger
+        |> ValueOption.bind (Zone.tryTriggerAt zone)
+        |> ValueOption.map (fun trigger -> trigger.Prompt.Trim())
+        |> ValueOption.defaultValue ""
+
+    if prompt = "" && not (anyInside zone) then () else
+
+    do ImGui.beginWindow("Status", System.IntPtr.Zero, 0) |> ignore
+    if prompt <> "" then do ImGui.text(prompt)
+    zone.Triggers.IteriAlive(fun _ _ t ->
+        if t.Triggered then do ImGui.text(sprintf "inside %s" t.Base.Name))
+    do ImGui.endWindow()
+
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
     let transition = Editor.draw shared &state
     do Viewport.drawGrid &state
@@ -67,6 +94,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         // Markers/gizmos only accumulate while editing; clear them so a
         // switch to play mode doesn't linger the previous frame's overlay.
         state.GizmoDraw <- DebugDraw.clear state.GizmoDraw
+        drawTriggerOverlay state
 
     transition
 

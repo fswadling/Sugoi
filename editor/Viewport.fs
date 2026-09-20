@@ -16,6 +16,7 @@ open Raycast
 let private white : DebugDraw.Color = { R = 1.0f; G = 1.0f; B = 1.0f; A = 1.0f }
 let private selectedColor : DebugDraw.Color = { R = 1.0f; G = 0.8f; B = 0.0f; A = 1.0f }
 let private colliderColor : DebugDraw.Color = { R = 0.2f; G = 1.0f; B = 0.6f; A = 1.0f }
+let private triggerColor : DebugDraw.Color = { R = 0.2f; G = 0.6f; B = 1.0f; A = 1.0f }
 let private xColor : DebugDraw.Color = { R = 1.0f; G = 0.2f; B = 0.2f; A = 1.0f }
 let private yColor : DebugDraw.Color = { R = 0.2f; G = 1.0f; B = 0.2f; A = 1.0f }
 let private zColor : DebugDraw.Color = { R = 0.3f; G = 0.4f; B = 1.0f; A = 1.0f }
@@ -190,6 +191,14 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
             | Some target -> dd <- drawLink dd position target.Transform.Position
             | None -> ()
         | None -> ())
+
+    zone.Triggers.IteriAlive(fun i gen t ->
+        let isSelected = selection = Some (triggerRef i gen)
+        let c = if isSelected then selectedColor else triggerColor
+        let basePosition = t.Base.Transform.Position
+        // The primitive takes a centre and a half-height; the volume's base is its position.
+        let centre = basePosition + Vector3(0.0f, t.Height * 0.5f, 0.0f)
+        dd <- DebugDraw.cylinder dd centre (t.Height * 0.5f) t.Radius c)
 
     match gizmoCenter state with
     | Some center -> dd <- drawGizmo state dd center

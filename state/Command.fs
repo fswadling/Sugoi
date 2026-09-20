@@ -17,6 +17,11 @@ type Command =
     | Link of Ref : EntityRef * Before : EntityRef option * After : EntityRef option
     // The extend gesture as one step: create `Ref` from `Entity` and point `From` at it.
     | LinkSpawn of From : EntityRef * Before : EntityRef option * Ref : EntityRef * Entity : Entity
+    // A trigger's payload is richer than the base entity the shared cases carry, so the
+    // kinds that destroy or copy one record it here.
+    | TriggerSet of Ref : EntityRef * Before : Trigger * After : Trigger
+    | TriggerDelete of Ref : EntityRef * Trigger : Trigger
+    | TriggerDuplicate of Ref : EntityRef * Trigger : Trigger
     | SetEnvironment of Previous : Environment option * Next : Environment option
 
 // ── apply / undo a single command ──
@@ -37,6 +42,12 @@ let apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (c
     | LinkSpawn (from, _, r, entity) ->
         setActorWithAsset zone physics assets r entity bindingNone
         setWaypointNext zone from (Some r)
+    | TriggerSet (r, _, after) ->
+        setTrigger zone r after
+    | TriggerDelete (r, _) ->
+        removeEntity zone physics r
+    | TriggerDuplicate (r, trigger) ->
+        occupyTrigger zone r trigger
     | SetEnvironment (_, next) ->
         setEnvironment zone physics assets next
 
@@ -55,6 +66,12 @@ let undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cm
         setWaypointNext zone r before
     | LinkSpawn (from, before, r, _) ->
         setWaypointNext zone from before
+        removeEntity zone physics r
+    | TriggerSet (r, before, _) ->
+        setTrigger zone r before
+    | TriggerDelete (r, trigger) ->
+        occupyTrigger zone r trigger
+    | TriggerDuplicate (r, _) ->
         removeEntity zone physics r
     | SetEnvironment (previous, _) ->
         setEnvironment zone physics assets previous

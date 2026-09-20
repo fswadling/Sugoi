@@ -23,10 +23,12 @@ The foundational structure (odin-game `src/slot_map.odin`):
   free-list.
 - Add/get/free are O(1); deletion reuses indices without index fix-ups, and a
   generation counter detects stale handles.
-- Slots are exposed as a read-only span (`Slots`) so systems scan directly, and
-  writes go through `Get` (by `Handle`: index + generation). Undo restores through
-  `Occupy`, which re-occupies a deleted entity's recorded (free) slot and restores
-  its generation; a slot unexpectedly taken fails loudly rather than relocating.
+- `Slots` exposes the backing array as a `Span` so systems scan directly and write
+  payloads in place through `&slots.[i]`; `Value` is the only mutable field, so a
+  scan cannot desync the free list. Handle-addressed reads and writes go through
+  `Get` (by `Handle`: index + generation). Undo restores through `Occupy`, which
+  re-occupies a deleted entity's recorded (free) slot and restores its generation; a
+  slot unexpectedly taken fails loudly rather than relocating.
 
 ```text
 for i in 0..<N:
@@ -228,8 +230,8 @@ the narrative engine today.
 - **Slot map** → a generic sealed class holding a fixed `Slot` array plus the
   free-list head and count, mutated in place. It is deliberately *not* an
   immutable struct: copies would desync from the shared storage. `Slot`/`Handle`
-  stay `[<Struct>]`, `Slots` is a read-only span, and `Get` returns a `byref` into
-  the payload.
+  stay `[<Struct>]`, `Slots` is a `Span` (payload writes go through it), and `Get`
+  returns a `byref` into the payload for handle-addressed access.
 - **`using entity: Entity`** → no struct inheritance in F#; model as a nested
   `Entity` field inside each specialized record.
 - **Inline `[N]u8` strings → `string`.** The runtime `Entity.name` in odin-game
