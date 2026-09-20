@@ -2,6 +2,13 @@ module Engine
 
 // App shell: initialise SDL3 + ImGui, run the frame loop through the screen
 // manager, and tear everything down on exit.
+//
+// The ImGui SDL3 backend takes a native pointer to the current SDL_Event
+// (`&&ev`), which the CLR verifier cannot prove safe. Both diagnostics are
+// inherent to that one P/Invoke and cannot be designed away.
+
+#nowarn "9"   // FS0009: unverifiable IL
+#nowarn "51"  // FS0051: native pointer use
 
 open System
 open Microsoft.FSharp.NativeInterop
