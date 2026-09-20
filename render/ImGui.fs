@@ -141,8 +141,9 @@ extern void beginDisabled(bool disabled)
 extern void endDisabled()
 
 // Push/pop an ID onto ImGui's ID stack (cimgui's igPushID_Str / igPopID). Widgets are keyed by
-// their label plus this stack, so the cast panel pushes a member's name before drawing her rows:
-// the look labels repeat under every member, and without this they would share one ID.
+// their label plus this stack, so the cast panel pushes a member's name and then the look's before
+// drawing a row: both repeat — the look labels under every member, and a row's own widgets under
+// each of a member's looks — and without this they would share one ID.
 [<DllImport("cimgui", EntryPoint = "igPushID_Str", CallingConvention = CallingConvention.Cdecl)>]
 extern void pushId(string strId)
 

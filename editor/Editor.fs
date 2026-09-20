@@ -421,6 +421,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     do Outliner.draw shared &state
     do Inspector.draw shared &state
     do AssetBrowser.draw shared &state
-    do CastPanel.draw shared
+    do CastPanel.draw shared &state
 
     transition

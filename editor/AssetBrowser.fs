@@ -4,16 +4,7 @@ module AssetBrowser
 // sections. Clicking an actor/prop spawns it into the active zone and selects
 // it; clicking an environment loads it into the zone's single environment slot.
 
-open Entity
 open Command
-
-let private baseEntity (name: string) : Entity =
-    { Name = name
-      Transform = transformIdentity
-      Enabled = true
-      Visible = true
-      Selectable = true
-      Draggable = true }
 
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
     do ImGui.beginWindow("Asset Browser", System.IntPtr.Zero, 0) |> ignore
@@ -28,7 +19,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do ImGui.text("Actors")
             for asset in assets.Actors.Values |> Seq.sortBy (fun a -> a.Id) do
                 if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    do Spawning.spawnActor shared &state (baseEntity asset.Name) asset.Id
+                    do Spawning.spawnActor shared &state (Spawning.baseEntity asset.Name) asset.Id
 
         // ── Environments ──
         if assets.Environments.Count > 0 then
@@ -50,6 +41,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do ImGui.text("Props")
             for asset in assets.Props.Values |> Seq.sortBy (fun a -> a.Id) do
                 if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    do Spawning.spawnProp shared &state (baseEntity asset.Name) asset.Id
+                    do Spawning.spawnProp shared &state (Spawning.baseEntity asset.Name) asset.Id
 
     do ImGui.endWindow()

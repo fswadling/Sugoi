@@ -11,6 +11,17 @@ module Spawning
 open Entity
 open Command
 
+// The entity a spawned asset becomes: the whole of what the editor authors for one, before the
+// kind's own properties are added. Both panels that spawn by asset build theirs here, so the two
+// paths cannot drift apart — a second copy of this literal is the drift (spec 033 FR-007).
+let baseEntity (name: string) : Entity =
+    { Name = name
+      Transform = transformIdentity
+      Enabled = true
+      Visible = true
+      Selectable = true
+      Draggable = true }
+
 // Push the command that reverses a freshly-created entity, and select it.
 let private commit (state: byref<GameplayState.GameplayState>) (cmd: Command) (ref: EntityRef) : unit =
     let undo = UndoStack.push state.Editor.Undo cmd

@@ -57,7 +57,7 @@ list panels navigate/select/add/delete, and the Inspector shows the selected
 item's settings. A trigger's cue is edited inline in the Inspector; a scenario's
 cue/scene are Inspector tabs. The Cast panel is the one surface that edits in
 place rather than through the Inspector (D-022), because a slot is not a
-selectable item and there are forty of them.
+selectable item and there is one for every look of every member.
 
 ## Interaction model
 
@@ -163,7 +163,7 @@ under her one row per look, each row naming the look and holding the actor asset
 that slot. An earlier shape — a list of members, each selected and then edited in the
 Inspector — is rejected for two reasons: a *slot* (a member and a look) is not a selectable
 item in the one-selection model, so the Inspector would need a second notion of what is
-being edited; and binding forty slots through a two-step round trip each is worse than
+being edited; and binding every slot through a two-step round trip each is worse than
 doing it in the list, which is where a member's other looks are visible for comparison.
 
 This is why the binding is neither undoable nor routed through the command system at all.
@@ -176,6 +176,13 @@ preference, both of which the code already treats as binding actions rather than
 edits. A project-scoped stack is a real gap, but it is a gap for the *editable* surfaces
 that do not exist yet (scenario, zone registry, advent flags, cue root), not for this one:
 an assignment is two clicks in a list, and re-making it by hand costs less than undoing it.
+
+Assigning is not the panel's only act. A slot with an asset bound can also **place** it: the panel's
+Spawn control creates an actor in the active zone, drawn with that asset and named for the member,
+through `editor/Spawning.fs` — the one place the editor creates entities, which is what pairs the
+create with the command that reverses it and selects what it made (`specs/033-cast-spawn`). So the
+panel assigns directly and places undoably, side by side in one panel, and the difference between
+them is exactly the difference between a binding and a scene edit.
 
 ## Selection and gizmos (D-012, D-015, D-016)
 

@@ -3,14 +3,18 @@ module CastPanel
 // The Cast panel: the cast as a tree, with a discovered actor asset assignable to each
 // member-and-look. It is the one editor surface that assigns **in place** rather than through the
 // Inspector, because a slot — a member and a look — is not a selectable item in the one-selection
-// model, and there are forty of them (`docs/EDITOR_DESIGN.md`, D-022).
+// model, and there is one for every look of every member (`docs/EDITOR_DESIGN.md`, D-022).
 //
 // Assigning is a direct write to the binding and not a command: the undo stacks are per zone
 // (`GameplayState.UndoByZone`) and the binding outlives every zone, so an assignment recorded in
 // one zone's stack would be unreachable from another and discarded outright when that zone is
-// deleted. That is also why this takes `shared` alone — it edits project state, not the scene.
+// deleted.
+//
+// Placing an actor is the opposite kind of act, and takes the gameplay state for it: a bound slot's
+// Spawn goes through `Spawning`, which creates the actor, records the command that reverses it, and
+// selects it. So placing is a scene edit and is undoable, while assigning is not (spec 033).
 
-let draw (shared: SharedState.SharedState) : unit =
+let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
     do ImGui.beginWindow("Cast", System.IntPtr.Zero, 0) |> ignore
 
     if shared.Assets.Actors.Count = 0 then
@@ -23,12 +27,17 @@ let draw (shared: SharedState.SharedState) : unit =
     for character in Roster.characters do
         let name = Roster.characterName character
 
-        // Closed by default: twenty members expanded is sixty-odd rows, and an author works on one
-        // member at a time. The pushed id scopes the look labels, which repeat under every member.
+        // Closed by default: every member expanded at once is a wall of rows, and an author works on
+        // one member at a time. The pushed id scopes the rows to their member.
         if ImGui.collapsingHeader(name, 0) then
             do ImGui.pushId name
 
             for look in Casting.allLooks do
+                // The member scopes the member's rows, the look scopes the row. Both are needed:
+                // every member walks the same looks in the same order, so a repeated label like
+                // "Spawn" would otherwise hash to one id across the rows and collide.
+                do ImGui.pushId (Casting.lookName look)
+
                 let slot : Casting.Slot = { Character = character; Look = look }
                 let current = Casting.tryAsset slot shared.Cast
 
@@ -53,6 +62,22 @@ let draw (shared: SharedState.SharedState) : unit =
                             shared.Cast.Bindings.[slot] <- asset.Id
 
                     do ImGui.endCombo()
+
+                // One control per slot, inert while the slot is unassigned: the affordance is drawn
+                // where it will become usable rather than hidden, and there is no default model to
+                // fall back on.
+                do ImGui.sameLine(0.0f, 8.0f)
+                do ImGui.beginDisabled (Option.isNone current)
+
+                if ImGui.smallButton "Spawn" then
+                    match current with
+                    | Some assetId ->
+                        do Spawning.spawnActor shared &state (Spawning.baseEntity name) assetId
+                    | None -> ()
+
+                do ImGui.endDisabled()
+
+                do ImGui.popId()
 
             do ImGui.popId()
 

@@ -108,7 +108,11 @@ val draw : shared:SharedState.SharedState -> state:byref<GameplayState.GameplayS
 - The combo's preview is the assigned asset's `Name`, or `(none)` when `Casting.tryAsset` answers
   `None`. Only what the combo lists can be written, so a slot cannot name an asset that does not
   exist (FR-008).
-- Draws nothing else, mutates nothing outside `shared.Cast`, and touches no undo stack.
+- Draws nothing else, and its only writes are to `shared.Cast` — **superseded on this line by
+  `specs/033-cast-spawn`**, which gives a bound slot a Spawn control: the panel now also creates an
+  actor, through `Spawning`, and records the command that reverses it. The rest of this section
+  stands unchanged: the panel assigns in place, and assigning is still a direct write rather than an
+  undoable command.
 
 ## Editor — `editor/Editor.fs`
 
