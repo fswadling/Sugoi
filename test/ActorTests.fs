@@ -524,3 +524,168 @@ let ``blendPose of two clips at equal weight is the rotation midpoint`` () =
     let expectedRotation = Quaternion.Slerp(Quaternion.Identity, Quaternion(0.0f, 1.0f, 0.0f, 0.0f), 0.5f)
     let expected = Matrix4x4.CreateScale(Vector3.One) * Matrix4x4.CreateFromQuaternion(expectedRotation)
     Assert.Equal(expected, pose.Local.[0])
+
+// ── Morph loader (spec 037, US1) ──
+
+// A two-morph manifest over a six-vertex mesh. "Raise" covers vertices 1..2 and carries no
+// normal deltas; "Nod" covers vertices 3..5 and carries them, from a separate run.
+let private morphManifestText =
+    """[[Version 1] [Data "m.bin"] [Morphs [
+        [[Name "Raise"] [Targets [[[FirstVertex 1] [VertexCount 2] [HasNormalDeltas false] [PositionOffset 0] [NormalOffset 0]]]]]
+        [[Name "Nod"] [Targets [[[FirstVertex 3] [VertexCount 3] [HasNormalDeltas true] [PositionOffset 6] [NormalOffset 15]]]]]
+    ]]]"""
+
+// Twenty-four floats, one per index, so every packed sample names itself.
+let private morphData : float32 array = Array.init 24 (fun i -> float32 i)
+
+[<Fact>]
+let ``parseMorphManifest reads the version, the data file and each morph's targets`` () =
+    let manifest = ActorAsset.parseMorphManifest morphManifestText
+    Assert.Equal(1, manifest.Version)
+    Assert.Equal("m.bin", manifest.Data)
+    Assert.Equal(2, manifest.Morphs.Length)
+    Assert.Equal("Raise", manifest.Morphs.[0].Name)
+    Assert.Equal(1, manifest.Morphs.[0].Targets.Length)
+    Assert.Equal(1, manifest.Morphs.[0].Targets.[0].FirstVertex)
+    Assert.Equal(2, manifest.Morphs.[0].Targets.[0].VertexCount)
+    Assert.False(manifest.Morphs.[0].Targets.[0].HasNormalDeltas)
+    Assert.Equal("Nod", manifest.Morphs.[1].Name)
+    Assert.True(manifest.Morphs.[1].Targets.[0].HasNormalDeltas)
+    Assert.Equal(15, manifest.Morphs.[1].Targets.[0].NormalOffset)
+
+[<Fact>]
+let ``parseMorphManifest raises on an unknown version`` () =
+    let text = morphManifestText.Replace("[Version 1]", "[Version 2]")
+    Assert.Throws<System.Exception>(fun () -> ActorAsset.parseMorphManifest text |> ignore) |> ignore
+
+[<Fact>]
+let ``parseMorphManifest raises on a malformed document`` () =
+    Assert.ThrowsAny<System.Exception>(fun () -> ActorAsset.parseMorphManifest "[[Version 1]" |> ignore) |> ignore
+
+[<Fact>]
+let ``usableMorphs drops a morph that describes no targets`` () =
+    let text = "[[Version 1] [Data \"m.bin\"] [Morphs [[[Name \"Empty\"] [Targets []]] [[Name \"Raise\"] [Targets [[[FirstVertex 0] [VertexCount 1] [HasNormalDeltas false] [PositionOffset 0] [NormalOffset 0]]]]]]]]"
+    let manifest = ActorAsset.parseMorphManifest text
+    let usable = ActorAsset.usableMorphs manifest
+    Assert.Equal(1, usable.Length)
+    Assert.Equal("Raise", usable.[0].Name)
+
+[<Fact>]
+let ``buildMorphDeltas places each target's offsets in the dense per-vertex layout`` () =
+    let manifest = ActorAsset.parseMorphManifest morphManifestText
+    let deltas = ActorAsset.buildMorphDeltas manifest.Morphs morphData 6
+    // six vertices x two morphs x (a vec4 position + a vec4 normal).
+    Assert.Equal(6 * 2 * 8, deltas.Length)
+    // "Raise" (morph 0) covers vertices 1..2: positions from data[0..5] at (v * 2 + 0) * 8,
+    // and the normal sample is zero because it carries none.
+    Assert.Equal(0.0f, deltas.[(1 * 2 + 0) * 8 + 0])
+    Assert.Equal(1.0f, deltas.[(1 * 2 + 0) * 8 + 1])
+    Assert.Equal(2.0f, deltas.[(1 * 2 + 0) * 8 + 2])
+    Assert.Equal(0.0f, deltas.[(1 * 2 + 0) * 8 + 4])
+    Assert.Equal(3.0f, deltas.[(2 * 2 + 0) * 8 + 0])
+    // "Nod" (morph 1) covers vertices 3..5: positions from data[6..14], normals from data[15..23].
+    Assert.Equal(6.0f, deltas.[(3 * 2 + 1) * 8 + 0])
+    Assert.Equal(15.0f, deltas.[(3 * 2 + 1) * 8 + 4])
+    Assert.Equal(9.0f, deltas.[(4 * 2 + 1) * 8 + 0])
+    Assert.Equal(12.0f, deltas.[(5 * 2 + 1) * 8 + 0])
+
+[<Fact>]
+let ``buildMorphDeltas leaves every sample a target does not cover at zero`` () =
+    let manifest = ActorAsset.parseMorphManifest morphManifestText
+    let deltas = ActorAsset.buildMorphDeltas manifest.Morphs morphData 6
+    // vertex 0 is covered by neither morph; vertex 1 is covered by "Raise" alone.
+    for i in 0 .. 7 do Assert.Equal(0.0f, deltas.[(0 * 2 + 0) * 8 + i])
+    for i in 0 .. 7 do Assert.Equal(0.0f, deltas.[(0 * 2 + 1) * 8 + i])
+    for i in 0 .. 7 do Assert.Equal(0.0f, deltas.[(1 * 2 + 1) * 8 + i])
+
+[<Fact>]
+let ``buildMorphDeltas raises for a target that runs past the vertex count`` () =
+    let manifest = ActorAsset.parseMorphManifest morphManifestText
+    Assert.Throws<System.Exception>(fun () -> ActorAsset.buildMorphDeltas manifest.Morphs morphData 5 |> ignore) |> ignore
+
+[<Fact>]
+let ``buildMorphDeltas raises for a data file too short for the offsets named`` () =
+    let manifest = ActorAsset.parseMorphManifest morphManifestText
+    // sixteen floats carry every position, but "Nod"'s normals run to float 17.
+    Assert.Throws<System.Exception>(fun () -> ActorAsset.buildMorphDeltas manifest.Morphs (Array.zeroCreate 16) 6 |> ignore) |> ignore
+
+[<Fact>]
+let ``buildMorphDeltas raises for more morphs than the vertex stage can weigh`` () =
+    let target : ActorAsset.MorphTarget =
+        { ActorAsset.FirstVertex = 0
+          ActorAsset.VertexCount = 1
+          ActorAsset.HasNormalDeltas = false
+          ActorAsset.PositionOffset = 0
+          ActorAsset.NormalOffset = 0 }
+    let morphs =
+        Array.init (Gpu.MorphsMax + 1) (fun i ->
+            { ActorAsset.Name = sprintf "m%d" i
+              ActorAsset.Targets = [| target |] })
+    Assert.Throws<System.Exception>(fun () -> ActorAsset.buildMorphDeltas morphs (Array.zeroCreate 3) 1 |> ignore) |> ignore
+
+// ── Morph weight algebra (spec 037, US2) ──
+
+let private morphSlots () = SlotMap<MorphSlot>(uint Gpu.MorphsMax)
+
+[<Fact>]
+let ``setMorphWeight adds a morph and clamps the weight`` () =
+    let slots = morphSlots ()
+    do Actor.setMorphWeight slots 4 1 2.0f
+    Assert.Equal(1u, slots.Count)
+    Assert.Equal(1, slots.Slots.[0].Value.MorphIndex)
+    Assert.Equal(1.0f, slots.Slots.[0].Value.Weight)
+
+    // Setting the same morph again adjusts it rather than adding a second slot.
+    do Actor.setMorphWeight slots 4 1 -3.0f
+    Assert.Equal(1u, slots.Count)
+    Assert.Equal(0.0f, slots.Slots.[0].Value.Weight)
+
+[<Fact>]
+let ``removeMorph frees the morph's slot and is a no-op when absent`` () =
+    let slots = morphSlots ()
+    do Actor.setMorphWeight slots 4 0 1.0f
+    do Actor.setMorphWeight slots 4 1 1.0f
+    Assert.Equal(2u, slots.Count)
+    do Actor.removeMorph slots 0
+    Assert.Equal(1u, slots.Count)
+    do Actor.removeMorph slots 0
+    Assert.Equal(1u, slots.Count)
+
+[<Fact>]
+let ``setMorphWeight raises for a morph index outside the asset`` () =
+    let slots = morphSlots ()
+    Assert.Throws<System.Exception>(fun () -> Actor.setMorphWeight slots 4 4 1.0f) |> ignore
+
+[<Fact>]
+let ``setMorphWeight raises when the set is full`` () =
+    let slots = morphSlots ()
+    for i in 0 .. Gpu.MorphsMax - 1 do Actor.setMorphWeight slots (Gpu.MorphsMax + 1) i 1.0f
+    let mutable raised = false
+    try
+        Actor.setMorphWeight slots (Gpu.MorphsMax + 1) Gpu.MorphsMax 1.0f
+    with :? System.InvalidOperationException ->
+        raised <- true
+    Assert.True(raised)
+
+[<Fact>]
+let ``packMorphWeights with no morphs held pushes zeros and a zero count`` () =
+    let bytes = Array.zeroCreate<byte> 48
+    let slots = morphSlots ()
+    do Actor.packMorphWeights slots.Slots 0 Gpu.MorphsMax bytes
+    let floats = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float32>(bytes.AsSpan())
+    for i in 0 .. floats.Length - 1 do Assert.Equal(0.0f, floats.[i])
+
+[<Fact>]
+let ``packMorphWeights places each weight at its morph index and the count after them`` () =
+    let bytes = Array.zeroCreate<byte> 48
+    let slots = morphSlots ()
+    // Held out of index order, so a payload built in slot order would misplace them.
+    do Actor.setMorphWeight slots 4 2 0.5f
+    do Actor.setMorphWeight slots 4 0 1.0f
+    do Actor.packMorphWeights slots.Slots 4 Gpu.MorphsMax bytes
+    let floats = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float32>(bytes.AsSpan())
+    Assert.Equal(1.0f, floats.[0])
+    Assert.Equal(0.0f, floats.[1])
+    Assert.Equal(0.5f, floats.[2])
+    Assert.Equal(0.0f, floats.[3])
+    Assert.Equal(4.0f, floats.[Gpu.MorphsMax])

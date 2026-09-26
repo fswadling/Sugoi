@@ -28,6 +28,11 @@ type RenderPass = nativeint
 // in shaders/mesh.vert; a model exceeding this fails at load.
 let BonesMax = 205
 
+// Maximum morph count for the vertex-stage morph weights. Mirrored as MORPHS_MAX in
+// shaders/mesh.vert; it is the length of the pushed weights array and the loop's ceiling,
+// and an asset exceeding it fails at load (spec 037).
+let MorphsMax = 8
+
 // ── shaders + buffers ──
 
 let loadShader (device: Device) (stage: SDL.GPUShaderStage) (path: string) (uniformBuffers: uint32) (storageBuffers: uint32) (samplers: uint32) : Shader =
@@ -79,6 +84,13 @@ let uploadBufferOnce (device: Device) (dst: Buffer) (data: byte array) : unit =
     SDL.SubmitGPUCommandBuffer(cmd) |> ignore
     SDL.ReleaseGPUTransferBuffer(device, transfer)
 
+// Create a static GraphicsStorageRead buffer and upload `data` into it once — the shape a
+// shader reads from a storage buffer (the bone palette, the morph offsets).
+let createStorageBuffer (device: Device) (data: byte array) : Buffer =
+    let buffer = createBuffer device SDL.GPUBufferUsageFlags.GraphicsStorageRead (uint32 data.Length)
+    do uploadBufferOnce device buffer data
+    buffer
+
 // ── uniform helpers (shared by Mesh + ActorRender) ──
 
 // Write a System.Numerics Matrix4x4's raw floats (M11..M44) at `offset`. The
@@ -112,7 +124,7 @@ let normalMatrix (model: Matrix4x4) : Matrix4x4 =
 // Depth-tested triangle pipeline for position/normal/uv/blend vertices with a
 // vertex-stage PerDraw uniform block plus the bone-palette storage buffer.
 let createMeshPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
-    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/mesh.vert.spv" 1u 1u 0u
+    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/mesh.vert.spv" 2u 2u 0u
     let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/mesh.frag.spv" 1u 0u 4u
 
     let mutable vbufDesc = SDL.GPUVertexBufferDescription()

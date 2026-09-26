@@ -12,13 +12,14 @@ open System.IO
 open System.Numerics
 open Prime
 
-// The on-disk manifest shape (id/name/model). Fields are named, so the
-// SymbolicExpansion parser is robust to reordering.
+// The on-disk manifest shape (id/name/model, plus an optional morph sidecar path).
+// Fields are named, so the SymbolicExpansion parser is robust to reordering.
 [<SymbolicExpansion>]
 type private Manifest =
     { Id : string
       Name : string
-      Model : string }
+      Model : string
+      Morphs : string }
 
 // Cross-screen asset manager, mirroring odin-game's `Asset_Manager`. Lives on
 // `SharedState` so every screen reaches the same loaded assets and GPU device.
@@ -32,14 +33,14 @@ type AssetManager =
 
 // ── scanning ──
 
-let private readManifest (path: string) : string * string * string =
+let private readManifest (path: string) : string * string * string * string =
     let stem = Path.GetFileNameWithoutExtension(path)
     let manifest = File.ReadAllText(path) |> scvalue<Manifest>
     let id = if String.IsNullOrEmpty manifest.Id then stem else manifest.Id
     let name = if String.IsNullOrEmpty manifest.Name then id else manifest.Name
-    (id, name, manifest.Model)
+    (id, name, manifest.Model, manifest.Morphs)
 
-let private scanDir (root: string) (dir: string) : (string * string * string) array =
+let private scanDir (root: string) (dir: string) : (string * string * string * string) array =
     let full = Path.Combine(root, dir)
     if Directory.Exists(full) then
         Directory.EnumerateFiles(full, "*.manifest", SearchOption.AllDirectories)
@@ -100,7 +101,7 @@ let private resolveMaterial (loader: Loader) (gltfDir: string) (m: Gltf.Material
 // touches the GPU.
 let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<string, ActorAsset.ActorAsset> =
     let actors = Dictionary<string, ActorAsset.ActorAsset>()
-    for (id, name, modelPath) in scanDir root "actors" do
+    for (id, name, modelPath, morphsPath) in scanDir root "actors" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: actor asset '%s' has no model path" id
 
@@ -147,7 +148,38 @@ let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<string
         let actorBounds : Gltf.Bounds = { Min = minV; Max = maxV }
 
         let mesh = Mesh.create loader'.Device model.Positions normals uvs boneIds boneWeights model.Triangles submeshes
-        actors.[id] <- { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel }
+
+        // Morph targets, when the actor manifest names a sidecar: parse the manifest, read its
+        // data file, and pack the offsets into the dense per-vertex layout the vertex shader
+        // reads. Uploaded once and shared by every instance of the asset.
+        let morphs =
+            if String.IsNullOrEmpty morphsPath then None
+            else
+
+            let manifestPath = Path.Combine(root, morphsPath)
+            let manifest = File.ReadAllText manifestPath |> ActorAsset.parseMorphManifest
+            let dataPath = Path.Combine(Path.GetDirectoryName manifestPath, manifest.Data)
+            let bytes = File.ReadAllBytes dataPath
+            if bytes.Length % 4 <> 0 then
+                failwithf "morph data '%s' is not a multiple of four bytes" dataPath
+            else
+
+            let data = Array.init (bytes.Length / 4) (fun i -> BitConverter.ToSingle(bytes, i * 4))
+            let usable = ActorAsset.usableMorphs manifest
+            if usable.Length = 0 then None
+            else
+
+            let deltas = ActorAsset.buildMorphDeltas usable data vertexCount
+            let deltaBytes = Array.zeroCreate<byte> (deltas.Length * 4)
+            do Buffer.BlockCopy(deltas, 0, deltaBytes, 0, deltaBytes.Length)
+            let buffer = Gpu.createStorageBuffer loader'.Device deltaBytes
+            let actorMorphs : ActorAsset.ActorMorphs =
+                { Names = usable |> Array.map (fun m -> m.Name)
+                  Count = usable.Length
+                  Buffer = buffer }
+            Some actorMorphs
+
+        actors.[id] <- { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel; Morphs = morphs }
     actors
 
 // ── static (environment/prop) asset loading ──
@@ -220,13 +252,13 @@ let scan (root: string) (device: Gpu.Device) : AssetManager =
     let loader = lazy (createLoader device)
 
     let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    for (id, name, modelPath) in scanDir root "props" do
+    for (id, name, modelPath, _) in scanDir root "props" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: prop asset '%s' has no model path" id
         props.[id] <- loadStaticModel loader.Value root id name modelPath false
 
     let environments = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    for (id, name, modelPath) in scanDir root "environments" do
+    for (id, name, modelPath, _) in scanDir root "environments" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: environment asset '%s' has no model path" id
         environments.[id] <- loadStaticModel loader.Value root id name modelPath true

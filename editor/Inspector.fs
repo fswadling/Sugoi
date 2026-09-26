@@ -78,6 +78,60 @@ let private drawAnimations (zone: Zone.Zone) (ref: EntityRef) : unit =
     if addable = 0 then
         do ImGui.text("(all clips added)")
 
+// The actor's morph slots: the morphs it is weighing, each with a weight, and the controls
+// to add and remove them (spec 037, FR-009 to FR-011). A direct write to the runtime renderer
+// — no command, nothing persisted — through the same `ActorRender.setMorphWeight` a gameplay
+// caller uses. Only called for an actor, so no other kind of selection shows the section.
+let private drawMorphs (zone: Zone.Zone) (ref: EntityRef) : unit =
+    let actor = &zone.Actors.Get(handleOf ref)
+    let span = actor.Renderer.MorphSlots.Slots
+
+    if not (ImGui.collapsingHeader("Morphs", 0)) then () else
+
+    match actor.Renderer.Asset.Morphs with
+    | None -> do ImGui.text("(asset has no morphs)")
+    | Some morphs ->
+
+    // ── held morphs: a row each, with a weight drag and a remove ──
+    let mutable held = 0
+    for i in 0 .. span.Length - 1 do
+        let slot = span.[i]
+        if slot.Alive then
+            held <- held + 1
+            let name = morphs.Names.[slot.Value.MorphIndex]
+            do ImGui.pushId name
+            do ImGui.text name
+            do ImGui.sameLine(0.0f, 8.0f)
+            let mutable weight = slot.Value.Weight
+            if ImGui.dragFloat("Weight", &weight, 0.01f, 0.0f, 1.0f, "%.2f", 0) then
+                do ActorRender.setMorphWeight &actor.Renderer name weight
+            do ImGui.sameLine(0.0f, 8.0f)
+            if ImGui.smallButton "Remove" then
+                do ActorRender.removeMorph &actor.Renderer name
+            do ImGui.popId()
+
+    if held = 0 then
+        do ImGui.text("(holds no morphs)")
+
+    if held >= Gpu.MorphsMax then
+        do ImGui.text("(maximum 8 morphs)")
+    else
+
+    // ── add: a button per morph the asset carries and the actor does not hold ──
+    let mutable addable = 0
+    for m in 0 .. morphs.Count - 1 do
+        let mutable already = false
+        for i in 0 .. span.Length - 1 do
+            let slot = span.[i]
+            if slot.Alive && slot.Value.MorphIndex = m then already <- true
+        if not already then
+            addable <- addable + 1
+            if ImGui.smallButton morphs.Names.[m] then
+                do ActorRender.setMorphWeight &actor.Renderer morphs.Names.[m] 0.0f
+
+    if addable = 0 then
+        do ImGui.text("(all morphs added)")
+
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) =
     do ImGui.beginWindow("Inspector", System.IntPtr.Zero, 0) |> ignore
 
@@ -169,6 +223,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                 zone.Player <- ValueSome (Systems.playerHandleOf ref)
 
             do drawAnimations zone ref
+            do drawMorphs zone ref
     | None ->
         do ImGui.text("(no selection)")
 

@@ -5,7 +5,7 @@ module ActorRender
 // per-asset data lives on `ActorAsset.ActorAsset` (matching `Actor_Asset`), loaded
 // once at startup in `Assets.loadActors` and reused by every instance. The actor's
 // animation slots live here too — the runtime clips it is blending, each with its own
-// clock and weight (spec 036).
+// clock and weight (spec 036) — as do its morph slots (spec 037).
 //
 // The bone palette must NOT be a pushed uniform: SDL_gpu's Vulkan backend binds
 // each pushed uniform slot with a 4 KiB range (MAX_UBO_SECTION_SIZE), so any bone
@@ -27,11 +27,14 @@ open SlotMap
 type ActorRender =
     { Asset : ActorAsset.ActorAsset
       AnimationSlots : SlotMap<Actor.AnimationSlot>
+      MorphSlots : SlotMap<Actor.MorphSlot>
       Pose : Actor.PoseFrame
       BoneBuffer : Gpu.Buffer       // GraphicsStorageRead, BonesMax * 64
-      BoneStorageBuffers : nativeint array // [| BoneBuffer |], reused so draw binds without allocating
+      BoneStorageBuffers : Gpu.Buffer array // [| BoneBuffer |], reused so draw binds without allocating
+      MorphStorageBuffers : Gpu.Buffer array // [| the asset's morph buffer, or BoneBuffer when it has none |]
       BoneTransfer : Gpu.TransferBuffer // upload transfer buffer, same size
-      BoneBytes : byte array }    // BonesMax * 64, reused
+      BoneBytes : byte array        // BonesMax * 64, reused
+      MorphWeightBytes : byte array } // the pushed morph weights + count, reused
 
 // The animation slot capacity, re-exported for the editor's "at maximum" report
 // (FR-017): the Inspector opens `Entity`, which also declares a module `Actor`, so the
@@ -62,6 +65,9 @@ let create (device: Gpu.Device) (asset: ActorAsset.ActorAsset) : ActorRender =
     | Some i -> slots.Add(Actor.createSlot model.Model i true) |> ignore
     | None -> ()
 
+    // An actor holds no morphs until one is set, so a rebuilt renderer is the default state.
+    let morphSlots = SlotMap<Actor.MorphSlot>(uint Gpu.MorphsMax)
+
     let boneBuffer =
         let mutable info = SDL.GPUBufferCreateInfo()
         info.Usage <- SDL.GPUBufferUsageFlags.GraphicsStorageRead
@@ -71,11 +77,14 @@ let create (device: Gpu.Device) (asset: ActorAsset.ActorAsset) : ActorRender =
 
     { Asset = asset
       AnimationSlots = slots
+      MorphSlots = morphSlots
       Pose = Actor.createPoseFrame model.Model
       BoneBuffer = boneBuffer
       BoneStorageBuffers = [| boneBuffer |]
+      MorphStorageBuffers = [| (match asset.Morphs with Some morphs -> morphs.Buffer | None -> boneBuffer) |]
       BoneTransfer = Gpu.createTransferBuffer device (uint32 (Gpu.BonesMax * 64))
-      BoneBytes = Array.zeroCreate<byte> (Gpu.BonesMax * 64) }
+      BoneBytes = Array.zeroCreate<byte> (Gpu.BonesMax * 64)
+      MorphWeightBytes = Array.zeroCreate<byte> 48 }
 
 // Advance every held clip's own clock in place through the renderer field. The
 // per-frame hot path calls this so no ActorRender/Actor records are rebuilt.
@@ -88,21 +97,40 @@ let advanceInPlace (r: byref<ActorRender>) (dt: float32) : unit =
 // (FR-020), so both drive the blend the same way.
 let setClipWeight (r: byref<ActorRender>) (name: string) (weight: float32) : unit =
     let model = r.Asset.Model
-    let index =
-        match Actor.tryFindAnimIndex model name with
-        | Some i -> i
-        | None -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+    match Actor.tryFindAnimIndex model name with
+    | None -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+    | Some index ->
     do Actor.setSlotWeight model r.AnimationSlots index weight
 
 // Remove the named clip from the actor's set. A clip the asset does not define raises,
 // since only clips the asset defines are ever held.
 let removeClip (r: byref<ActorRender>) (name: string) : unit =
     let model = r.Asset.Model
-    let index =
-        match Actor.tryFindAnimIndex model name with
-        | Some i -> i
-        | None -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+    match Actor.tryFindAnimIndex model name with
+    | None -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+    | Some index ->
     do Actor.removeSlot r.AnimationSlots index
+
+// Set the named morph's weight, clamped to 0..1, adding the morph to the actor's set when it is
+// not already held (FR-005, FR-007). A morph the asset does not carry raises (FR-007).
+let setMorphWeight (r: byref<ActorRender>) (name: string) (weight: float32) : unit =
+    match r.Asset.Morphs with
+    | None -> failwithf "actor asset '%s' has no morphs" r.Asset.Id
+    | Some morphs ->
+    let index = Array.tryFindIndex (fun n -> n = name) morphs.Names
+    match index with
+    | Some i -> do Actor.setMorphWeight r.MorphSlots morphs.Count i weight
+    | None -> failwithf "actor asset '%s' has no morph '%s'" r.Asset.Id name
+
+// Remove the named morph from the actor's set.
+let removeMorph (r: byref<ActorRender>) (name: string) : unit =
+    match r.Asset.Morphs with
+    | None -> failwithf "actor asset '%s' has no morphs" r.Asset.Id
+    | Some morphs ->
+    let index = Array.tryFindIndex (fun n -> n = name) morphs.Names
+    match index with
+    | Some i -> do Actor.removeMorph r.MorphSlots i
+    | None -> failwithf "actor asset '%s' has no morph '%s'" r.Asset.Id name
 
 // Switch this instance to the named animation clip as a hard switch: bring the clip to
 // full weight and zero every other slot's weight, leaving the other clips held.
@@ -110,10 +138,10 @@ let removeClip (r: byref<ActorRender>) (name: string) : unit =
 // that would replace it is deferred (FR-013).
 let playClip (r: byref<ActorRender>) (name: string) : unit =
     let model = r.Asset.Model
-    let index =
-        match Actor.tryFindAnimIndex model name with
-        | Some i -> i
-        | None -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+
+    match Actor.tryFindAnimIndex model name with
+    | None -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+    | Some index ->
 
     let slots = r.AnimationSlots
     let span = slots.Slots
@@ -155,6 +183,18 @@ let upload (r: ActorRender) (cmd: Gpu.CommandBuffer) : unit =
 // (`BoneStorageBuffers`) rather than rebuilt each frame.
 let draw (r: ActorRender) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (light: Light) (cameraPos: Vector3) : unit =
     do SDL.BindGPUVertexStorageBuffers(renderPass, 0u, r.BoneStorageBuffers, 1u)
+
+    // Morphs: bind the asset's offset buffer at storage slot 1 (or the bone buffer when the
+    // asset has none, so the binding is always satisfied and never read at a count of 0), and
+    // push this actor's weights at uniform slot 1.
+    let morphCount =
+        match r.Asset.Morphs with
+        | Some morphs -> morphs.Count
+        | None -> 0
+    do SDL.BindGPUVertexStorageBuffers(renderPass, 1u, r.MorphStorageBuffers, 1u)
+    do Actor.packMorphWeights r.MorphSlots.Slots morphCount Gpu.MorphsMax r.MorphWeightBytes
+    do SDL.PushGPUVertexUniformData(cmd, 1u, r.MorphWeightBytes, 48u)
+
     do Mesh.draw r.Asset.Mesh renderPass cmd pipeline viewProjection (upAxisFix * model) light cameraPos
 
 // Free this instance's GPU buffers (bone storage + upload transfer). Called when

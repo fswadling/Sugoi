@@ -2,6 +2,7 @@
 
 const int BONES_MAX = 205;
 const int BONES_INFLUENCE_MAX = 4;
+const int MORPHS_MAX = 8;
 
 layout(location = 0) in vec3  aPosition;
 layout(location = 1) in vec3  aNormal;
@@ -20,12 +21,36 @@ layout(set = 1, binding = 0) uniform PerDraw {
     mat4 normalMatrix;
 } perDraw;
 
+// Vertex-stage uniform slot 1: the actor's morph weights, pushed per actor.
+layout(set = 1, binding = 1) uniform MorphWeights {
+    vec4 weights[2];  // up to MORPHS_MAX weights, indexed weights[m / 4][m % 4]
+    vec4 info;        // info.x = the asset's morph count
+} morphWeights;
+
 // Vertex-stage storage buffer slot 0 (set = 0 in SDL_gpu's convention).
 layout(set = 0, binding = 0) readonly buffer Bones {
     mat4 bones[];
 } bone;
 
+// Vertex-stage storage buffer slot 1: one morph target set's offsets, two vec4 per
+// (vertex, morph) — a position offset and a normal offset — indexed
+// (gl_VertexIndex * morphCount + m) * 2.
+layout(set = 0, binding = 1) readonly buffer Morphs {
+    vec4 morphData[];
+} morph;
+
 void main() {
+    // Displace by the morph targets this actor weighs, before the bones pose the vertex.
+    vec3 position = aPosition;
+    vec3 normal = aNormal;
+    int morphCount = min(int(morphWeights.info.x), MORPHS_MAX);
+    for (int m = 0; m < morphCount; ++m) {
+        int sampleIndex = (gl_VertexIndex * morphCount + m) * 2;
+        float weight = morphWeights.weights[m / 4][m % 4];
+        position += morph.morphData[sampleIndex].xyz * weight;
+        normal += morph.morphData[sampleIndex + 1].xyz * weight;
+    }
+
     mat4 boneBlended = mat4(0.0);
     for (int i = 0; i < BONES_INFLUENCE_MAX; ++i) {
         int boneId = min(int(aBoneIds[i]), BONES_MAX - 1);
@@ -33,12 +58,12 @@ void main() {
     }
 
     mat4 modelBone = perDraw.model * boneBlended;
-    vec4 world = modelBone * vec4(aPosition, 1.0);
+    vec4 world = modelBone * vec4(position, 1.0);
     vWorldPos = world.xyz;
     // Inverse-transpose of the model transform for non-uniform scale, composed
     // with the (rigid) bone rotation. Bones are rotation+translation, so their
     // inverse-transpose is the rotation itself.
-    vWorldNormal = mat3(perDraw.normalMatrix) * mat3(boneBlended) * aNormal;
+    vWorldNormal = mat3(perDraw.normalMatrix) * mat3(boneBlended) * normal;
     vUV = aUV;
     gl_Position = perDraw.viewProj * world;
 }

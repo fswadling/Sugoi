@@ -133,10 +133,11 @@ undo stack. Commands store **values** (not closures):
   each of these needs a project-scoped stack when it lands. Two surfaces that were expected
   to need one are not among them: the cast binding (D-022) and the zone registry (D-023)
   are both direct writes, because neither is a scene edit and re-making an entry by hand
-  costs less than the stack would. The Inspector's actor animation section (`specs/036`)
-  is a third: an actor's animation slots are runtime state on its renderer, which a
-  command payload may not hold, so its add/remove/weight edits are direct writes too —
-  and, like the rest of the runtime, are not persisted.
+  costs less than the stack would. The Inspector's actor animation and morph
+  sections (`specs/036`, `specs/037`) are a third: an actor's animation slots and
+  its morph weights are runtime state on its renderer, which a command payload may
+  not hold, so their add/remove/weight edits are direct writes too — and, like the
+  rest of the runtime, are not persisted.
 - Property edits are per-kind rather than generic: `Transform` and `Rename` cover
   the properties every kind shares, and a kind with an editable property of its own
   has its own command for it (`TriggerSet` for a trigger's volume and prompt, `Link`

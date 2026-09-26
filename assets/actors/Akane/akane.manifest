@@ -1,1 +1,1 @@
-[[Id "akane"] [Name "Akane"] [Model "actors/Akane/Akane.iqm"]]
+[[Id "akane"] [Name "Akane"] [Model "actors/Akane/Akane.iqm"] [Morphs "actors/Akane/akane.morphs"]]

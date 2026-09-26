@@ -7,6 +7,7 @@ module Actor
 
 open System
 open System.Numerics
+open System.Runtime.InteropServices
 open Iqm
 open SlotMap
 
@@ -299,3 +300,58 @@ let removeSlot (slots: SlotMap<AnimationSlot>) (animIndex: int) : unit =
     if index >= 0 then
         let slot = slots.Slots.[index]
         slots.Free { Index = uint32 index; Generation = slot.Generation }
+
+// ── morph set algebra (spec 037) ──
+
+// One morph slot: a morph the actor weighs, with a mutable weight. There is no `Enabled`
+// flag — a weight of 0 already means "contributes nothing", and a morph has no clock to gate.
+[<Struct>]
+type MorphSlot =
+    { MorphIndex : int
+      mutable Weight : float32 }
+
+// The array index of the alive slot holding a morph, or -1 when the actor holds none.
+let morphSlotIndexOf (slots: SlotMap<MorphSlot>) (morphIndex: int) : int =
+    let span = slots.Slots
+    let mutable found = -1
+    for i in 0 .. span.Length - 1 do
+        if found < 0 then
+            let slot = span.[i]
+            if slot.Alive && slot.Value.MorphIndex = morphIndex then found <- i
+    found
+
+// Set a morph's weight, adding the morph to the actor's set when it is not already held
+// (FR-005, FR-007). The weight is clamped to 0..1; a morph index outside the asset's morphs
+// raises, and adding past the maximum raises through `SlotMap.Add` (FR-006).
+let setMorphWeight (slots: SlotMap<MorphSlot>) (morphCount: int) (morphIndex: int) (weight: float32) : unit =
+    if morphIndex < 0 || morphIndex >= morphCount then
+        failwithf "morph slot: morph index %d is out of range (the asset has %d morphs)" morphIndex morphCount
+
+    let clamped = Math.Clamp(weight, 0.0f, 1.0f)
+    let index = morphSlotIndexOf slots morphIndex
+    if index >= 0 then
+        let span = slots.Slots
+        let slot = span.[index]
+        span.[index] <- { slot with Value = { slot.Value with Weight = clamped } }
+    else
+        slots.Add({ MorphIndex = morphIndex; Weight = clamped }) |> ignore
+
+// Remove the morph's slot from the actor's set; a no-op when it holds none for it (FR-009).
+let removeMorph (slots: SlotMap<MorphSlot>) (morphIndex: int) : unit =
+    let index = morphSlotIndexOf slots morphIndex
+    if index >= 0 then
+        let slot = slots.Slots.[index]
+        slots.Free { Index = uint32 index; Generation = slot.Generation }
+
+// Pack an actor's morph weights into the pushed vertex-uniform payload: the weight of each
+// morph by index (0 for a morph not held), then the morph count at float index `capacity`.
+// Indexing by morph index — not by slot order — is what makes the sum order-independent
+// (FR-005). Reuses `bytes`, so the per-frame path allocates nothing (FR-012).
+let packMorphWeights (slots: Span<Slot<MorphSlot>>) (morphCount: int) (capacity: int) (bytes: byte array) : unit =
+    Array.Clear(bytes, 0, bytes.Length)
+    let floats = MemoryMarshal.Cast<byte, float32>(bytes.AsSpan())
+    for i in 0 .. slots.Length - 1 do
+        let slot = slots.[i]
+        if slot.Alive && slot.Value.MorphIndex >= 0 && slot.Value.MorphIndex < morphCount then
+            floats.[slot.Value.MorphIndex] <- slot.Value.Weight
+    floats.[capacity] <- float32 morphCount
