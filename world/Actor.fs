@@ -2,11 +2,18 @@ module Actor
 
 // Animation sampling + CPU skinning for IQM actors. The references delegate this
 // to raylib; this is the genuinely new F# work for phase 3. Pure data/math — no
-// GPU, no Zone dependency. `render/ActorRender.fs` owns the upload/draw side.
+// GPU, no Zone dependency; the slot algebra and the blend operate on `core/SlotMap`,
+// which is neither. `world/ActorRender.fs` owns the upload/draw side.
 
 open System
 open System.Numerics
 open Iqm
+open SlotMap
+
+// The capacity of an actor's animation slots (spec 036). Eight is what the feature
+// asks for: a base motion plus a small number of overlays.
+[<Literal>]
+let MaxAnimationSlots = 8
 
 // Loaded actor: the parsed model plus the inverse bind-pose world matrices,
 // computed once at load (the animation world matrix is composed with these).
@@ -14,16 +21,18 @@ type ActorModel =
     { Model : Iqm.Model
       InverseBind : Matrix4x4 array }
 
-// One animation slot. Phase 3 plays a single looping idle clip; the slot shape
-// leaves room for future multi-slot blending (walk + upper body, etc.).
+// One animation slot: a clip held by an actor, its own playback clock, and the
+// weight that decides how much it contributes to the blended pose. `Frame`,
+// `Weight` and `Enabled` are written in place — by the per-frame clock and by the
+// weight setter — so no slot record is ever rebuilt.
 [<Struct>]
 type AnimationSlot =
     { AnimIndex : int
       mutable Frame : float32
       PlaybackFps : float32
-      Weight : float32
+      mutable Weight : float32
       Loop : bool
-      Enabled : bool }
+      mutable Enabled : bool }
 
 // The per-frame pose: per-joint local, world, and skinning matrices. The arrays
 // are allocated once and mutated in place each frame.
@@ -66,7 +75,7 @@ let createModel (model: Iqm.Model) : ActorModel =
 
     { Model = model; InverseBind = inverseBind }
 
-let findAnimIndex (m: ActorModel) (name: string) : int option =
+let tryFindAnimIndex (m: ActorModel) (name: string) : int option =
     m.Model.Anims |> Array.tryFindIndex (fun a -> a.Name = name)
 
 let createSlot (model: Iqm.Model) (animIndex: int) (loop: bool) : AnimationSlot =
@@ -84,7 +93,7 @@ let createPoseFrame (model: Iqm.Model) : PoseFrame =
       World = Array.zeroCreate<Matrix4x4> n
       Skinning = Array.zeroCreate<Matrix4x4> n }
 
-// ── animation ──
+// ── animation clocks ──
 
 // Advance the slot's frame clock in place. The per-frame hot path calls this
 // through a byref so only the frame float is written, instead of rebuilding the
@@ -108,6 +117,17 @@ let advance (m: ActorModel) (slot: AnimationSlot) (dt: float32) : AnimationSlot 
     let mutable s = slot
     advanceInPlace m &s dt
     s
+
+// Advance every held clip on its own clock (FR-009): each alive, enabled slot moves
+// by its own rate and loop setting, independently of the others. Scans the slot map's
+// span in place, so it allocates nothing. A zero-weight slot still advances — a zero
+// weight removes its contribution, not its playback.
+let advanceSlotsInPlace (m: ActorModel) (slots: Span<Slot<AnimationSlot>>) (dt: float32) : unit =
+    for i in 0 .. slots.Length - 1 do
+        let slot = &slots.[i]
+        if slot.Alive then advanceInPlace m &slot.Value dt
+
+// ── sampling ──
 
 // Sample one joint's local transform from a pose's frame channels, overriding
 // the bind-pose components for whichever channels the pose's channelmask sets.
@@ -143,15 +163,10 @@ let private sampleJoint (model: Iqm.Model) (p: Iqm.Pose) (joint: Iqm.Joint) (cha
 
     struct (Vector3(tx, ty, tz), Quaternion(rx, ry, rz, rw), Vector3(sx, sy, sz))
 
-// Sample the pose at a local animation frame (0 .. NumFrames-1) and write the
-// per-joint local/world/skinning matrices into `pose`.
-let samplePose (m: ActorModel) (animIndex: int) (frame: float32) (loop: bool) (pose: PoseFrame) : unit =
-    if animIndex < 0 || animIndex >= m.Model.Anims.Length then () else
-    let model = m.Model
-    let anim = model.Anims.[animIndex]
-    let n = anim.NumFrames
-    if n <= 0 then () else
-
+// The integer frame window a clip is sampled at, from a playback position in frames:
+// the two frames to interpolate (`f0`, `f1`) and the blend between them. Shared by the
+// single-clip sampler and the blend, so both honour a clip's loop setting identically.
+let private frameWindow (n: int) (frame: float32) (loop: bool) : struct (int * int * float32) =
     let frameCount = float32 n
     let cur =
         if loop then
@@ -159,29 +174,128 @@ let samplePose (m: ActorModel) (animIndex: int) (frame: float32) (loop: bool) (p
             if x < 0.0f then x + frameCount else x
         else
             Math.Clamp(frame, 0.0f, frameCount - 1.0f)
-
     let f0 = int (MathF.Floor cur)
     let f1 = if f0 + 1 >= n then (if loop then 0 else f0) else f0 + 1
-    let blend = cur - float32 f0
+    struct (f0, f1, cur - float32 f0)
 
+// One joint's interpolated local (translation, rotation, scale) for a clip, sampled
+// between its two frames. The shared per-joint sampler: `samplePose` calls it once for
+// one clip, `blendPose` calls it once per contributing slot.
+let private sampleJointTRS (model: Iqm.Model) (anim: Iqm.Anim) (f0: int) (f1: int) (blend: float32) (j: int) : struct (Vector3 * Quaternion * Vector3) =
+    let joint = model.Joints.[j]
+    let p = model.Poses.[j]
+    let chanBase = model.PoseChannelOffsets.[j]
+    let chan0 = (anim.FirstFrame + f0) * model.NumFrameChannels + chanBase
+    let chan1 = (anim.FirstFrame + f1) * model.NumFrameChannels + chanBase
+
+    let struct (t0, r0, s0) = sampleJoint model p joint chan0
+    let struct (t1, r1, s1) = sampleJoint model p joint chan1
+
+    struct (Vector3.Lerp(t0, t1, blend), Quaternion.Slerp(r0, r1, blend), Vector3.Lerp(s0, s1, blend))
+
+// Compose one joint's local/world/skinning matrices from its (translation, rotation,
+// scale) and write them into `pose`. Joints are parent-before-child, so a child's
+// parent world matrix is already written when it is composed.
+let private composeJoint (m: ActorModel) (model: Iqm.Model) (j: int) (t: Vector3) (r: Quaternion) (s: Vector3) (pose: PoseFrame) : unit =
+    let joint = model.Joints.[j]
+    let local = localMatrix t r s
+    let world = if joint.Parent >= 0 then local * pose.World.[joint.Parent] else local
+    pose.Local.[j] <- local
+    pose.World.[j] <- world
+    pose.Skinning.[j] <- m.InverseBind.[j] * world
+
+// Sample the pose of a single clip at a local animation frame (0 .. NumFrames-1) and
+// write the per-joint local/world/skinning matrices into `pose`. Kept as the tested
+// single-clip path (and `blendPose`'s reference for one slot at weight 1).
+let samplePose (m: ActorModel) (animIndex: int) (frame: float32) (loop: bool) (pose: PoseFrame) : unit =
+    if animIndex < 0 || animIndex >= m.Model.Anims.Length then () else
+    let model = m.Model
+    let anim = model.Anims.[animIndex]
+    let n = anim.NumFrames
+    if n <= 0 then () else
+
+    let struct (f0, f1, blend) = frameWindow n frame loop
     for j in 0 .. model.Joints.Length - 1 do
-        let joint = model.Joints.[j]
-        let p = model.Poses.[j]
-        let chanBase = model.PoseChannelOffsets.[j]
-        let chan0 = (anim.FirstFrame + f0) * model.NumFrameChannels + chanBase
-        let chan1 = (anim.FirstFrame + f1) * model.NumFrameChannels + chanBase
+        let struct (t, r, s) = sampleJointTRS model anim f0 f1 blend j
+        composeJoint m model j t r s pose
 
-        let struct (t0, r0, s0) = sampleJoint model p joint chan0
-        let struct (t1, r1, s1) = sampleJoint model p joint chan1
+// The weighted average of every contributing clip, composed into `pose` (FR-003).
+// Per joint: translations and scales are summed by weight and divided by the total,
+// and rotations use an incremental slerp running average — the four components of two
+// rotations cannot be averaged as plain numbers. A joint that no clip contributes to
+// falls back to its bind-pose local, so an actor holding nothing stands in its rest
+// pose (FR-008). Weights are relative, so only their proportions matter (FR-004).
+// Accumulates in per-joint locals, so it allocates nothing (FR-012). Takes the slot map's
+// span (a `Span`, as `Slots` yields) and only reads it.
+let blendPose (m: ActorModel) (slots: Span<Slot<AnimationSlot>>) (pose: PoseFrame) : unit =
+    let model = m.Model
+    for j in 0 .. model.Joints.Length - 1 do
+        let mutable translationSum = Vector3.Zero
+        let mutable scaleSum = Vector3.Zero
+        let mutable rotation = Quaternion.Identity
+        let mutable rotationWeight = 0.0f
+        let mutable active = false
 
-        let t = Vector3.Lerp(t0, t1, blend)
-        let r = Quaternion.Slerp(r0, r1, blend)
-        let s = Vector3.Lerp(s0, s1, blend)
+        for i in 0 .. slots.Length - 1 do
+            let slot = slots.[i]
+            if slot.Alive then
+                let s = slot.Value
+                if s.Enabled && s.Weight > 0.0f && s.AnimIndex >= 0 && s.AnimIndex < model.Anims.Length then
+                    let anim = model.Anims.[s.AnimIndex]
+                    if anim.NumFrames > 0 then
+                        let struct (f0, f1, blend) = frameWindow anim.NumFrames s.Frame s.Loop
+                        let struct (t, r, sc) = sampleJointTRS model anim f0 f1 blend j
+                        let w = s.Weight
+                        translationSum <- translationSum + t * w
+                        scaleSum <- scaleSum + sc * w
+                        if not active then
+                            rotation <- r
+                            rotationWeight <- w
+                            active <- true
+                        else
+                            let nextWeight = rotationWeight + w
+                            rotation <- Quaternion.Slerp(rotation, r, w / nextWeight)
+                            rotationWeight <- nextWeight
 
-        let local = localMatrix t r s
-        let world = if joint.Parent >= 0 then local * pose.World.[joint.Parent] else local
-        pose.Local.[j] <- local
-        pose.World.[j] <- world
-        pose.Skinning.[j] <- m.InverseBind.[j] * world
+        if active then
+            let invWeight = 1.0f / rotationWeight
+            composeJoint m model j (translationSum * invWeight) rotation (scaleSum * invWeight) pose
+        else
+            let joint = model.Joints.[j]
+            composeJoint m model j joint.Translate joint.Rotate joint.Scale pose
 
+// ── slot set algebra ──
 
+// The array index of the alive slot holding a clip, or -1 when the actor holds none.
+let private slotIndexOf (slots: SlotMap<AnimationSlot>) (animIndex: int) : int =
+    let span = slots.Slots
+    let mutable found = -1
+    for i in 0 .. span.Length - 1 do
+        if found < 0 then
+            let slot = span.[i]
+            if slot.Alive && slot.Value.AnimIndex = animIndex then found <- i
+    found
+
+// Set a clip's weight, adding the clip to the actor's set when it is not already held
+// (FR-005, FR-007). The weight is clamped to 0..1 (FR-006) and the slot enabled; adding
+// past `MaxAnimationSlots` raises through `SlotMap.Add` (FR-002), and a clip index the
+// asset does not define raises.
+let setSlotWeight (m: ActorModel) (slots: SlotMap<AnimationSlot>) (animIndex: int) (weight: float32) : unit =
+    if animIndex < 0 || animIndex >= m.Model.Anims.Length then
+        failwithf "animation slot: clip index %d is out of range (the asset has %d clips)" animIndex m.Model.Anims.Length
+
+    let clamped = Math.Clamp(weight, 0.0f, 1.0f)
+    let index = slotIndexOf slots animIndex
+    if index >= 0 then
+        let span = slots.Slots
+        let slot = span.[index]
+        span.[index] <- { slot with Value = { slot.Value with Weight = clamped; Enabled = true } }
+    else
+        slots.Add({ createSlot m.Model animIndex true with Weight = clamped }) |> ignore
+
+// Remove the clip's slot from the actor's set; a no-op when it holds none for it (FR-015).
+let removeSlot (slots: SlotMap<AnimationSlot>) (animIndex: int) : unit =
+    let index = slotIndexOf slots animIndex
+    if index >= 0 then
+        let slot = slots.Slots.[index]
+        slots.Free { Index = uint32 index; Generation = slot.Generation }

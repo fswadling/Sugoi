@@ -187,7 +187,7 @@ the hard plumbing step (SDL_gpu has no `LoadModel`/`DrawMesh` helper).
 - `render/Mesh.fs` — GPU buffers + draw path.
 - `core/Iqm.fs` — IQM binary parser emitting flat struct-of-arrays
   (`System.IO.BinaryReader`, little-endian, `float32` data).
-- `world/Actor.fs` — IQM model + animation/morph state.
+- `world/Actor.fs` — IQM model + animation slots + CPU skinning.
 - `world/ActorRender.fs` — skinned actor rendering.
 
 **Done when**: an animated character (e.g. Akane) is visible and animating in

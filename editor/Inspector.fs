@@ -22,6 +22,62 @@ let private bufferText (buf: byte[]) : string =
     let length = if zero < 0 then buf.Length else zero
     if length = 0 then "" else Encoding.UTF8.GetString(buf, 0, length)
 
+// The actor's animation slots: the clips it is blending, each with a weight, and the
+// controls to add and remove them (spec 036, FR-014 to FR-020). A direct write to the
+// runtime renderer — no command, nothing persisted (FR-019) — through the same
+// `ActorRender.setClipWeight` the gameplay caller uses (FR-020). Only called for an
+// actor, so no other kind of selection shows the section (FR-014).
+let private drawAnimations (zone: Zone.Zone) (ref: EntityRef) : unit =
+    let actor = &zone.Actors.Get(handleOf ref)
+    let anims = actor.Renderer.Asset.Model.Model.Anims
+    let span = actor.Renderer.AnimationSlots.Slots
+
+    if not (ImGui.collapsingHeader("Animations", 0)) then () else
+
+    if anims.Length = 0 then
+        do ImGui.text("(asset has no clips)")
+    else
+
+    // ── held clips: a row each, with a weight drag and a remove ──
+    let mutable held = 0
+    for i in 0 .. span.Length - 1 do
+        let slot = span.[i]
+        if slot.Alive then
+            held <- held + 1
+            let anim = anims.[slot.Value.AnimIndex]
+            do ImGui.pushId anim.Name
+            do ImGui.text anim.Name
+            do ImGui.sameLine(0.0f, 8.0f)
+            let mutable weight = slot.Value.Weight
+            if ImGui.dragFloat("Weight", &weight, 0.01f, 0.0f, 1.0f, "%.2f", 0) then
+                do ActorRender.setClipWeight &actor.Renderer anim.Name weight
+            do ImGui.sameLine(0.0f, 8.0f)
+            if ImGui.smallButton "Remove" then
+                do ActorRender.removeClip &actor.Renderer anim.Name
+            do ImGui.popId()
+
+    if held = 0 then
+        do ImGui.text("(holds no clips)")
+
+    if held >= ActorRender.animationSlotCapacity then
+        do ImGui.text("(maximum 8 clips)")
+    else
+
+    // ── add: a button per clip the asset defines and the actor does not hold ──
+    let mutable addable = 0
+    for a in 0 .. anims.Length - 1 do
+        let mutable already = false
+        for i in 0 .. span.Length - 1 do
+            let slot = span.[i]
+            if slot.Alive && slot.Value.AnimIndex = a then already <- true
+        if not already then
+            addable <- addable + 1
+            if ImGui.smallButton anims.[a].Name then
+                do ActorRender.setClipWeight &actor.Renderer anims.[a].Name 0.0f
+
+    if addable = 0 then
+        do ImGui.text("(all clips added)")
+
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) =
     do ImGui.beginWindow("Inspector", System.IntPtr.Zero, 0) |> ignore
 
@@ -111,6 +167,8 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
             if ImGui.button("Set as Player", ImGui.ImVec2(0.0f, 0.0f)) then
                 zone.Player <- ValueSome (Systems.playerHandleOf ref)
+
+            do drawAnimations zone ref
     | None ->
         do ImGui.text("(no selection)")
 
