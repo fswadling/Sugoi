@@ -141,6 +141,7 @@ fsharp-game/
 │   ├── Casting.fs              #   Look, Slot and the sparse slot → actor asset binding
 │   ├── Dialogue.fs             #   the dialogue state: Kind and Emotion, runtime screen state
 │   ├── DialogueRender.fs       #   the dialogue view + the panel layout (pure)
+│   ├── PromptRender.fs         #   the interact prompt view + its layout (pure)
 │   ├── Cue.fs                  #   Cue_Op (template) + CueState (runtime) (planned)
 │   ├── Scenario.fs             #   scenario library (planned)
 │   ├── Systems.fs              #   named play-mode systems

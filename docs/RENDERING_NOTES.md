@@ -239,8 +239,9 @@ engine**.
   row-major `Matrix4x4` floats are already the column-major GLSL layout for
   `u.ortho * vec4(pos, 0, 1)` (see §7). The origin is the top-left corner, y downwards, and a
   resize re-pushes the matrix.
-- **A small pool of text slots, not one shared string.** A frame that draws a name plate and a
-  line has two independent strings, and a single cache would rebuild both every frame.
+- **A small pool of text slots.** One slot per kind of string the layer draws: a dialogue's name
+  plate, its line, and the interact prompt (spec 039) — three. A frame re-measures none of them, so a
+  stable string is laid out once and never rebuilt per frame.
 - **The font and its atlas are loaded once.** The atlas is sampled through the layer's own
   clamp-to-edge, linear sampler (the private `Ui.createSampler` — a different sampler from
   `Texture`'s, which addresses by repeat); the portraits are ordinary `Texture`s from the asset
@@ -260,6 +261,11 @@ engine**.
   is taller than the viewport — is simply left undrawn: `draw` returns without emitting anything and
   keeps no mutable state of its own. Explaining *why* is the editor's job, not the render layer's (the
   Dialogue panel asks `DialogueRender.missReason`), so nothing is logged per frame from the draw path.
+- **Its second consumer is the interact prompt (spec 039).** `world/PromptRender.fs` draws a trigger's
+  prompt as one centred line near the bottom of the screen while the player is inside it, with a
+  shadow under the text for contrast. It measures through the third text slot, and the shadow and the
+  text share the atlas texture and sampler, so the pair is a single draw run. A dialogue line takes the
+  screen over the prompt, so the two never compete for the bottom strip.
 
 ## Known follow-ups
 

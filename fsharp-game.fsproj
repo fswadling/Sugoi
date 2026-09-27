@@ -64,6 +64,9 @@
          character to the asset's portraits to the atlas. Needs Assets, Casting, Ui and
          Dialogue, so it sits after them. -->
     <Compile Include="world/DialogueRender.fs" />
+    <!-- The interact prompt's view (spec 039): the 2D layer's second consumer. Needs only `Ui`,
+         so it sits beside the dialogue view. -->
+    <Compile Include="world/PromptRender.fs" />
     <Compile Include="world/Entity.fs" />
     <Compile Include="world/EnvironmentBatch.fs" />
     <!-- The record of a registered zone (spec 034): listed before `Zone.fs`, because the loader there

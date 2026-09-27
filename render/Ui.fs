@@ -76,9 +76,11 @@ let private bytesPerVertex = floatsPerVertex * 4
 let private vertexCapacity = 16384
 let private indexCapacity = 24576
 let private runCapacity = 16
-/// How many independent strings a single frame can measure and draw without thrashing the
-/// glyph cache: a name plate and a line.
-let private textSlots = 2
+/// How many independent strings a single frame can hold without thrashing the glyph cache: a
+/// dialogue's name plate, its line, and the interact prompt (spec 039). One slot per kind of string
+/// the layer draws — the prompt and a line are mutually exclusive today, but the capacity must not
+/// depend on that.
+let private textSlots = 3
 
 /// The glyph size for a viewport: a fixed fraction of its height, so the panel — itself a
 /// fraction of the viewport — and its text scale together (research Decision 9). The size the

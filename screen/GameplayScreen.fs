@@ -61,50 +61,39 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
 
     transition
 
-// Draw the editor workspace (when editing) and always emit the reference grid
-// so the scene stays visible in both edit and play modes.
-// Whether any trigger of the zone reports the player inside.
-let private anyInside (zone: Zone.Zone) : bool =
-    let mutable found = false
-    zone.Triggers.IteriAlive(fun _ _ t -> found <- found || t.Triggered)
-    found
-
-// While playing: the interact prompt of the trigger the player is inside, and the names of
-// the triggers they are in. This is the editor's read-out of trigger detection, standing in
-// for the cue a trigger will run once one exists, and it disappears when there is nothing
-// to report.
-let private drawTriggerOverlay (state: GameplayState.GameplayState) : unit =
-    let zone = GameplayState.activeZone state
-    let prompt =
-        state.InteractableTrigger
-        |> ValueOption.bind (Zone.tryTriggerAt zone)
-        |> ValueOption.map (fun trigger -> trigger.State.Prompt.Trim())
-        |> ValueOption.defaultValue ""
-
-    if prompt = "" && not (anyInside zone) then () else
-
-    do ImGui.beginWindow("Status", System.IntPtr.Zero, 0) |> ignore
-    if prompt <> "" then do ImGui.text(prompt)
-    zone.Triggers.IteriAlive(fun _ _ t ->
-        if t.Triggered then do ImGui.text(sprintf "inside %s" t.State.Base.Name))
-    do ImGui.endWindow()
+// The prompt of the nearest interactable trigger the player is inside, or "" for nothing to show.
+// `Systems.updateTriggers` (spec 029) already chose that trigger; this reads its authored text. An
+// explicit match, not `ValueOption.bind`, so nothing closes over `zone` and nothing allocates
+// (FR-010); the text is used as authored, not trimmed (FR-002). A dialogue line takes the screen
+// (FR-012), and the prompt is a play-mode read-out, so it is silent while editing (FR-001).
+let private promptText (state: GameplayState.GameplayState) (zone: Zone.Zone) : string =
+    if state.Editing || state.Dialogue.Shown then ""
+    else
+        match state.InteractableTrigger with
+        | ValueSome triggerRef ->
+            match Zone.tryTriggerAt zone triggerRef with
+            | ValueSome trigger -> trigger.State.Prompt
+            | ValueNone -> ""
+        | ValueNone -> ""
 
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
     let transition = Editor.draw shared &state
     do Viewport.drawGrid &state
-    // The dialogue layer's batch is built here, where the screen state is mutable, and
-    // uploaded/drawn in `renderScene` (the `DebugDraw` pattern). With nothing shown it
-    // stays empty, so the frame is the pre-feature frame (FR-003).
+    // The game's 2D layer's batch is built here, where the screen state is mutable, and
+    // uploaded/drawn in `renderScene` (the `DebugDraw` pattern). Its two consumers compose: the
+    // dialogue panel, then the interact prompt below it. With nothing shown the batch stays empty,
+    // so the frame is the pre-feature frame (FR-003, FR-009).
     let viewport = ImGui.displaySize()
     do Ui.beginBatch &state.Ui viewport.x viewport.y
     do DialogueRender.draw shared.Assets shared.Cast viewport.x viewport.y &state.Ui state.Dialogue
+    do PromptRender.draw (promptText state (GameplayState.activeZone state)) viewport.x viewport.y &state.Ui
+
     if state.Editing then
         do Viewport.buildLines &state
     else
         // Markers/gizmos only accumulate while editing; clear them so a
         // switch to play mode doesn't linger the previous frame's overlay.
         state.GizmoDraw <- DebugDraw.clear state.GizmoDraw
-        drawTriggerOverlay state
 
     transition
 
@@ -129,7 +118,7 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
         ActorRender.upload a.Renderer pass.Cmd)
 
     // ── scene pass ──
-    let mutable depthTarget = pass.DepthTarget
+    let mutable depthTarget = pass.DepthTarget    
     let scenePass = SDL.BeginGPURenderPass(pass.Cmd, ReadOnlySpan<SDL.GPUColorTargetInfo>(pass.ColorTargets), 1u, &depthTarget)
 
     let viewProjection = Camera.viewProjection state.Camera
