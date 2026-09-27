@@ -17,7 +17,7 @@ open Command
 
 // The docked panels in focus order. The viewport is a passthru node, not an
 // ImGui window, so it is intentionally absent from this list.
-let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Cast"; "Zone Registry" |]
+let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Cast"; "Zone Registry"; "Dialogue" |]
 
 // Compute the index the focus should move to (forward/backward, wrapping).
 let private nextPanelIndex (forward: bool) : int =
@@ -423,5 +423,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     do AssetBrowser.draw shared &state
     do CastPanel.draw shared &state
     do ZoneRegistryPanel.draw shared &state
+    do DialoguePanel.draw shared &state
 
     transition

@@ -105,7 +105,8 @@ let private headlessAssets (environments: (string * EnvironmentAsset.Environment
     { Device = IntPtr.Zero
       Actors = Dictionary()
       Props = Dictionary()
-      Environments = envs }
+      Environments = envs
+      Textures = [] }
 
 // A one-triangle room whose single part covers submesh 0.
 let private roomAssets () : Assets.AssetManager =
@@ -121,7 +122,8 @@ let private propAssets () : Assets.AssetManager =
     { Device = IntPtr.Zero
       Actors = Dictionary()
       Props = props
-      Environments = Dictionary() }
+      Environments = Dictionary()
+      Textures = [] }
 
 // The body attached to a live prop ref (spawned through the real mesh-body path).
 let private propBody (zone: Zone) (ref: EntityRef) : BodyId =

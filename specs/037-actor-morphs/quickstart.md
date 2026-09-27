@@ -54,8 +54,9 @@ Rebuild the shader, run the app, press backtick, and select an actor whose asset
 7. **No undo, no persistence (FR-011, SC-007)** — move the actor (one scene edit), change its morphs,
    then Ctrl+Z once: the actor moves back and its morphs are as you left them. Restart: the actor holds
    no morphs.
-8. **Existing actors unchanged (FR-008, SC-002)** — an actor whose asset carries no morphs still plays
-   its Idle clip and poses exactly as before, and the animation and skinning suites pass unchanged.
+8. **Existing actors unchanged (FR-008, SC-002)** — an actor whose asset carries no morphs still holds
+   its Idle clip at full weight and poses as before; since 038 the animation clock advances only in play
+   mode, so the pose is still while editing. The animation and skinning suites pass unchanged.
 
 ## Automated coverage boundaries
 

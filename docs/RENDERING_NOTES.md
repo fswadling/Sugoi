@@ -216,6 +216,51 @@ per phase, so it can be left on. Note that `avg` is averaged over the window whi
 
 ---
 
+## 12. The game's 2D layer (spec 038)
+
+`render/Ui.fs` is the game's own screen-space 2D layer — Dear ImGui is the editor's toolkit,
+not a game's. It is one blended, depth-less pipeline drawn at the tail of the existing scene
+pass, one grow-only indexed quad batch in reused arrays, and text through **SDL_ttf's GPU text
+engine**.
+
+- **The blend state is the one new pipeline state.** `SDL_GPUColorTargetBlendState` enables
+  blending through a *property* (`EnableBlend`), not a field — its C fields begin at the six
+  blend factors/ops. Setting only the factors leaves blending off, and the panel would not
+  composite over the scene.
+- **Text geometry is a pointer-linked list into SDL_ttf's memory.** `TTF_GetGPUTextDrawData`
+  returns a `TTF_GPUAtlasDrawSequence*` whose `xy`/`uv`/`indices` point into the library. It is
+  walked **once per line change** and copied into the layer's own arrays; walking it per frame
+  would marshal and allocate (SC-007), so a line's geometry is cached until its text or wrap
+  width changes.
+- **Its coordinates use SDL_gpu's convention: y upwards.** Both the vertex and the texture
+  coordinates point up, so the view flips y (`rect.Y - y`) when copying glyphs into a
+  top-left-origin batch, passing the uv through unchanged.
+- **The ortho matrix maps pixels to clip space.** Same convention as `DebugDraw`: the raw .NET
+  row-major `Matrix4x4` floats are already the column-major GLSL layout for
+  `u.ortho * vec4(pos, 0, 1)` (see §7). The origin is the top-left corner, y downwards, and a
+  resize re-pushes the matrix.
+- **A small pool of text slots, not one shared string.** A frame that draws a name plate and a
+  line has two independent strings, and a single cache would rebuild both every frame.
+- **The font and its atlas are loaded once.** The atlas is sampled through the layer's own
+  clamp-to-edge, linear sampler (the private `Ui.createSampler` — a different sampler from
+  `Texture`'s, which addresses by repeat); the portraits are ordinary `Texture`s from the asset
+  loader.
+- **The font's size follows the viewport.** The font is opened once, but `beginBatch` re-derives its
+  pixel size from the viewport height each frame (`TTF_SetFontSize`); a change re-rasterises the
+  glyphs and drops each text slot's cached geometry — including the stale atlas handles in its runs —
+  so the text scales with the panel and survives a resize.
+- **A slot's geometry is read back directly.** `setLine` caches a slot's glyph geometry; the caller
+  reads it as a field (`ui.TextGeoms.[slot]`). A one-line accessor for that added no clarity and was
+  removed.
+- **The layer owns its GPU resources and frees them.** The pipeline, both shaders, the vertex/index
+  buffers and their transfer buffers, the glyph sampler and the 1×1 white placeholder are created in
+  `Ui.create` and released in `Ui.release`. Textures it did not create (the portraits) are freed by
+  their owner through `Texture.release`.
+- **The layer is silent and stateless.** A line it cannot draw — its portrait does not resolve, or it
+  is taller than the viewport — is simply left undrawn: `draw` returns without emitting anything and
+  keeps no mutable state of its own. Explaining *why* is the editor's job, not the render layer's (the
+  Dialogue panel asks `DialogueRender.missReason`), so nothing is logged per frame from the draw path.
+
 ## Known follow-ups
 
 - Two benign build warnings in `Engine.fs` (`FS0009`/`FS0051`) from the

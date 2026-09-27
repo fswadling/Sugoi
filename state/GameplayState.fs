@@ -16,6 +16,12 @@ type GameplayState =
     { mutable Camera : Camera.Camera
       mutable DebugDraw : DebugDraw.DebugDraw
       mutable GizmoDraw : DebugDraw.DebugDraw
+      // The game's 2D layer (spec 038), held as the two debug drawers are: a per-screen
+      // renderer the screen draws with. It owns the pipeline, the batch and the font.
+      mutable Ui : Ui.Ui
+      // The dialogue state (spec 038): the screen's, not a zone's, so a zone switch does
+      // not clear it. Runtime only — never authored, never persisted, never on an entity.
+      mutable Dialogue : Dialogue.Dialogue
       Zones : Dictionary<string, Zone.Zone>
       mutable ActiveZone : string
       mutable Editor : EditorState.EditorState
@@ -30,12 +36,14 @@ type GameplayState =
       // re-answering it every frame allocates nothing.
       mutable InteractableTrigger : EntityRef voption }
 
-let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) : GameplayState =
+let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) : GameplayState =
     let zones = Dictionary<string, Zone.Zone>()
     zones.["main"] <- Zone.create ()
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
       DebugDraw = debugDraw
       GizmoDraw = gizmoDraw
+      Ui = ui
+      Dialogue = Dialogue.empty
       Zones = zones
       ActiveZone = "main"
       Editor = EditorState.create ()

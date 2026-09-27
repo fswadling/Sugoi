@@ -176,6 +176,12 @@ let solid (device: Gpu.Device) (r: byte) (g: byte) (b: byte) (a: byte) : Texture
 
     { Device = device; Handle = handle; Sampler = createSampler device }
 
+// Release a texture's sampler and its GPU image. Created together, owned together:
+// every texture is freed through here so no owner has to know the SDL calls.
+let release (t: Texture) : unit =
+    if t.Sampler <> IntPtr.Zero then SDL.ReleaseGPUSampler(t.Device, t.Sampler)
+    if t.Handle <> IntPtr.Zero then SDL.ReleaseGPUTexture(t.Device, t.Handle)
+
 // Build a runtime material; `white` is the shared placeholder substituted for
 // absent maps so the four sampler bindings stay contiguous.
 let makeMaterial

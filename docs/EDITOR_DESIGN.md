@@ -40,6 +40,7 @@ A single editor workspace with a menu bar and dockable panels (ImGui docking):
 | **Outliner** | left | hierarchical tree: Zone → Actors/Props/Waypoints/Triggers; tabs with Cast, Advent, Cue, Scenario, and Zone Registry |
 | **Inspector** | right | the single editing surface: the selected item's properties (entity / scenario / zone entry) |
 | **Asset Browser** | bottom | actors/environments/props; drag into the viewport to spawn |
+| **Dialogue** | bottom | the dialogue state put on screen by hand — shown, kind, speaker, expression, text (spec 038) |
 
 The sub-editors are dockable windows/tabs opened from a **Window** menu, not
 separate screens. Cast, Advent, Cue, Scenario, and Zone Registry dock as tabs in
@@ -53,6 +54,12 @@ the **left** panel (alongside the Outliner) and are shown by default:
 - **Zone Registry** — the game's places as a tree: a zone per node and one row per variant it
   declares, each row registering the active zone's environment against that place or instantiating
   one into the active zone (D-023).
+
+The **Dialogue** panel (spec 038) docks by exception as a tab beside the **Asset Browser** at the
+**bottom** rather than in the left column, because it is a line of text and wants the dock's width —
+the 20 % left column would wrap it. Like Cast and the Zone Registry it writes the state it edits
+directly rather than through the Inspector (D-011), since the dialogue state is runtime screen state
+rather than a selection.
 
 The **Inspector** is the single editing surface (one selection → one Inspector):
 list panels navigate/select/add/delete, and the Inspector shows the selected
@@ -137,7 +144,10 @@ undo stack. Commands store **values** (not closures):
   sections (`specs/036`, `specs/037`) are a third: an actor's animation slots and
   its morph weights are runtime state on its renderer, which a command payload may
   not hold, so their add/remove/weight edits are direct writes too — and, like the
-  rest of the runtime, are not persisted.
+  rest of the runtime, are not persisted. The Dialogue panel (`specs/038`) is a
+  fourth: the dialogue state is runtime screen state, not a scene edit and never
+  persisted, so its shown flag, kind, speaker, expression and text are written
+  directly — the panel records no command and stores nothing beyond the state.
 - Property edits are per-kind rather than generic: `Transform` and `Rename` cover
   the properties every kind shares, and a kind with an editable property of its own
   has its own command for it (`TriggerSet` for a trigger's volume and prompt, `Link`

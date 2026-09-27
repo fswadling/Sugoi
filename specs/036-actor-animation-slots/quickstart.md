@@ -61,9 +61,10 @@ Run the app, press backtick to enter edit mode, and select an actor.
    removed), then Ctrl+Z. The actor returns holding **one** slot — Idle (or its first clip) at weight 1 —
    because the undo rebuilds its renderer and the rebuild seeds the default, not the slots it held before it
    was deleted. This is the spec's edge case that a restore of runtime state is not a restore of slots.
-8. **Existing single-clip actors unchanged (FR-011, SC-006)** — an actor you do not touch still plays its
-   Idle clip exactly as before the feature, and the player character's Jog/Idle switch (the hard switch in
-   `Systems.animate`) still works.
+8. **Existing single-clip actors unchanged (FR-011, SC-006)** — an actor you do not touch still holds its
+   Idle clip at full weight exactly as before the feature, and plays it while playing; since 038 the
+   animation clock advances only in play mode, so an actor stands still while it is being edited. The
+   player character's Jog/Idle switch (the hard switch in `Systems.animate`) still works.
 
 ## Automated coverage boundaries
 

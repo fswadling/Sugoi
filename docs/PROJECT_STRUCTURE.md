@@ -114,6 +114,7 @@ fsharp-game/
 │   ├── ImGuiSdl3.fs            #   SDL3 + SDL_gpu backend shim
 │   ├── Camera.fs               #   editor / follow camera
 │   ├── DebugDraw.fs            #   line-segment debug rendering
+│   ├── Ui.fs                   #   the game's own screen-space 2D layer (dialogue panel)
 │   ├── Scene.fs                #   per-screen 3D scene (planned)
 │   ├── Water.fs                #   (planned)
 │   ├── Ocean.fs                #   (planned)
@@ -138,6 +139,8 @@ fsharp-game/
 │   ├── EnvironmentRender.fs    #   static environment + prop rendering
 │   ├── Advent.fs               #   adventure flag set (planned)
 │   ├── Casting.fs              #   Look, Slot and the sparse slot → actor asset binding
+│   ├── Dialogue.fs             #   the dialogue state: Kind and Emotion, runtime screen state
+│   ├── DialogueRender.fs       #   the dialogue view + the panel layout (pure)
 │   ├── Cue.fs                  #   Cue_Op (template) + CueState (runtime) (planned)
 │   ├── Scenario.fs             #   scenario library (planned)
 │   ├── Systems.fs              #   named play-mode systems
@@ -165,6 +168,7 @@ fsharp-game/
 │   ├── AssetBrowser.fs
 │   ├── CastPanel.fs            #   the cast tree: a look per row, an asset per slot
 │   ├── ZoneRegistryPanel.fs    #   the places tree: register a zone against one, instantiate one
+│   ├── DialoguePanel.fs        #   the dialogue authoring surface (direct write)
 │   ├── AdventPanel.fs          #   (planned)
 │   ├── CueEditor.fs            #   (planned)
 │   ├── CueTree.fs              #   shared recursive cue-tree renderer (planned)

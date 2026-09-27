@@ -24,6 +24,9 @@
     <Compile Include="GameplayStateTests.fs" />
     <Compile Include="EnvironmentBatchTests.fs" />
 
+    <!-- The dialogue layer (spec 038): the panel layout and the dismiss rule, both pure. -->
+    <Compile Include="DialogueTests.fs" />
+
     <!-- The cast (spec 032): the roster is not the engine's, so this opens `Roster` and not
          `Narrative`. -->
     <Compile Include="RosterTests.fs" />

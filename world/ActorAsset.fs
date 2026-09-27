@@ -1,9 +1,9 @@
 module ActorAsset
 
 // Shared per-actor asset: manifest metadata plus its loaded runtime data (parsed
-// IQM model + uploaded GPU mesh + its morph targets). Mirrors odin-game's
-// `Actor_Asset`. Split out of `Assets` (the manager) so `ActorRender` can depend on
-// this type without a cycle back into the manager.
+// IQM model + uploaded GPU mesh + its morph targets + its portraits). Mirrors
+// odin-game's `Actor_Asset`. Split out of `Assets` (the manager) so `ActorRender`
+// can depend on this type without a cycle back into the manager.
 
 open Prime
 
@@ -37,6 +37,28 @@ type ActorMorphs =
       Count : int
       Buffer : Gpu.Buffer }
 
+// ── portraits (spec 038) ──
+
+/// The portrait paths an actor manifest declares, one per expression. Five **named** fields
+/// rather than an emotion-keyed map, because this module is compiled before the dialogue one
+/// (which owns `Emotion`) and because it is the reference's own shape. An absent field parses
+/// to `null`.
+[<SymbolicExpansion>]
+type PortraitPaths =
+    { Neutral : string
+      Happy : string
+      Sad : string
+      Angry : string
+      Surprised : string }
+
+/// The portraits an actor declares, loaded once and shared by every instance of the asset.
+type ActorPortraits =
+    { Neutral : Texture.Texture
+      Happy : Texture.Texture
+      Sad : Texture.Texture
+      Angry : Texture.Texture
+      Surprised : Texture.Texture }
+
 type ActorAsset =
     { Id : string
       Name : string
@@ -44,7 +66,11 @@ type ActorAsset =
       Bounds : Gltf.Bounds
       Mesh : Mesh.Mesh
       Model : Actor.ActorModel
-      Morphs : ActorMorphs option }
+      Morphs : ActorMorphs option
+      /// The actor's portraits, one per expression, loaded once (spec 038). `None` when the
+      /// manifest declares no `[Portraits …]` block, which is legal: such a character simply
+      /// cannot speak a portrait line.
+      Portraits : ActorPortraits option }
 
 // ── pure loaders ──
 
@@ -99,3 +125,22 @@ let buildMorphDeltas (morphs: MorphDefinition array) (data: float32 array) (vert
                     deltas.[floatBase + 6] <- data.[n + 2]
 
     deltas
+
+/// The five portrait fields, paired with their names, so a gap can be named in the failure.
+let portraitValues (p: PortraitPaths) : (string * string) list =
+    [ "Neutral", p.Neutral
+      "Happy", p.Happy
+      "Sad", p.Sad
+      "Angry", p.Angry
+      "Surprised", p.Surprised ]
+
+/// A portrait set is all-or-nothing: a `[Portraits …]` block with some expressions declared and
+/// others not is a broken asset, reported at load naming what is missing (FR-006, SC-008). A set
+/// with no paths at all is not a failure — the caller treats it as "declares no portraits" — and
+/// is not this function's concern.
+let requireComplete (p: PortraitPaths) : unit =
+    let values = portraitValues p
+    let empty = values |> List.filter (fun (_, v) -> System.String.IsNullOrEmpty v)
+    if empty.Length > 0 && empty.Length < values.Length then
+        let missing = empty |> List.map fst |> String.concat ", "
+        failwithf "actor portraits: the declared set is missing %s" missing

@@ -60,9 +60,9 @@ project's own entity/command/editor model after `specs/026-waypoints`,
 
 ## Decision 4 — Detection is one function, and the player position comes from the entity
 
-- **Decision**: `Systems.updateTriggers zone : EntityRef voption` updates every
-  trigger's flag from the player's position and answers the closest interactable
-  one (or `ValueNone`). It derives the player's position itself: the designated
+- **Decision**: `Systems.updateTriggers zone &closest` updates every trigger's flag from
+  the player's position and writes the closest interactable one into `closest` (or
+  `ValueNone`). It derives the player's position itself: the designated
   actor's entity position, which `syncActors` has already written from its body
   earlier in the same frame. With no live designation it clears every trigger and
   answers `ValueNone`.

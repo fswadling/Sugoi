@@ -46,6 +46,13 @@
     <Compile Include="render/ImGuiSdl3.fs" />
     <Compile Include="render/Camera.fs" />
     <Compile Include="render/DebugDraw.fs" />
+    <!-- The game's own screen-space 2D layer (spec 038): one blended, depth-less
+         pipeline, one quad batch, and SDL_ttf text. Technology-only — it knows Gpu,
+         Texture and the font, and nothing of characters or dialogue. -->
+    <Compile Include="render/Ui.fs" />
+    <!-- The dialogue state and its closed vocabulary (spec 038). Only needs the cast,
+         so it sits before the actor and systems modules and stays free of GPU and assets. -->
+    <Compile Include="world/Dialogue.fs" />
     <Compile Include="world/Actor.fs" />
     <Compile Include="world/ActorAsset.fs" />
     <Compile Include="world/ActorRender.fs" />
@@ -53,6 +60,10 @@
     <Compile Include="world/EnvironmentRender.fs" />
     <Compile Include="world/Assets.fs" />
     <Compile Include="world/Casting.fs" />
+    <!-- The dialogue view (spec 038): the only module that knows the whole chain from a
+         character to the asset's portraits to the atlas. Needs Assets, Casting, Ui and
+         Dialogue, so it sits after them. -->
+    <Compile Include="world/DialogueRender.fs" />
     <Compile Include="world/Entity.fs" />
     <Compile Include="world/EnvironmentBatch.fs" />
     <!-- The record of a registered zone (spec 034): listed before `Zone.fs`, because the loader there
@@ -77,6 +88,9 @@
     <Compile Include="editor/AssetBrowser.fs" />
     <Compile Include="editor/CastPanel.fs" />
     <Compile Include="editor/ZoneRegistryPanel.fs" />
+    <!-- The dialogue authoring surface (spec 038): a panel of its own, because the dialogue
+         state is not a selection and so cannot live in the Inspector. -->
+    <Compile Include="editor/DialoguePanel.fs" />
     <Compile Include="editor/Editor.fs" />
     <Compile Include="screen/MainMenuScreen.fs" />
     <Compile Include="screen/GameplayScreen.fs" />
@@ -100,10 +114,17 @@
     <Copy SourceFiles="native/libSDL3_image.so;native/libjbig.so.0" DestinationFolder="$(OutDir)" />
   </Target>
 
+  <!-- Vendored SDL3_ttf native library (from ppy.sdl3_ttf-cs). Unlike
+       libSDL3_image.so it needs no FreeType or other transitive library, so it is
+       a single file. `DllImport("SDL3_ttf")` resolves it from the app dir. -->
+  <Target Name="CopySdl3TtfLibrary" AfterTargets="Build" Condition="Exists('native/libSDL3_ttf.so')">
+    <Copy SourceFiles="native/libSDL3_ttf.so" DestinationFolder="$(OutDir)" />
+  </Target>
+
   <!-- Compiled line shader SPIR-V, loaded from disk at startup. Copied to the
        output dir so the shaders/ path resolves regardless of working dir. -->
   <Target Name="CopyShaders" AfterTargets="Build">
-    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv;shaders/mesh.vert.spv;shaders/mesh.frag.spv;shaders/static.vert.spv;shaders/static.frag.spv" DestinationFolder="$(OutDir)shaders" />
+    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv;shaders/mesh.vert.spv;shaders/mesh.frag.spv;shaders/static.vert.spv;shaders/static.frag.spv;shaders/ui.vert.spv;shaders/ui.frag.spv" DestinationFolder="$(OutDir)shaders" />
   </Target>
 
   <ItemGroup>

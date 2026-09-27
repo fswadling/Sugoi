@@ -54,6 +54,10 @@ let createBuffer (device: Device) (usage: SDL.GPUBufferUsageFlags) (byteSize: ui
     info.Props <- 0u
     SDL.CreateGPUBuffer(device, &info)
 
+// Release a GPU buffer, if one was created.
+let releaseBuffer (device: Device) (buffer: Buffer) : unit =
+    if buffer <> IntPtr.Zero then SDL.ReleaseGPUBuffer(device, buffer)
+
 let createTransferBuffer (device: Device) (byteSize: uint32) : TransferBuffer =
     let mutable info = SDL.GPUTransferBufferCreateInfo()
     info.Usage <- SDL.GPUTransferBufferUsage.Upload

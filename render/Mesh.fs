@@ -74,6 +74,11 @@ let create (device: Gpu.Device) (positions: float32 array) (normals: float32 arr
       VertexBinding = Array.zeroCreate<SDL.GPUBufferBinding> 1
       IndexBinding = indexBinding }
 
+// Release the mesh's vertex and index buffers.
+let release (m: Mesh) : unit =
+    releaseBuffer m.Device m.VertexBuffer
+    releaseBuffer m.Device m.IndexBuffer
+
 // Bind the mesh pipeline, push the vertex + fragment uniforms, bind each
 // submesh's samplers, and issue one indexed draw per submesh. The bone storage
 // buffer is bound by ActorRender first.

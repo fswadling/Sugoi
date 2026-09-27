@@ -86,7 +86,9 @@ let run () : int =
     let gpu = Gpu.create device swapchainFormat
     let debugDraw = DebugDraw.create device swapchainFormat gpu.DepthFormat false
     let gizmoDraw = DebugDraw.create device swapchainFormat gpu.DepthFormat true
-    let mutable manager = ScreenManager.init gpu debugDraw gizmoDraw
+    // The game's 2D layer (spec 038), its lifetime the device's, as the debug drawers are.
+    let ui = Ui.create device swapchainFormat gpu.DepthFormat "assets/fonts/DejaVuSans.ttf"
+    let mutable manager = ScreenManager.init gpu debugDraw gizmoDraw ui
 
     let mutable running = true
     let mutable ev = SDL.Event()
@@ -244,10 +246,12 @@ let run () : int =
 
     // ── Shut down ──
     do SDL.WaitForGPUIdle(device) |> ignore
+    do Ui.release ui
+    do Assets.release manager.Shared.Assets
     do DebugDraw.release gizmoDraw
     do DebugDraw.release debugDraw
     for zone in manager.Gameplay.Zones.Values do
-        EnvironmentBatch.release manager.Shared.Gpu.Device zone.Batch
+        Zone.release zone manager.Shared.Physics manager.Shared.Gpu.Device
     do Gpu.destroy manager.Shared.Gpu
     do ImGuiSdl3.shutdown()
     do ImGui.destroyContext(IntPtr.Zero)

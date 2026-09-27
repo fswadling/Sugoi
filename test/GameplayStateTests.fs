@@ -52,14 +52,15 @@ let private propAssets () : Assets.AssetManager =
     { Device = IntPtr.Zero
       Actors = Dictionary()
       Props = props
-      Environments = Dictionary() }
+      Environments = Dictionary()
+      Textures = [] }
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; ZoneRegistry = ZoneRegistry.create (); Physics = Physics.create () }
 
 // A gameplay state seeded with the single `main` zone, as the app starts.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>)
+    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
 
 let private actor (name: string) : Actor =
     { State =
@@ -81,7 +82,7 @@ let private roomAssets () : Assets.AssetManager =
           SubmeshCount = 1 }
     let envs = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
     envs.["room"] <- { (envAsset "room" submeshes) with Parts = [| part |] }
-    { Device = IntPtr.Zero; Actors = Dictionary(); Props = Dictionary(); Environments = envs }
+    { Device = IntPtr.Zero; Actors = Dictionary(); Props = Dictionary(); Environments = envs; Textures = [] }
 
 let private bodyOf (zone: Zone.Zone) (ref: EntityRef) : BodyId =
     (zone.Props.Get(handleOf ref)).Physics.Value.Body

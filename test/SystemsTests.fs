@@ -46,9 +46,16 @@ let private add (zone: Zone.Zone) (position: Vector3) (radius: float32) (height:
             Base = { payload.Base with Enabled = enabled } }
     ref
 
+// The nearest interactable trigger the player is inside, after an update — the out-parameter
+// `updateTriggers` writes into.
+let private tracked (zone: Zone.Zone) : EntityRef voption =
+    let mutable closest = ValueNone
+    do updateTriggers zone &closest
+    closest
+
 // Whether the trigger reports the player inside, after an update.
 let private inside (zone: Zone.Zone) (ref: EntityRef) : bool =
-    do updateTriggers zone |> ignore
+    do tracked zone |> ignore
     (Zone.tryTriggerAt zone ref).Value.Triggered
 
 // ── Containment ──
@@ -107,7 +114,7 @@ let ``a disabled trigger never reports the player inside`` () =
 
     // It is also never the tracked interactable, and re-enabling detects again.
     let interactable = add zone Vector3.Zero 2.0f 3.0f true false "Look"
-    Assert.True(ValueOption.isNone (updateTriggers zone))
+    Assert.True(ValueOption.isNone (tracked zone))
     Assert.False(inside zone interactable)
 
 [<Fact>]
@@ -123,7 +130,7 @@ let ``with no live player nothing is inside`` () =
     zone.Player <- ValueSome { handle with Generation = handle.Generation + 1u }
 
     Assert.False(inside zone area)
-    Assert.True(ValueOption.isNone (updateTriggers zone))
+    Assert.True(ValueOption.isNone (tracked zone))
 
 // ── Overlap and interactable tracking ──
 
@@ -133,7 +140,7 @@ let ``overlapping triggers each report the player inside`` () =
     let first = add zone Vector3.Zero 2.0f 3.0f false true ""
     let second = add zone (Vector3(1.0f, 0.0f, 0.0f)) 2.0f 3.0f false true ""
 
-    do updateTriggers zone |> ignore
+    do tracked zone |> ignore
 
     Assert.True((Zone.tryTriggerAt zone first).Value.Triggered)
     Assert.True((Zone.tryTriggerAt zone second).Value.Triggered)
@@ -145,7 +152,7 @@ let ``the nearest interactable trigger the player is inside is the tracked one``
     let near = add zone (Vector3(2.0f, 0.0f, 0.0f)) 8.0f 3.0f true true "Near"
 
     // Both contain the player; the nearer one is answered.
-    match updateTriggers zone with
+    match tracked zone with
     | ValueSome tracked -> Assert.Equal<EntityRef>(near, tracked)
     | ValueNone -> Assert.Fail "expected the nearer interactable trigger"
 
@@ -157,19 +164,19 @@ let ``the nearest interactable trigger the player is inside is the tracked one``
 let ``a non-interactable trigger is never the tracked one`` () =
     let zone = zoneWithPlayer (Vector3(0.0f, 1.0f, 0.0f))
     let plain = add zone Vector3.Zero 4.0f 3.0f false true ""
-    Assert.True(ValueOption.isNone (updateTriggers zone))
+    Assert.True(ValueOption.isNone (tracked zone))
     Assert.True((Zone.tryTriggerAt zone plain).Value.Triggered)
 
 [<Fact>]
 let ``leaving clears the inside state and the tracked trigger`` () =
     let zone = zoneWithPlayer (Vector3(0.0f, 1.0f, 0.0f))
     let ref = add zone Vector3.Zero 2.0f 3.0f true true "Look"
-    Assert.Equal(ValueSome ref, (updateTriggers zone))
+    Assert.Equal(ValueSome ref, (tracked zone))
 
     // Move the player well outside the volume.
     let handle = zone.Player.Value
     let actor = &zone.Actors.Get handle
     actor <- { actor with State.Base.Transform = { actor.State.Base.Transform with Position = Vector3(20.0f, 1.0f, 0.0f) } }
 
-    Assert.True(ValueOption.isNone (updateTriggers zone))
+    Assert.True(ValueOption.isNone (tracked zone))
     Assert.False((Zone.tryTriggerAt zone ref).Value.Triggered)

@@ -143,6 +143,9 @@ void cimgui_setup_dock_layout(ImGuiID dockspace_id)
     ImGui::DockBuilderDockWindow("Zone Registry", left);
     ImGui::DockBuilderDockWindow("Inspector", right);
     ImGui::DockBuilderDockWindow("Asset Browser", bottom);
+    // The Dialogue authoring surface (spec 038): a tab beside the Asset Browser at the bottom,
+    // next to the other authoring surfaces rather than in the left column.
+    ImGui::DockBuilderDockWindow("Dialogue", bottom);
     ImGui::DockBuilderFinish(dockspace_id);
 }
 

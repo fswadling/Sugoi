@@ -63,6 +63,11 @@ let create (device: Gpu.Device) (positions: float32 array) (normals: float32 arr
       VertexBinding = Array.zeroCreate<SDL.GPUBufferBinding> 2
       IndexBinding = indexBinding }
 
+// Release the submesh's vertex and index buffers.
+let release (m: StaticMesh) : unit =
+    releaseBuffer m.Device m.VertexBuffer
+    releaseBuffer m.Device m.IndexBuffer
+
 // ── instanced draw ──
 
 // Push the fragment material/light uniform, bind the mesh vertices (slot 0) and the

@@ -1,1 +1,1 @@
-[[Id "akane"] [Name "Akane"] [Model "actors/Akane/Akane.iqm"] [Morphs "actors/Akane/akane.morphs"]]
+[[Id "akane"] [Name "Akane"] [Model "actors/Akane/Akane.iqm"] [Morphs "actors/Akane/akane.morphs"] [Portraits [[Neutral "actors/Akane/portraits/AkaneNeutral.png"] [Happy "actors/Akane/portraits/AkaneHappy.png"] [Sad "actors/Akane/portraits/AkaneSad.png"] [Angry "actors/Akane/portraits/AkaneAngry.png"] [Surprised "actors/Akane/portraits/AkaneSurprised.png"]]]]

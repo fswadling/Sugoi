@@ -45,10 +45,10 @@ carries a body, renderer, or binding.
 
 ```fsharp
 // Update every trigger's inside state from the player's position and answer the
-// nearest interactable trigger the player is inside, or None. With no live
-// designated player, every trigger is cleared and the answer is `ValueNone`. Needs no
+// nearest interactable trigger the player is inside, written into `closest`. With no live
+// designated player, every trigger is cleared and `closest` is set to `ValueNone`. Needs no
 // graphics device and no physics world.
-val updateTriggers : zone:Zone -> EntityRef voption
+val updateTriggers : zone:Zone -> closest:byref<EntityRef voption> -> unit
 ```
 
 - Containment: horizontal distance to the base `<= Radius`, and the player's
@@ -75,7 +75,7 @@ val updateTriggers : zone:Zone -> EntityRef voption
 // Added field: mutable InteractableTrigger : EntityRef voption
 ```
 
-- Assigned each play frame from `updateTriggers`, and cleared by it when nothing
+- Written each play frame by `updateTriggers`, and set to `ValueNone` by it when nothing
   qualifies. Read by the play-mode overlay, and by the interaction once it exists.
 
 ## Render — `render/DebugDraw.fs` and `render/ImGui.fs`
@@ -110,7 +110,7 @@ extern bool dragFloat(string label, float32& v, float32 speed, float32 min, floa
 
 ## Screen — `screen/GameplayScreen.fs`
 
-- While playing (after the body→entity sync): `state.InteractableTrigger <- Systems.updateTriggers zone`.
+- While playing (after the body→entity sync): `do Systems.updateTriggers zone &state.InteractableTrigger`.
 - While playing, draw the overlay: the tracked interactable trigger's prompt (when
   it has one), and the names of the triggers the player is inside.
 - Editing is unchanged: the update is not called, and no trigger state is written.

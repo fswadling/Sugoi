@@ -32,26 +32,30 @@ let private advanceActorAnimations (dt: float32) (zone: Zone.Zone) : unit =
         let actor = &slot.Value
         do ActorRender.advanceInPlace &actor.Renderer dt
 
-// Advance non-render logic: refresh the camera aspect from the frame's window
-// size, advance the actor animations, then hand the frame's input to the editor
-// (which owns the edit/play toggle, shortcuts, nudge, interaction, and camera).
-// The play chain and the physics step run only while playing; each player system
-// no-ops without a live bound player, so a play session with no player still advances
-// the world but drives no character. The editor does not simulate, so it stays passive.
+// Advance non-render logic: refresh the camera aspect from the frame's window size, then hand the
+// frame's input to the editor (which owns the edit/play toggle, shortcuts, nudge, interaction, and
+// camera). The editor does not simulate, so it stays passive: the animation clock, the dialogue
+// dismiss and the player systems run only while playing. The play chain and the physics step
+// therefore also run only while playing; each player system no-ops without a live bound player, so a
+// play session with no player still advances the world but drives no character.
 let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
     do updateAspectRatio (frame.WindowW, frame.WindowH) &state
     let zone = GameplayState.activeZone state
-    do advanceActorAnimations frame.Dt zone
     let transition = Editor.update shared frame &state
 
-    // The world simulates for the whole of play mode, player or not: the physics step and
-    // the body→entity sync run regardless, while the player systems no-op without a live
-    // player. The editor does not simulate, so it stays passive.
     if not state.Editing then
+        // The animation clock advances only while playing, so an actor stands still while it is being
+        // placed and edited.
+        do advanceActorAnimations frame.Dt zone
+
+        // The dialogue dismiss: while playing only, so the editor's SPACE is its own. Gated on a text
+        // field having focus too, because the editor's fields take the same keys (FR-008).
+        do Systems.dismissDialogue (Input.isPressed Input.Key.Space frame.Input) (ImGui.wantTextInput()) &state.Dialogue
+
         do Systems.playerInput shared.Physics zone frame.Input frame.Dt
         do Physics.step shared.Physics frame.Dt
         do Systems.syncActors shared.Physics zone
-        state.InteractableTrigger <- Systems.updateTriggers zone
+        do Systems.updateTriggers zone &state.InteractableTrigger
         do Systems.cameraFollow zone &state.Follow &state.Camera
         do Systems.animate zone frame.Input
 
@@ -88,6 +92,12 @@ let private drawTriggerOverlay (state: GameplayState.GameplayState) : unit =
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
     let transition = Editor.draw shared &state
     do Viewport.drawGrid &state
+    // The dialogue layer's batch is built here, where the screen state is mutable, and
+    // uploaded/drawn in `renderScene` (the `DebugDraw` pattern). With nothing shown it
+    // stays empty, so the frame is the pre-feature frame (FR-003).
+    let viewport = ImGui.displaySize()
+    do Ui.beginBatch &state.Ui viewport.x viewport.y
+    do DialogueRender.draw shared.Assets shared.Cast viewport.x viewport.y &state.Ui state.Dialogue
     if state.Editing then
         do Viewport.buildLines &state
     else
@@ -112,6 +122,7 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
     do EnvironmentBatch.upload shared.Gpu.Device zone.Batch pass.Cmd
     do DebugDraw.upload state.DebugDraw pass.Cmd
     do DebugDraw.upload state.GizmoDraw pass.Cmd
+    do Ui.upload state.Ui pass.Cmd
 
     // Upload each actor's bone palette (copy pass) before the render pass.
     zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
@@ -141,5 +152,9 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
 
     // Editor markers + gizmos, depth-tested against the meshes drawn above.
     do DebugDraw.draw state.GizmoDraw viewProjection pass.Cmd scenePass
+
+    // The game's 2D layer last: blended, depth-less, so it sits on top of the scene and is
+    // never occluded (FR-011). No-op when nothing is shown.
+    do Ui.draw state.Ui pass.Cmd scenePass
 
     do SDL.EndGPURenderPass(scenePass)

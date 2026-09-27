@@ -23,6 +23,11 @@ let entityNameBufferSize = 256
 [<Literal>]
 let entityNameMaxChars = 63
 
+// The Dialogue panel's line buffer (spec 038). Dialogue lines are prose, so this is
+// generous; UTF-8's worst case is 3 bytes per BMP character.
+[<Literal>]
+let dialogueTextBufferSize = 1023
+
 // The active transform tool, selected with 1/2/3.
 type Tool =
     | Move
@@ -66,7 +71,12 @@ type EditorState =
       // own buffer because a selected trigger draws both.
       PromptBuffer : byte[]
       PromptEditRef : EntityRef option
-      PromptEditing : bool }
+      PromptEditing : bool
+      // The Dialogue panel's line field (spec 038): transient UI scaffolding for a text
+      // field, not dialogue state, which is why FR-009's "stores nothing beyond the state
+      // itself" holds — no command is recorded and nothing is persisted.
+      DialogueTextBuffer : byte[]
+      DialogueTextEditing : bool }
 
 let create () : EditorState =
     { Selection = None
@@ -83,4 +93,6 @@ let create () : EditorState =
       NameEditing = false
       PromptBuffer = Array.zeroCreate entityNameBufferSize
       PromptEditRef = None
-      PromptEditing = false }
+      PromptEditing = false
+      DialogueTextBuffer = Array.zeroCreate dialogueTextBufferSize
+      DialogueTextEditing = false }

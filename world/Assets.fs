@@ -12,14 +12,16 @@ open System.IO
 open System.Numerics
 open Prime
 
-// The on-disk manifest shape (id/name/model, plus an optional morph sidecar path).
-// Fields are named, so the SymbolicExpansion parser is robust to reordering.
+// The on-disk manifest shape (id/name/model, plus an optional morph sidecar path and an
+// optional portrait block). Fields are named, so the SymbolicExpansion parser is robust to
+// reordering, and an absent block parses to a `PortraitPaths` whose fields are empty strings.
 [<SymbolicExpansion>]
 type private Manifest =
     { Id : string
       Name : string
       Model : string
-      Morphs : string }
+      Morphs : string
+      Portraits : ActorAsset.PortraitPaths }
 
 // Cross-screen asset manager, mirroring odin-game's `Asset_Manager`. Lives on
 // `SharedState` so every screen reaches the same loaded assets and GPU device.
@@ -29,18 +31,22 @@ type AssetManager =
     { Device : Gpu.Device
       Actors : Dictionary<string, ActorAsset.ActorAsset>
       Props : Dictionary<string, EnvironmentAsset.EnvironmentAsset>
-      Environments : Dictionary<string, EnvironmentAsset.EnvironmentAsset> }
+      Environments : Dictionary<string, EnvironmentAsset.EnvironmentAsset>
+      /// The textures the loader created — its 1x1 placeholder and the per-path cache — kept
+      /// so the manager can release them. Materials and portraits hold only references to
+      /// these, so the manager is their single owner.
+      Textures : Texture.Texture list }
 
 // ── scanning ──
 
-let private readManifest (path: string) : string * string * string * string =
+let private readManifest (path: string) : string * string * string * string * ActorAsset.PortraitPaths =
     let stem = Path.GetFileNameWithoutExtension(path)
     let manifest = File.ReadAllText(path) |> scvalue<Manifest>
     let id = if String.IsNullOrEmpty manifest.Id then stem else manifest.Id
     let name = if String.IsNullOrEmpty manifest.Name then id else manifest.Name
-    (id, name, manifest.Model, manifest.Morphs)
+    (id, name, manifest.Model, manifest.Morphs, manifest.Portraits)
 
-let private scanDir (root: string) (dir: string) : (string * string * string * string) array =
+let private scanDir (root: string) (dir: string) : (string * string * string * string * ActorAsset.PortraitPaths) array =
     let full = Path.Combine(root, dir)
     if Directory.Exists(full) then
         Directory.EnumerateFiles(full, "*.manifest", SearchOption.AllDirectories)
@@ -101,7 +107,7 @@ let private resolveMaterial (loader: Loader) (gltfDir: string) (m: Gltf.Material
 // touches the GPU.
 let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<string, ActorAsset.ActorAsset> =
     let actors = Dictionary<string, ActorAsset.ActorAsset>()
-    for (id, name, modelPath, morphsPath) in scanDir root "actors" do
+    for (id, name, modelPath, morphsPath, portraitPaths) in scanDir root "actors" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: actor asset '%s' has no model path" id
 
@@ -179,7 +185,25 @@ let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<string
                   Buffer = buffer }
             Some actorMorphs
 
-        actors.[id] <- { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel; Morphs = morphs }
+        // Portraits: a declared set must be complete (a partial set is a broken asset, FR-006);
+        // declaring none is legal and simply means the character cannot speak a portrait line.
+        // Loaded once through the shared texture cache, so nothing is re-read per line (FR-010).
+        let portraits =
+            let declared = ActorAsset.portraitValues portraitPaths
+            if declared |> List.forall (fun (_, v) -> String.IsNullOrEmpty v) then None
+            else
+
+            do ActorAsset.requireComplete portraitPaths
+            let loadPortrait (path: string) = loadTexture loader' (Path.Combine(root, path))
+            let loaded : ActorAsset.ActorPortraits =
+                { Neutral = loadPortrait portraitPaths.Neutral
+                  Happy = loadPortrait portraitPaths.Happy
+                  Sad = loadPortrait portraitPaths.Sad
+                  Angry = loadPortrait portraitPaths.Angry
+                  Surprised = loadPortrait portraitPaths.Surprised }
+            Some loaded
+
+        actors.[id] <- { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel; Morphs = morphs; Portraits = portraits }
     actors
 
 // ── static (environment/prop) asset loading ──
@@ -252,23 +276,43 @@ let scan (root: string) (device: Gpu.Device) : AssetManager =
     let loader = lazy (createLoader device)
 
     let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    for (id, name, modelPath, _) in scanDir root "props" do
+    for (id, name, modelPath, _, _) in scanDir root "props" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: prop asset '%s' has no model path" id
         props.[id] <- loadStaticModel loader.Value root id name modelPath false
 
     let environments = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    for (id, name, modelPath, _) in scanDir root "environments" do
+    for (id, name, modelPath, _, _) in scanDir root "environments" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: environment asset '%s' has no model path" id
         environments.[id] <- loadStaticModel loader.Value root id name modelPath true
 
     let actors = loadActors loader root
 
+    // The loader's textures are the manager's to release: nothing else owns them, and the
+    // lazy loader means a headless scan (no assets) never creates any.
+    let textures =
+        if loader.IsValueCreated then loader.Value.White :: List.ofSeq loader.Value.Textures.Values
+        else []
+
     { Device = device
       Actors = actors
       Props = props
-      Environments = environments }
+      Environments = environments
+      Textures = textures }
+
+// Release the GPU resources the manager loaded: the textures (materials and portraits hold
+// only references to them), each actor's mesh and morph storage buffer, and each
+// environment/prop static submesh's buffers.
+let release (manager: AssetManager) : unit =
+    for t in manager.Textures do Texture.release t
+    for KeyValue (_, actor) in manager.Actors do
+        Mesh.release actor.Mesh
+        match actor.Morphs with
+        | Some morphs -> Gpu.releaseBuffer actor.Mesh.Device morphs.Buffer
+        | None -> ()
+    for asset in Seq.append manager.Environments.Values manager.Props.Values do
+        for submesh in asset.Submeshes do StaticMesh.release submesh.Mesh
 
 // Create the per-instance renderer for an actor asset id (the asset is already
 // loaded at startup).

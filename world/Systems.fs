@@ -69,16 +69,16 @@ let private contains (trigger: Trigger) (p: Vector3) : bool =
     && p.Y >= basePosition.Y
     && p.Y <= basePosition.Y + trigger.State.Height
 
-// Detect the player in the active zone's triggers: write each trigger's `Triggered` flag
-// in place, and answer the nearest enabled interactable trigger the player is inside —
-// what an interact prompt is shown for, and what an interaction will act on once a
-// trigger can run a cue. A disabled trigger is never inside, and with no live designated
-// player every trigger is cleared and the answer is ValueNone. Reads the player's entity
-// position (already synced from its body this frame), so it needs no physics world and
-// no device. Both the position and the answer are `voption`s: this runs every play frame,
-// and `Some` on a struct would box. Reads and writes each payload through the slot's own
-// byref, as `syncActors` does.
-let updateTriggers (zone: Zone.Zone) : EntityRef voption =
+// Detect the player in the active zone's triggers: write each trigger's `Triggered` flag in place,
+// and write the nearest enabled interactable trigger the player is inside into `closest` — what an
+// interact prompt is shown for, and what an interaction will act on once a trigger can run a cue. A
+// disabled trigger is never inside, and with no live designated player every trigger is cleared and
+// `closest` is set to ValueNone. Reads the player's entity position (already synced from its body
+// this frame), so it needs no physics world and no device. The answer is a `voption` out-parameter:
+// this runs every play frame, and `Some` on a struct would box. Reads and writes each payload
+// through the slot's own byref, as `syncActors` does, and updates by reference as `cameraFollow`
+// does rather than returning state for the caller to assign.
+let updateTriggers (zone: Zone.Zone) (closest: byref<EntityRef voption>) : unit =
     let playerPosition =
         match zone.Player with
         | ValueSome handle when zone.Actors.IsAlive handle ->
@@ -86,7 +86,7 @@ let updateTriggers (zone: Zone.Zone) : EntityRef voption =
             ValueSome actor.State.Base.Transform.Position
         | _ -> ValueNone
 
-    let mutable closest : EntityRef voption = ValueNone
+    closest <- ValueNone
     let mutable closestDistance = Single.MaxValue
 
     let slots = zone.Triggers.Slots
@@ -108,8 +108,6 @@ let updateTriggers (zone: Zone.Zone) : EntityRef voption =
                     closestDistance <- distance
                     closest <- ValueSome (triggerRef index generation)
         | _ -> trigger.Triggered <- false
-
-    closest
 
 // Tank controls: A/D turn the facing and write the body's rotation; W/S write the
 // body's horizontal velocity along the facing, preserving its vertical velocity so
@@ -192,3 +190,15 @@ let animate (zone: Zone.Zone) (input: Input.Input) : unit =
 
     let actor = &zone.Actors.Get zone.Player.Value
     do ActorRender.playClip &actor.Renderer (locomotionClip input)
+
+
+// ── Dialogue (spec 038) ──
+
+// Clear a shown line when the dismiss key is pressed and no text field has focus, writing the state
+// in place; otherwise it is left as it is. Takes the state by reference as the other systems do,
+// and the rule is still a pure function of its two booleans and that state, so the timing rules are
+// assertable without a window (FR-008). The caller supplies `Input.isPressed Key.Space` and
+// `ImGui.wantTextInput()`.
+let dismissDialogue (pressed: bool) (textFocused: bool) (dialogue: byref<Dialogue.Dialogue>) : unit =
+    if dialogue.Shown && pressed && not textFocused then
+        dialogue.Shown <- false

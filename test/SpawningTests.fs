@@ -71,7 +71,8 @@ let private headlessAssets () : Assets.AssetManager =
     { Device = IntPtr.Zero
       Actors = Dictionary()
       Props = props
-      Environments = environments }
+      Environments = environments
+      Textures = [] }
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; ZoneRegistry = ZoneRegistry.create (); Physics = Physics.create () }
@@ -84,6 +85,8 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
     { Camera = Camera.create Vector3.Zero Vector3.Zero
       DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
+      Ui = Unchecked.defaultof<Ui.Ui>
+      Dialogue = Dialogue.empty
       Zones = zones
       ActiveZone = "test"
       Editor = EditorState.create ()

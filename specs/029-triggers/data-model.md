@@ -101,9 +101,9 @@ Extended operations, each gaining a trigger case (as waypoints already did):
 // Update every trigger's inside state from the player's position, and answer the
 // nearest interactable trigger the player is inside (what a prompt is shown for,
 // and what an interaction will act on once triggers can run cues). With no live
-// designated player every trigger is cleared and the answer is `ValueNone`. Needs no
+// designated player every trigger is cleared and `closest` is set to `ValueNone`. Needs no
 // graphics device.
-val updateTriggers : zone:Zone -> EntityRef voption
+val updateTriggers : zone:Zone -> closest:byref<EntityRef voption> -> unit
 ```
 
 The containment rule, per trigger:
@@ -138,7 +138,7 @@ type GameplayState =
       mutable InteractableTrigger : EntityRef voption }
 ```
 
-- Assigned each play frame from `updateTriggers`' answer, and cleared by the update
+- Written each play frame by `updateTriggers`, and set to `ValueNone` by the update
   whenever nothing qualifies — so it cannot hold a stale value across a frame in
   which detection ran.
 - Read by the play-mode overlay now, and by the interaction once cues exist.

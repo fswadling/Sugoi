@@ -20,6 +20,8 @@ type Key =
     | Digit of int
     | LeftCtrl | RightCtrl
     | LeftShift | RightShift
+    /// The dialogue dismiss key (spec 038, FR-008).
+    | Space
 
 // A set of keys, represented as a `uint32` bitmask (no per-frame allocation).
 // The alias is erased at compile time; `KeyMask.zero` avoids ambiguous `0u`
@@ -56,6 +58,7 @@ module Key =
         | RightCtrl -> 1u <<< 18
         | LeftShift -> 1u <<< 19
         | RightShift -> 1u <<< 20
+        | Space -> 1u <<< 21
 
 // Per-frame input, gathered once by the engine (not by any screen) from SDL
 // state. Held/Pressed are `Key` bitmasks (`Key.mask`), so gathering allocates
@@ -116,7 +119,8 @@ let private keyMap : (int * KeyMask) array =
        int SDL.Scancode.LCtrl, Key.mask Key.LeftCtrl
        int SDL.Scancode.RCtrl, Key.mask Key.RightCtrl
        int SDL.Scancode.LShift, Key.mask Key.LeftShift
-       int SDL.Scancode.RShift, Key.mask Key.RightShift |]
+       int SDL.Scancode.RShift, Key.mask Key.RightShift
+       int SDL.Scancode.Space, Key.mask Key.Space |]
 
 // Build the held-key bitmask from the current SDL keyboard state.
 let private computeHeld (keys: ReadOnlySpan<bool>) : KeyMask =

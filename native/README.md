@@ -26,6 +26,21 @@ headers (`/usr/include/SDL3/SDL.h`, `SDL_gpu.h`).
 The result is `native/libcimgui.so`. The project's `.fsproj` copies it next to
 the apphost at build time so `DllImport("cimgui")` resolves it.
 
+## Vendored SDL3_ttf (the game's text)
+
+`libSDL3_ttf.so` is vendored into `native/` from the `ppy.sdl3_ttf-cs` NuGet
+package's `runtimes/linux-x64/native/` (currently `2026.302.0`). The managed
+bindings need no new package reference: `SDL3-CS` 3.4.14.1 already binds SDL_ttf,
+including the GPU text engine (`TTF_CreateGPUTextEngine`,
+`TTF_GetGPUTextDrawData`). Only the native library is missing, and
+`DllImport("SDL3_ttf")` resolves it from the app directory.
+
+Unlike `libSDL3_image.so`, it needs no FreeType or any other transitive library —
+`ldd` reports only `libSDL3`, `libm`, `libgcc_s` and `libc` — so it is a single
+file with no second dependency to preload. `fsharp-game.fsproj`'s
+`CopySdl3TtfLibrary` target copies it next to the apphost, as
+`CopySdl3ImageLibraries` does for the image library.
+
 ## Version pinning
 
 `cimgui.cpp` is generated against cimgui's bundled imgui submodule, so the two
