@@ -188,10 +188,15 @@ let upload (r: ActorRender) (cmd: Gpu.CommandBuffer) : unit =
     do SDL.UploadToGPUBuffer(copyPass, &loc, &region, false)
     do SDL.EndGPUCopyPass(copyPass)
 
-// Bind this instance's bone storage buffer (vertex storage slot 0) and draw.
-// Runs inside the render pass, so the binding array is preallocated per instance
-// (`BoneStorageBuffers`) rather than rebuilt each frame.
-let draw (r: ActorRender) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (light: Light) : unit =
+// The outline shell: a fixed world-space width, so it shrinks with distance exactly like the actor
+// itself (perspective) — a physical ink line, not a constant-pixel overlay. There is no on-screen cap
+// and no distance fade: the line is thickest when the actor is closest, as any world-space feature is.
+let outlineWidth = 0.001f
+
+// Bind this instance's bone storage buffer (vertex storage slot 0) and draw. Runs inside the render
+// pass, so the binding array is preallocated per instance (`BoneStorageBuffers`) rather than rebuilt
+// each frame. Two passes share the posed mesh: the outline hull first, then the cel surface over it.
+let draw (r: ActorRender) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (outlinePipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (light: Light) : unit =
     do SDL.BindGPUVertexStorageBuffers(renderPass, 0u, r.BoneStorageBuffers, 1u)
 
     // Morphs: bind the asset's offset buffer at storage slot 1 (or the bone buffer when the
@@ -205,7 +210,9 @@ let draw (r: ActorRender) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) 
     do Actor.packMorphWeights r.MorphSlots.Slots morphCount Gpu.MorphsMax r.MorphWeightBytes
     do SDL.PushGPUVertexUniformData(cmd, 1u, r.MorphWeightBytes, 48u)
 
-    do Mesh.draw r.Asset.Mesh renderPass cmd pipeline viewProjection (upAxisFix * model) light (faceLightDir model)
+    let posedModel = upAxisFix * model
+    do Mesh.drawOutline r.Asset.Mesh renderPass cmd outlinePipeline viewProjection posedModel outlineWidth
+    do Mesh.draw r.Asset.Mesh renderPass cmd pipeline viewProjection posedModel light (faceLightDir model)
 
 // Free this instance's GPU buffers (bone storage + upload transfer). Called when
 // an actor is removed from its zone. The shared `ActorAsset` (mesh + model) is

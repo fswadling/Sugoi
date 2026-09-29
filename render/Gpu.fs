@@ -123,18 +123,18 @@ let normalMatrix (model: Matrix4x4) : Matrix4x4 =
     let mutable inv = Matrix4x4.Identity
     if Matrix4x4.Invert(m3, &inv) then Matrix4x4.Transpose(inv) else Matrix4x4.Identity
 
-// ── cel pipeline (actors) ──
+// ── actor pipelines (cel surface + outline, specs 040/041) ──
 
-// Depth-tested triangle pipeline for the cel-shaded actors: position/normal/uv/blend vertices
-// with a vertex-stage PerDraw uniform block plus the bone-palette storage buffer, and the cel
-// fragment shader (one sampler: the albedo map).
-let createCelPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
-    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/mesh.vert.spv" 2u 2u 0u
-    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/cel.frag.spv" 1u 0u 1u
+// Shared builder for the two actor pipelines: the same 6-attribute, 52-byte vertex layout and the
+// `mesh.vert` stage (skinning + morphs + the outline extrusion), differing only in the fragment
+// shader, the cull mode and whether depth bias is enabled.
+let private createActorPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) (fragmentPath: string) (fragmentUniformBuffers: uint32) (fragmentSamplers: uint32) (cullMode: SDL.GPUCullMode) (useDepthBias: bool) : Pipeline =
+    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/mesh.vert.spv" 3u 2u 0u
+    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment fragmentPath fragmentUniformBuffers 0u fragmentSamplers
 
     let mutable vbufDesc = SDL.GPUVertexBufferDescription()
     vbufDesc.Slot <- 0u
-    vbufDesc.Pitch <- 40u
+    vbufDesc.Pitch <- 52u
     vbufDesc.InputRate <- SDL.GPUVertexInputRate.Vertex
     vbufDesc.InstanceStepRate <- 0u
 
@@ -168,13 +168,30 @@ let createCelPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (
     attr4.Format <- SDL.GPUVertexElementFormat.Ubyte4Norm
     attr4.Offset <- 36u
 
+    // The outline's smoothed extrusion normal (spec 041).
+    let mutable attr5 = SDL.GPUVertexAttribute()
+    attr5.Location <- 5u
+    attr5.BufferSlot <- 0u
+    attr5.Format <- SDL.GPUVertexElementFormat.Float3
+    attr5.Offset <- 40u
+
     let vbufDescs = [| vbufDesc |]
-    let attrs = [| attr0; attr1; attr2; attr3; attr4 |]
+    let attrs = [| attr0; attr1; attr2; attr3; attr4; attr5 |]
 
     let mutable raster = SDL.GPURasterizerState()
     raster.FillMode <- SDL.GPUFillMode.Fill
-    raster.CullMode <- SDL.GPUCullMode.None
-    raster.FrontFace <- SDL.GPUFrontFace.CounterClockwise
+    raster.CullMode <- cullMode
+    // The IQM actor mesh is clockwise-wound: its triangle cross-products oppose the vertex normals
+    // (verified on Akane.iqm), so its outward faces are front-facing only under Clockwise. The cel
+    // surface does not cull (CullMode.None), so this only steers the outline hull's front-face cull.
+    raster.FrontFace <- SDL.GPUFrontFace.Clockwise
+    // The outline hull biases its depth back so it cannot bleed through thin/concave geometry
+    // (spec 041, FR-007). The cel surface leaves bias off.
+    raster.EnableDepthBias <- useDepthBias
+    if useDepthBias then
+        raster.DepthBiasConstantFactor <- 1.0f
+        raster.DepthBiasSlopeFactor <- 1.0f
+        raster.DepthBiasClamp <- 0.0f
 
     let mutable ms = SDL.GPUMultisampleState()
     ms.SampleCount <- SDL.GPUSampleCount.SampleCount1
@@ -212,7 +229,7 @@ let createCelPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (
             vertexInput.VertexBufferDescriptions <- vbufHandle.AddrOfPinnedObject()
             vertexInput.NumVertexBuffers <- 1u
             vertexInput.VertexAttributes <- attrHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexAttributes <- 5u
+            vertexInput.NumVertexAttributes <- 6u
             info.VertexInputState <- vertexInput
 
             let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()
@@ -231,6 +248,14 @@ let createCelPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (
     SDL.ReleaseGPUShader(device, vertexShader)
     SDL.ReleaseGPUShader(device, fragmentShader)
     pipeline
+
+// The cel-shaded surface: double-sided (the model relies on it), no depth bias.
+let createCelPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
+    createActorPipeline device swapchainFormat depthFormat "shaders/cel.frag.spv" 1u 1u SDL.GPUCullMode.None false
+
+// The outline hull: front faces culled so only the extruded back faces show, depth-biased back.
+let createOutlinePipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
+    createActorPipeline device swapchainFormat depthFormat "shaders/outline.frag.spv" 0u 1u SDL.GPUCullMode.Front true
 
 // Depth-tested triangle pipeline for static position/normal/uv geometry (no
 // blend attributes, no bone storage buffer). Used by environments and props,
@@ -353,6 +378,7 @@ type Gpu =
       SwapchainFormat : SDL.GPUTextureFormat
       DepthFormat : SDL.GPUTextureFormat
       CelPipeline : Pipeline
+      OutlinePipeline : Pipeline
       StaticPipeline : Pipeline
       mutable DepthTexture : Texture
       mutable DepthW : int
@@ -364,6 +390,7 @@ let create (device: Device) (swapchainFormat: SDL.GPUTextureFormat) : Gpu =
       SwapchainFormat = swapchainFormat
       DepthFormat = depthFormat
       CelPipeline = createCelPipeline device swapchainFormat depthFormat
+      OutlinePipeline = createOutlinePipeline device swapchainFormat depthFormat
       StaticPipeline = createStaticPipeline device swapchainFormat depthFormat
       DepthTexture = IntPtr.Zero
       DepthW = 0
@@ -411,6 +438,8 @@ let depthTargetInfo (g: Gpu) : SDL.GPUDepthStencilTargetInfo =
 let destroy (g: Gpu) : unit =
     if g.CelPipeline <> IntPtr.Zero then
         do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.CelPipeline)
+    if g.OutlinePipeline <> IntPtr.Zero then
+        do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.OutlinePipeline)
     if g.StaticPipeline <> IntPtr.Zero then
         do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.StaticPipeline)
     if g.DepthTexture <> IntPtr.Zero then

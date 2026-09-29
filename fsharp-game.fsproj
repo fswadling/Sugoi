@@ -127,7 +127,7 @@
   <!-- Compiled line shader SPIR-V, loaded from disk at startup. Copied to the
        output dir so the shaders/ path resolves regardless of working dir. -->
   <Target Name="CopyShaders" AfterTargets="Build">
-    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv;shaders/mesh.vert.spv;shaders/cel.frag.spv;shaders/static.vert.spv;shaders/static.frag.spv;shaders/ui.vert.spv;shaders/ui.frag.spv" DestinationFolder="$(OutDir)shaders" />
+    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv;shaders/mesh.vert.spv;shaders/cel.frag.spv;shaders/outline.frag.spv;shaders/static.vert.spv;shaders/static.frag.spv;shaders/ui.vert.spv;shaders/ui.frag.spv" DestinationFolder="$(OutDir)shaders" />
   </Target>
 
   <ItemGroup>

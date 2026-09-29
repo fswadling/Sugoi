@@ -155,7 +155,9 @@ let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<string
             maxV <- Vector3(max maxV.X x, max maxV.Y y, max maxV.Z z)
         let actorBounds : Gltf.Bounds = { Min = minV; Max = maxV }
 
-        let mesh = Mesh.create loader'.Device model.Positions normals uvs boneIds boneWeights model.Triangles submeshes
+        // The outline's averaged extrusion directions, derived once from the geometry (spec 041).
+        let smoothNormals = Iqm.smoothNormals model.Positions normals
+        let mesh = Mesh.create loader'.Device model.Positions normals uvs boneIds boneWeights smoothNormals model.Triangles submeshes
 
         // Morph targets, when the actor manifest names a sidecar: parse the manifest, read its
         // data file, and pack the offsets into the dense per-vertex layout the vertex shader

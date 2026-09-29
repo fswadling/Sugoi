@@ -13,6 +13,7 @@ open System
 open System.IO
 open System.Numerics
 open System.Buffers.Binary
+open System.Collections.Generic
 
 type VertexFormat = Float | Ubyte
 
@@ -67,6 +68,39 @@ type Model =
       FrameChannels : int array
       NumFrameChannels : int
       PoseChannelOffsets : int array }
+
+// ── the outline's smoothed normals (spec 041) ──
+
+// Per-vertex extrusion directions for the outline: each vertex's normal replaced by the average of
+// the normals of every vertex sharing its position, normalized. Welding by a rounded position is
+// what keeps the outline from gapping at hard edges — the model is largely hard-edged, and extruding
+// along the authored (per-face) normal would tear the hull open at every crease. Pure.
+let smoothNormals (positions: float32 array) (normals: float32 array) : float32 array =
+    let vertexCount = positions.Length / 3
+    let round (x: float32) = MathF.Round(x * 10000.0f) / 10000.0f
+    let keyAt (v: int) = struct (round positions.[v * 3], round positions.[v * 3 + 1], round positions.[v * 3 + 2])
+    let normalAt (v: int) = Vector3(normals.[v * 3], normals.[v * 3 + 1], normals.[v * 3 + 2])
+
+    // Sum each position bucket's normals (coincident vertices share a key).
+    let sums = Dictionary<struct (float32 * float32 * float32), Vector3>()
+    for v in 0 .. vertexCount - 1 do
+        let k = keyAt v
+        match sums.TryGetValue k with
+        | true, acc -> sums.[k] <- acc + normalAt v
+        | false, _ -> sums.[k] <- normalAt v
+
+    // Every member vertex takes its bucket's average. A bucket whose normals cancel (~zero sum) falls
+    // back to the vertex's own normal, and a zero normal to +Y, so the direction is never degenerate.
+    let result = Array.zeroCreate<float32> (vertexCount * 3)
+    for v in 0 .. vertexCount - 1 do
+        let summed = sums.[keyAt v]
+        let own = normalAt v
+        let dir = if summed.LengthSquared() > 1e-12f then summed else own
+        let dir = if dir.LengthSquared() > 0.0f then Vector3.Normalize dir else Vector3.UnitY
+        result.[v * 3] <- dir.X
+        result.[v * 3 + 1] <- dir.Y
+        result.[v * 3 + 2] <- dir.Z
+    result
 
 // ── little-endian reads at absolute offsets ──
 

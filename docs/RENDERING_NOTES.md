@@ -294,6 +294,32 @@ unchanged, so the vertex path and the pose are untouched.
 - **Deferred (not this spec):** shadow receiving (needs `render/Shadow.fs`), outlines, rim light,
   specular/matcap, ramp textures and per-actor parameters — the reference's later phases.
 
+## 14. The actor outline (spec 041)
+
+Actors are outlined by a second pass over the same posed mesh — the **inverted hull**. `shaders/mesh.vert`
+is shared by both pipelines and extrudes the hull in world space; `shaders/outline.frag` draws it flat in
+a dark colour through a **front-cull** pipeline (`Gpu.OutlinePipeline`), and the depth buffer hides
+everything except the ring past the silhouette. The cel surface (spec 040) is unchanged and drawn over
+it.
+
+- **The extrusion direction is a position-welded average.** The hull is pushed along `Iqm.smoothNormals`
+  (each vertex's normal averaged across coincident vertices), not the authored normal — the model is
+  ~79% hard-edged (the hair ~100%), so the authored per-face normal would tear the outline open at every
+  crease. This is the feature's whole point.
+- **Fixed world-space width.** The hull is offset in world space along its smoothed normal by one
+  constant world distance (`uOutline.x`), so the line shrinks with distance exactly as the actor does — a
+  physical ink ribbon, thickest when the actor is closest, with no on-screen cap and no distance fade
+  (FR-008). The cel surface pushes width 0 and is inert to it.
+- **One vertex shader.** Both passes share `mesh.vert` (extended with `location = 5 aSmoothNormal` and
+  the vertex uniform slot 2 `OutlineParams`), so the skinned/morphed pose is computed once.
+- **Masked by the cutout.** `outline.frag` samples the material's albedo and discards below the cutoff,
+  so the alpha-cutout hair/eye cards are not boxed.
+- **The mesh is clockwise-wound.** Akane's IQM triangles are wound clockwise about their outward normals (verified from the asset), so the actor pipelines declare `FrontFace = Clockwise`; the outline's front-face cull then removes the camera-facing hull and keeps the far side. (This is why the cel surface never noticed: it does not cull.)
+- **Depth-biased.** The outline pipeline enables depth bias so the hull cannot bleed through thin or
+  concave geometry.
+- **Deferred (not this spec):** interior crease lines (would need a normal G-buffer), shadows, rim,
+  specular/matcap, per-actor parameters.
+
 ## Known follow-ups
 
 - Two benign build warnings in `Engine.fs` (`FS0009`/`FS0051`) from the
