@@ -267,6 +267,33 @@ engine**.
   text share the atlas texture and sampler, so the pair is a single draw run. A dialogue line takes the
   screen over the prompt, so the two never compete for the bottom strip.
 
+## 13. Cel-shaded actors (spec 040)
+
+Actors are cel-shaded by `shaders/cel.frag`, which **replaced** the PBR `shaders/mesh.frag`. The
+skinned mesh pipeline is actor-only (environments and props draw through the separate instanced
+`static.*` path), so retargeting its fragment stage is what gives actors the two-tone look while the
+environment stays PBR. The pipeline is `Gpu.CelPipeline`; `shaders/mesh.vert` (skinning + morphs) is
+unchanged, so the vertex path and the pose are untouched.
+
+- **Two flat bands, additive colour.** The wrapped half-Lambert `dot(N,L)*0.5+0.5` is stepped by
+  `smoothstep(0.45, 0.55, …)`, and the bands are composed `albedo * (ambient + sunColour * band)` —
+  the same `direct + ambient` shape the environment uses, so a lit actor matches the lit environment
+  beside it. The ramp threshold/softness and the alpha cutoff are shader constants (FR-012).
+- **The `Face` mesh is lit by an idealized front light.** The actor's IQM meshes named `Face`
+  (`Mesh.Submesh.IsFace`, set once at load from the mesh name the parser already reads) take their
+  band direction from a fixed light in front of the actor — `ActorRender.faceLightDir`, the actor's
+  horizontal facing (local `+Z` under the model matrix, flattened and normalized) plus the reference's
+  `0.25` elevation — instead of the scene sun, so the face keeps constant banding as the actor turns.
+  Only the band *direction* is idealized; the colours still come from the scene.
+- **One sampler, a lean 80-byte uniform.** Cel reads only the albedo map (`set = 2, binding = 0`);
+  its fragment uniform (`set = 3, binding = 0`) is base colour, light dir/colour/ambient and the face
+  vector — no normal/metallic-roughness/emissive factors and no camera position. Alpha is a test
+  (discard), not a blend: the shared opaque-white placeholder means a factor-only material never
+  discards, while hair/eye cutout texels do.
+- **No per-frame allocation.** `IsFace` is a struct field; the uniform byte array is reused.
+- **Deferred (not this spec):** shadow receiving (needs `render/Shadow.fs`), outlines, rim light,
+  specular/matcap, ramp textures and per-actor parameters — the reference's later phases.
+
 ## Known follow-ups
 
 - Two benign build warnings in `Engine.fs` (`FS0009`/`FS0051`) from the

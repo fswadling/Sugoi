@@ -134,10 +134,10 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
     // one instanced draw per distinct submesh, then the animated actors.
     do EnvironmentBatch.render zone.Batch scenePass pass.Cmd shared.Gpu.StaticPipeline viewProjection light cameraPos
 
-    let meshPipeline = shared.Gpu.MeshPipeline
+    let celPipeline = shared.Gpu.CelPipeline
     do zone.Actors.IteriAlive(fun _ _ (a: Actor) ->
            let model = Entity.modelMatrix a.State.Base.Transform
-           do ActorRender.draw a.Renderer scenePass pass.Cmd meshPipeline viewProjection model light cameraPos)
+           do ActorRender.draw a.Renderer scenePass pass.Cmd celPipeline viewProjection model light)
 
     // Editor markers + gizmos, depth-tested against the meshes drawn above.
     do DebugDraw.draw state.GizmoDraw viewProjection pass.Cmd scenePass

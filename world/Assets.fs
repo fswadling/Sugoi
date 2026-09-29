@@ -129,7 +129,8 @@ let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<string
             if model.Meshes.Length = 0 then
                 [| { FirstIndex = 0
                      IndexCount = model.Triangles.Length
-                     Material = fallback } |]
+                     Material = fallback
+                     IsFace = false } |]
             else
 
             model.Meshes
@@ -139,7 +140,8 @@ let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<string
                     else Some (loadTexture loader' (Path.Combine(actorDir, "akane", mesh.Material)))
                 { FirstIndex = mesh.FirstTriangle * 3
                   IndexCount = mesh.NumTriangles * 3
-                  Material = Texture.makeMaterial loader'.White (Vector4(1.0f, 1.0f, 1.0f, 1.0f)) 0.0f 0.8f Vector3.Zero albedo None None None })
+                  Material = Texture.makeMaterial loader'.White (Vector4(1.0f, 1.0f, 1.0f, 1.0f)) 0.0f 0.8f Vector3.Zero albedo None None None
+                  IsFace = Mesh.isFaceMeshName mesh.Name })
 
         // Actor bounds from the model's positions, for the capsule collider.
         if model.Positions.Length = 0 then failwithf "iqm: actor '%s' has no positions" id

@@ -24,6 +24,9 @@
     <Compile Include="GameplayStateTests.fs" />
     <Compile Include="EnvironmentBatchTests.fs" />
 
+    <!-- The cel actor shading (spec 040): the pure face-mesh rule and the face-light direction. -->
+    <Compile Include="CelTests.fs" />
+
     <!-- The dialogue layer (spec 038): the panel layout and the dismiss rule, both pure. -->
     <Compile Include="DialogueTests.fs" />
 

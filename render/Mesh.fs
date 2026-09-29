@@ -3,9 +3,9 @@ module Mesh
 // Skinned actor GPU buffers + draw. The vertex buffer (position + normal + uv +
 // boneIds + weights) and the index buffer are uploaded once at create; skinning
 // happens in the vertex shader. An actor is one combined buffer with one or more
-// submeshes (IQM mesh ranges), each carrying its own PBR material; `draw` issues
-// one indexed draw per submesh. The bone storage buffer is bound by ActorRender
-// before draw.
+// submeshes (IQM mesh ranges), each carrying its own albedo material; `draw` issues
+// one indexed draw per submesh through the cel pipeline (spec 040). The bone storage
+// buffer is bound by ActorRender before draw.
 
 open System
 open System.IO
@@ -15,11 +15,16 @@ open Gpu
 open Texture
 
 // One IQM mesh range into the shared index buffer, with its material.
+// The IQM mesh name that marks a face mesh — the reference's `iqm_mesh_indices(model_path, "Face")`,
+// whose match is exact. A face mesh takes the idealized front light (spec 040, FR-007).
+let isFaceMeshName (name: string) : bool = name = "Face"
+
 [<Struct>]
 type Submesh =
     { FirstIndex : int
       IndexCount : int
-      Material : Texture.Material }
+      Material : Texture.Material
+      IsFace : bool }   // the IQM mesh is named "Face" — lit by the idealized front light
 
 [<Struct>]
 type Mesh =
@@ -28,7 +33,7 @@ type Mesh =
       IndexBuffer : Gpu.Buffer
       Submeshes : Submesh array
       PerDrawUniformBytes : byte array
-      MaterialUniformBytes : byte array
+      CelUniformBytes : byte array
       VertexBinding : SDL.GPUBufferBinding array
       IndexBinding : SDL.GPUBufferBinding }
 
@@ -70,7 +75,7 @@ let create (device: Gpu.Device) (positions: float32 array) (normals: float32 arr
       IndexBuffer = indexBuffer
       Submeshes = submeshes
       PerDrawUniformBytes = Array.zeroCreate<byte> 192
-      MaterialUniformBytes = Array.zeroCreate<byte> 128
+      CelUniformBytes = Array.zeroCreate<byte> 80
       VertexBinding = Array.zeroCreate<SDL.GPUBufferBinding> 1
       IndexBinding = indexBinding }
 
@@ -79,10 +84,10 @@ let release (m: Mesh) : unit =
     releaseBuffer m.Device m.VertexBuffer
     releaseBuffer m.Device m.IndexBuffer
 
-// Bind the mesh pipeline, push the vertex + fragment uniforms, bind each
-// submesh's samplers, and issue one indexed draw per submesh. The bone storage
-// buffer is bound by ActorRender first.
-let draw (m: Mesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (light: Light) (cameraPos: Vector3) : unit =
+// Bind the cel pipeline, push the vertex + cel-fragment uniforms, bind each submesh's albedo
+// sampler, and issue one indexed draw per submesh. The bone storage buffer is bound by
+// ActorRender first. `faceDir` is the actor's idealized face-light direction (world space).
+let draw (m: Mesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (light: Light) (faceDir: Vector3) : unit =
     do writeMatrix m.PerDrawUniformBytes 0 viewProjection
     do writeMatrix m.PerDrawUniformBytes 64 model
     do writeMatrix m.PerDrawUniformBytes 128 (normalMatrix model)
@@ -100,19 +105,13 @@ let draw (m: Mesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeli
 
     for sub in m.Submeshes do
         let material = sub.Material
-        do writeVector4 m.MaterialUniformBytes 0 material.BaseColor
-        do writeVector4 m.MaterialUniformBytes 16 (Vector4(material.Metallic, material.Roughness, 0.0f, 0.0f))
-        do writeVector4 m.MaterialUniformBytes 32 (Vector4(material.Emissive, 0.0f))
-        let hasAlbedo = if material.HasAlbedo then 1.0f else 0.0f
-        let hasNormal = if material.HasNormal then 1.0f else 0.0f
-        let hasMR = if material.HasMetallicRoughness then 1.0f else 0.0f
-        let hasEmissive = if material.HasEmissive then 1.0f else 0.0f
-        do writeVector4 m.MaterialUniformBytes 48 (Vector4(hasAlbedo, hasNormal, hasMR, hasEmissive))
-        do writeVector4 m.MaterialUniformBytes 64 (Vector4(light.Direction, 0.0f))
-        do writeVector4 m.MaterialUniformBytes 80 (Vector4(light.Color, 0.0f))
-        do writeVector4 m.MaterialUniformBytes 96 (Vector4(light.Ambient, 0.0f))
-        do writeVector4 m.MaterialUniformBytes 112 (Vector4(cameraPos, 0.0f))
+        do writeVector4 m.CelUniformBytes 0 material.BaseColor
+        do writeVector4 m.CelUniformBytes 16 (Vector4(light.Direction, 0.0f))
+        do writeVector4 m.CelUniformBytes 32 (Vector4(light.Color, 0.0f))
+        do writeVector4 m.CelUniformBytes 48 (Vector4(light.Ambient, 0.0f))
+        let isFace = if sub.IsFace then 1.0f else 0.0f
+        do writeVector4 m.CelUniformBytes 64 (Vector4(faceDir, isFace))
 
-        do SDL.PushGPUFragmentUniformData(cmd, 0u, m.MaterialUniformBytes, 128u)
-        do SDL.BindGPUFragmentSamplers(renderPass, 0u, material.Bindings, uint32 material.Bindings.Length)
+        do SDL.PushGPUFragmentUniformData(cmd, 0u, m.CelUniformBytes, 80u)
+        do SDL.BindGPUFragmentSamplers(renderPass, 0u, material.Bindings, 1u)
         do SDL.DrawGPUIndexedPrimitives(renderPass, uint32 sub.IndexCount, 1u, uint32 sub.FirstIndex, 0, 0u)

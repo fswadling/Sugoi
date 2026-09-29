@@ -123,13 +123,14 @@ let normalMatrix (model: Matrix4x4) : Matrix4x4 =
     let mutable inv = Matrix4x4.Identity
     if Matrix4x4.Invert(m3, &inv) then Matrix4x4.Transpose(inv) else Matrix4x4.Identity
 
-// ── mesh pipeline ──
+// ── cel pipeline (actors) ──
 
-// Depth-tested triangle pipeline for position/normal/uv/blend vertices with a
-// vertex-stage PerDraw uniform block plus the bone-palette storage buffer.
-let createMeshPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
+// Depth-tested triangle pipeline for the cel-shaded actors: position/normal/uv/blend vertices
+// with a vertex-stage PerDraw uniform block plus the bone-palette storage buffer, and the cel
+// fragment shader (one sampler: the albedo map).
+let createCelPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
     let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/mesh.vert.spv" 2u 2u 0u
-    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/mesh.frag.spv" 1u 0u 4u
+    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/cel.frag.spv" 1u 0u 1u
 
     let mutable vbufDesc = SDL.GPUVertexBufferDescription()
     vbufDesc.Slot <- 0u
@@ -351,7 +352,7 @@ type Gpu =
     { Device : Device
       SwapchainFormat : SDL.GPUTextureFormat
       DepthFormat : SDL.GPUTextureFormat
-      MeshPipeline : Pipeline
+      CelPipeline : Pipeline
       StaticPipeline : Pipeline
       mutable DepthTexture : Texture
       mutable DepthW : int
@@ -362,7 +363,7 @@ let create (device: Device) (swapchainFormat: SDL.GPUTextureFormat) : Gpu =
     { Device = device
       SwapchainFormat = swapchainFormat
       DepthFormat = depthFormat
-      MeshPipeline = createMeshPipeline device swapchainFormat depthFormat
+      CelPipeline = createCelPipeline device swapchainFormat depthFormat
       StaticPipeline = createStaticPipeline device swapchainFormat depthFormat
       DepthTexture = IntPtr.Zero
       DepthW = 0
@@ -408,8 +409,8 @@ let depthTargetInfo (g: Gpu) : SDL.GPUDepthStencilTargetInfo =
     t
 
 let destroy (g: Gpu) : unit =
-    if g.MeshPipeline <> IntPtr.Zero then
-        do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.MeshPipeline)
+    if g.CelPipeline <> IntPtr.Zero then
+        do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.CelPipeline)
     if g.StaticPipeline <> IntPtr.Zero then
         do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.StaticPipeline)
     if g.DepthTexture <> IntPtr.Zero then
