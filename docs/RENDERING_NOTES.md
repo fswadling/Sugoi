@@ -320,6 +320,36 @@ it.
 - **Deferred (not this spec):** interior crease lines (would need a normal G-buffer), shadows, rim,
   specular/matcap, per-actor parameters.
 
+## 15. The multisampled scene pass (spec 042)
+
+The 3D scene is drawn with **4× MSAA** and resolved into the swapchain. Before this, every pipeline and
+render target was `SampleCount1` and the scene rendered straight into the acquired swapchain texture, so
+every edge — the actor outline (spec 041) above all — was stair-stepped.
+
+- **Two multisampled targets, one resolve.** `Gpu.MsaaTexture` (colour, in the swapchain format) and the
+depth texture (`D32Float`) are both 4× (`Gpu.SampleCount`); the scene renders into them and the acquired
+swapchain is the colour target's **resolve destination** (`GPUColorTargetInfo.ResolveTexture`). SDL_gpu
+has no multisampled swapchain, so the offscreen target + resolve is the only way. Depth is never
+resolved — SDL_gpu's depth-stencil target carries no resolve, and nothing samples depth after the pass.
+- **The store op performs the resolve.** Setting `ResolveTexture` alone does nothing: the multisampled
+colour target's `StoreOp` must be `SDL.GPUStoreOp.Resolve`, or the swapchain is never written and the
+frame is black. `Resolve` writes the resolved colour and discards the multisample contents.
+- **Every scene-pass pipeline shares the count.** A pass is only valid when its targets and every
+  pipeline drawing into it agree, so the cel, outline and static pipelines (`render/Gpu.fs`), the
+debug-line pipeline (`render/DebugDraw.fs`) and the 2D-layer pipeline (`render/Ui.fs`) all set
+`MultisampleState.SampleCount`. They all draw in the one pass (`screen/GameplayScreen.fs`); the overlay
+does not.
+- **The overlay is composited after the resolve.** ImGui draws in its own pass that loads the resolved
+swapchain, so its text stays crisp and is not re-sampled.
+- **Fail loudly.** `SDL.GPUTextureSupportsSampleCount` is checked for both formats at init, and a null
+target handle is a failure; there is no silent single-sample fallback (FR-009).
+- **No per-frame allocation.** Both targets are created once and recreated only when the render extent
+changes (`Gpu.ensureSceneTargets`, the depth texture's old ensure path); the frame's reused arrays are
+unchanged.
+- **Fixed 4×.** The sample count is a constant (`Gpu.SampleCount`); there is no authoring surface
+(FR-010).
+- **Deferred (not this spec):** FXAA/TAA and variable sample counts.
+
 ## Known follow-ups
 
 - Two benign build warnings in `Engine.fs` (`FS0009`/`FS0051`) from the

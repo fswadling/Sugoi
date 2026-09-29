@@ -86,7 +86,7 @@ let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFo
     raster.FrontFace <- SDL.GPUFrontFace.CounterClockwise
 
     let mutable ms = SDL.GPUMultisampleState()
-    ms.SampleCount <- SDL.GPUSampleCount.SampleCount1
+    ms.SampleCount <- Gpu.SampleCount
     ms.SampleMask <- 0u
 
     let mutable colorTarget = SDL.GPUColorTargetDescription()

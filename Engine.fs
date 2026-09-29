@@ -106,7 +106,10 @@ let run () : int =
     let sceneTargets = Array.zeroCreate<SDL.GPUColorTargetInfo> 1
     sceneTargets.[0].ClearColor <- SDL.FColor(0.13f, 0.15f, 0.18f, 1.0f)
     sceneTargets.[0].LoadOp <- SDL.GPULoadOp.Clear
-    sceneTargets.[0].StoreOp <- SDL.GPUStoreOp.Store
+    // The scene draws into a multisampled target, so the store op MUST perform the resolve into the
+    // swapchain (spec 042): `Resolve` writes the resolved colour to `ResolveTexture` and discards the
+    // multisample contents. With a plain `Store` the resolve never happens and the frame is black.
+    sceneTargets.[0].StoreOp <- SDL.GPUStoreOp.Resolve
 
     let imguiTargets = Array.zeroCreate<SDL.GPUColorTargetInfo> 1
     imguiTargets.[0].LoadOp <- SDL.GPULoadOp.Load
@@ -193,9 +196,14 @@ let run () : int =
             // ── Scene pass ──
             // Clear + draw the active screen's scene (color + depth).
             let shared = manager.Shared
-            do Gpu.ensureDepthTexture &shared.Gpu w h
+            do Gpu.ensureSceneTargets &shared.Gpu w h
             let mutable depthTarget = Gpu.depthTargetInfo shared.Gpu
-            sceneTargets.[0].Texture <- swapchainTexture
+            // Render into the multisampled colour target and resolve it into the acquired swapchain
+            // (spec 042, FR-002); the overlay pass below then loads the resolved image (FR-007).
+            sceneTargets.[0].Texture <- shared.Gpu.MsaaTexture
+            sceneTargets.[0].ResolveTexture <- swapchainTexture
+            sceneTargets.[0].ResolveMipLevel <- 0u
+            sceneTargets.[0].ResolveLayer <- 0u
             do ScreenManager.renderScene &manager { Cmd = cmd; ColorTargets = sceneTargets; DepthTarget = depthTarget }
 
             // ── ImGui pass ──

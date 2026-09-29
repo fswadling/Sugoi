@@ -199,7 +199,7 @@ let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFo
     raster.FrontFace <- SDL.GPUFrontFace.CounterClockwise
 
     let mutable multisample = SDL.GPUMultisampleState()
-    multisample.SampleCount <- SDL.GPUSampleCount.SampleCount1
+    multisample.SampleCount <- Gpu.SampleCount
     multisample.SampleMask <- 0u
 
     // The one genuinely new pipeline state for the game's UI: alpha blending. Depth test is

@@ -33,6 +33,11 @@ let BonesMax = 205
 // and an asset exceeding it fails at load (spec 037).
 let MorphsMax = 8
 
+// The scene is rendered at this many samples per pixel (spec 042): the multisampled colour and depth
+// targets and every scene-pass pipeline share it. The editor overlay draws in its own pass over the
+// resolved image and is not multisampled. Fixed — there is no authoring surface (FR-010).
+let SampleCount = SDL.GPUSampleCount.SampleCount4
+
 // ── shaders + buffers ──
 
 let loadShader (device: Device) (stage: SDL.GPUShaderStage) (path: string) (uniformBuffers: uint32) (storageBuffers: uint32) (samplers: uint32) : Shader =
@@ -194,7 +199,7 @@ let private createActorPipeline (device: Device) (swapchainFormat: SDL.GPUTextur
         raster.DepthBiasClamp <- 0.0f
 
     let mutable ms = SDL.GPUMultisampleState()
-    ms.SampleCount <- SDL.GPUSampleCount.SampleCount1
+    ms.SampleCount <- SampleCount
     ms.SampleMask <- 0u
 
     let mutable depth = SDL.GPUDepthStencilState()
@@ -319,7 +324,7 @@ let createStaticPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat
     raster.FrontFace <- SDL.GPUFrontFace.CounterClockwise
 
     let mutable ms = SDL.GPUMultisampleState()
-    ms.SampleCount <- SDL.GPUSampleCount.SampleCount1
+    ms.SampleCount <- SampleCount
     ms.SampleMask <- 0u
 
     let mutable depth = SDL.GPUDepthStencilState()
@@ -380,18 +385,26 @@ type Gpu =
       CelPipeline : Pipeline
       OutlinePipeline : Pipeline
       StaticPipeline : Pipeline
+      mutable MsaaTexture : Texture
       mutable DepthTexture : Texture
       mutable DepthW : int
       mutable DepthH : int }
 
 let create (device: Device) (swapchainFormat: SDL.GPUTextureFormat) : Gpu =
     let depthFormat = SDL.GPUTextureFormat.D32Float
+    // Fail loudly if the scene cannot be multisampled (spec 042, FR-009): both the colour and the depth
+    // format must support the fixed sample count. There is no silent single-sample fallback.
+    if not (SDL.GPUTextureSupportsSampleCount(device, swapchainFormat, SampleCount)) then
+        failwithf "gpu: swapchain format %A does not support %A multisampling (spec 042)" swapchainFormat SampleCount
+    if not (SDL.GPUTextureSupportsSampleCount(device, depthFormat, SampleCount)) then
+        failwithf "gpu: depth format %A does not support %A multisampling (spec 042)" depthFormat SampleCount
     { Device = device
       SwapchainFormat = swapchainFormat
       DepthFormat = depthFormat
       CelPipeline = createCelPipeline device swapchainFormat depthFormat
       OutlinePipeline = createOutlinePipeline device swapchainFormat depthFormat
       StaticPipeline = createStaticPipeline device swapchainFormat depthFormat
+      MsaaTexture = IntPtr.Zero
       DepthTexture = IntPtr.Zero
       DepthW = 0
       DepthH = 0 }
@@ -405,19 +418,38 @@ let private createDepthTexture (device: Device) (w: uint32) (h: uint32) : Textur
     info.Height <- h
     info.LayerCountOrDepth <- 1u
     info.NumLevels <- 1u
-    info.SampleCount <- SDL.GPUSampleCount.SampleCount1
+    info.SampleCount <- SampleCount
     SDL.CreateGPUTexture(device, &info)
 
-// Recreate the depth texture when the swapchain size changes (resize). Mutates
-// the context's mutable fields in place through a byref (runs every frame).
-let ensureDepthTexture (g: byref<Gpu>) (w: uint32) (h: uint32) : unit =
-    if g.DepthTexture <> IntPtr.Zero && g.DepthW = int w && g.DepthH = int h then
+// The multisampled colour target the scene renders into (spec 042); the engine resolves it into the
+// acquired swapchain texture. Same format as the swapchain, so the resolve is a plain sample-average.
+let private createMsaaTexture (device: Device) (format: SDL.GPUTextureFormat) (w: uint32) (h: uint32) : Texture =
+    let mutable info = SDL.GPUTextureCreateInfo()
+    info.Type <- SDL.GPUTextureType.TextureType2D
+    info.Format <- format
+    info.Usage <- SDL.GPUTextureUsageFlags.ColorTarget
+    info.Width <- w
+    info.Height <- h
+    info.LayerCountOrDepth <- 1u
+    info.NumLevels <- 1u
+    info.SampleCount <- SampleCount
+    SDL.CreateGPUTexture(device, &info)
+
+// Recreate the multisampled colour and depth targets when the swapchain size changes (resize). Mutates
+// the context's mutable fields in place through a byref (runs every frame). Both are `SampleCount`×.
+let ensureSceneTargets (g: byref<Gpu>) (w: uint32) (h: uint32) : unit =
+    if g.MsaaTexture <> IntPtr.Zero && g.DepthW = int w && g.DepthH = int h then
         ()
     else
 
+    if g.MsaaTexture <> IntPtr.Zero then
+        do SDL.ReleaseGPUTexture(g.Device, g.MsaaTexture)
     if g.DepthTexture <> IntPtr.Zero then
         do SDL.ReleaseGPUTexture(g.Device, g.DepthTexture)
+    g.MsaaTexture <- createMsaaTexture g.Device g.SwapchainFormat w h
     g.DepthTexture <- createDepthTexture g.Device w h
+    if g.MsaaTexture = IntPtr.Zero || g.DepthTexture = IntPtr.Zero then
+        failwithf "gpu: failed to create the %A scene targets at %ux%u (spec 042)" SampleCount w h
     g.DepthW <- int w
     g.DepthH <- int h
 
@@ -442,5 +474,7 @@ let destroy (g: Gpu) : unit =
         do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.OutlinePipeline)
     if g.StaticPipeline <> IntPtr.Zero then
         do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.StaticPipeline)
+    if g.MsaaTexture <> IntPtr.Zero then
+        do SDL.ReleaseGPUTexture(g.Device, g.MsaaTexture)
     if g.DepthTexture <> IntPtr.Zero then
         do SDL.ReleaseGPUTexture(g.Device, g.DepthTexture)
