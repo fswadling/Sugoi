@@ -110,7 +110,7 @@ let ``an unregistered place answers nothing, and registering one answers it`` ()
     let place = List.head (places ())
     Assert.Equal<ZoneTemplate option>(None, tryTemplate place registry)
 
-    let template = ZoneTemplate.ofEnvironment (environment "artroom" [| "floor"; "wall" |]) [||]
+    let template = ZoneTemplate.ofEnvironment (environment "artroom" [| "floor"; "wall" |]) [||] Texture.defaultLight
     registry.Templates.[place] <- template
     Assert.Equal(Some template, tryTemplate place registry)
 
@@ -121,13 +121,13 @@ let ``registering again replaces what was there, and disturbs no other place`` (
     let first = all.[0]
     let second = all.[1]
 
-    registry.Templates.[first] <- ZoneTemplate.ofEnvironment (environment "artroom" [| "floor" |]) [||]
-    registry.Templates.[second] <- ZoneTemplate.ofEnvironment (environment "island" [| "ground" |]) [||]
+    registry.Templates.[first] <- ZoneTemplate.ofEnvironment (environment "artroom" [| "floor" |]) [||] Texture.defaultLight
+    registry.Templates.[second] <- ZoneTemplate.ofEnvironment (environment "island" [| "ground" |]) [||] Texture.defaultLight
     Assert.Equal(2, registry.Templates.Count)
 
     // One entry per place: re-registering replaces rather than accumulating, and the other place is
     // untouched.
-    registry.Templates.[first] <- ZoneTemplate.ofEnvironment (environment "artroom" [| "floor"; "wall" |]) [||]
+    registry.Templates.[first] <- ZoneTemplate.ofEnvironment (environment "artroom" [| "floor"; "wall" |]) [||] Texture.defaultLight
     Assert.Equal(2, registry.Templates.Count)
     Assert.Equal(2, (tryTemplate first registry).Value.Parts.Length)
     Assert.Equal(1, (tryTemplate second registry).Value.Parts.Length)
@@ -138,8 +138,8 @@ let ``a record is a copy taken at a moment, not a view of the live parts`` () =
     // A registration has to survive the zone it was taken from, which holds only if taking it copies
     // the parts, and if taking it leaves the environment alone.
     let loaded = environment "artroom" [| "floor"; "wall" |]
-    let template = ZoneTemplate.ofEnvironment loaded [||]
-    Assert.Equal(template, ZoneTemplate.ofEnvironment loaded [||])
+    let template = ZoneTemplate.ofEnvironment loaded [||] Texture.defaultLight
+    Assert.Equal(template, ZoneTemplate.ofEnvironment loaded [||] Texture.defaultLight)
     Assert.Equal(2, template.Parts.Length)
 
     let slots = loaded.Parts.Slots

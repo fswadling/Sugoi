@@ -232,6 +232,31 @@ list. Instantiating puts both back, and does it in **one** undo step however muc
 (`specs/035-zone-template-props`). It does not yet hold waypoints, triggers or splat maps: those are
 the rest of `docs/ARCHITECTURE.md`'s `Zone_Registry` entry, and they join as siblings of the parts.
 
+## Lighting section (D-024)
+
+A zone's sun — pitch, yaw, colour and ambient — is edited in the **Inspector**, not in a panel of
+its own (`specs/043-zone-light-settings`). The Inspector's subject is the selection; a zone is not a
+selectable entity in that model, so rather than add a second notion of what is being edited, the
+active zone is the Inspector's **fallback subject**: it shows the selected entity when there is one,
+and the zone's lighting when there is not. The two can therefore never be shown together, and no
+state has to be kept in step. A zone is brought up by clicking its row in the Outliner's Zones list:
+the click goes through `GameplayState.selectZone`, so it switches when it is another zone and drops
+the entity selection when it is the zone already in use — the second case being what a plain switch,
+which no-ops on the active zone, would leave showing.
+
+A light change is **undoable, one step per committed change** — a deliberate departure from
+`odin-game`, whose sliders write the live zone directly. This follows the rule that an authored
+change is reversible; the controls commit when released or left (`isItemDeactivatedAfterEdit`), as
+the Inspector's trigger fields do, so one drag is one step and two changes are two steps. The edit
+is pushed through `Selection.setLight`, which records a `SetLight` command against the zone.
+
+Unlike the cast binding and the zone registry (D-022, D-023), which are deliberately direct writes,
+this is a *zone's own* setting rather than project-scoped state, so it lives on the zone and its undo
+rides the zone's own stack — which is why it is a command at all. The same command is what an
+**instantiate** uses: a registration records the light with the environment and the props, and
+putting a registered zone back sets its light inside the one `Batch` that already replaces the
+environment, so one Ctrl+Z restores the previous light along with everything else (spec 035 FR-005).
+
 ## Selection and gizmos (D-012, D-015, D-016)
 
 - M5/early editor uses a **minimal raycast** (screen-ray → sphere/box) for
@@ -275,7 +300,7 @@ rest are in `editor/`.
 | `Selection` | selection edits (delete / duplicate / rename) + stale-part-selection cleanup |
 | `EditorState` | selection + transient UI state |
 | `Outliner` | hierarchical entity list |
-| `Inspector` | single editing surface for the selection |
+| `Inspector` | single editing surface for the selection (and the active zone's lighting when nothing is selected) |
 | `Viewport` | 3D viewport + transform gizmo |
 | `CastPanel` / `AdventPanel` / `AssetBrowser` | docked list panels |
 | `CueEditor` / `CueTree` | cue template editor + shared recursive tree renderer |

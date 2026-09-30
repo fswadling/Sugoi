@@ -13,6 +13,11 @@ open Command
 [<Literal>]
 let zoneNameBufferSize = 64
 
+// The channels in the Inspector's light-colour buffer (spec 043): one reused `float[3]` the colour
+// picker draws over, so editing the light allocates nothing per frame.
+[<Literal>]
+let lightColorChannels = 3
+
 // The Inspector's text-field buffers and the longest value each accepts. Sized for
 // UTF-8's worst case (3 bytes for a BMP character) so encoding a value of up to
 // `entityNameMaxChars` characters always fits and never needs a clamp mid-character. The
@@ -76,7 +81,11 @@ type EditorState =
       // field, not dialogue state, which is why FR-009's "stores nothing beyond the state
       // itself" holds — no command is recorded and nothing is persisted.
       DialogueTextBuffer : byte[]
-      DialogueTextEditing : bool }
+      DialogueTextEditing : bool
+      // The Inspector's light-colour picker (spec 043): the reused `float[3]` a colour edit draws
+      // over, seeded from the zone's colour while the picker is not live.
+      LightColorBuffer : float32 array
+      LightColorEditing : bool }
 
 let create () : EditorState =
     { Selection = None
@@ -95,4 +104,6 @@ let create () : EditorState =
       PromptEditRef = None
       PromptEditing = false
       DialogueTextBuffer = Array.zeroCreate dialogueTextBufferSize
-      DialogueTextEditing = false }
+      DialogueTextEditing = false
+      LightColorBuffer = Array.zeroCreate lightColorChannels
+      LightColorEditing = false }

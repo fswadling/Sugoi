@@ -28,6 +28,41 @@ type Light =
       Color : Vector3
       Ambient : Vector3 }
 
+// A zone's authored sun (spec 043): the four values `odin-game` stores on a zone
+// (`src/zone_registry.odin`). `Pitch` is degrees above the horizon (0 = horizon, 90 = zenith) and
+// `Yaw` is compass degrees; the ambient is a single intensity. `toLight` resolves these into the
+// shader-facing `Light` above.
+[<Struct>]
+type LightSettings =
+    { Pitch : float32
+      Yaw : float32
+      Color : Vector3
+      Ambient : float32 }
+
+// The light in use before spec 043, expressed as angles: the pitch and yaw of the direction
+// `normalize(0.4, 0.8, 0.4)` (`asin(0.8 / sqrt(0.96))`, `atan2(0.4, 0.4)`), with the same white
+// colour and a neutral `0.15` ambient. A zone that has never been edited therefore lights exactly
+// as it did (FR-004).
+let defaultLight : LightSettings =
+    { Pitch = 54.7356f
+      Yaw = 45.0f
+      Color = Vector3(1.0f, 1.0f, 1.0f)
+      Ambient = 0.15f }
+
+// Resolve a zone's authored settings into the shader-facing light (FR-008). The direction is
+// `odin-game`'s spherical convention — `{sin yaw·cos pitch, sin pitch, cos yaw·cos pitch}` — so a
+// pitch and yaw mean the same thing in both games; the scalar ambient expands to the port's neutral
+// grey, which is what keeps an unedited scene identical to the constant it replaces.
+let toLight (settings: LightSettings) : Light =
+    let pitch = settings.Pitch * (float32 System.Math.PI / 180.0f)
+    let yaw = settings.Yaw * (float32 System.Math.PI / 180.0f)
+    let sinPitch = sin pitch
+    let cosPitch = cos pitch
+    let direction = Vector3.Normalize(Vector3(sin yaw * cosPitch, sinPitch, cos yaw * cosPitch))
+    { Direction = direction
+      Color = settings.Color
+      Ambient = Vector3(settings.Ambient, settings.Ambient, settings.Ambient) }
+
 // Runtime PBR material. `Bindings` is always four entries in fixed shader order
 // (albedo, normal, metallicRoughness, emissive); absent slots use the shared
 // white placeholder and are skipped via the has* flags.

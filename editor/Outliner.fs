@@ -59,8 +59,10 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         for name in names do
             if state.Zones.ContainsKey name then
                 let marker = if name = state.ActiveZone then "* " else "  "
+                // A click always makes the zone the Inspector's subject, whether it switches or is
+                // the zone already in use (spec 043, FR-003).
                 if ImGui.button(sprintf "%s%s##zone_%s" marker name name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    GameplayState.switchZone shared &state name
+                    GameplayState.selectZone shared &state name
                 if state.Zones.Count > 1 then
                     do ImGui.sameLine(0.0f, -1.0f)
                     if ImGui.smallButton(sprintf "Del##delzone_%s" name) then

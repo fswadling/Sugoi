@@ -22,6 +22,7 @@ module Command
 
 open Entity
 open Zone
+open Texture
 
 type Command =
     // An edit of the properties every kind shares.
@@ -45,6 +46,9 @@ type Command =
     | LinkSpawn of From : EntityRef * Before : EntityRef option * Ref : EntityRef * Waypoint : Waypoint
     // Zone-level rather than an entity: swapping the loaded environment.
     | SetEnvironment of Previous : Environment option * Next : Environment option
+    // Zone-level rather than an entity: the authored light (spec 043). Pushed by the Inspector's
+    // committed edits and carried by an instantiate, so a light change is reversible like any other.
+    | SetLight of Previous : LightSettings * Next : LightSettings
     // Several mutations that were one gesture: applied forwards, reversed backwards, so a create and
     // the delete that preceded it cannot come apart. One entry on the stack, like any other command,
     // and a step that puts a zone back exactly is what needs it (spec 035 FR-005).
@@ -87,6 +91,8 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
         setWaypointNext zone from (Some r)
     | SetEnvironment (_, next) ->
         setEnvironment zone physics assets next
+    | SetLight (_, next) ->
+        zone.Light <- next
     | Batch commands ->
         for cmd in commands do apply zone physics assets cmd
 
@@ -125,6 +131,8 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
         removeWaypoint zone r
     | SetEnvironment (previous, _) ->
         setEnvironment zone physics assets previous
+    | SetLight (previous, _) ->
+        zone.Light <- previous
     | Batch commands ->
         // Backwards, so the reversal of a mutation happens before the reversal of what it depended on.
         for cmd in List.rev commands do undo zone physics assets cmd

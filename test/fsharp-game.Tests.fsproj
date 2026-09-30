@@ -33,6 +33,10 @@
     <!-- The interact prompt (spec 039): the pure layout. -->
     <Compile Include="PromptTests.fs" />
 
+    <!-- A zone's authored light (spec 043): the pitch/yaw -> direction derivation and the defaults
+         that keep an unedited scene identical to the constant they replace. -->
+    <Compile Include="LightTests.fs" />
+
     <!-- The cast (spec 032): the roster is not the engine's, so this opens `Roster` and not
          `Narrative`. -->
     <Compile Include="RosterTests.fs" />

@@ -1127,3 +1127,38 @@ let ``capturing a zone is a copy, and a zone with no props is a complete entry``
     let bare = Zone.create ()
     do Zone.loadEnvironment bare world assets "hall" |> ignore
     Assert.Empty((Zone.captureTemplate bare).Value.Props)
+
+[<Fact>]
+let ``the zone's light is set by the command and put back by its undo`` () =
+    // The light is zone-level, so the command touches no entity and needs no asset but the argument
+    // `apply` takes (spec 043 FR-006).
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = headlessAssets []
+
+    let before = zone.Light
+    let after = { before with Pitch = 20.0f; Yaw = 200.0f; Color = Vector3(0.9f, 0.8f, 0.7f); Ambient = 0.9f }
+    let cmd = SetLight (before, after)
+
+    do apply zone world assets cmd
+    Assert.Equal(after, zone.Light)
+
+    let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
+    Assert.Equal(before, zone.Light)
+
+    let stack = UndoStack.redo stack zone world assets
+    Assert.Equal(after, zone.Light)
+    ignore stack
+
+[<Fact>]
+let ``a registered zone records its light`` () =
+    // What an entry carries is the live authored value, whole — the zone's light is part of the
+    // record a registration is (spec 043 FR-007).
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = roomAssets ()
+    do Zone.loadEnvironment zone world assets "room" |> ignore
+
+    let authored = { Texture.defaultLight with Pitch = 20.0f; Yaw = 200.0f; Ambient = 0.9f }
+    zone.Light <- authored
+    Assert.Equal(authored, (Zone.captureTemplate zone).Value.Light)

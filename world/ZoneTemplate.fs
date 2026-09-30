@@ -1,7 +1,8 @@
 module ZoneTemplate
 
-// One registered zone: the environment asset to draw, the environment's own settings, and its parts
-// as the author left them. This is what a `world/ZoneRegistry.fs` entry holds (spec 034).
+// One registered zone: the environment asset to draw, the environment's own settings, the zone's own
+// light, and its parts as the author left them. This is what a `world/ZoneRegistry.fs` entry holds
+// (spec 034).
 //
 // It is a copy taken at a moment rather than a link to the zone it came from, which is what lets a
 // registration outlive the zone it was registered from. A part is recorded as a `PropState`: the
@@ -27,6 +28,10 @@ type ZoneTemplate =
     { AssetId : string
       Base : Entity
       Orientation : Quaternion
+      // The zone's own light (spec 043): a sun pitch, sun yaw, colour and ambient, carried with the
+      // environment so a registration is reproducible. Unlike `Base` and `Orientation`, this is the
+      // *zone's* setting rather than the environment's — an environment has no light of its own.
+      Light : Texture.LightSettings
       Parts : PropState array
       Props : PropState array }
 
@@ -38,11 +43,12 @@ type ZoneTemplate =
 /// The props are an argument rather than something read here, because a prop belongs to the zone and
 /// this file is compiled above `world/Zone.fs` — which is also what lets a record be built in a test
 /// without a scene.
-let ofEnvironment (environment: Environment) (props: PropState array) : ZoneTemplate =
+let ofEnvironment (environment: Environment) (props: PropState array) (light: Texture.LightSettings) : ZoneTemplate =
     let parts = ResizeArray<PropState>(int environment.Parts.Count)
     environment.Parts.IteriAlive (fun _ _ part -> parts.Add part.State)
     { AssetId = environment.AssetId
       Base = environment.Base
       Orientation = environment.Orientation
+      Light = light
       Parts = parts.ToArray()
       Props = props }

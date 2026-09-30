@@ -93,6 +93,17 @@ let switchZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (
     if name = state.ActiveZone then () else
     swapZone shared &state state.ActiveZone name
 
+// Bring a zone up in the editor: make it active, and make it the Inspector's subject by dropping any
+// entity selection (spec 043 — the Inspector shows the active zone's light when no entity is
+// selected). A switch drops the selection on the way (`enterZone`), so the case this adds is the
+// zone already active, where clicking its row is otherwise a no-op.
+let selectZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
+    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "selectZone: '%s' is not a zone" name) else
+    if name = state.ActiveZone then
+        state.Editor <- { state.Editor with Selection = None; Drag = None }
+    else
+        switchZone shared &state name
+
 // Add an empty zone under `name` and make it active. The name must be non-empty and
 // unused; the editor only offers the add when it is.
 let addZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =

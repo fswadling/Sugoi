@@ -121,6 +121,21 @@ let updateTriggerRef (shared: SharedState.SharedState) (state: byref<GameplaySta
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
 
+// Apply `change` to the active zone's light as one undoable step (spec 043, FR-006). `before` is
+// the zone's light as it still stands — a control holds its edit in a local until the commit — so
+// one drag is one step; a commit that changes nothing records nothing, exactly as `updateTriggerRef`
+// above.
+let setLight (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (change: Texture.LightSettings -> Texture.LightSettings) : unit =
+    let zone = GameplayState.activeZone state
+    let before = zone.Light
+    let after = change before
+    if after = before then () else
+
+    let cmd = SetLight (before, after)
+    apply zone shared.Physics shared.Assets cmd
+    let undo = UndoStack.push state.Editor.Undo cmd
+    state.Editor <- { state.Editor with Undo = undo }
+
 // Drop a Part selection left dangling by an environment swap: its epoch no longer
 // resolves, so the inspector would silently show nothing. Actor/Prop selections are
 // left alone — a stale one can resolve again when undo/redo restores its slot.

@@ -502,3 +502,28 @@ let ``an entry that records no props clears the zone's, and one undo brings them
     state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone shared.Physics assets }
     Assert.Equal(1u, zone.Props.Count)
     Assert.True(Zone.isAlive zone lectern)
+
+[<Fact>]
+let ``instantiate restores the entry's light, and one undo puts the previous light back`` () =
+    let assets = headlessAssets ()
+    let zone = Zone.create ()
+    let shared = sharedState assets
+    let mutable state = gameplayState zone
+
+    // An authored light, recorded with the zone (spec 043 FR-007).
+    let authored = { Texture.defaultLight with Pitch = 20.0f; Yaw = 200.0f; Ambient = 0.9f }
+    zone.Light <- authored
+    do Zone.loadEnvironment zone shared.Physics assets "room" |> ignore
+    let registered = (Zone.captureTemplate zone).Value
+    Assert.Equal(authored, registered.Light)
+
+    // The zone moves on: a different light.
+    let moved = { authored with Pitch = 80.0f; Yaw = 10.0f }
+    zone.Light <- moved
+
+    do Spawning.instantiateZone shared &state registered
+    Assert.Equal(authored, zone.Light)
+
+    // One gesture: undoing the instantiation restores the light it replaced along with the rest.
+    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone shared.Physics assets }
+    Assert.Equal(moved, zone.Light)

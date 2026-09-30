@@ -124,10 +124,9 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
     let viewProjection = Camera.viewProjection state.Camera
     do DebugDraw.draw state.DebugDraw viewProjection pass.Cmd scenePass
 
-    let light : Light =
-        { Direction = Vector3.Normalize(Vector3(0.4f, 0.8f, 0.4f))
-          Color = Vector3(1.0f, 1.0f, 1.0f)
-          Ambient = Vector3(0.15f, 0.15f, 0.15f) }
+    // The scene's one sun, resolved from the active zone's authored settings (spec 043) instead of
+    // a constant, so a zone lights its own scene.
+    let light = Texture.toLight zone.Light
     let cameraPos = state.Camera.Position
 
     // Static scene: props (placed assets + imported environment parts) batched into

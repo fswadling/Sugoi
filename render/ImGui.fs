@@ -133,6 +133,12 @@ extern bool isItemActive()
 [<DllImport("cimgui", EntryPoint = "igDragFloat", CallingConvention = CallingConvention.Cdecl)>]
 extern bool dragFloat(string label, float32& v, float32 speed, float32 min, float32 max, string format, int flags)
 
+// A colour edit widget over a caller-owned `float[3]` (cimgui's igColorEdit3). The array marshals
+// as a writable pointer, as `inputText`'s byte buffer does. Returns true while the colour is being
+// edited; a caller wanting one commit per edit reads `isItemDeactivatedAfterEdit` straight after it.
+[<DllImport("cimgui", EntryPoint = "igColorEdit3", CallingConvention = CallingConvention.Cdecl)>]
+extern bool colorEdit3(string label, float32[] col, int flags)
+
 // Visually disable (and block) the widgets drawn between these two calls.
 [<DllImport("cimgui", EntryPoint = "igBeginDisabled", CallingConvention = CallingConvention.Cdecl)>]
 extern void beginDisabled(bool disabled)

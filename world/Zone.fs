@@ -20,6 +20,10 @@ type Zone =
     { Name : string
       Actors : SlotMap<Actor>
       mutable Environment : Environment option
+      // The zone's authored light (spec 043): a sun pitch, sun yaw, colour and ambient, resolved
+      // into the scene's one sun. A zone-level setting rather than an entity's, and one every
+      // zone owns — a zone lights its scene whether or not an environment is loaded.
+      mutable Light : Texture.LightSettings
       Props : SlotMap<Prop>
       Waypoints : SlotMap<Waypoint>
       Triggers : SlotMap<Trigger>
@@ -34,6 +38,7 @@ let create () : Zone =
     { Name = ""
       Actors = SlotMap<Actor>(64u)
       Environment = None
+      Light = Texture.defaultLight
       Props = SlotMap<Prop>(32u)
       Waypoints = SlotMap<Waypoint>(128u)
       Triggers = SlotMap<Trigger>(32u)
@@ -293,7 +298,7 @@ let captureTemplate (zone: Zone) : ZoneTemplate option =
     | Some environment ->
 
     let props = captureProps zone |> Array.map snd
-    Some (ZoneTemplate.ofEnvironment environment props)
+    Some (ZoneTemplate.ofEnvironment environment props zone.Light)
 
 // The authored value a trigger is created with: a one-metre radius two metres tall, not
 // interactable, with no prompt. It is only ever a new trigger's starting point — what a

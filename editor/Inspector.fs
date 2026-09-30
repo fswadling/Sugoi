@@ -132,6 +132,43 @@ let private drawMorphs (zone: Zone.Zone) (ref: EntityRef) : unit =
     if addable = 0 then
         do ImGui.text("(all morphs added)")
 
+// The active zone's lighting (spec 043, FR-003): the Inspector's fallback subject, drawn when no
+// entity is selected. Each control commits one `SetLight` step when it is released or left — the
+// rule the trigger fields below use — so tuning the sun is reversible (FR-006) without putting a
+// step on the stack per frame. The colour picker draws over a reused buffer, re-seeded from the
+// zone's colour while it is not live so a drag in the picker is never overwritten mid-gesture.
+let private drawLighting (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (zone: Zone.Zone) : unit =
+    if not (ImGui.collapsingHeader("Lighting", 0)) then () else
+
+    // ── the sun's angles: bounded, so the derived direction is never degenerate (FR-009) ──
+    let mutable pitch = zone.Light.Pitch
+    do ImGui.dragFloat("Sun Pitch", &pitch, 0.5f, 10.0f, 90.0f, "%.1f", 0) |> ignore
+    if ImGui.isItemDeactivatedAfterEdit() then
+        do Selection.setLight shared &state (fun light -> { light with Pitch = pitch })
+
+    let mutable yaw = zone.Light.Yaw
+    do ImGui.dragFloat("Sun Yaw", &yaw, 1.0f, 0.0f, 360.0f, "%.1f", 0) |> ignore
+    if ImGui.isItemDeactivatedAfterEdit() then
+        do Selection.setLight shared &state (fun light -> { light with Yaw = yaw })
+
+    // ── the light colour: a picker over the reused buffer, seeded while it is not live ──
+    if not state.Editor.LightColorEditing then
+        let colour = zone.Light.Color
+        state.Editor.LightColorBuffer.[0] <- colour.X
+        state.Editor.LightColorBuffer.[1] <- colour.Y
+        state.Editor.LightColorBuffer.[2] <- colour.Z
+
+    do ImGui.colorEdit3("Light Colour", state.Editor.LightColorBuffer, 0) |> ignore
+    if ImGui.isItemDeactivatedAfterEdit() then
+        let buffer = state.Editor.LightColorBuffer
+        do Selection.setLight shared &state (fun light -> { light with Color = System.Numerics.Vector3(buffer.[0], buffer.[1], buffer.[2]) })
+    state.Editor <- { state.Editor with LightColorEditing = ImGui.isItemActive() }
+
+    let mutable ambient = zone.Light.Ambient
+    do ImGui.dragFloat("Ambient", &ambient, 0.01f, 0.1f, 1.5f, "%.2f", 0) |> ignore
+    if ImGui.isItemDeactivatedAfterEdit() then
+        do Selection.setLight shared &state (fun light -> { light with Ambient = ambient })
+
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) =
     do ImGui.beginWindow("Inspector", System.IntPtr.Zero, 0) |> ignore
 
@@ -225,6 +262,8 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do drawAnimations zone ref
             do drawMorphs zone ref
     | None ->
-        do ImGui.text("(no selection)")
+        // No entity selected: the Inspector falls back to the active zone, whose lighting is the
+        // zone-level setting it edits (spec 043, FR-003).
+        do drawLighting shared &state zone
 
     do ImGui.endWindow()

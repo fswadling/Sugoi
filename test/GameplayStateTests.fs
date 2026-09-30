@@ -121,6 +121,30 @@ let ``switchZone is a no-op for the active zone and raises for an unknown name``
     try GameplayState.switchZone shared &state "nope" with _ -> raised <- true
     Assert.True raised
 
+[<Fact>]
+let ``selectZone makes a zone the Inspector's subject even when it is already active`` () =
+    // The Inspector shows the active zone when no entity is selected (spec 043), so a zone row click
+    // has to drop the entity it was showing — including on the zone already in use, where a plain
+    // `switchZone` is a no-op and the stale selection would otherwise stay on screen.
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    GameplayState.addZone shared &state "classroom"
+
+    state.Editor <- { state.Editor with Selection = Some (propRef 0u 0u) }
+    GameplayState.selectZone shared &state "classroom"
+    Assert.Equal("classroom", state.ActiveZone)
+    Assert.True state.Editor.Selection.IsNone
+
+    // It still switches when the zone is another one, clearing the entity on the way.
+    state.Editor <- { state.Editor with Selection = Some (propRef 0u 0u) }
+    GameplayState.selectZone shared &state "main"
+    Assert.Equal("main", state.ActiveZone)
+    Assert.True state.Editor.Selection.IsNone
+
+    let mutable raised = false
+    try GameplayState.selectZone shared &state "nope" with _ -> raised <- true
+    Assert.True raised
+
 // ── Physics isolation ──
 
 [<Fact>]
