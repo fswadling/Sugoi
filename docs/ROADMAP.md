@@ -352,6 +352,11 @@ cel-shading.
 
 **Done when**: each sub-feature lands as a visible, committable increment.
 
+> **Shadows (first deliverable)** were prototyped as spec 043 and then **reverted**; the spec directory was
+> deleted. See [`SHADOWS_NOTES.md`](./SHADOWS_NOTES.md) for the design summary and the traps to fix on a
+> retry (notably: the asset `Bounds` are local-space, so the light frustum must be fitted to the casters'
+> *world* bounds).
+
 ### 15 · Persistence + perf
 
 **Goal**: save/load and performance.
