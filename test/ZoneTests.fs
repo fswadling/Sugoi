@@ -1151,6 +1151,37 @@ let ``the zone's light is set by the command and put back by its undo`` () =
     ignore stack
 
 [<Fact>]
+let ``the player designation is set by the command and put back by its undo`` () =
+    // The designation is zone-level and holds a handle into the zone's own actors, so it needs a zone
+    // with actors but no assets beyond the argument `apply` takes (spec 045 FR-001 to FR-003).
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = headlessAssets []
+
+    let b = zone.Actors.Add(actor "b")
+    let c = zone.Actors.Add(actor "c")
+
+    // A first designation undoes to no player at all — `ValueNone` is a real state, not a hole.
+    let cmd = SetPlayer (ValueNone, ValueSome b)
+    do apply zone world assets cmd
+    Assert.Equal(ValueSome b, zone.Player)
+
+    let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
+    Assert.True(ValueOption.isNone zone.Player)
+
+    let stack = UndoStack.redo stack zone world assets
+    Assert.Equal(ValueSome b, zone.Player)
+
+    // A re-designation puts the *previous actor* back, which is what the payload's `Previous` carries.
+    let recmd = SetPlayer (ValueSome b, ValueSome c)
+    do apply zone world assets recmd
+    Assert.Equal(ValueSome c, zone.Player)
+
+    let stack = UndoStack.undo (UndoStack.push stack recmd) zone world assets
+    Assert.Equal(ValueSome b, zone.Player)
+    ignore stack
+
+[<Fact>]
 let ``a registered zone records its light`` () =
     // What an entry carries is the live authored value, whole — the zone's light is part of the
     // record a registration is (spec 043 FR-007).

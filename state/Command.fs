@@ -23,6 +23,7 @@ module Command
 open Entity
 open Zone
 open Texture
+open SlotMap
 
 type Command =
     // An edit of the properties every kind shares.
@@ -49,6 +50,11 @@ type Command =
     // Zone-level rather than an entity: the authored light (spec 043). Pushed by the Inspector's
     // committed edits and carried by an instantiate, so a light change is reversible like any other.
     | SetLight of Previous : LightSettings * Next : LightSettings
+    // Zone-level rather than an entity: the player designation (spec 045) — which of the zone's actors is
+    // the avatar. The payload is the value `Player` already holds, so no fourth spelling of it is
+    // introduced, and `Previous` is what makes undoing a re-designation restore the *previous actor*
+    // rather than no player at all.
+    | SetPlayer of Previous : Handle voption * Next : Handle voption
     // Several mutations that were one gesture: applied forwards, reversed backwards, so a create and
     // the delete that preceded it cannot come apart. One entry on the stack, like any other command,
     // and a step that puts a zone back exactly is what needs it (spec 035 FR-005).
@@ -93,6 +99,8 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
         setEnvironment zone physics assets next
     | SetLight (_, next) ->
         zone.Light <- next
+    | SetPlayer (_, next) ->
+        zone.Player <- next
     | Batch commands ->
         for cmd in commands do apply zone physics assets cmd
 
@@ -133,6 +141,8 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
         setEnvironment zone physics assets previous
     | SetLight (previous, _) ->
         zone.Light <- previous
+    | SetPlayer (previous, _) ->
+        zone.Player <- previous
     | Batch commands ->
         // Backwards, so the reversal of a mutation happens before the reversal of what it depended on.
         for cmd in List.rev commands do undo zone physics assets cmd

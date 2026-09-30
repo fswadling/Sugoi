@@ -136,6 +136,20 @@ let setLight (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
 
+// Bind `ref`'s actor as the active zone's player as one undoable step (spec 045). The ref is checked
+// before any command exists — `playerHandleOf` fails loudly for a non-actor — and binding the actor who
+// already is the player records nothing, so the control can be pressed twice without an empty step.
+let setPlayer (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) : unit =
+    let zone = GameplayState.activeZone state
+    let before = zone.Player
+    let after = ValueSome (Systems.playerHandleOf ref)
+    if after = before then () else
+
+    let cmd = SetPlayer (before, after)
+    apply zone shared.Physics shared.Assets cmd
+    let undo = UndoStack.push state.Editor.Undo cmd
+    state.Editor <- { state.Editor with Undo = undo }
+
 // Drop a Part selection left dangling by an environment swap: its epoch no longer
 // resolves, so the inspector would silently show nothing. Actor/Prop selections are
 // left alone — a stale one can resolve again when undo/redo restores its slot.

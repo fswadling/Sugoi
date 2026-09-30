@@ -382,3 +382,54 @@ let ``consecutive transforms on one ref merge into a single step`` () =
     // Another ref's transform is a step of its own.
     state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (b, transformIdentity, first)) }
     Assert.Equal(2, state.Editor.Undo.Applied.Length)
+
+// ── Player designation (spec 045) ──
+
+// An actor added straight to the slot map: a designation holds only a handle, so nothing here needs the
+// renderer a spawn would build (the collider-overlay test above stops at the same line).
+let private playerZone () : Zone.Zone * EntityRef * EntityRef =
+    let add (name: string) (zone: Zone.Zone) =
+        zone.Actors.Add({ State =
+                            { Base = entity name
+                              AssetId = "character"
+                              ShowCollider = false }
+                          Physics = None
+                          Renderer = Unchecked.defaultof<ActorRender.ActorRender> })
+    let zone = Zone.create ()
+    let hero = add "hero" zone
+    let rival = add "rival" zone
+    (zone, actorRef hero.Index hero.Generation, actorRef rival.Index rival.Generation)
+
+[<Fact>]
+let ``setting the player records one SetPlayer step and undo puts the previous designation back`` () =
+    let (zone, hero, rival) = playerZone ()
+    let shared = sharedState ()
+    let mutable state = gameplayState zone
+
+    Selection.setPlayer shared &state hero
+    match state.Editor.Undo.Applied with
+    | [ SetPlayer (ValueNone, ValueSome designated) ] -> Assert.Equal(hero.Index, designated.Index)
+    | other -> Assert.Fail(sprintf "expected exactly one SetPlayer command, got %A" other)
+
+    // Re-designating carries the previous actor, so the first undo is the *previous actor*, not no player.
+    Selection.setPlayer shared &state rival
+    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = undo }
+    Assert.Equal(hero.Index, zone.Player.Value.Index)
+
+    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    state.Editor <- { state.Editor with Undo = undo }
+    Assert.True(ValueOption.isNone zone.Player)
+
+[<Fact>]
+let ``binding the actor who is already the player records nothing`` () =
+    let (zone, hero, _) = playerZone ()
+    let shared = sharedState ()
+    let mutable state = gameplayState zone
+
+    Selection.setPlayer shared &state hero
+    Selection.setPlayer shared &state hero
+
+    // One step for the two clicks, and the state did not move (FR-004).
+    Assert.Equal(1, state.Editor.Undo.Applied.Length)
+    Assert.Equal(hero.Index, zone.Player.Value.Index)

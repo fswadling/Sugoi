@@ -262,6 +262,37 @@ let ``a player designation is per zone and never aliases a same-index actor else
     Assert.True(Systems.isPlayerLive classroom)
 
 [<Fact>]
+let ``a designation is undone in the zone it was made in, not the one on screen`` () =
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+
+    // A designation in `main`, recorded on main's own stack.
+    let main = GameplayState.activeZone state
+    let mainActor = main.Actors.Add(actor "player")
+    let designate = SetPlayer (ValueNone, ValueSome mainActor)
+    do apply main shared.Physics shared.Assets designate
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo designate }
+
+    // And an unrelated edit in `classroom`, recorded on its own.
+    GameplayState.addZone shared &state "classroom"
+    let classroom = GameplayState.activeZone state
+    let before = classroom.Light
+    let relight = SetLight (before, { before with Pitch = 20.0f })
+    do apply classroom shared.Physics shared.Assets relight
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo relight }
+
+    // An undo while `classroom` is on screen takes back classroom's own edit ...
+    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo classroom shared.Physics shared.Assets }
+    Assert.Equal(before, classroom.Light)
+    // ... and cannot reach across to `main`'s designation.
+    Assert.Equal(ValueSome mainActor, main.Player)
+
+    // Switching back brings main's own history with it, where the designation is still recorded.
+    GameplayState.switchZone shared &state "main"
+    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo main shared.Physics shared.Assets }
+    Assert.True(ValueOption.isNone main.Player)
+
+[<Fact>]
 let ``switching re-frames the camera on the incoming zone`` () =
     let shared = sharedState (propAssets ())
     let mutable state = newState ()

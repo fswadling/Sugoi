@@ -249,15 +249,21 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             if ImGui.checkbox("Enabled", &enabled) then
                 Selection.updateTriggerRef shared &state ref (fun t -> { t with Base = { t.Base with Enabled = enabled } })
 
-        // Actor-only: bind this actor as the played character. A deliberate
-        // play-binding action, not an undoable scene edit, and it touches no physics.
+        // Actor-only: bind this actor as the played character. It is a zone's own edit like the zone's
+        // light (spec 045), so it is one undoable step and the control reads the designation back — an
+        // undo with nothing to see would not be much of an undo. It still touches no physics.
         if ref.Kind = EntityKind.Actor then
             let mutable show = (Zone.captureActor zone ref).ShowCollider
             if ImGui.checkbox("Show Collider", &show) then
                 do Zone.setShowCollider zone ref show
 
-            if ImGui.button("Set as Player", ImGui.ImVec2(0.0f, 0.0f)) then
-                zone.Player <- ValueSome (Systems.playerHandleOf ref)
+            if zone.Player = ValueSome (Systems.playerHandleOf ref) then
+                // Already the player: say so rather than offering the action again.
+                do ImGui.beginDisabled(true)
+                do ImGui.text("This actor is the zone's player")
+                do ImGui.endDisabled()
+            elif ImGui.button("Set as Player", ImGui.ImVec2(0.0f, 0.0f)) then
+                do Selection.setPlayer shared &state ref
 
             do drawAnimations zone ref
             do drawMorphs zone ref

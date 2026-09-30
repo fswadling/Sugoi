@@ -24,9 +24,10 @@ scripts, and assemble scenarios from zones and cast members.
 3. **Live-edit** — the editor and runtime share one live cue tree; backtick (`` ` ``)
    toggles between play and edit with no cloning.
 4. **Undo everywhere** — every editor mutation of *scene* state is an undoable command.
-   Session- and project-scoped authoring state that outlives a zone — a zone's player
-   designation, the collider overlay's visualisation preference, and the cast binding — is a
-   direct write instead, because the undo stacks are per zone (D-011, D-022).
+   Session- and project-scoped authoring state that outlives a zone — the collider overlay's
+   visualisation preference and the cast binding — is a direct write instead, because the undo
+   stacks are per zone (D-011, D-022). A zone's *own* state is not in that group: it rides the
+   zone's own stack (D-024, D-025).
 5. **Data-oriented** — editor state is a small record (mode, selection, tool,
    camera, undo stack); no per-field text-buffer bloat.
 
@@ -195,12 +196,14 @@ The undo stacks are per zone (`GameplayState.UndoByZone`), swapped on a zone swi
 edit's undo always applies to the zone it was recorded in — and the cast binding outlives
 every zone, so an assignment parked in one zone's stack would be unreachable from every
 other, and would be discarded outright when that zone is deleted. Assigning to it is a
-direct write, like a zone's player designation and the collider overlay's visualisation
-preference, both of which the code already treats as binding actions rather than scene
-edits. A project-scoped stack is a real gap, but it is a gap for the *editable* surfaces
-that do not exist yet (scenario, advent flags, cue root), not for this one: an assignment
-is two clicks in a list, and re-making it by hand costs less than undoing it. The zone
-registry, which since `specs/034-zone-registry` does exist, answered the same way (D-023).
+direct write, like the collider overlay's visualisation preference, both of which the code
+treats as binding actions rather than scene edits. (A zone's player designation used to be
+cited here as a third; it is neither project-scoped nor, since
+`specs/045-undoable-player-designation`, a direct write — D-025.) A project-scoped stack is a
+real gap, but it is a gap for the *editable* surfaces that do not exist yet (scenario, advent
+flags, cue root), not for this one: an assignment is two clicks in a list, and re-making it by
+hand costs less than undoing it. The zone registry, which since `specs/034-zone-registry` does
+exist, answered the same way (D-023).
 
 Assigning is not the panel's only act. A slot with an asset bound can also **place** it: the panel's
 Spawn control creates an actor in the active zone, drawn with that asset and named for the member,
@@ -256,6 +259,25 @@ rides the zone's own stack — which is why it is a command at all. The same com
 **instantiate** uses: a registration records the light with the environment and the props, and
 putting a registered zone back sets its light inside the one `Batch` that already replaces the
 environment, so one Ctrl+Z restores the previous light along with everything else (spec 035 FR-005).
+
+## Player designation (D-025)
+
+Which of a zone's actors is the avatar is a **zone's own** setting, held as `Zone.Player` — and
+`docs/ARCHITECTURE.md` already says so ("the player designation and the undo history are held per
+zone"). It was nonetheless listed among the direct writes that *outlive a zone* (principle 4, D-022),
+and that grouping was wrong: those are project-scoped surfaces, which have no zone to be undone in,
+where this one lives on the zone and has one.
+
+So it is a command like the zone's light (D-024): `Selection.setPlayer` records one `SetPlayer` step on
+the active zone's own stack, so a designation is one Ctrl+Z, and undoing a re-designation restores the
+*previous actor* rather than no player at all. Binding the actor who already is the player records
+nothing, so the control can be pressed twice without leaving an empty step behind.
+
+The Inspector's actor section also reads the designation back — the action is drawn disabled and
+labelled when the selected actor already is the player. Nothing in the editor showed it before, which
+would have left an undo with no visible effect; the reference's properties panel reads its own
+**"Player Locomotion"** checkbox back the same way. The action is still only *setting*: the reference's
+checkbox can also clear the designation, and this one does not (spec 045 FR-008).
 
 ## Selection and gizmos (D-012, D-015, D-016)
 
