@@ -27,9 +27,6 @@ type GameplayState =
       mutable Editor : EditorState.EditorState
       mutable Editing : bool
       mutable Follow : Systems.CameraFollow
-      // Per-zone undo/redo history, swapped in on a switch so an edit's undo always
-      // applies to the zone it was recorded in.
-      UndoByZone : Dictionary<string, UndoStack>
       // The interactable trigger the player was last inside: what an interact prompt is
       // shown for. Runtime state, set by the trigger system each play frame, never
       // authored, and never read while editing. A `voption`, like `Zone.Player`, so
@@ -55,7 +52,6 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui
       Editor = EditorState.create ()
       Editing = true
       Follow = Systems.createFollow ()
-      UndoByZone = Dictionary()
       InteractableTrigger = ValueNone
       Cue = Cue.Fin
       PlayTime = 0.0 }
@@ -66,16 +62,11 @@ let activeZone (state: GameplayState) : Zone.Zone =
     | true, zone -> zone
     | false, _ -> invalidOp (sprintf "activeZone: '%s' is not a zone" state.ActiveZone)
 
-// After `ActiveZone` has changed: park the outgoing zone's undo stack, load the
-// incoming one, drop the (zone-scoped) selection/drag/nudge, and re-frame the camera
-// on the incoming zone.
-let private enterZone (state: byref<GameplayState>) (outgoing: string) : unit =
-    state.UndoByZone.[outgoing] <- state.Editor.Undo
-    let incoming =
-        match state.UndoByZone.TryGetValue state.ActiveZone with
-        | true, stack -> stack
-        | false, _ -> UndoStack.create ()
-    state.Editor <- { state.Editor with Undo = incoming; Selection = None; Drag = None; NudgeBefore = None }
+// After `ActiveZone` has changed: drop the (zone-scoped) selection/drag/nudge and re-frame the camera on the
+// incoming zone. The undo history is **not** touched: it is one timeline for the whole gameplay state, and the
+// zone moves that carry it are commands on it (spec 048), so nothing is parked and nothing is loaded.
+let private enterZone (state: byref<GameplayState>) : unit =
+    state.Editor <- { state.Editor with Selection = None; Drag = None; NudgeBefore = None }
 
     let zone = activeZone state
     let pivot =
@@ -93,7 +84,7 @@ let private swapZone (shared: SharedState.SharedState) (state: byref<GameplaySta
     do Zone.deactivatePhysics state.Zones.[outgoing] shared.Physics
     state.ActiveZone <- next
     do Zone.activatePhysics state.Zones.[next] shared.Physics
-    enterZone &state outgoing
+    enterZone &state
 
 // Make a listed zone active. A no-op when it already is; an unknown name is a bug.
 let switchZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
@@ -133,4 +124,3 @@ let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (
 
     do Zone.release state.Zones.[name] shared.Physics shared.Gpu.Device
     state.Zones.Remove name |> ignore
-    state.UndoByZone.Remove name |> ignore

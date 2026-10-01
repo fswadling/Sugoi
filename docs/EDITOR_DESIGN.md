@@ -23,11 +23,12 @@ scripts, and assemble scenarios from zones and cast members.
    not the reference's fragmented `Shift+1..6` screens.
 3. **Live-edit** — the editor and runtime share one live cue tree; backtick (`` ` ``)
    toggles between play and edit with no cloning.
-4. **Undo everywhere** — every editor mutation of *scene* state is an undoable command.
-   Session- and project-scoped authoring state that outlives a zone — the collider overlay's
-   visualisation preference and the cast binding — is a direct write instead, because the undo
-   stacks are per zone (D-011, D-022). A zone's *own* state is not in that group: it rides the
-   zone's own stack (D-024, D-025).
+4. **Undo everywhere** — every editor mutation of *scene* state is an undoable command, on **one**
+   history for the gameplay state (`specs/048-unified-undo-stack`). A zone move, an add and a delete are
+   steps on it too, which is what keeps an edit undoable after the developer has moved away from the zone
+   it was made in. Session-scoped authoring state that is not a scene edit — the collider overlay's
+   visualisation preference — is a direct write, and the cast binding (D-022) and zone registry (D-023)
+   still are, though the per-zone reason they were given no longer applies.
 5. **Data-oriented** — editor state is a small record (mode, selection, tool,
    camera, undo stack); no per-field text-buffer bloat.
 
@@ -133,7 +134,10 @@ undo stack. Commands store **values** (not closures):
   field added to a kind is either carried automatically or fails the build until it
   is classified as authored, derived, or runtime. Recording an entity is reading
   that value, and producing a live entity from it happens in one place per kind
-  (`Zone.occupy*`/`spawn*`, which rebuild the body and renderer).
+  (`Zone.occupy*`/`spawn*`, which rebuild the body and renderer). A payload's **type** is defined where the
+  thing it describes is — `ActorState`/`PropState`/`Environment` in `world/Entity.fs`, `LightSettings` in
+  `render/Texture.fs`, the whole of a zone's contents (`ZoneContents`, with `captureZone`/`occupyZone`) in
+  `world/Zone.fs` — so the `Command` union names them rather than owning them.
 - A command may be **several mutations that were one gesture** (`Batch`): applied forwards,
   reversed backwards, so one command stays one undo step for a gesture that has to replace a
   zone's environment and every prop standing in it at once (`specs/035-zone-template-props`).
@@ -164,10 +168,14 @@ undo stack. Commands store **values** (not closures):
 - Continuous edits (gizmo/slider drag) coalesce into a single undo step by
   merging consecutive commands with the same key.
 
-`apply`/`undo` take the active zone plus `SharedState` (which hosts the cast,
+`Command.apply`/`undo` take one zone plus `SharedState` (which hosts the cast,
 scenario library, zone registry, and advent flags), so `Command` depends on
 `SharedState` rather than `GameplayState` — avoiding a `Command → GameplayState →
-EditorState → Command` module cycle.
+EditorState → Command` module cycle. The **history** is one, on the gameplay state:
+`state/History.fs`, compiled after `GameplayState`, carries the state-level runners and the steppers,
+because a step may be a zone move, an add or a delete, which only the state can carry out
+(`specs/048-unified-undo-stack`). The `Command` *type* stays where it is — moving it would be that cyclic
+edge — and only the runners moved.
 
 ## Live-edit and the cue's undo (D-010)
 
@@ -176,10 +184,12 @@ returns the next value, and the cue on the screen shrinks as it runs, down to `F
 "live-edit" is not about keeping a mutable runtime in step with a template — there is no
 mutable runtime to fall out of step with, and no template beside it.
 
-Undo targets the **cue** (`specs/046`); there is no separate run to keep off a stack. A cue
-spans zones while the undo stacks are per zone (`GameplayState.UndoByZone`), so the cue
-cannot ride a zone's stack: the cue editor gives it its own history, the way the cast
-binding (D-022) and the zone registry (D-023) are direct writes rather than zone edits.
+Undo targets the **cue** (`specs/046`); there is no separate run to keep off a stack. When the cue's history
+landed, the undo stacks were per zone (`GameplayState.UndoByZone`) and a cue spans zones, so the cue could not
+ride one. That is no longer so — the history is one, on the gameplay state (`specs/048-unified-undo-stack`) —
+and moving the cue onto it is a follow-on feature rather than a structural blocker. Until then the cue editor
+keeps its own history, as the cast binding (D-022) and the zone registry (D-023) are direct writes rather than
+zone edits.
 
 That history has landed (`specs/047`): the values the cue had before each accepted edit,
 held on `EditorState` and dropped the moment play begins, because the cue a step refers to
@@ -214,11 +224,13 @@ item in the one-selection model, so the Inspector would need a second notion of 
 being edited; and binding every slot through a two-step round trip each is worse than
 doing it in the list, which is where a member's other looks are visible for comparison.
 
-This is why the binding is neither undoable nor routed through the command system at all.
-The undo stacks are per zone (`GameplayState.UndoByZone`), swapped on a zone switch so an
-edit's undo always applies to the zone it was recorded in — and the cast binding outlives
-every zone, so an assignment parked in one zone's stack would be unreachable from every
-other, and would be discarded outright when that zone is deleted. Assigning to it is a
+This was why the binding is neither undoable nor routed through the command system at all. The reason given
+was that the undo stacks were per zone (`GameplayState.UndoByZone`), swapped on a zone switch so an
+edit's undo always applied to the zone it was recorded in — and the cast binding outlives
+every zone, so an assignment parked in one zone's stack was unreachable from every
+other, and was discarded outright when that zone was deleted. **That reason is gone**
+(`specs/048-unified-undo-stack`: one history, no swap), so whether the binding should now be undoable is an
+open question rather than a settled one; the panel is unchanged for now. Assigning to it is a
 direct write, like the collider overlay's visualisation preference, both of which the code
 treats as binding actions rather than scene edits. (A zone's player designation used to be
 cited here as a third; it is neither project-scoped nor, since
@@ -245,9 +257,9 @@ beside it, so a new zone or a new variant needs no panel change, and two zones a
 entirely different variant sets — unlike the cast, where one `Look` union is shared by every member.
 
 The two controls behave differently on purpose, for the reason D-022 gives. **Registering** is a
-direct write: the registry outlives every zone, the undo stacks are per zone, so an entry recorded
-in one zone's stack would be unreachable from the others and discarded when that zone is deleted —
-and a registration is one click to make again by hand. **Instantiating** is a scene edit, and is
+direct write: a registration is one click to make again by hand, and when the undo stacks were per zone an
+entry recorded in one zone's stack was unreachable from the others and discarded when that zone was deleted
+(`specs/048-unified-undo-stack` has since made the history one). **Instantiating** is a scene edit, and is
 undoable through the command that already carries a whole environment (`SetEnvironment`), so putting
 a registered zone into the scene is one step and one Ctrl+Z like anything else placed there.
 

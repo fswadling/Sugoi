@@ -92,6 +92,10 @@
          where the walk reaches them: a zone switch, an exposition, a camera move (research D3).
          It must precede `screen/GameplayScreen.fs`, which ticks it. -->
     <Compile Include="world/CueEngine.fs" />
+    <!-- The one undo history (spec 048). Listed AFTER the gameplay state — the same deliberate inversion
+         the cue engine follows, and the project's second — because a zone step adds, removes and switches a
+         zone. The `Command` type stays above the state; only the runners move here. -->
+    <Compile Include="state/History.fs" />
     <Compile Include="editor/Spawning.fs" />
     <Compile Include="editor/Selection.fs" />
     <Compile Include="editor/Raycast.fs" />

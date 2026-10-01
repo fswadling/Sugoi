@@ -5,10 +5,9 @@ module CastPanel
 // Inspector, because a slot — a member and a look — is not a selectable item in the one-selection
 // model, and there is one for every look of every member (`docs/EDITOR_DESIGN.md`, D-022).
 //
-// Assigning is a direct write to the binding and not a command: the undo stacks are per zone
-// (`GameplayState.UndoByZone`) and the binding outlives every zone, so an assignment recorded in
-// one zone's stack would be unreachable from another and discarded outright when that zone is
-// deleted.
+// Assigning is a direct write to the binding and not a command: a binding is not a scene edit — the cast is not
+// a zone's, and re-making an assignment costs two clicks in a list. Whether it should become an undoable step is
+// open; `docs/EDITOR_DESIGN.md` D-022 has the reasoning.
 //
 // Placing an actor is the opposite kind of act, and takes the gameplay state for it: a bound slot's
 // Spawn goes through `Spawning`, which creates the actor, records the command that reverses it, and

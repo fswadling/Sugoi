@@ -245,14 +245,15 @@ let updateNudge (physics: Physics.World) (input: Input.Input) (state: byref<Game
 
 // Apply one undo/redo step and reconcile the selection: a swapped environment
 // dangles a Part selection. Both the shortcut and the Edit menu route through here
-// so the reconcile can't be missed.
+// so the reconcile can't be missed. The step is one command on the one history —
+// `History` owns which zone it belongs to (spec 048).
 let private undoStep (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo (GameplayState.activeZone state) shared.Physics shared.Assets }
+    do History.undoHistory shared &state
     do Selection.dropStalePartSelection &state
 
-// Redo re-applies the most recently undone command to the zone it came from.
+// Redo re-applies the most recently undone command.
 let private redoStep (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    state.Editor <- { state.Editor with Undo = UndoStack.redo state.Editor.Undo (GameplayState.activeZone state) shared.Physics shared.Assets }
+    do History.redoHistory shared &state
     do Selection.dropStalePartSelection &state
 
 // ── App-level shortcuts ──

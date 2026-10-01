@@ -7,13 +7,11 @@ module ZoneRegistryPanel
 // entirely different sets.
 //
 // What this panel writes is not a scene edit. Registering files the zone against a place as a copy —
-// its environment, its parts and its placed props — and the registry outlives every zone: the undo
-// stacks are per zone (`GameplayState.UndoByZone`), so an entry parked in one zone's stack would be
-// unreachable from every other and discarded outright when that zone is deleted. That is the same
-// reasoning that makes the cast binding a direct write (`docs/EDITOR_DESIGN.md`, D-022). Instantiating
+// its environment, its parts and its placed props — and a registration is one click to make again by hand, so
+// registering is a direct write rather than a command; whether it should become an undoable step is open. That
+// is the same reasoning the cast binding rests on (`docs/EDITOR_DESIGN.md`, D-023). Instantiating
 // is the opposite kind of act and is undoable, through the command that already carries a whole
 // environment.
-// act and is undoable, through the command that already carries a whole environment.
 
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
     do ImGui.beginWindow("Zone Registry", System.IntPtr.Zero, 0) |> ignore

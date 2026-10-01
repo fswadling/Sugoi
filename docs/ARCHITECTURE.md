@@ -89,7 +89,9 @@ physics world: a switch detaches the outgoing zone with `BodyInterface.RemoveBod
 and re-attaches the incoming one with `AddBody`, then re-optimises the broadphase, so
 inactive zones neither collide nor integrate without rebuilding any shape or body.
 Deleting a zone destroys its bodies and releases its GPU resources. The player
-designation and the undo history are held per zone.
+designation is held per zone; the **undo history is one**, on the gameplay screen
+(`specs/048-unified-undo-stack`), because a zone move, an add and a delete are steps on the same timeline
+as an entity edit.
 
 ## Systems
 

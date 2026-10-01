@@ -1,9 +1,9 @@
 module GameplayStateTests
 
 // Zone container behaviour: add/select/delete, name validation, physics
-// detach/attach across a switch, per-zone undo, and per-zone player designation.
-// Headless: the prop/part render paths never touch the GPU device, so a hand-built
-// asset manager drives the real `Zone`/`GameplayState` code without a GPU.
+// detach/attach across a switch, the one undo history (spec 048), and per-zone player
+// designation. Headless: the prop/part render paths never touch the GPU device, so a
+// hand-built asset manager drives the real `Zone`/`GameplayState` code without a GPU.
 
 open Xunit
 open System
@@ -209,7 +209,6 @@ let ``deleting an inactive zone releases it and leaves the active zone alone`` (
     GameplayState.deleteZone shared &state "classroom"
     Assert.False(state.Zones.ContainsKey "classroom")
     Assert.Equal("main", state.ActiveZone)
-    Assert.False(state.UndoByZone.ContainsKey "classroom")
     Assert.Equal(0, classroom.BodyToEntity.Count)
 
 [<Fact>]
@@ -221,10 +220,12 @@ let ``deleting the active zone makes another zone active`` () =
     Assert.Equal("main", state.ActiveZone)
     Assert.False(state.Zones.ContainsKey "classroom")
 
-// ── Per-zone undo ──
+// ── The one undo history (spec 048) ──
 
 [<Fact>]
-let ``switching zones swaps the per-zone undo history`` () =
+let ``switching zones leaves the one undo history alone`` () =
+    // The per-zone swap is gone: an edit recorded in one zone is still on the history after moving to another,
+    // which is what lets it be undone later (see the cross-zone case below).
     let shared = sharedState (propAssets ())
     let mutable state = newState ()
     GameplayState.addZone shared &state "classroom"
@@ -234,7 +235,7 @@ let ``switching zones swaps the per-zone undo history`` () =
     Assert.False(List.isEmpty state.Editor.Undo.Applied)
 
     GameplayState.switchZone shared &state "main"
-    Assert.True(List.isEmpty state.Editor.Undo.Applied)
+    Assert.False(List.isEmpty state.Editor.Undo.Applied) // nothing parked, nothing loaded
 
     GameplayState.switchZone shared &state "classroom"
     Assert.False(List.isEmpty state.Editor.Undo.Applied)
@@ -262,35 +263,214 @@ let ``a player designation is per zone and never aliases a same-index actor else
     Assert.True(Systems.isPlayerLive classroom)
 
 [<Fact>]
-let ``a designation is undone in the zone it was made in, not the one on screen`` () =
+let ``an edit in one zone is undone after a move, in the order the edits were made`` () =
+    // The one history (spec 048): switching zones does not park or discard anything, and the moves themselves
+    // are steps — so an edit made before moving away is still reachable afterwards.
     let shared = sharedState (propAssets ())
     let mutable state = newState ()
 
-    // A designation in `main`, recorded on main's own stack.
+    // An edit in `main`.
     let main = GameplayState.activeZone state
     let mainActor = main.Actors.Add(actor "player")
-    let designate = SetPlayer (ValueNone, ValueSome mainActor)
-    do apply main shared.Physics shared.Assets designate
-    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo designate }
-
-    // And an unrelated edit in `classroom`, recorded on its own.
-    GameplayState.addZone shared &state "classroom"
-    let classroom = GameplayState.activeZone state
-    let before = classroom.Light
-    let relight = SetLight (before, { before with Pitch = 20.0f })
-    do apply classroom shared.Physics shared.Assets relight
-    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo relight }
-
-    // An undo while `classroom` is on screen takes back classroom's own edit ...
-    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo classroom shared.Physics shared.Assets }
-    Assert.Equal(before, classroom.Light)
-    // ... and cannot reach across to `main`'s designation.
+    do History.commit shared &state (SetPlayer (ValueNone, ValueSome mainActor))
     Assert.Equal(ValueSome mainActor, main.Player)
 
-    // Switching back brings main's own history with it, where the designation is still recorded.
-    GameplayState.switchZone shared &state "main"
-    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo main shared.Physics shared.Assets }
+    // A move to `classroom`, itself a step.
+    GameplayState.addZone shared &state "classroom"
+    do History.commit shared &state (ZoneMove ("main", "classroom"))
+    let classroom = GameplayState.activeZone state
+
+    // An edit in `classroom`.
+    let before = classroom.Light
+    do History.commit shared &state (SetLight (before, { before with Pitch = 20.0f }))
+    Assert.NotEqual(before, classroom.Light)
+
+    // The first undo takes back classroom's edit, with classroom still on screen.
+    do History.undoHistory shared &state
+    Assert.Equal(before, classroom.Light)
+    Assert.Equal("classroom", state.ActiveZone)
+
+    // The second steps back over the move, carrying the view to `main` — where the first edit is now reachable,
+    // which is the whole point: no edit is stranded by moving away.
+    do History.undoHistory shared &state
+    Assert.Equal("main", state.ActiveZone)
+    Assert.Equal(ValueSome mainActor, main.Player)
+
+    // The third takes back the edit made in `main`.
+    do History.undoHistory shared &state
     Assert.True(ValueOption.isNone main.Player)
+
+    // Redo replays them in the order they were made, with the view following.
+    do History.redoHistory shared &state
+    Assert.Equal(ValueSome mainActor, main.Player)
+    Assert.Equal("main", state.ActiveZone)
+    do History.redoHistory shared &state
+    Assert.Equal("classroom", state.ActiveZone)
+    do History.redoHistory shared &state
+    Assert.NotEqual(before, classroom.Light)
+
+[<Fact>]
+let ``each move is its own step, and moving away parks nothing`` () =
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    GameplayState.addZone shared &state "classroom" // direct here; US2 makes the editor's add a step
+    do History.commit shared &state (ZoneMove ("classroom", "main"))
+    Assert.Equal("main", state.ActiveZone)
+
+    // Exactly one step: the move, and nothing parked by the switch it caused.
+    Assert.Equal(1, List.length state.Editor.Undo.Applied)
+
+    do History.undoHistory shared &state
+    Assert.Equal("classroom", state.ActiveZone)
+    Assert.Equal(0, List.length state.Editor.Undo.Applied)
+    Assert.Equal(1, List.length state.Editor.Undo.Redo)
+
+    do History.redoHistory shared &state
+    Assert.Equal("main", state.ActiveZone)
+
+[<Fact>]
+let ``adding a zone and undoing it leaves the zones and the active zone as they were`` () =
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    let before = state.Zones.Count
+
+    do History.commit shared &state (ZoneAdd ("main", "atrium"))
+    Assert.True(state.Zones.ContainsKey "atrium")
+    Assert.Equal("atrium", state.ActiveZone)
+
+    // One undo takes back the add **and** the zone change it caused: one click, one step (research D3).
+    do History.undoHistory shared &state
+    Assert.False(state.Zones.ContainsKey "atrium")
+    Assert.Equal("main", state.ActiveZone)
+    Assert.Equal(before, state.Zones.Count)
+
+    do History.redoHistory shared &state
+    Assert.True(state.Zones.ContainsKey "atrium")
+    Assert.Equal("atrium", state.ActiveZone)
+
+[<Fact>]
+let ``deleting a zone and undoing restores its entities, environment and light`` () =
+    let assets = roomAssets ()
+    // A placed prop asset too, so the round trip covers a prop as well as the environment's own part.
+    assets.Props.["crate"] <- envAsset "crate" [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
+    let shared = sharedState assets
+    let mutable state = newState ()
+
+    GameplayState.addZone shared &state "classroom"
+    let classroom = GameplayState.activeZone state
+    let environment = Zone.loadEnvironment classroom shared.Physics shared.Assets "room"
+    let partRef' = partRef environment.Epoch 0u 0u
+    let propRef' = Zone.spawnProp classroom shared.Physics shared.Assets (entity "crate") "crate"
+    let waypointRef' = Zone.spawnWaypoint classroom (entity "path")
+    let triggerRef' = Zone.spawnTrigger classroom (entity "area")
+    let light = { classroom.Light with Pitch = 33.0f }
+    classroom.Light <- light
+    Assert.True(Zone.isAlive classroom partRef')
+
+    // Delete it: one step, carrying everything needed to put it back.
+    do History.commit shared &state (ZoneDelete ("classroom", "classroom", Zone.captureZone classroom))
+    Assert.False(state.Zones.ContainsKey "classroom")
+    Assert.Equal("main", state.ActiveZone)
+
+    // Undo: the zone is back, active again, with its entities at the **same refs** — so a ref held before the
+    // delete still resolves (FR-009) — and the same environment, light and player designation.
+    do History.undoHistory shared &state
+    Assert.True(state.Zones.ContainsKey "classroom")
+    Assert.Equal("classroom", state.ActiveZone)
+    let restored = state.Zones.["classroom"]
+    Assert.True(Zone.isAlive restored partRef')
+    Assert.True(Zone.isAlive restored propRef')
+    Assert.True(Zone.isAlive restored waypointRef')
+    Assert.True(Zone.isAlive restored triggerRef')
+    Assert.Equal(light, restored.Light)
+
+    // Redo deletes it again.
+    do History.redoHistory shared &state
+    Assert.False(state.Zones.ContainsKey "classroom")
+    Assert.Equal("main", state.ActiveZone)
+
+[<Fact>]
+let ``deleting an inactive zone and undoing leaves the active zone alone`` () =
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    GameplayState.addZone shared &state "classroom"
+    GameplayState.switchZone shared &state "main"
+
+    // `previous` is the zone active at the time — `main` — because the deleted zone is not the active one.
+    do History.commit shared &state (ZoneDelete ("main", "classroom", Zone.captureZone state.Zones.["classroom"]))
+    Assert.False(state.Zones.ContainsKey "classroom")
+    Assert.Equal("main", state.ActiveZone)
+
+    do History.undoHistory shared &state
+    Assert.True(state.Zones.ContainsKey "classroom")
+    Assert.Equal("main", state.ActiveZone) // restored, but not switched to
+
+    do History.redoHistory shared &state
+    Assert.False(state.Zones.ContainsKey "classroom")
+    Assert.Equal("main", state.ActiveZone)
+
+[<Fact>]
+let ``a zone's contents carry its actors and its player designation`` () =
+    // SC-003's actor clause, at the half the headless envelope reaches. `captureZone` reads the actor's ref and
+    // authored state and the designation; *restoring* an actor is the other half and needs a renderer, which
+    // `ActorRender.create` builds from the GPU device (`SDL.CreateGPUBuffer`) — so a restore is outside this
+    // envelope, and `quickstart.md`'s step 3 is where the restored actor is seen by hand.
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    let handle = zone.Actors.Add(actor "pupil")
+    zone.Player <- ValueSome handle
+
+    let contents = Zone.captureZone zone
+    Assert.Equal(1, List.length contents.Actors)
+    let ref', captured = List.head contents.Actors
+    Assert.Equal(handle.Index, ref'.Index)
+    Assert.Equal((zone.Actors.Get handle).State, captured)
+    Assert.Equal(ValueSome handle, contents.Player)
+
+    // And `occupyZone` puts the designation back — a field of its own, which needs no actor to restore.
+    let target = Zone.create ()
+    do Zone.occupyZone target shared.Physics shared.Assets { contents with Actors = [] }
+    Assert.Equal(ValueSome handle, target.Player)
+
+[<Fact>]
+let ``undo and redo with nothing on their side are no-ops`` () =
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    let activeZoneAtStart = state.ActiveZone
+
+    do History.undoHistory shared &state
+    do History.redoHistory shared &state
+    do History.undoHistory shared &state
+
+    Assert.True(List.isEmpty state.Editor.Undo.Applied)
+    Assert.True(List.isEmpty state.Editor.Undo.Redo)
+    Assert.Equal(activeZoneAtStart, state.ActiveZone)
+
+[<Fact>]
+let ``undoing through the whole history returns the project to where it started`` () =
+    let shared = sharedState (roomAssets ())
+    let mutable state = newState ()
+    let main = GameplayState.activeZone state
+    let lightAtStart = main.Light
+
+    // A session that touches every kind of step: add a zone, move between zones, edit one, delete the added one.
+    do History.commit shared &state (ZoneAdd ("main", "atrium"))
+    do History.commit shared &state (ZoneMove ("atrium", "main"))
+    do History.commit shared &state (SetLight (lightAtStart, { lightAtStart with Pitch = 10.0f }))
+    do History.commit shared &state (ZoneDelete ("main", "atrium", Zone.captureZone state.Zones.["atrium"]))
+    Assert.False(state.Zones.ContainsKey "atrium")
+
+    // Undo the whole session: the project is exactly as it began, zones and entities included.
+    for _ in 1 .. 4 do History.undoHistory shared &state
+    Assert.Equal(1, state.Zones.Count)
+    Assert.Equal("main", state.ActiveZone)
+    Assert.Equal(lightAtStart, main.Light)
+    Assert.True(List.isEmpty state.Editor.Undo.Applied)
+
+    // A new edit after the undos clears the redo side.
+    do History.commit shared &state (SetLight (lightAtStart, { lightAtStart with Pitch = 5.0f }))
+    Assert.True(List.isEmpty state.Editor.Undo.Redo)
 
 [<Fact>]
 let ``switching re-frames the camera on the incoming zone`` () =

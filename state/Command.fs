@@ -59,6 +59,17 @@ type Command =
     // the delete that preceded it cannot come apart. One entry on the stack, like any other command,
     // and a step that puts a zone back exactly is what needs it (spec 035 FR-005).
     | Batch of Commands : Command list
+    // The active zone moved (spec 048). The one case that is not a zone edit: recording the moves is what keeps
+    // the active zone the one the step being undone belongs to, so every other command may go on naming no zone
+    // and acting on whatever zone is active, and the history may be one timeline rather than one per zone.
+    | ZoneMove of Previous : string * Next : string
+    // A zone was added, and made active (spec 048). `Previous` is the zone active before the add, which its undo
+    // restores: an add and the zone change it causes are **one** step, so one click is one undo.
+    | ZoneAdd of Previous : string * Name : string
+    // A zone was deleted (spec 048), carrying everything needed to put it back. `Previous` is the zone active
+    // before the delete — the deleted zone itself when it was the active one, so an undo returns the developer
+    // to where they were. Reverses `specs/024` Decision 11's "deletion is not an undoable edit".
+    | ZoneDelete of Previous : string * Name : string * Contents : ZoneContents
 
 // ── apply / undo a single command ──
 
@@ -101,6 +112,12 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
         zone.Light <- next
     | SetPlayer (_, next) ->
         zone.Player <- next
+    // A zone move is not an edit to one zone, so the zone-level runner cannot carry it out: `History.apply`
+    // does, against the state (spec 048). Reaching one here is a broken invariant, not a value to ignore.
+    | ZoneMove _
+    | ZoneAdd _
+    | ZoneDelete _ ->
+        invalidOp "Command.apply: a zone step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         for cmd in commands do apply zone physics assets cmd
 
@@ -143,6 +160,10 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
         zone.Light <- previous
     | SetPlayer (previous, _) ->
         zone.Player <- previous
+    | ZoneMove _
+    | ZoneAdd _
+    | ZoneDelete _ ->
+        invalidOp "Command.undo: a zone step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         // Backwards, so the reversal of a mutation happens before the reversal of what it depended on.
         for cmd in List.rev commands do undo zone physics assets cmd
@@ -185,6 +206,9 @@ module UndoStack =
         | Some merged -> { t with Applied = merged :: rest }
         | None -> { Applied = cmd :: t.Applied; Redo = [] }
 
+    // Stepping a stack against **one** zone. The editor does not use these: a step on the gameplay state's one
+    // history may be a zone move, an add or a delete, which only `History` can carry out (spec 048). These stay
+    // because they need no gameplay state at all, which is what the zone-level suite drives them with.
     let undo (t: UndoStack) (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) : UndoStack =
         match t.Applied with
         | [] -> t

@@ -746,6 +746,59 @@ let setEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetMana
     | Some incoming -> do activateEnvironment zone world assets incoming
     | None -> ()
 
+// ── A zone's authored contents, recorded and put back ──
+//
+// The whole of a zone's authored state as one value, for the one caller that needs it: the delete step (spec 048).
+// It lives here rather than beside the command that carries it, because it is a zone's record and nothing else is:
+// every other command payload is defined where the thing it describes is (`ActorState`, `PropState`, `Environment`
+// in `Entity.fs`; `LightSettings` in `Texture.fs`), and `ZoneTemplate` — the same kind of composite, recorded for
+// a different purpose — is in `world/` too.
+
+/// The authored contents of one zone: what a delete keeps so the zone can be put back, and nothing a body, a
+/// renderer or a batch holds. Each entity is its ref paired with the same authored value a `*Create` carries, so a
+/// restore rebuilds it through the one path that builds live entities at all (`occupy*` below).
+type ZoneContents =
+    { Actors : (EntityRef * ActorState) list
+      Props : (EntityRef * PropState) list
+      Waypoints : (EntityRef * Waypoint) list
+      Triggers : (EntityRef * TriggerState) list
+      // The environment carries its own parts (and their refs), so a part is not listed separately: loading the
+      // value back restores them, the property `SetEnvironment`'s undo already relies on.
+      Environment : Environment option
+      Light : Texture.LightSettings
+      Player : Handle voption }
+
+/// Take a zone's contents. Authored state only: the same maps the per-kind `capture*` readers above answer from.
+let captureZone (zone: Zone) : ZoneContents =
+    let actors = ResizeArray<EntityRef * ActorState>(int zone.Actors.Count)
+    zone.Actors.IteriAlive (fun index generation actor -> actors.Add(actorRef index generation, actor.State))
+    let props = ResizeArray<EntityRef * PropState>(int zone.Props.Count)
+    zone.Props.IteriAlive (fun index generation prop -> props.Add(propRef index generation, prop.State))
+    let waypoints = ResizeArray<EntityRef * Waypoint>(int zone.Waypoints.Count)
+    zone.Waypoints.IteriAlive (fun index generation waypoint -> waypoints.Add(waypointRef index generation, waypoint))
+    let triggers = ResizeArray<EntityRef * TriggerState>(int zone.Triggers.Count)
+    zone.Triggers.IteriAlive (fun index generation trigger -> triggers.Add(triggerRef index generation, trigger.State))
+    { Actors = List.ofSeq actors
+      Props = List.ofSeq props
+      Waypoints = List.ofSeq waypoints
+      Triggers = List.ofSeq triggers
+      Environment = zone.Environment
+      Light = zone.Light
+      Player = zone.Player }
+
+/// Put recorded contents into a zone, through the same calls an entity create makes, so a restored zone is built by
+/// the one path that builds live entities. The zone must be **active**: `occupy*` creates a body and the body joins
+/// the simulation as it is created, so only the active zone's bodies may be built — the caller makes the zone active
+/// first (`History.undo`).
+let occupyZone (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (contents: ZoneContents) : unit =
+    do setEnvironment zone physics assets contents.Environment
+    for ref, actor in contents.Actors do occupyActor zone physics assets ref actor
+    for ref, prop in contents.Props do occupyProp zone physics assets ref prop
+    for ref, waypoint in contents.Waypoints do occupyWaypoint zone ref waypoint
+    for ref, trigger in contents.Triggers do occupyTrigger zone ref trigger
+    zone.Light <- contents.Light
+    zone.Player <- contents.Player
+
 // Load an environment asset, replacing any previous one, and return the built value
 // so the caller's `SetEnvironment` command can retain it. Each load takes a fresh
 // epoch, so refs from a previously loaded environment never resolve against this one.

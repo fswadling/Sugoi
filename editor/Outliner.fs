@@ -7,6 +7,7 @@ module Outliner
 open System.Numerics
 open System.Text
 open Entity
+open Command
 
 // The pending zone name in the text buffer, up to the first NUL byte; "" when empty.
 let private zoneName (buf: byte[]) : string =
@@ -60,13 +61,21 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             if state.Zones.ContainsKey name then
                 let marker = if name = state.ActiveZone then "* " else "  "
                 // A click always makes the zone the Inspector's subject, whether it switches or is
-                // the zone already in use (spec 043, FR-003).
+                // the zone already in use (spec 043, FR-003). A click that *changes* the zone is a step on the
+                // one history — recording the moves is what lets an edit be undone after moving away, because
+                // it keeps the active zone the one the step being undone belongs to (spec 048). Clicking the
+                // zone already active records nothing.
                 if ImGui.button(sprintf "%s%s##zone_%s" marker name name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    GameplayState.selectZone shared &state name
+                    if name = state.ActiveZone then GameplayState.selectZone shared &state name
+                    else History.commit shared &state (ZoneMove (state.ActiveZone, name))
                 if state.Zones.Count > 1 then
                     do ImGui.sameLine(0.0f, -1.0f)
                     if ImGui.smallButton(sprintf "Del##delzone_%s" name) then
-                        GameplayState.deleteZone shared &state name
+                        // One step, carrying the zone's contents so the delete can be taken back (spec 048). The
+                        // contents are read *before* the commit removes the zone, and `previous` is the zone
+                        // active right now — the deleted zone itself when it is the active one, so an undo puts
+                        // the developer back where they were.
+                        History.commit shared &state (ZoneDelete (state.ActiveZone, name, Zone.captureZone state.Zones.[name]))
 
         do ImGui.text("")
         do ImGui.inputText("##newzone", state.Editor.NewZoneName, unativeint state.Editor.NewZoneName.Length, 0, System.IntPtr.Zero, System.IntPtr.Zero) |> ignore
@@ -74,7 +83,8 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         let canAdd = pending <> "" && not (state.Zones.ContainsKey pending)
         do ImGui.beginDisabled(not canAdd)
         if ImGui.button("Add Zone", ImGui.ImVec2(0.0f, 0.0f)) then
-            GameplayState.addZone shared &state pending
+            // One step: the add and the zone change it causes (the new zone becomes active) are one undo.
+            History.commit shared &state (ZoneAdd (state.ActiveZone, pending))
             clearName state.Editor.NewZoneName
         do ImGui.endDisabled()
         do ImGui.text("")

@@ -129,7 +129,8 @@ fsharp-game/
 │   ├── Entity.fs               #   entity kinds, EntityRef, transform, base
 │   ├── EnvironmentBatch.fs     #   per-zone static-scene instancing batch
 │   ├── ZoneTemplate.fs         #   a registered zone's authored record
-│   ├── Zone.fs                 #   zone + an Environment owning its parts map; owns its batch
+│   ├── Zone.fs                 #   zone + an Environment owning its parts map; owns its batch; the authored
+│   │                           #     contents a delete carries, `ZoneContents` (spec 048)
 │   ├── ZoneRegistry.fs         #   the game's places, and the zone registered at each
 │   ├── Assets.fs               #   asset manager + manifests
 │   ├── Actor.fs                #   IQM model + morphs
@@ -152,7 +153,8 @@ fsharp-game/
 │   ├── SharedState.fs          #   cross-screen: GPU context, assets, physics
 │   ├── Command.fs              #   undoable editor commands
 │   ├── EditorState.fs          #   selection + transient UI state
-│   └── GameplayState.fs        #   name-keyed zones + active zone, view, and render buffers
+│   ├── GameplayState.fs        #   name-keyed zones + active zone, view, and render buffers
+│   └── History.fs              #   the one undo history: apply/undo/commit + the steppers (spec 048)
 ├── screen/                     # screens (composed last; consume editor)
 │   ├── ScreenManager.fs
 │   ├── MainMenuScreen.fs
