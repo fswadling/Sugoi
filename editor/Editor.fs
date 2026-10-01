@@ -369,10 +369,10 @@ let update (shared: SharedState.SharedState) (frame: Screen.Frame) (state: byref
     // Backtick toggles edit/play, unless the user is typing in a text field.
     if Input.isPressed Input.Key.Backtick frame.Input && not (ImGui.wantTextInput()) then
         state.Editing <- not state.Editing
-        // Play begins: the cue's own history goes with it (spec 047 FR-013) — the cue a step refers to is
-        // about to advance, so a step could no longer be applied cleanly.
+        // Play begins: the cue's own *steps* go with it (spec 049 FR-005) — the cue advances while playing, so a
+        // step recorded against it could no longer be applied cleanly. Every zone step stays (spec 048).
         if not state.Editing then
-            state.Editor <- { state.Editor with CueHistory = CueHistory.create () }
+            History.pruneCueSteps &state
 
     if not state.Editing then Screen.ScreenTransition.None else
 

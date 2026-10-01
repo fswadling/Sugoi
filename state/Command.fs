@@ -70,6 +70,12 @@ type Command =
     // before the delete — the deleted zone itself when it was the active one, so an undo returns the developer
     // to where they were. Reverses `specs/024` Decision 11's "deletion is not an undoable edit".
     | ZoneDelete of Previous : string * Name : string * Contents : ZoneContents
+    // The screen's cue was edited (spec 049). It is not a zone's — a cue spans zones (spec 046 FR-013) — so, like
+    // a zone step, it is carried out against the gameplay state and not by the zone-level runner. The payload is
+    // the two cue values: a cue is immutable, so a snapshot is a reference, and that is exactly what the cue's
+    // own history stored before this feature. `Cue.Cue` is module-qualified because the module and the type share
+    // the name; `state/EditorState.fs` writes it the same way.
+    | SetCue of Previous : Cue.Cue * Next : Cue.Cue
 
 // ── apply / undo a single command ──
 
@@ -113,11 +119,13 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
     | SetPlayer (_, next) ->
         zone.Player <- next
     // A zone move is not an edit to one zone, so the zone-level runner cannot carry it out: `History.apply`
-    // does, against the state (spec 048). Reaching one here is a broken invariant, not a value to ignore.
+    // does, against the state (spec 048). The cue is the same kind of step (spec 049) — it is not a zone's
+    // either. Reaching one of these here is a broken invariant, not a value to ignore.
     | ZoneMove _
     | ZoneAdd _
-    | ZoneDelete _ ->
-        invalidOp "Command.apply: a zone step is on the gameplay state's history, not a zone edit"
+    | ZoneDelete _
+    | SetCue _ ->
+        invalidOp "Command.apply: a state-level step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         for cmd in commands do apply zone physics assets cmd
 
@@ -162,8 +170,9 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
         zone.Player <- previous
     | ZoneMove _
     | ZoneAdd _
-    | ZoneDelete _ ->
-        invalidOp "Command.undo: a zone step is on the gameplay state's history, not a zone edit"
+    | ZoneDelete _
+    | SetCue _ ->
+        invalidOp "Command.undo: a state-level step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         // Backwards, so the reversal of a mutation happens before the reversal of what it depended on.
         for cmd in List.rev commands do undo zone physics assets cmd

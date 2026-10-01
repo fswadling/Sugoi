@@ -1,9 +1,10 @@
 module GameplayStateTests
 
 // Zone container behaviour: add/select/delete, name validation, physics
-// detach/attach across a switch, the one undo history (spec 048), and per-zone player
-// designation. Headless: the prop/part render paths never touch the GPU device, so a
-// hand-built asset manager drives the real `Zone`/`GameplayState` code without a GPU.
+// detach/attach across a switch, the one undo history (spec 048) and the cue's steps on
+// it (spec 049), and per-zone player designation. Headless: the prop/part render paths
+// never touch the GPU device, so a hand-built asset manager drives the real
+// `Zone`/`GameplayState` code without a GPU.
 
 open Xunit
 open System
@@ -239,6 +240,74 @@ let ``switching zones leaves the one undo history alone`` () =
 
     GameplayState.switchZone shared &state "classroom"
     Assert.False(List.isEmpty state.Editor.Undo.Applied)
+
+// ── The cue's steps on the one history (spec 049) ──
+
+[<Fact>]
+let ``a play prunes the cue's steps and leaves a zone step undoable`` () =
+    // SC-003 / FR-005, FR-010. A `SetCue` step is stale the moment the cue advances, so it goes from the
+    // history on the way into play — while a zone step is unaffected and must survive.
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    let lightBefore = zone.Light
+    let lightAfter = { lightBefore with Pitch = 20.0f }
+
+    do History.commit shared &state (SetCue (Cue.Fin, Cue.Wait 1.0))
+    do History.commit shared &state (SetLight (lightBefore, lightAfter))
+    Assert.Equal(2, List.length state.Editor.Undo.Applied)
+    Assert.Equal(lightAfter, zone.Light)
+
+    do History.pruneCueSteps &state
+
+    // The cue contributes no step, and the zone step is still on the history.
+    Assert.Equal(1, List.length state.Editor.Undo.Applied)
+    match state.Editor.Undo.Applied with
+    | [ SetLight _ ] -> ()
+    | other -> Assert.Fail(sprintf "expected the zone step to survive the prune, got %A" other)
+
+    do History.undoHistory shared &state
+    Assert.Equal(lightBefore, zone.Light)
+
+[<Fact>]
+let ``a pruned cue step goes from the redo side too`` () =
+    // FR-005: both sides. A cue edit taken back is still a cue step, and is dropped all the same.
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    do History.commit shared &state (SetCue (Cue.Fin, Cue.Wait 1.0))
+    do History.undoHistory shared &state
+    Assert.Equal(1, List.length state.Editor.Undo.Redo) // the cue step, undone
+
+    do History.pruneCueSteps &state
+    Assert.Equal(0, List.length state.Editor.Undo.Applied)
+    Assert.Equal(0, List.length state.Editor.Undo.Redo)
+
+[<Fact>]
+let ``pruning a history with no cue steps changes nothing`` () =
+    let mutable state = newState ()
+    do History.pruneCueSteps &state
+    Assert.Equal(0, List.length state.Editor.Undo.Applied)
+    Assert.Equal(0, List.length state.Editor.Undo.Redo)
+
+[<Fact>]
+let ``a play with no cue edits leaves the history exactly as it was`` () =
+    // US3/AC2. The prune removes cue steps and nothing else, so a history that holds only zone steps is
+    // untouched — in count, in order, and on both sides.
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    let light = zone.Light
+
+    do History.commit shared &state (SetLight (light, { light with Pitch = 10.0f }))
+    GameplayState.addZone shared &state "classroom" // direct here; the editor records a `ZoneAdd`
+    do History.commit shared &state (ZoneMove ("classroom", "main"))
+    do History.undoHistory shared &state // so the redo side is non-empty too
+
+    do History.pruneCueSteps &state
+
+    match state.Editor.Undo.Applied, state.Editor.Undo.Redo with
+    | [ SetLight _ ], [ ZoneMove ("classroom", "main") ] -> ()
+    | applied, redo -> Assert.Fail(sprintf "expected the history untouched, got applied %A, redo %A" applied redo)
 
 // ── Per-zone player designation ──
 

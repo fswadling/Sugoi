@@ -1,21 +1,30 @@
 module CuePanelTests
 
 // The cue panel's readable half, asserted headlessly (spec 047): the rows it derives, the rule that decides
-// what is read-only, the paths that address a node, and the cue's own history. Nothing here opens a window, a
-// GPU or a device — the panel's drawing is the walkthrough's business, and `FR-007`'s pure function is the
-// whole reason what it *shows* can be asserted at all.
+// what is read-only, the paths that address a node. Nothing here opens a window, a GPU or a device — the
+// panel's drawing is the walkthrough's business, and `FR-007`'s pure function is the whole reason what it
+// *shows* can be asserted at all.
+//
+// The panel's write path and the cue's edits on the one undo history (spec 049) are asserted here too: an
+// accepted edit is one `SetCue` step on `state.Editor.Undo`, and `History`'s steppers take it back and re-apply
+// it beside a scene step.
 //
 // Nothing compares two `Cue` values: a cue holds an `FDeque` and the engine deliberately answers "same value"
 // by reference identity, so the suite reads cues through `describe` instead — the same view of a cue a person
 // has.
 
 open Xunit
+open System
+open System.Collections.Generic
 open System.Numerics
 open Prime
+open Command
 open Cue
 open CueTree
 open EditorState
 open CueEditor
+open Entity
+open Physics
 
 // ── fixtures ──
 
@@ -54,6 +63,38 @@ let private lockedPaths (cue: Cue) : int list list =
 /// so the panel's write path is assertable with no device.
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
+
+/// A headless `SharedState` for the history cases: a real physics world and a device-free, empty asset manager.
+/// Nothing here spawns an entity — the transform below acts on an actor placed directly in the zone, and a cue
+/// step touches no resource — so only the physics world is ever read.
+let private sharedState () : SharedState.SharedState =
+    let assets : Assets.AssetManager =
+        { Device = IntPtr.Zero
+          Actors = Dictionary()
+          Props = Dictionary()
+          Environments = Dictionary()
+          Textures = [] }
+
+    { Gpu = Unchecked.defaultof<Gpu.Gpu>
+      Assets = assets
+      Cast = { Casting.Bindings = Dictionary() }
+      ZoneRegistry = ZoneRegistry.create ()
+      Physics = Physics.create () }
+
+/// An actor placed directly in a zone, its renderer left default: enough for a `Transform` step, which rebuilds
+/// only the physics body and the authored state.
+let private placedActor (name: string) : Actor =
+    let baseEntity : Entity =
+        { Name = name
+          Transform = transformIdentity
+          Enabled = true
+          Visible = true
+          Selectable = true
+          Draggable = true }
+
+    { State = { Base = baseEntity; AssetId = ""; ShowCollider = false }
+      Physics = None
+      Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 
 // ══════ the rows (FR-002, FR-004, SC-001) ══════
 
@@ -250,47 +291,11 @@ let ``only the text-bearing kinds carry text, and writing it replaces exactly th
     Assert.Equal("Zone(atrium)", describe (withText (SwitchZone "classroom") "atrium"))
     Assert.True(raises (fun () -> withText (Wait 1.0) "x" |> ignore))
 
-// ══════ the cue's own history (FR-013, SC-008) ══════
+// ══════ the cue's edits on the one history (spec 049: FR-001, FR-004, SC-001, SC-004) ══════
 
 [<Fact>]
-let ``the cue's history takes an edit back and puts it forward again`` () =
-    let before = seqOf [ Wait 1.0 ]
-    let after = seqOf [ Wait 2.0 ]
-    let pushed = CueHistory.push before (CueHistory.create ())
-
-    let restored, undone = CueHistory.undo after pushed
-    Assert.Equal(describe before, describe restored)
-
-    let redone, redoneHistory = CueHistory.redo restored undone
-    Assert.Equal(describe after, describe redone)
-    Assert.True(List.isEmpty redoneHistory.Redo)
-    Assert.Equal(1, List.length redoneHistory.Applied)
-
-[<Fact>]
-let ``nothing to take back or put forward is a no-op`` () =
-    let empty = CueHistory.create ()
-    let cue, history = CueHistory.undo (Wait 1.0) empty
-    Assert.Equal("Wait 1", describe cue)
-    Assert.True(List.isEmpty history.Applied)
-    let cue', history' = CueHistory.redo cue empty
-    Assert.Equal("Wait 1", describe cue')
-    Assert.True(List.isEmpty history'.Redo)
-
-[<Fact>]
-let ``an accepted edit clears the redo side`` () =
-    let one = CueHistory.push (Wait 1.0) (CueHistory.create ())
-    let _, undone = CueHistory.undo (Wait 2.0) one
-    Assert.False(List.isEmpty undone.Redo)
-    // a new edit is a new branch: what was taken back is no longer reachable
-    let two = CueHistory.push (Wait 3.0) undone
-    Assert.True(List.isEmpty two.Redo)
-
-// ══════ the panel's own write path (SC-007, SC-008) ══════
-
-[<Fact>]
-let ``the panel's write path changes the screen's cue once and undoes it exactly`` () =
-    // The glue between the pieces: `commit` writes `state.Cue` and records one step, and `undo`/`redo` walk
-    // that step. Asserting `withAt` and `CueHistory` separately is not the same claim (SC-007, SC-008).
+let ``one accepted edit is one step, and the steppers walk it`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     state.Cue <- seqOf [ WaitState(2.0, 10.0); Exposit "a"; Wait 3.0 ]
     let before = describe state.Cue
@@ -298,29 +303,164 @@ let ``the panel's write path changes the screen's cue once and undoes it exactly
 
     do CueEditor.commit &state edited
     Assert.Equal("Seq[Wait 2, Exposit(b), Wait 3]", describe state.Cue)
-    Assert.Equal(1, List.length state.Editor.CueHistory.Applied) // one edit, exactly one step
-    Assert.True(CueEditor.canUndo state)
-    Assert.False(CueEditor.canRedo state)
+    Assert.Equal(1, List.length state.Editor.Undo.Applied) // one edit, exactly one step
+    match state.Editor.Undo.Applied with
+    | [ SetCue (previous, next) ] ->
+        Assert.Equal(before, describe previous)
+        Assert.Equal("Seq[Wait 2, Exposit(b), Wait 3]", describe next)
+    | other -> Assert.Fail(sprintf "expected one SetCue step, got %A" other)
 
-    CueEditor.undo &state
+    do History.undoHistory shared &state
     Assert.Equal(before, describe state.Cue)
-    Assert.False(CueEditor.canUndo state)
-    Assert.True(CueEditor.canRedo state)
+    Assert.Equal(0, List.length state.Editor.Undo.Applied)
+    Assert.Equal(1, List.length state.Editor.Undo.Redo)
 
-    CueEditor.redo &state
+    do History.redoHistory shared &state
     Assert.Equal("Seq[Wait 2, Exposit(b), Wait 3]", describe state.Cue)
-    Assert.True(CueEditor.canUndo state)
-    Assert.False(CueEditor.canRedo state)
+    Assert.Equal(1, List.length state.Editor.Undo.Applied)
+    Assert.Equal(0, List.length state.Editor.Undo.Redo)
 
 [<Fact>]
-let ``a fresh cue has nothing to take back, and an undo with nothing applied is a no-op`` () =
+let ``a cue edit and a scene edit are undone in the reverse of the order they were made`` () =
+    // SC-001: one undo covers the cue and the scene.
+    let shared = sharedState ()
+    let mutable state = newState ()
+    state.Cue <- seqOf [ Exposit "a"; Wait 1.0 ]
+    let cueBefore = describe state.Cue
+
+    // Step 1: the cue edit.
+    do CueEditor.commit &state (withAt [ 0 ] (Exposit "b") state.Cue)
+
+    // Step 2: an actor transform. The actor is placed directly in the zone, its renderer left default.
+    let zone = GameplayState.activeZone state
+    let handle = zone.Actors.Add(placedActor "player")
+    let ref' = actorRef handle.Index handle.Generation
+    let before = transformIdentity
+    let after = { transformIdentity with Position = Vector3.One }
+    do History.commit shared &state (Command.Transform (ref', before, after))
+    Assert.Equal(after, (zone.Actors.Get handle).State.Base.Transform)
+
+    // Undo twice: the transform first, the cue second.
+    do History.undoHistory shared &state
+    Assert.Equal(before, (zone.Actors.Get handle).State.Base.Transform)
+    Assert.Equal("Seq[Exposit(b), Wait 1]", describe state.Cue) // the transform's undo leaves the cue alone
+    do History.undoHistory shared &state
+    Assert.Equal(cueBefore, describe state.Cue)
+
+    // Redo twice: both re-applied in the order they were made.
+    do History.redoHistory shared &state
+    Assert.Equal("Seq[Exposit(b), Wait 1]", describe state.Cue)
+    do History.redoHistory shared &state
+    Assert.Equal(after, (zone.Actors.Get handle).State.Base.Transform)
+
+[<Fact>]
+let ``a cue step changes the cue and nothing else`` () =
+    // FR-006: no active zone, no camera, no selection.
+    let shared = sharedState ()
+    let mutable state = newState ()
+    state.Cue <- seqOf [ Exposit "a"; Wait 1.0 ]
+    do CueEditor.commit &state (withAt [ 0 ] (Exposit "b") state.Cue)
+
+    let zoneBefore = state.ActiveZone
+    let cameraBefore = state.Camera
+    state.Editor <- { state.Editor with CueSelection = Some [ 0 ] }
+
+    do History.undoHistory shared &state
+    Assert.Equal(zoneBefore, state.ActiveZone)
+    Assert.Equal(cameraBefore, state.Camera)
+    Assert.Equal<int list option>(Some [ 0 ], state.Editor.CueSelection)
+
+[<Fact>]
+let ``undo through the whole history returns the cue to where it started`` () =
+    // SC-004, and a new edit after an undo clears the redo side.
+    let shared = sharedState ()
+    let mutable state = newState ()
+    let cueAtStart = describe state.Cue
+    let zoneAtStart = state.ActiveZone
+
+    do CueEditor.commit &state (seqOf [ Wait 1.0 ])
+    do CueEditor.commit &state (seqOf [ Wait 1.0; Exposit "a" ])
+    let zone = GameplayState.activeZone state
+    let handle = zone.Actors.Add(placedActor "player")
+    do History.commit shared &state (Command.Transform (actorRef handle.Index handle.Generation, transformIdentity, { transformIdentity with Position = Vector3.One }))
+
+    while not (List.isEmpty state.Editor.Undo.Applied) do
+        do History.undoHistory shared &state
+
+    Assert.Equal(cueAtStart, describe state.Cue)
+    Assert.Equal(zoneAtStart, state.ActiveZone)
+
+    // A new edit after an undo is a new branch: what was taken back is no longer reachable.
+    Assert.False(List.isEmpty state.Editor.Undo.Redo)
+    do CueEditor.commit &state (seqOf [ Wait 2.0 ])
+    Assert.True(List.isEmpty state.Editor.Undo.Redo)
+
+[<Fact>]
+let ``an undo with nothing applied is a no-op`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     state.Cue <- seqOf [ Wait 1.0 ]
-    Assert.False(CueEditor.canUndo state)
-    Assert.False(CueEditor.canRedo state)
-
     let before = describe state.Cue
-    CueEditor.undo &state
+
+    do History.undoHistory shared &state
     Assert.Equal(before, describe state.Cue)
-    CueEditor.redo &state
+    do History.redoHistory shared &state
     Assert.Equal(before, describe state.Cue)
+
+[<Fact>]
+let ``a cue edit made before a zone move is still reachable after it`` () =
+    // US1/AC4. A cue spans zones, so a cue edit survives a move exactly as a zone edit does: two cue edits
+    // with a move between them come back in reverse, and the earlier one is reached only once the move is
+    // stepped back — the same shape `specs/048`'s cross-zone case has, with the cue in it.
+    let shared = sharedState ()
+    let mutable state = newState ()
+    state.Cue <- seqOf [ Exposit "a"; Wait 1.0 ]
+    let cueBefore = describe state.Cue
+
+    do CueEditor.commit &state (withAt [ 0 ] (Exposit "b") state.Cue) // cue edit A, in main
+    let afterA = describe state.Cue
+    do History.commit shared &state (ZoneAdd ("main", "classroom")) // a real move: main → classroom
+    Assert.Equal("classroom", state.ActiveZone)
+    do CueEditor.commit &state (withAt [ 0 ] (Exposit "c") state.Cue) // cue edit B, in classroom
+    let afterB = describe state.Cue
+    Assert.NotEqual<string>(afterA, afterB)
+
+    // B first, with classroom still on screen.
+    do History.undoHistory shared &state
+    Assert.Equal("classroom", state.ActiveZone)
+    Assert.Equal(afterA, describe state.Cue)
+
+    // Then the move steps back, carrying the view to main — where A is now reachable.
+    do History.undoHistory shared &state
+    Assert.Equal("main", state.ActiveZone)
+    Assert.Equal(afterA, describe state.Cue)
+
+    // Then A itself.
+    do History.undoHistory shared &state
+    Assert.Equal(cueBefore, describe state.Cue)
+
+// ══════ the panel has no undo of its own (spec 049: FR-003, SC-002) ══════
+
+[<Fact>]
+let ``the cue panel exposes no undo or redo of its own`` () =
+    // The two controls and the four functions behind them are gone; the one undo is the keyboard's and the Edit
+    // menu's. Asserted on the compiled surface, because there is no device to draw the panel with.
+    let surface =
+        match typeof<GameplayState.GameplayState>.Assembly.GetType "CueEditor" with
+        | null -> failwith "the CueEditor module type was not found in the assembly"
+        | surface -> surface
+
+    let names = surface.GetMethods() |> Array.map (fun m -> m.Name) |> Set.ofArray
+    Assert.Contains("commit", names) // the anchor: the lookup resolved the module's own type
+    for gone in [ "undo"; "redo"; "canUndo"; "canRedo" ] do
+        Assert.DoesNotContain(gone, names)
+
+[<Fact>]
+let ``a cue edit leaves the one history something to take back`` () =
+    // US2/AC3: the Edit menu's and the shortcut's enabled state reads the one history, so a cue edit is visible
+    // there — no second control is needed for it.
+    let mutable state = newState ()
+    Assert.True(List.isEmpty state.Editor.Undo.Applied)
+    do CueEditor.commit &state (seqOf [ Wait 1.0 ])
+    Assert.False(List.isEmpty state.Editor.Undo.Applied)
+    Assert.True(List.isEmpty state.Editor.Undo.Redo)

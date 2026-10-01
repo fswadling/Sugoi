@@ -1,12 +1,14 @@
 module History
 
-// The one undo history (spec 048). A scene edit, a zone move, a zone add and a zone delete are all steps on
-// `EditorState.Undo`; there is no history per zone. The reason is order: last-in-first-out means that when undo
-// reaches a step, the active zone is the zone that step was recorded in, so no command has to name a zone.
+// The one undo history (spec 048). A scene edit, a zone move, a zone add, a zone delete and a cue edit are all
+// steps on `EditorState.Undo`; there is no history per zone, and none of its own for the cue (spec 049). The
+// reason is order: last-in-first-out means that when undo reaches a step, the active zone is the zone that step
+// was recorded in, so no command has to name a zone.
 //
 // Compiled *after* `state/GameplayState.fs` — the project's second deliberate ordering inversion, after
-// `world/CueEngine.fs` — because a zone step adds, removes and switches a zone. The `Command` *type* stays above
-// the state: moving it would be cyclic, since `EditorState` names `UndoStack`, which names `Command`.
+// `world/CueEngine.fs` — because a state-level step adds, removes or switches a zone, or writes the screen's
+// cue. The `Command` *type* stays above the state: moving it would be cyclic, since `EditorState` names
+// `UndoStack`, which names `Command`.
 
 open Command
 
@@ -20,6 +22,10 @@ let apply (shared: SharedState.SharedState) (state: byref<GameplayState.Gameplay
     | ZoneMove (_, next) -> GameplayState.switchZone shared &state next
     | ZoneAdd (_, name) -> GameplayState.addZone shared &state name
     | ZoneDelete (_, name, _) -> GameplayState.deleteZone shared &state name
+    // The cue is not a zone's, so a cue step is a write of the value and nothing else — no zone, no camera, no
+    // selection (research D5). The cue is the screen's own value, so it needs neither `shared.Physics` nor
+    // `shared.Assets`.
+    | SetCue (_, next) -> state.Cue <- next
     | _ -> Command.apply (GameplayState.activeZone state) shared.Physics shared.Assets cmd
 
 /// The inverse of `apply`.
@@ -39,6 +45,7 @@ let undo (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         GameplayState.switchZone shared &state name
         Zone.occupyZone state.Zones.[name] shared.Physics shared.Assets contents
         if previous <> name then GameplayState.switchZone shared &state previous
+    | SetCue (previous, _) -> state.Cue <- previous
     | _ -> Command.undo (GameplayState.activeZone state) shared.Physics shared.Assets cmd
 
 /// Apply a command and push it onto the one history, clearing the redo side. The editor's write path for a zone
@@ -47,6 +54,24 @@ let undo (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 let commit (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
     do apply shared &state cmd
     state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo cmd }
+
+// ── Pruning the cue's steps ──
+
+/// Drop every cue step from both sides of the one history, leaving every other step exactly as it was
+/// (spec 049 FR-005). Called when Play begins: the cue advances while playing, so a recorded cue could no longer
+/// be applied cleanly, while a zone step is unaffected and must stay undoable. It takes no `SharedState`,
+/// because a cue step touches no zone and no resource.
+let pruneCueSteps (state: byref<GameplayState.GameplayState>) : unit =
+    let keep cmd =
+        match cmd with
+        | SetCue _ -> false
+        | _ -> true
+
+    state.Editor <-
+        { state.Editor with
+            Undo =
+                { Applied = List.filter keep state.Editor.Undo.Applied
+                  Redo = List.filter keep state.Editor.Undo.Redo } }
 
 // ── Stepping the history ──
 

@@ -1,16 +1,19 @@
 module CueEditor
 
 // The Cue panel (spec 047): the screen's cue, drawn through the one shared control (`CueTree`), and the
-// author's edits written back to `state.Cue` with the cue's own undo history.
+// author's edits written back to `state.Cue` as steps on the one undo history (spec 049).
 //
 // It takes only the gameplay state. Nothing it needs is in `SharedState`: the control is the cue's, and a
 // zone name is typed rather than chosen, because a dropdown would have the control read the zone registry
 // (`FR-006`).
 //
-// Editing is a *direct write* (`docs/EDITOR_DESIGN.md`, D-011) — a cue spans zones while the undo stacks are
-// per zone, so it cannot ride a zone's stack, and it is immutable, so its history is the list of values it
-// had before each accepted edit (D-010) rather than a family of commands. The history is dropped when play
-// begins (`FR-013`), in `Editor`'s edit/play toggle.
+// An accepted edit is one `SetCue` step on `state.Editor.Undo` (`docs/EDITOR_DESIGN.md`, D-011). The cue is
+// immutable, so the step carries two references — the value before the edit and after it — and the panel keeps
+// no history of its own. `commit` writes the cue and pushes the step itself rather than routing through
+// `History.commit`, which is how the panel keeps taking only the state. The Undo/Redo controls are gone: the
+// one undo is the keyboard's and the Edit menu's, and both already reach a cue edit. On the way into play the
+// cue's steps are pruned (`History.pruneCueSteps`), because the cue advances while playing, while every zone
+// step stays.
 //
 // The panel reads `state.Cue` each frame rather than keeping a copy, which is what makes "the screen's own
 // cue, not one kept in step with it" true by construction (`FR-003`), and why an op that has run needs no
@@ -18,6 +21,7 @@ module CueEditor
 
 open System.Text
 open Cue
+open Command
 
 // ── the text field's NUL-terminated buffer ──
 
@@ -31,33 +35,16 @@ let private bufferText (buffer: byte[]) : string =
     let length = if zero < 0 then buffer.Length else zero
     if length = 0 then "" else Encoding.UTF8.GetString(buffer, 0, length)
 
-// ── the cue's own history ──
+// ── the write path ──
 
-/// Apply an accepted edit: the next cue written in place, and the value it had before it pushed onto the
-/// cue's own history. The control decides whether anything changed (research D4), so this always records a
-/// step — there is no second opinion here about whether an edit "counted".
+/// Apply an accepted edit: the next cue written in place, and one `SetCue` step pushed onto the one history
+/// (spec 049). The control decides whether anything changed, so this always records a step — there is no second
+/// opinion here about whether an edit "counted". It takes only the state: routing through `History.commit` would
+/// make the panel take `SharedState`, which it does not need.
 let commit (state: byref<GameplayState.GameplayState>) (next: Cue) : unit =
     let before = state.Cue
     state.Cue <- next
-    state.Editor <- { state.Editor with CueHistory = EditorState.CueHistory.push before state.Editor.CueHistory }
-
-let canUndo (state: GameplayState.GameplayState) : bool =
-    not (List.isEmpty state.Editor.CueHistory.Applied)
-
-let canRedo (state: GameplayState.GameplayState) : bool =
-    not (List.isEmpty state.Editor.CueHistory.Redo)
-
-/// Take the last accepted edit back.
-let undo (state: byref<GameplayState.GameplayState>) : unit =
-    let cue, history = EditorState.CueHistory.undo state.Cue state.Editor.CueHistory
-    state.Cue <- cue
-    state.Editor <- { state.Editor with CueHistory = history }
-
-/// Put the last taken-back edit back.
-let redo (state: byref<GameplayState.GameplayState>) : unit =
-    let cue, history = EditorState.CueHistory.redo state.Cue state.Editor.CueHistory
-    state.Cue <- cue
-    state.Editor <- { state.Editor with CueHistory = history }
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (SetCue (before, next)) }
 
 // ── the selected node's text ──
 
@@ -91,17 +78,6 @@ let draw (state: byref<GameplayState.GameplayState>) : unit =
     // op that has already run needs no row of its own (FR-002, FR-003).
     let cue = state.Cue
     let idPrefix = "cue"
-
-    // ── the cue's own history, before the tree ──
-    // Its own controls rather than Ctrl+Z: that key is the zone stack's (`Editor.handleShortcuts`), and one
-    // key meaning two things depending on which panel was last clicked is worse than a second control.
-    do ImGui.beginDisabled (not (canUndo state))
-    if ImGui.smallButton "Undo" then do undo &state
-    do ImGui.endDisabled()
-    do ImGui.sameLine(0.0f, 8.0f)
-    do ImGui.beginDisabled (not (canRedo state))
-    if ImGui.smallButton "Redo" then do redo &state
-    do ImGui.endDisabled()
 
     // ── the tree, then the selected node's editor ──
     // An edit accepted here shows in the tree next frame; the tree above the click does not move, so the lag

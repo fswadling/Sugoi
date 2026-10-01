@@ -60,7 +60,8 @@ The **Cue** panel (spec 047) is the exception among the sub-editors: it docks as
 **Inspector** in the **right** column rather than in the left, because what it edits is a cue rather
 than a place in the scene, and the right column is where the editing surfaces are. It presents the
 cue as a recursive tree list (D-013): nothing that is executing can be retuned, replaced or removed, everything
-ahead of it can be edited, an addition is always taken, and the cue keeps its own undo history (D-010).
+ahead of it can be edited, an addition is always taken, and its edits are steps on the one undo history
+(D-010, `specs/049`).
 
 The **Dialogue** panel (spec 038) docks by exception as a tab beside the **Asset Browser** at the
 **bottom** rather than in the left column, because it is a line of text and wants the dock's width —
@@ -145,10 +146,10 @@ undo stack. Commands store **values** (not closures):
   already exist, so a batch says nothing a sequence of commands could not — only that they
   were one action.
 - Non-entity surfaces (scenario, advent flags, cue root) store
-  **name-keyed before/after snapshots** of the immutable map/set entry. Note that none of
-  them is zone-scoped, so none has a stack today: only zone-scoped state is undoable, and
-  each of these needs a project-scoped stack when it lands — the cue root's has now landed
-  (`specs/047`): before-value snapshots on `EditorState`, dropped when play begins (D-010).
+  **name-keyed before/after snapshots** of the immutable map/set entry. The cue's has landed
+  (`specs/049-cue-on-one-history`): its edits are `SetCue` steps — before/after cue values — on the one history,
+  pruned on the way into play (D-010). The scenario and the adventure flags still have no stack, so they are the
+  surfaces a project-scoped stack is still owed to.
   Two surfaces that were expected
   to need one are not among them: the cast binding (D-022) and the zone registry (D-023)
   are both direct writes, because neither is a scene edit and re-making an entry by hand
@@ -173,8 +174,8 @@ scenario library, zone registry, and advent flags), so `Command` depends on
 `SharedState` rather than `GameplayState` — avoiding a `Command → GameplayState →
 EditorState → Command` module cycle. The **history** is one, on the gameplay state:
 `state/History.fs`, compiled after `GameplayState`, carries the state-level runners and the steppers,
-because a step may be a zone move, an add or a delete, which only the state can carry out
-(`specs/048-unified-undo-stack`). The `Command` *type* stays where it is — moving it would be that cyclic
+because a step may be a zone move, an add, a delete or a cue edit, which only the state can carry out
+(`specs/048-unified-undo-stack`, `specs/049-cue-on-one-history`). The `Command` *type* stays where it is — moving it would be that cyclic
 edge — and only the runners moved.
 
 ## Live-edit and the cue's undo (D-010)
@@ -184,18 +185,17 @@ returns the next value, and the cue on the screen shrinks as it runs, down to `F
 "live-edit" is not about keeping a mutable runtime in step with a template — there is no
 mutable runtime to fall out of step with, and no template beside it.
 
-Undo targets the **cue** (`specs/046`); there is no separate run to keep off a stack. When the cue's history
-landed, the undo stacks were per zone (`GameplayState.UndoByZone`) and a cue spans zones, so the cue could not
-ride one. That is no longer so — the history is one, on the gameplay state (`specs/048-unified-undo-stack`) —
-and moving the cue onto it is a follow-on feature rather than a structural blocker. Until then the cue editor
-keeps its own history, as the cast binding (D-022) and the zone registry (D-023) are direct writes rather than
-zone edits.
+Undo targets the **cue** (`specs/046`); there is no separate run to keep off a stack. The cue's edits ride the
+one history on the gameplay state (`specs/048-unified-undo-stack`) as `SetCue` steps, each carrying the cue
+before the edit and after it — the same before/after value snapshot every zone-level command already uses, and a
+snapshot is one reference because a cue is immutable. The panel needed a history of its own only while the stacks
+were per zone and a cue spans zones; with one history that reason is gone, so the second history, its field and
+its two Undo/Redo controls went with it (`specs/049-cue-on-one-history`).
 
-That history has landed (`specs/047`): the values the cue had before each accepted edit,
-held on `EditorState` and dropped the moment play begins, because the cue a step refers to
-is about to advance. Undo and redo are the panel's own controls rather than `Ctrl+Z`, which
-is the zone stack's. The panel is the editor's — drawn while editing and not while playing —
-so what it shows is the cue frozen as of entering the edit.
+On the way into play the cue's **steps** are pruned from both sides of the history — the cue advances while
+playing, so a step recorded against it could no longer be applied cleanly — while every zone step stays. That is
+what keeps `specs/048`'s property that a scene edit made before a play is still undoable after it. `Ctrl+Z`,
+`Ctrl+Y` and the Edit menu are the entry points (`specs/049`); the panel draws no control of its own.
 
 The earlier template/runtime framing — an immutable `Cue_Op` template, a mutable
 `CueState` runtime, and a `state_map` — was measured and retired; the note is
@@ -340,7 +340,7 @@ already provides the minimal `ig*` layer; grow it per milestone.
 - **Phase 6** — accurate physics raycast picking (replaces the minimal raycast).
 - **Phase 9** — the cue engine (`specs/046`, done: one type that is the vocabulary and
   the run, shrinking to `Fin`), then the cue editor as a dockable window (recursive tree
-  list) with its own undo history.
+  list); its edits are steps on the one undo history (`specs/049`).
 - **Phase 10** — waypoints/triggers/advent/cast as dockable panels; trigger→cue
   wiring inline in the Inspector.
 - **Phase 11** — scenario editor (library + cue + scene tabs).

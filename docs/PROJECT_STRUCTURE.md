@@ -174,7 +174,7 @@ fsharp-game/
 │   ├── ZoneRegistryPanel.fs    #   the places tree: register a zone against one, instantiate one
 │   ├── DialoguePanel.fs        #   the dialogue authoring surface (direct write)
 │   ├── AdventPanel.fs          #   (planned)
-│   ├── CueEditor.fs            #   the cue panel (spec 047; direct write, its own history)
+│   ├── CueEditor.fs            #   the cue panel (spec 047); an edit is a SetCue step on the one history (spec 049)
 │   ├── CueTree.fs              #   shared recursive cue-tree control (spec 047)
 │   └── ScenarioEditor.fs       #   (planned)
 ├── native/                     # native libs (ImGui + cimgui + backends)
