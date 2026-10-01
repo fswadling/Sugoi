@@ -34,7 +34,13 @@ type GameplayState =
       // shown for. Runtime state, set by the trigger system each play frame, never
       // authored, and never read while editing. A `voption`, like `Zone.Player`, so
       // re-answering it every frame allocates nothing.
-      mutable InteractableTrigger : EntityRef voption }
+      mutable InteractableTrigger : EntityRef voption
+      // The cue (spec 046): the run itself — an immutable value that shrinks as it is stepped, down
+      // to `Fin`, which is what a finished cue is and where it rolls. The screen's, not a zone's, so
+      // a zone switch does not disturb it. `PlayTime` is play-mode time, advanced only by the play
+      // chain, so an edit freezes it and Play resumes a cue rather than leaping it forward (FR-002).
+      mutable Cue : Cue.Cue
+      mutable PlayTime : float }
 
 let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) : GameplayState =
     let zones = Dictionary<string, Zone.Zone>()
@@ -50,7 +56,9 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui
       Editing = true
       Follow = Systems.createFollow ()
       UndoByZone = Dictionary()
-      InteractableTrigger = ValueNone }
+      InteractableTrigger = ValueNone
+      Cue = Cue.Fin
+      PlayTime = 0.0 }
 
 // The active zone (one dictionary lookup).
 let activeZone (state: GameplayState) : Zone.Zone =

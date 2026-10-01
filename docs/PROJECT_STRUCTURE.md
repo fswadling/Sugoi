@@ -142,7 +142,8 @@ fsharp-game/
 │   ├── Dialogue.fs             #   the dialogue state: Kind and Emotion, runtime screen state
 │   ├── DialogueRender.fs       #   the dialogue view + the panel layout (pure)
 │   ├── PromptRender.fs         #   the interact prompt view + its layout (pure)
-│   ├── Cue.fs                  #   Cue_Op (template) + CueState (runtime) (planned)
+│   ├── Cue.fs                  #   the cue: one type, the vocabulary and its run (spec 046)
+│   ├── CueEngine.fs            #   advance / tick / forkInto (spec 046; compiled after state/)
 │   ├── Scenario.fs             #   scenario library (planned)
 │   ├── Systems.fs              #   named play-mode systems
 │   └── Project.fs              #   DTO persistence (project.json) (planned)

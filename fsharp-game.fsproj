@@ -76,12 +76,22 @@
     <!-- The game's places and the zone registered at each (spec 034). Listed after `Zone.fs`, and it
          needs neither that module nor any editor one: it records environments, not zones. -->
     <Compile Include="world/ZoneRegistry.fs" />
+    <!-- The cue — and therefore the run (spec 046): one type, the vocabulary and its execution
+         state, shrinking to `Fin`. Needs `Prime` and `System.Numerics` only, and names no zone,
+         screen, asset or device — so it sits before the state that must name it, and stays
+         loadable on its own. -->
+    <Compile Include="world/Cue.fs" />
     <Compile Include="world/Systems.fs" />
     <Compile Include="state/Screen.fs" />
     <Compile Include="state/SharedState.fs" />
     <Compile Include="state/Command.fs" />
     <Compile Include="state/EditorState.fs" />
     <Compile Include="state/GameplayState.fs" />
+    <!-- The cue engine (spec 046). Listed AFTER the gameplay state — a deliberate inversion, the
+         only `world/` file below `state/` — because the ops perform their effects on that state
+         where the walk reaches them: a zone switch, an exposition, a camera move (research D3).
+         It must precede `screen/GameplayScreen.fs`, which ticks it. -->
+    <Compile Include="world/CueEngine.fs" />
     <Compile Include="editor/Spawning.fs" />
     <Compile Include="editor/Selection.fs" />
     <Compile Include="editor/Raycast.fs" />

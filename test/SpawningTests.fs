@@ -93,7 +93,9 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       Editing = true
       Follow = Systems.createFollow ()
       UndoByZone = Dictionary()
-      InteractableTrigger = ValueNone }
+      InteractableTrigger = ValueNone
+      Cue = Cue.Fin
+      PlayTime = 0.0 }
 
 // ── Create ──
 

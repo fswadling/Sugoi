@@ -51,13 +51,18 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
         // The dialogue dismiss: while playing only, so the editor's SPACE is its own. Gated on a text
         // field having focus too, because the editor's fields take the same keys (FR-008).
         do Systems.dismissDialogue (Input.isPressed Input.Key.Space frame.Input) (ImGui.wantTextInput()) &state.Dialogue
-
         do Systems.playerInput shared.Physics zone frame.Input frame.Dt
         do Physics.step shared.Physics frame.Dt
         do Systems.syncActors shared.Physics zone
         do Systems.updateTriggers zone &state.InteractableTrigger
         do Systems.cameraFollow zone &state.Follow &state.Camera
         do Systems.animate zone frame.Input
+        // The cue advances last (research D5), on play time: an op's effect is what the next frame's
+        // systems see, and the clock is frozen while the editor is open, so Play resumes a cue rather
+        // than leaping it forward (FR-002). There is no start — the first play tick begins whatever
+        // cue is set.
+        state.PlayTime <- state.PlayTime + float frame.Dt
+        CueEngine.tick shared &state state.PlayTime
 
     transition
 
@@ -118,7 +123,7 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
         ActorRender.upload a.Renderer pass.Cmd)
 
     // ── scene pass ──
-    let mutable depthTarget = pass.DepthTarget    
+    let mutable depthTarget = pass.DepthTarget
     let scenePass = SDL.BeginGPURenderPass(pass.Cmd, ReadOnlySpan<SDL.GPUColorTargetInfo>(pass.ColorTargets), 1u, &depthTarget)
 
     let viewProjection = Camera.viewProjection state.Camera

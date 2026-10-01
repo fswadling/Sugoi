@@ -57,6 +57,10 @@
     <Compile Include="NarrativeRuleSetTests.fs" />
     <Compile Include="NarrativeHarnessTests.fs" />
     <Compile Include="NarrativePerformanceTests.fs" />
+
+    <!-- The cue engine (spec 046): the four stories, the edge cases, the two allocation
+         properties and the two bounded-shape properties, all asserted headlessly. -->
+    <Compile Include="CueTests.fs" />
   </ItemGroup>
 
   <!-- Serialize test collections: `Physics.create` calls Jolt's process-global

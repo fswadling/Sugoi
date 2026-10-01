@@ -106,14 +106,13 @@ archetypes.
 
 ## State management
 
-- `Shared_State` holds cross-screen singletons: `cues`, `assets`,
-  `scenario_library`, `selected_scenario_index`, `advents`, `cast_members`,
-  `zone_registry`.
+- `Shared_State` holds cross-screen singletons: `assets`, `scenario_library`,
+  `selected_scenario_index`, `advents`, `cast_members`, `zone_registry`.
 - `Screen_Manager` owns `Shared_State` plus one stateful struct per screen,
   with init/activate/deactivate/update/draw per screen.
 - `Gameplay_Screen` holds per-gameplay hot state (`zones`, `player_locomotion`,
-  `camera_follow`, `mode`, `clock`, `camera`, `interactable_trigger`, `fade`)
-  and cold state (`exposition`, `editor`). Hot/cold fields are grouped.
+  `camera_follow`, `mode`, `clock`, `camera`, `interactable_trigger`, `cue`,
+  `fade`) and cold state (`exposition`, `editor`). Hot/cold fields are grouped.
 
 ## Persistence
 
@@ -130,15 +129,21 @@ persisted.
 LRU model cache and async loader. Assets are scanned from disk at startup and
 parsed from s-syntax manifests, keyed by `id`.
 
-## Scenario & Cue (template/runtime split)
+## Scenario & Cue (the cue *is* its run)
 
 - `Scenario_Library` → `Scenario` = fixed zones of authoring data plus a
   `cue_root`. Scenarios are immutable at runtime (heap maps, off hot path).
-- `Cue` = `{ template_root, state_root, state_map }`.
-- `Cue_Op` is a tagged union of op types (leaf data + recursive control flow
-  via pointers: Sequence/Parallel/Fork/If).
-- `CueState` is a *separate* union holding only runtime progress for the
-  stateful ops. Template and running state are kept apart.
+- `Cue` (`world/Cue.fs`) is **one type that is both the vocabulary and the run** —
+  the control flow (`Sequence`/`Parallel`/`Fork`), the leaves, and the terminal
+  `Fin`. It is an immutable value, and advancing it returns the next value, so the
+  cue on the screen shrinks as it runs, down to `Fin` — what a finished cue is, and
+  where it then rolls. There is no authored cue kept beside a run, no `CueState`
+  union and no `state_map`: the reference's template/runtime split was measured and
+  retired (`docs/CUE_MODEL_DECISION.md`, `specs/046`).
+- A cue arrives at a running one by **fork** — it runs beside it. There is no join
+  and no splice.
+- The cue lives on the **gameplay screen**, not in `Shared_State` — a cue spans
+  zones, so it cannot be a zone's, and it is not cross-screen state either.
 
 ```mermaid
 graph TD
@@ -147,12 +152,12 @@ graph TD
     SS --> AM[Asset_Manager]
     SS --> SL[Scenario_Library]
     SS --> ZR[Zone_Registry]
-    SS --> C[Cue]
     SS --> ADV[Advent_Set]
     SS --> CAST[Cast_Members]
 
     GS --> ZONES["zones: Dictionary(string, Zone)"]
     GS --> ACTIVE["active zone name"]
+    GS --> C["cue: Cue"]
     ZONES --> Z[Zone]
 
     Z --> SA["actors: Slot_Map(Actor_Entity)"]
@@ -162,9 +167,8 @@ graph TD
 
     ENV --> SP["parts: Slot_Map(Prop_Entity)"]
 
-    C --> COP["Cue_Op (template union)"]
-    C --> CST["CueState (runtime union)"]
-    C --> CSM["state_map: Slot_Map(CueState)"]
+    C --> CQ["the vocabulary and the run — one type"]
+    C --> CF["Fin: what a finished cue is"]
 ```
 
 ## Narrative engine (events → facts → rules)
