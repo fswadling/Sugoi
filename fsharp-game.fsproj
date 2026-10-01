@@ -104,6 +104,13 @@
     <!-- The dialogue authoring surface (spec 038): a panel of its own, because the dialogue
          state is not a selection and so cannot live in the Inspector. -->
     <Compile Include="editor/DialoguePanel.fs" />
+    <!-- The cue panel and the one control it draws through (spec 047). The control first: it holds the cue's
+         row vocabulary, the read-only rule for what is executing, and the path helpers, all as pure
+         functions the suite asserts headlessly, plus the thin drawing over them. The panel calls the
+         control, and `editor/Editor.fs` calls the panel. Both follow `state/`: the panel writes
+         `GameplayState.Cue`, and the editor's own state holds the cue's history. -->
+    <Compile Include="editor/CueTree.fs" />
+    <Compile Include="editor/CueEditor.fs" />
     <Compile Include="editor/Editor.fs" />
     <Compile Include="screen/MainMenuScreen.fs" />
     <Compile Include="screen/GameplayScreen.fs" />

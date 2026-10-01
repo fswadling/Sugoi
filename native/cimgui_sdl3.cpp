@@ -141,6 +141,9 @@ void cimgui_setup_dock_layout(ImGuiID dockspace_id)
     ImGui::DockBuilderDockWindow("Cast", left);
     // So is the Zone Registry, which the same table places here (spec 034).
     ImGui::DockBuilderDockWindow("Zone Registry", left);
+    // The cue panel (spec 047) is the one sub-editor that does not belong here: it docks beside the
+    // Inspector on the right, because what it edits is a cue rather than a place in the scene.
+    ImGui::DockBuilderDockWindow("Cue", right);
     ImGui::DockBuilderDockWindow("Inspector", right);
     ImGui::DockBuilderDockWindow("Asset Browser", bottom);
     // The Dialogue authoring surface (spec 038): a tab beside the Asset Browser at the bottom,

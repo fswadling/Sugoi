@@ -271,16 +271,19 @@ between them at runtime. *(complete — `specs/024`)*
 
 **Goal**: author and run a scripted sequence.
 
-**Deliverables**
-- `world/Cue.fs` — `Cue_Op` template union (`Sequence|Parallel|Fork|If` + leaf
-  ops) and a separate `CueState` runtime union + `state_map`.
-- Runtime cue execution.
+**Deliverables** *(in two features: the engine — `specs/046` — then the editor)*
+- `world/Cue.fs` — one type that is the vocabulary **and** the run (`Sequence`/
+  `Parallel`/`Fork`, the leaf ops, and the terminal `Fin`); `world/CueEngine.fs` —
+  `advance` / `tick` / `forkInto`. No `CueState` union and no `state_map`: measured and
+  retired (`docs/CUE_MODEL_DECISION.md`). *(complete — `specs/046`)*
+- Runtime cue execution in the play chain, on play time. *(complete — `specs/046`)*
 - `editor/CueEditor.fs` + `editor/CueTree.fs` — recursive tree-list editor (not a
-  node graph).
-- Enforce the template/runtime split (D-010) so undo targets the immutable
-  template while the runtime re-derives from it.
+  node graph), with the cue's own undo history (D-010). One shared control, a row per
+  container, read-only for what is executing, and a history dropped when Play begins.
+  *(complete — `specs/047`)*
 
 **Done when**: you can author and run a scripted sequence in the cue editor.
+*(Complete: the engine is `specs/046`, the editor is `specs/047`.)*
 
 ### 10 · Story primitives
 
@@ -442,7 +445,11 @@ PBR → physics → walk around). After that, the content-authoring path is
 
 ## Next step
 
-**Phase 9 — cue engine + editor** (`/speckit-specify`): `world/Cue.fs` (a `Cue_Op`
-template union and a separate `CueState` runtime union + `state_map`), runtime cue
-execution, and `editor/CueEditor.fs`/`editor/CueTree.fs`, so you can author and run a
-scripted sequence. (Phase 8 — zones — is complete; `specs/024`.)
+**Phase 10 — story primitives** (`/speckit-specify`): waypoints, triggers, advent flags
+and cast as dockable panels, with trigger → cue wiring inline in the Inspector. The cue is
+complete — `world/Cue.fs` (one type: the vocabulary and the run, shrinking to `Fin`) and
+`world/CueEngine.fs` (`advance` / `tick` / `forkInto`) running in the play chain on play
+time (`specs/046`), and the Cue panel with the cue's own undo history (`specs/047`).
+Wiring a trigger to a cue is what phase 10 is for, and `CueEngine.forkInto` is what it
+will call — as is the panel's control, which a trigger's cue draws unchanged. (Phase 9 is
+complete.)

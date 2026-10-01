@@ -61,6 +61,11 @@
     <!-- The cue engine (spec 046): the four stories, the edge cases, the two allocation
          properties and the two bounded-shape properties, all asserted headlessly. -->
     <Compile Include="CueTests.fs" />
+
+    <!-- The cue panel (spec 047): the control's pure half — the rows, the read-only rule, the path helpers
+         and the cue's own history — asserted headlessly, so what the panel shows and what it will let the
+         author change are checkable with no device. -->
+    <Compile Include="CuePanelTests.fs" />
   </ItemGroup>
 
   <!-- Serialize test collections: `Physics.create` calls Jolt's process-global

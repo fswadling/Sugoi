@@ -17,7 +17,7 @@ open Command
 
 // The docked panels in focus order. The viewport is a passthru node, not an
 // ImGui window, so it is intentionally absent from this list.
-let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Cast"; "Zone Registry"; "Dialogue" |]
+let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Cast"; "Zone Registry"; "Dialogue"; "Cue" |]
 
 // Compute the index the focus should move to (forward/backward, wrapping).
 let private nextPanelIndex (forward: bool) : int =
@@ -368,6 +368,10 @@ let update (shared: SharedState.SharedState) (frame: Screen.Frame) (state: byref
     // Backtick toggles edit/play, unless the user is typing in a text field.
     if Input.isPressed Input.Key.Backtick frame.Input && not (ImGui.wantTextInput()) then
         state.Editing <- not state.Editing
+        // Play begins: the cue's own history goes with it (spec 047 FR-013) — the cue a step refers to is
+        // about to advance, so a step could no longer be applied cleanly.
+        if not state.Editing then
+            state.Editor <- { state.Editor with CueHistory = CueHistory.create () }
 
     if not state.Editing then Screen.ScreenTransition.None else
 
@@ -424,5 +428,8 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     do CastPanel.draw shared &state
     do ZoneRegistryPanel.draw shared &state
     do DialoguePanel.draw shared &state
+    // The cue panel (spec 047): the screen's cue, read-only where it is executing and editable ahead of it.
+    // It takes no `shared` — the control is the cue's own, and a zone name is typed rather than chosen.
+    do CueEditor.draw &state
 
     transition

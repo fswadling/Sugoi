@@ -38,23 +38,28 @@ A single editor workspace with a menu bar and dockable panels (ImGui docking):
 | Panel | Dock | Purpose |
 |-------|------|---------|
 | **Viewport** | center | 3D scene, selection, gizmos, waypoint/trigger overlays |
-| **Outliner** | left | hierarchical tree: Zone → Actors/Props/Waypoints/Triggers; tabs with Cast, Advent, Cue, Scenario, and Zone Registry |
-| **Inspector** | right | the single editing surface: the selected item's properties (entity / scenario / zone entry) |
+| **Outliner** | left | hierarchical tree: Zone → Actors/Props/Waypoints/Triggers; tabs with Cast, Advent, Scenario, and Zone Registry |
+| **Inspector** | right | the single editing surface: the selected item's properties (entity / scenario / zone entry); tabs with Cue |
 | **Asset Browser** | bottom | actors/environments/props; drag into the viewport to spawn |
 | **Dialogue** | bottom | the dialogue state put on screen by hand — shown, kind, speaker, expression, text (spec 038) |
 
 The sub-editors are dockable windows/tabs opened from a **Window** menu, not
-separate screens. Cast, Advent, Cue, Scenario, and Zone Registry dock as tabs in
+separate screens. Cast, Advent, Scenario, and Zone Registry dock as tabs in
 the **left** panel (alongside the Outliner) and are shown by default:
 
 - **Cast** — the cast as a tree: each member a collapsible node, and under her one row per
   look with the actor asset bound to that slot (D-022).
 - **Advent** — named flag set.
-- **Cue** — recursive tree-list editor for the top-level cue.
 - **Scenario** — scenario list; selecting one shows its Cue/Scene tabs in the Inspector.
 - **Zone Registry** — the game's places as a tree: a zone per node and one row per variant it
   declares, each row registering the active zone's environment against that place or instantiating
   one into the active zone (D-023).
+
+The **Cue** panel (spec 047) is the exception among the sub-editors: it docks as a tab beside the
+**Inspector** in the **right** column rather than in the left, because what it edits is a cue rather
+than a place in the scene, and the right column is where the editing surfaces are. It presents the
+cue as a recursive tree list (D-013): nothing that is executing can be retuned, replaced or removed, everything
+ahead of it can be edited, an addition is always taken, and the cue keeps its own undo history (D-010).
 
 The **Dialogue** panel (spec 038) docks by exception as a tab beside the **Asset Browser** at the
 **bottom** rather than in the left column, because it is a line of text and wants the dock's width —
@@ -138,7 +143,9 @@ undo stack. Commands store **values** (not closures):
 - Non-entity surfaces (scenario, advent flags, cue root) store
   **name-keyed before/after snapshots** of the immutable map/set entry. Note that none of
   them is zone-scoped, so none has a stack today: only zone-scoped state is undoable, and
-  each of these needs a project-scoped stack when it lands. Two surfaces that were expected
+  each of these needs a project-scoped stack when it lands — the cue root's has now landed
+  (`specs/047`): before-value snapshots on `EditorState`, dropped when play begins (D-010).
+  Two surfaces that were expected
   to need one are not among them: the cast binding (D-022) and the zone registry (D-023)
   are both direct writes, because neither is a scene edit and re-making an entry by hand
   costs less than the stack would. The Inspector's actor animation and morph
@@ -157,29 +164,45 @@ undo stack. Commands store **values** (not closures):
 - Continuous edits (gizmo/slider drag) coalesce into a single undo step by
   merging consecutive commands with the same key.
 
-`apply`/`undo` take the active zone plus `SharedState` (which hosts the cue,
-cast, scenario library, zone registry, and advent flags), so `Command` depends on
+`apply`/`undo` take the active zone plus `SharedState` (which hosts the cast,
+scenario library, zone registry, and advent flags), so `Command` depends on
 `SharedState` rather than `GameplayState` — avoiding a `Command → GameplayState →
 EditorState → Command` module cycle.
 
-## Live-edit and the template/runtime split (D-010)
+## Live-edit and the cue's undo (D-010)
 
-Cues are live data: the runtime executes a cue tree in place. To keep undo
-well-defined while a cue is mid-play, the cue is split into an immutable
-**template** (the authored structure — undoable) and a mutable **runtime**
-(execution state — not undoable). Undo targets the template; the runtime
-re-derives from the edited template.
+A cue is one immutable **value** (`world/Cue.fs`) that *is* its own run: advancing it
+returns the next value, and the cue on the screen shrinks as it runs, down to `Fin`. So
+"live-edit" is not about keeping a mutable runtime in step with a template — there is no
+mutable runtime to fall out of step with, and no template beside it.
 
-This mirrors the `Cue_Op` (template) / `CueState` (runtime) split described in
-`docs/ARCHITECTURE.md`.
+Undo targets the **cue** (`specs/046`); there is no separate run to keep off a stack. A cue
+spans zones while the undo stacks are per zone (`GameplayState.UndoByZone`), so the cue
+cannot ride a zone's stack: the cue editor gives it its own history, the way the cast
+binding (D-022) and the zone registry (D-023) are direct writes rather than zone edits.
+
+That history has landed (`specs/047`): the values the cue had before each accepted edit,
+held on `EditorState` and dropped the moment play begins, because the cue a step refers to
+is about to advance. Undo and redo are the panel's own controls rather than `Ctrl+Z`, which
+is the zone stack's. The panel is the editor's — drawn while editing and not while playing —
+so what it shows is the cue frozen as of entering the edit.
+
+The earlier template/runtime framing — an immutable `Cue_Op` template, a mutable
+`CueState` runtime, and a `state_map` — was measured and retired; the note is
+`docs/CUE_MODEL_DECISION.md` and the engine is `specs/046`.
 
 ## Cue editor (D-013)
 
 The cue editor presents the recursive cue tree as a recursive **tree list**
 (indented `TreeNode`s), not a node graph — a graph would misrepresent a
-structure that is a recursive union with live `*_State` nodes during execution.
-The interaction is select, indent, per-node properties, reorder (mirroring the
-reference's recursive-tree editor).
+structure that is a recursive union — and, while it runs, a cue value that
+shrinks, rather than a mutable node per op (`specs/046`).
+The interaction has landed (`specs/047`) as select, per-node properties, add and remove: a
+row per container with its children indented beneath it, and nothing that is executing retuned,
+replaced or removed, so an edit never disturbs what is running — save that a `Sequence`
+always takes a child on its queue, since a queue's tail lies ahead of the running op.
+**Reorder is not in that cut**: the reference names it, and it is the obvious
+addition to make next.
 
 ## Cast panel (D-022)
 
@@ -303,8 +326,9 @@ already provides the minimal `ig*` layer; grow it per milestone.
 - **Phase 2c** — selection, gizmo movement, spawn, delete, duplicate.
 - **Phase 2d** — command/undo core.
 - **Phase 6** — accurate physics raycast picking (replaces the minimal raycast).
-- **Phase 9** — cue editor as a dockable window (recursive tree list) using the
-  template/runtime split.
+- **Phase 9** — the cue engine (`specs/046`, done: one type that is the vocabulary and
+  the run, shrinking to `Fin`), then the cue editor as a dockable window (recursive tree
+  list) with its own undo history.
 - **Phase 10** — waypoints/triggers/advent/cast as dockable panels; trigger→cue
   wiring inline in the Inspector.
 - **Phase 11** — scenario editor (library + cue + scene tabs).
@@ -325,7 +349,7 @@ rest are in `editor/`.
 | `Inspector` | single editing surface for the selection (and the active zone's lighting when nothing is selected) |
 | `Viewport` | 3D viewport + transform gizmo |
 | `CastPanel` / `AdventPanel` / `AssetBrowser` | docked list panels |
-| `CueEditor` / `CueTree` | cue template editor + shared recursive tree renderer |
+| `CueEditor` / `CueTree` | the cue panel (right column, beside the Inspector) + the shared recursive cue-tree control |
 | `ScenarioEditor` / `ZoneRegistryPanel` | scenario / zone registry editors |
 | `Command` | undoable editor commands |
 | `Raycast` | screen-ray picking math |

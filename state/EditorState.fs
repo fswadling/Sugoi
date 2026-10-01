@@ -33,6 +33,11 @@ let entityNameMaxChars = 63
 [<Literal>]
 let dialogueTextBufferSize = 1023
 
+// The Cue panel's text field (spec 047): the selected node's text — an `Exposit`'s line, which is the same
+// prose a dialogue line is, or a `SwitchZone`'s zone name — so it shares the Dialogue panel's size.
+[<Literal>]
+let cueTextBufferSize = 1023
+
 // The active transform tool, selected with 1/2/3.
 type Tool =
     | Move
@@ -51,6 +56,37 @@ type Drag =
     { Axis : GizmoAxis
       Start : Transform
       Grab : Vector3 }
+
+// The cue's own undo history (spec 047, `docs/EDITOR_DESIGN.md` D-010). Snapshots of the cue value *before*
+// each accepted edit — a cue is immutable, so a snapshot is a reference — dropped when play begins, because
+// the cue a step refers to is about to advance. The editor's, not a zone's: a cue spans zones.
+type CueHistory =
+    { Applied : Cue.Cue list
+      Redo : Cue.Cue list }
+
+module CueHistory =
+
+    let create () : CueHistory =
+        { Applied = []
+          Redo = [] }
+
+    /// One accepted edit: the cue as it was before it, and the redo side cleared — `UndoStack.push`'s shape,
+    /// for the same reason.
+    let push (before: Cue.Cue) (history: CueHistory) : CueHistory =
+        { Applied = before :: history.Applied
+          Redo = [] }
+
+    /// Take an edit back: the value to restore and the history that results. Nothing applied is a no-op.
+    let undo (current: Cue.Cue) (history: CueHistory) : Cue.Cue * CueHistory =
+        match history.Applied with
+        | [] -> current, history
+        | before :: rest -> before, { Applied = rest; Redo = current :: history.Redo }
+
+    /// Put an edit back: `undo`'s shape on the other side.
+    let redo (current: Cue.Cue) (history: CueHistory) : Cue.Cue * CueHistory =
+        match history.Redo with
+        | [] -> current, history
+        | after :: rest -> after, { Applied = current :: history.Applied; Redo = rest }
 
 [<Struct>]
 type EditorState =
@@ -85,7 +121,17 @@ type EditorState =
       // The Inspector's light-colour picker (spec 043): the reused `float[3]` a colour edit draws
       // over, seeded from the zone's colour while the picker is not live.
       LightColorBuffer : float32 array
-      LightColorEditing : bool }
+      LightColorEditing : bool
+      // The Cue panel (spec 047): the cue's own undo history, which node is selected, and the reused buffer
+      // for the selected node's text. The selection is the panel's and is never written into a cue; the text
+      // buffer belongs to the node `CueTextPath` names — not always the selected one — and is re-seeded only
+      // while the field is not live, so an edit in progress is never overwritten and its text can never be
+      // applied to a different node (the Inspector's `NameBuffer` rule).
+      CueHistory : CueHistory
+      CueSelection : int list option
+      CueTextBuffer : byte[]
+      CueTextPath : int list option
+      CueTextEditing : bool }
 
 let create () : EditorState =
     { Selection = None
@@ -106,4 +152,9 @@ let create () : EditorState =
       DialogueTextBuffer = Array.zeroCreate dialogueTextBufferSize
       DialogueTextEditing = false
       LightColorBuffer = Array.zeroCreate lightColorChannels
-      LightColorEditing = false }
+      LightColorEditing = false
+      CueHistory = CueHistory.create ()
+      CueSelection = None
+      CueTextBuffer = Array.zeroCreate cueTextBufferSize
+      CueTextPath = None
+      CueTextEditing = false }
