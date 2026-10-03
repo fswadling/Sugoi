@@ -18,6 +18,7 @@ open System.Numerics
 open Command
 open Entity
 open EnvironmentAsset
+open TestSupport
 open Gltf
 open Physics
 open SlotMap
@@ -72,58 +73,24 @@ let private environment (epoch: uint32) (parts: SlotMap<Prop>) : Environment =
 // `Device` therefore drives the whole lifecycle for real: only the fields the
 // code reads are populated (submesh positions/indices for physics, part ranges).
 
-let private bounds (mn: Vector3) (mx: Vector3) : Gltf.Bounds =
-    { Min = mn; Max = mx }
-
-let private assetSubmesh (positions: float32 array) (indices: int array) : StaticSubmesh =
-    { Mesh = Unchecked.defaultof<StaticMesh.StaticMesh>
-      Material = Unchecked.defaultof<Texture.Material>
-      Positions = positions
-      Indices = indices }
-
-let private assetPart (name: string) (submeshIndex: int) (submeshCount: int) : EnvironmentPart =
-    { Name = name
-      HierarchyPath = name
-      World = Matrix4x4.Identity
-      Bounds = bounds Vector3.Zero Vector3.One
-      SubmeshIndex = submeshIndex
-      SubmeshCount = submeshCount }
-
-let private envAsset (id: string) (submeshes: StaticSubmesh array) (parts: EnvironmentPart array) : EnvironmentAsset.EnvironmentAsset =
-    { Id = id
-      Name = id
-      ModelPath = ""
-      Orientation = Quaternion.Identity
-      Bounds = bounds Vector3.Zero Vector3.One
-      Submeshes = submeshes
-      Parts = parts }
-
 // A device-free manager: safe because the prop/part paths never dereference Device.
 let private headlessAssets (environments: (string * EnvironmentAsset.EnvironmentAsset) list) : Assets.AssetManager =
     let envs = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
     for (id, asset) in environments do envs.[id] <- asset
-    { Device = IntPtr.Zero
-      Actors = Dictionary()
-      Props = Dictionary()
-      Environments = envs
-      Textures = [] }
+    TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) envs
 
 // A one-triangle room whose single part covers submesh 0.
 let private roomAssets () : Assets.AssetManager =
-    let submeshes = [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
-    headlessAssets [ "room", envAsset "room" submeshes [| assetPart "wall" 0 1 |] ]
+    let submeshes = [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
+    headlessAssets [ "room", residentAsset "room" submeshes [| TestSupport.part "wall" 0 1 |] ]
 
 // A device-free manager carrying one whole-model prop asset (`crate`), so
 // `Zone.spawnProp` can build a mesh collider + body without a GPU.
 let private propAssets () : Assets.AssetManager =
-    let submeshes = [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
+    let submeshes = [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
     let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    props.["crate"] <- envAsset "crate" submeshes [||]
-    { Device = IntPtr.Zero
-      Actors = Dictionary()
-      Props = props
-      Environments = Dictionary()
-      Textures = [] }
+    props.["crate"] <- residentAsset "crate" submeshes [||]
+    TestSupport.manager IntPtr.Zero (Dictionary()) props (Dictionary())
 
 // The body attached to a live prop ref (spawned through the real mesh-body path).
 let private propBody (zone: Zone) (ref: EntityRef) : BodyId =
@@ -992,12 +959,12 @@ let ``repeated delete and undo cycles leave no body behind`` () =
 // A three-part hall, so a record can be taken after one part has moved, one has been renamed, one has
 // been deleted and one has been duplicated — the arrangements a registration exists to keep.
 let private hallAssets () : Assets.AssetManager =
-    let submesh = assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |]
+    let submesh = loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |]
     let partAt (name: string) (index: int) (x: float32) : EnvironmentPart =
-        { assetPart name index 1 with World = Matrix4x4.CreateTranslation(Vector3(x, 0.0f, 0.0f)) }
+        { TestSupport.part name index 1 with World = Matrix4x4.CreateTranslation(Vector3(x, 0.0f, 0.0f)) }
     headlessAssets
         [ "hall",
-          envAsset "hall" [| submesh; submesh; submesh |] [| partAt "north" 0 0.0f; partAt "east" 1 1.0f; partAt "south" 2 2.0f |] ]
+          residentAsset "hall" [| submesh; submesh; submesh |] [| partAt "north" 0 0.0f; partAt "east" 1 1.0f; partAt "south" 2 2.0f |] ]
 
 [<Fact>]
 let ``a registered zone loads back part for part, deletions and duplicates included`` () =

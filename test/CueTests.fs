@@ -19,12 +19,7 @@ open CueEngine
 
 let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets =
-        { Device = IntPtr.Zero
-          Actors = Dictionary()
-          Props = Dictionary()
-          Environments = Dictionary()
-          Textures = [] }
+      Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
       Cast = { Casting.Bindings = Dictionary() }
       ZoneRegistry = ZoneRegistry.create ()
       Physics = Physics.create () }

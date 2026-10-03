@@ -19,7 +19,11 @@ open Gpu
 type Texture =
     { Device : Gpu.Device
       Handle : Gpu.Texture
-      Sampler : Gpu.Sampler }
+      Sampler : Gpu.Sampler
+      // The GPU bytes this texture occupies: level 0 (`W*H*4`) plus its mip chain (~4/3 of
+      // that). Captured at load so the residency budget can be accounted without re-reading
+      // dimensions; the 1x1 placeholder is 4.
+      Bytes : int64 }
 
 // Scene lighting: a directional sun + ambient. Shared by both pipelines.
 [<Struct>]
@@ -168,7 +172,7 @@ let load (device: Gpu.Device) (path: string) : Texture =
 
     do SDL.DestroySurface(surface)
     do SDL.ReleaseGPUTransferBuffer(device, transfer)
-    { Device = device; Handle = handle; Sampler = createSampler device }
+    { Device = device; Handle = handle; Sampler = createSampler device; Bytes = int64 s.Width * int64 s.Height * 4L * 4L / 3L }
 
 // A 1x1 solid RGBA texture (used as the shared placeholder for absent maps).
 let solid (device: Gpu.Device) (r: byte) (g: byte) (b: byte) (a: byte) : Texture =
@@ -209,7 +213,7 @@ let solid (device: Gpu.Device) (r: byte) (g: byte) (b: byte) (a: byte) : Texture
     SDL.SubmitGPUCommandBuffer(cmd) |> ignore
     SDL.ReleaseGPUTransferBuffer(device, transfer)
 
-    { Device = device; Handle = handle; Sampler = createSampler device }
+    { Device = device; Handle = handle; Sampler = createSampler device; Bytes = 4L }
 
 // Release a texture's sampler and its GPU image. Created together, owned together:
 // every texture is freed through here so no owner has to know the SDL calls.

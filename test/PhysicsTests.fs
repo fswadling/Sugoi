@@ -8,11 +8,8 @@ open Gltf
 open Physics
 
 // A data-only submesh for collider tests (the GPU fields are never read).
-let private submesh (positions: float32 array) (indices: int array) : EnvironmentAsset.StaticSubmesh =
-    { EnvironmentAsset.Mesh = Unchecked.defaultof<StaticMesh.StaticMesh>
-      EnvironmentAsset.Material = Unchecked.defaultof<Texture.Material>
-      EnvironmentAsset.Positions = positions
-      EnvironmentAsset.Indices = indices }
+let private submesh (positions: float32 array) (indices: int array) : EnvironmentAsset.LoadedSubmesh =
+    TestSupport.loadedSubmesh positions indices
 
 [<Fact>]
 let ``mesh collider merges a submesh range with index offsets`` () =

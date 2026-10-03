@@ -151,7 +151,7 @@ let private assetsWith (portraitsOpt: ActorAsset.ActorPortraits option) : Assets
         { Id = "akane"; Name = "Akane"; ModelPath = ""; Bounds = Unchecked.defaultof<Gltf.Bounds>
           Mesh = Unchecked.defaultof<Mesh.Mesh>; Model = Unchecked.defaultof<Actor.ActorModel>
           Morphs = None; Portraits = portraitsOpt }
-    { Device = System.IntPtr.Zero; Actors = actors; Props = Dictionary(); Environments = Dictionary(); Textures = [] }
+    TestSupport.manager System.IntPtr.Zero actors (Dictionary()) (Dictionary())
 
 let private castBinding (character: Roster.Character) : Casting.Cast =
     let bindings = Dictionary<Casting.Slot, string>()

@@ -118,7 +118,7 @@ let tryEntityAt (zone: Zone) (ref: EntityRef) : Entity option =
 // Mesh collider merging a contiguous submesh range into one flat vertex/index
 // buffer (node-local, unscaled). Fails loudly on an empty range — a part with
 // no triangles is a content bug, not a collider-less entity.
-let meshCollider (submeshes: EnvironmentAsset.StaticSubmesh array) (first: int) (count: int) : MeshCollider =
+let meshCollider (submeshes: EnvironmentAsset.LoadedSubmesh array) (first: int) (count: int) : MeshCollider =
     if first < 0 || count <= 0 || first + count > submeshes.Length then
         failwithf "mesh collider: invalid submesh range (first %d, count %d, of %d submeshes)" first count submeshes.Length
     let mutable positionFloats = 0
@@ -162,17 +162,18 @@ let capsuleCollider (bounds: Gltf.Bounds) : CapsuleCollider =
 let private propCollider (zone: Zone) (assets: Assets.AssetManager) (binding: AssetBinding) : MeshCollider option =
     match binding.AssetId with
     | Some assetId ->
-        let asset = assets.Props.[assetId]
-        Some (meshCollider asset.Submeshes 0 asset.Submeshes.Length)
+        let submeshes = EnvironmentAsset.submeshes assets.Props.[assetId]
+        Some (meshCollider submeshes 0 submeshes.Length)
     | None ->
     match zone.Environment with
     | None -> failwith "environment part without a loaded environment"
     | Some environment ->
     let asset = assets.Environments.[environment.AssetId]
-    match asset.Parts |> Array.tryFind (fun p -> p.SubmeshIndex = binding.SubmeshIndex) with
+    let submeshes = EnvironmentAsset.submeshes asset
+    match EnvironmentAsset.parts asset |> Array.tryFind (fun p -> p.SubmeshIndex = binding.SubmeshIndex) with
     | None -> None
     | Some part ->
-    Some (meshCollider asset.Submeshes part.SubmeshIndex part.SubmeshCount)
+    Some (meshCollider submeshes part.SubmeshIndex part.SubmeshCount)
 
 
 let private actorCollider (assets: Assets.AssetManager) (assetId: string) : CapsuleCollider =
@@ -678,13 +679,13 @@ let private partsOf (states: PropState array) : SlotMap<Prop> =
     let parts = SlotMap<Prop>(max partsCapacity (uint32 states.Length))
     for state in states do
         let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
-        parts.Add(meshProp state.Base binding) |> ignore
+        do parts.Add(meshProp state.Base binding) |> ignore
     parts
 
 // The authored part states an environment asset starts with: one per mesh-bearing node, with the
 // node's accumulated transform decomposed onto the part's entity.
 let private assetPartStates (asset: EnvironmentAsset.EnvironmentAsset) : PropState array =
-    asset.Parts
+    EnvironmentAsset.parts asset
     |> Array.map (fun part ->
         let mutable scale = Vector3.One
         let mutable rotation = Quaternion.Identity
@@ -738,9 +739,23 @@ let private activateEnvironment (zone: Zone) (world: Physics.World) (assets: Ass
         if slot.Alive then
             do attachPart zone world assets environment { Index = uint32 i; Generation = slot.Generation }
 
+// The asset ids an environment load must not evict: the incoming environment and the zone's
+// current one. The current environment is still the active zone's until the load commits, so
+// evicting it here would break "never unload what is in use" and, if a later step failed, strand
+// the zone on a non-resident environment the render path rejects (spec 050 FR-005, FR-017).
+let private protectedForLoad (zone: Zone) (incomingId: string) : string list =
+    match zone.Environment with
+    | Some current -> [ incomingId; current.AssetId ]
+    | None -> [ incomingId ]
+
 // Swap the current environment for `environment` (None clears it): tear down the
 // outgoing parts and rebuild the incoming ones.
 let setEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (environment: Environment option) : unit =
+    // Load the incoming environment before any mutation, so a failed load cancels the swap
+    // rather than leaving the zone half-changed (FR-017).
+    match environment with
+    | Some incoming -> do Assets.ensureEnvironmentResident assets incoming.AssetId (protectedForLoad zone incoming.AssetId)
+    | None -> ()
     do deactivateEnvironment zone world
     match environment with
     | Some incoming -> do activateEnvironment zone world assets incoming
@@ -804,6 +819,9 @@ let occupyZone (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManage
 // epoch, so refs from a previously loaded environment never resolve against this one.
 let loadEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (assetId: string) : Environment =
     let asset = assets.Environments.[assetId]
+    // The parts read below needs the parsed CPU data, so ensure residency first; the environment
+    // being replaced is protected so an eviction for this load cannot strand the zone (FR-005).
+    do Assets.ensureEnvironmentResident assets assetId (protectedForLoad zone assetId)
     let epoch = zone.NextEnvironmentEpoch + 1u
     zone.NextEnvironmentEpoch <- epoch
     let baseEntity : Entity =
@@ -822,6 +840,7 @@ let loadEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetMan
 // is only where the settings and the parts come from, which is what makes a registration reproducible
 // (spec 034 FR-012).
 let loadEnvironmentFrom (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (template: ZoneTemplate) : Environment =
+    do Assets.ensureEnvironmentResident assets template.AssetId (protectedForLoad zone template.AssetId)
     let epoch = zone.NextEnvironmentEpoch + 1u
     zone.NextEnvironmentEpoch <- epoch
     let environment = buildEnvironment template.AssetId template.Base template.Orientation template.Parts epoch

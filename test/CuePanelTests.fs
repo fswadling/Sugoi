@@ -69,11 +69,7 @@ let private newState () : GameplayState.GameplayState =
 /// step touches no resource — so only the physics world is ever read.
 let private sharedState () : SharedState.SharedState =
     let assets : Assets.AssetManager =
-        { Device = IntPtr.Zero
-          Actors = Dictionary()
-          Props = Dictionary()
-          Environments = Dictionary()
-          Textures = [] }
+        TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
 
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = assets

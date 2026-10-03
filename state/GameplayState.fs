@@ -81,6 +81,16 @@ let private enterZone (state: byref<GameplayState>) : unit =
 // Detach the outgoing zone's bodies, make `next` active, attach its bodies, then
 // swap the view state.
 let private swapZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (outgoing: string) (next: string) : unit =
+    // Bring the incoming zone's environment onto the GPU before it becomes active, so a failed
+    // load cancels the switch rather than moving to a zone with no geometry (FR-002, FR-017).
+    // Both zones' environments are protected: the incoming one (the environment becoming active)
+    // and the outgoing one, which is still `ActiveZone` until the swap below (FR-005).
+    let protectedIds =
+        [ state.Zones.[next].Environment; state.Zones.[outgoing].Environment ]
+        |> List.choose (Option.map (fun e -> e.AssetId))
+    match state.Zones.[next].Environment with
+    | Some environment -> do Assets.ensureEnvironmentResident shared.Assets environment.AssetId protectedIds
+    | None -> ()
     do Zone.deactivatePhysics state.Zones.[outgoing] shared.Physics
     state.ActiveZone <- next
     do Zone.activatePhysics state.Zones.[next] shared.Physics

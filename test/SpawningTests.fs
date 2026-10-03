@@ -13,6 +13,7 @@ open Entity
 open EnvironmentAsset
 open Gltf
 open Physics
+open TestSupport
 
 let private entity (name: string) : Entity =
     { Name = name
@@ -26,53 +27,20 @@ let private entity (name: string) : Entity =
 // Only the fields the collider/render paths read are populated; a zero Device is
 // safe because `EnvironmentRender.create` never dereferences it.
 
-let private bounds (mn: Vector3) (mx: Vector3) : Gltf.Bounds =
-    { Min = mn; Max = mx }
-
-let private assetSubmesh (positions: float32 array) (indices: int array) : StaticSubmesh =
-    { Mesh = Unchecked.defaultof<StaticMesh.StaticMesh>
-      Material = Unchecked.defaultof<Texture.Material>
-      Positions = positions
-      Indices = indices }
-
-let private assetPart (submeshIndex: int) (submeshCount: int) : EnvironmentPart =
-    { Name = "wall"
-      HierarchyPath = "wall"
-      World = Matrix4x4.Identity
-      Bounds = bounds Vector3.Zero Vector3.One
-      SubmeshIndex = submeshIndex
-      SubmeshCount = submeshCount }
-
 // A one-triangle room whose single part covers submesh 0.
 let private roomAsset () : EnvironmentAsset.EnvironmentAsset =
-    { Id = "room"
-      Name = "room"
-      ModelPath = ""
-      Orientation = Quaternion.Identity
-      Bounds = bounds Vector3.Zero Vector3.One
-      Submeshes = [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
-      Parts = [| assetPart 0 1 |] }
+    residentAsset "room" [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |] [| TestSupport.part "wall" 0 1 |]
 
 // A whole-model placed prop asset, so a created prop builds a mesh collider and a body.
 let private propAsset () : EnvironmentAsset.EnvironmentAsset =
-    { Id = "crate"
-      Name = "crate"
-      ModelPath = ""
-      Orientation = Quaternion.Identity
-      Bounds = bounds Vector3.Zero Vector3.One
-      Submeshes = [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
-      Parts = [||] }
+    residentAsset "crate" [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |] [||]
 
 let private headlessAssets () : Assets.AssetManager =
     let environments = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
     environments.["room"] <- roomAsset ()
     let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
     props.["crate"] <- propAsset ()
-    { Device = IntPtr.Zero
-      Actors = Dictionary()
-      Props = props
-      Environments = environments
-      Textures = [] }
+    TestSupport.manager IntPtr.Zero (Dictionary()) props environments
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; ZoneRegistry = ZoneRegistry.create (); Physics = Physics.create () }

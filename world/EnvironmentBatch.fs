@@ -24,7 +24,7 @@ open SlotMap
 // ── batch state ──
 type EnvironmentBatch =
     { mutable Instances : InstanceBuffer.InstanceBuffer
-      Registry : ResizeArray<StaticSubmesh>   // dense; index = identity slot
+      Registry : ResizeArray<LoadedSubmesh>   // dense; index = identity slot
       Lookup : Dictionary<nativeint, int>      // uploaded vertex buffer -> slot
       mutable Counts : int array
       mutable Starts : int array
@@ -69,11 +69,11 @@ let planOffsets (counts: int array) (starts: int array) (count: int) : int * int
 
 // ── gather ──
 
-let private slotFor (batch: EnvironmentBatch) (sub: StaticSubmesh) : int =
+let private slotFor (batch: EnvironmentBatch) (sub: LoadedSubmesh) : int =
     let next = batch.Registry.Count
     let slot = register batch.Lookup next sub.Mesh.VertexBuffer
     if slot = next then
-        batch.Registry.Add(sub)
+        do batch.Registry.Add(sub)
         if next >= batch.Counts.Length then
             let capacity = max 4 (batch.Counts.Length * 2)
             let counts = Array.zeroCreate capacity
@@ -85,9 +85,10 @@ let private slotFor (batch: EnvironmentBatch) (sub: StaticSubmesh) : int =
     slot
 
 let private countInstance (batch: EnvironmentBatch) (r: EnvironmentRender.EnvironmentRender) : unit =
+    let subs = submeshes r.Asset
     let last = r.SubmeshIndex + r.SubmeshCount - 1
     for i in r.SubmeshIndex .. last do
-        let slot = slotFor batch r.Asset.Submeshes.[i]
+        let slot = slotFor batch subs.[i]
         batch.Counts.[slot] <- batch.Counts.[slot] + 1
 
 // One instance = the model matrix's four rows then the normal matrix's three rows.
@@ -99,14 +100,15 @@ let private writeInstance (offset: int) (model: Matrix4x4) (normal: Matrix4x4) (
     rows.[8] <- normal.M31; rows.[9] <- normal.M32; rows.[10] <- normal.M33; rows.[11] <- normal.M34
 
 let private fillInstance (batch: EnvironmentBatch) (model: Matrix4x4) (r: EnvironmentRender.EnvironmentRender) : unit =
+    let subs = submeshes r.Asset
     let world = model * r.OrientationMatrix
     let normal = normalMatrix world
     let last = r.SubmeshIndex + r.SubmeshCount - 1
     for i in r.SubmeshIndex .. last do
-        let slot = slotFor batch r.Asset.Submeshes.[i]
+        let slot = slotFor batch subs.[i]
         let index = batch.Cursor.[slot]
         batch.Cursor.[slot] <- index + 1
-        writeInstance (index * InstanceBuffer.stride) world normal batch.Instances.Staging
+        do writeInstance (index * InstanceBuffer.stride) world normal batch.Instances.Staging
 
 // Walk the given prop/part maps twice: count instances per submesh identity
 // (registering new ones), then fill their transforms. Takes the maps rather than a

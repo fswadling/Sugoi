@@ -60,12 +60,19 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         for name in names do
             if state.Zones.ContainsKey name then
                 let marker = if name = state.ActiveZone then "* " else "  "
+                // Residency (spec 050): whether the zone's environment is on the GPU right now.
+                // `[-]` no environment, `[+]` resident, `[ ]` not resident; no binding, no panel.
+                let residency =
+                    match state.Zones.[name].Environment with
+                    | None -> "[-]"
+                    | Some environment when Assets.isEnvironmentResident shared.Assets environment.AssetId -> "[+]"
+                    | Some _ -> "[ ]"
                 // A click always makes the zone the Inspector's subject, whether it switches or is
                 // the zone already in use (spec 043, FR-003). A click that *changes* the zone is a step on the
                 // one history — recording the moves is what lets an edit be undone after moving away, because
                 // it keeps the active zone the one the step being undone belongs to (spec 048). Clicking the
                 // zone already active records nothing.
-                if ImGui.button(sprintf "%s%s##zone_%s" marker name name, ImGui.ImVec2(0.0f, 0.0f)) then
+                if ImGui.button(sprintf "%s%s%s##zone_%s" marker residency name name, ImGui.ImVec2(0.0f, 0.0f)) then
                     if name = state.ActiveZone then GameplayState.selectZone shared &state name
                     else History.commit shared &state (ZoneMove (state.ActiveZone, name))
                 if state.Zones.Count > 1 then

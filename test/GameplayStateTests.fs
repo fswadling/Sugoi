@@ -16,6 +16,7 @@ open EnvironmentAsset
 open Gltf
 open Physics
 open SlotMap
+open TestSupport
 
 let private entity (name: string) : Entity =
     { Name = name
@@ -27,34 +28,12 @@ let private entity (name: string) : Entity =
 
 // ── Headless fixtures ──
 
-let private bounds (mn: Vector3) (mx: Vector3) : Gltf.Bounds =
-    { Min = mn; Max = mx }
-
-let private assetSubmesh (positions: float32 array) (indices: int array) : StaticSubmesh =
-    { Mesh = Unchecked.defaultof<StaticMesh.StaticMesh>
-      Material = Unchecked.defaultof<Texture.Material>
-      Positions = positions
-      Indices = indices }
-
-let private envAsset (id: string) (submeshes: StaticSubmesh array) : EnvironmentAsset.EnvironmentAsset =
-    { Id = id
-      Name = id
-      ModelPath = ""
-      Orientation = Quaternion.Identity
-      Bounds = bounds Vector3.Zero Vector3.One
-      Submeshes = submeshes
-      Parts = [||] }
-
 // A device-free manager carrying one whole-model prop asset (`crate`).
 let private propAssets () : Assets.AssetManager =
-    let submeshes = [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
+    let submeshes = [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
     let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    props.["crate"] <- envAsset "crate" submeshes
-    { Device = IntPtr.Zero
-      Actors = Dictionary()
-      Props = props
-      Environments = Dictionary()
-      Textures = [] }
+    props.["crate"] <- residentAsset "crate" submeshes [||]
+    TestSupport.manager IntPtr.Zero (Dictionary()) props (Dictionary())
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; ZoneRegistry = ZoneRegistry.create (); Physics = Physics.create () }
@@ -73,17 +52,10 @@ let private actor (name: string) : Actor =
 
 // A device-free manager carrying one environment (`room`) with a single part.
 let private roomAssets () : Assets.AssetManager =
-    let submeshes = [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
-    let part : EnvironmentPart =
-        { Name = "wall"
-          HierarchyPath = "wall"
-          World = Matrix4x4.Identity
-          Bounds = bounds Vector3.Zero Vector3.One
-          SubmeshIndex = 0
-          SubmeshCount = 1 }
+    let submeshes = [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
     let envs = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    envs.["room"] <- { (envAsset "room" submeshes) with Parts = [| part |] }
-    { Device = IntPtr.Zero; Actors = Dictionary(); Props = Dictionary(); Environments = envs; Textures = [] }
+    envs.["room"] <- residentAsset "room" submeshes [| TestSupport.part "wall" 0 1 |]
+    TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) envs
 
 let private bodyOf (zone: Zone.Zone) (ref: EntityRef) : BodyId =
     (zone.Props.Get(handleOf ref)).Physics.Value.Body
@@ -417,11 +389,37 @@ let ``adding a zone and undoing it leaves the zones and the active zone as they 
     Assert.True(state.Zones.ContainsKey "atrium")
     Assert.Equal("atrium", state.ActiveZone)
 
+// ── A failed environment load cancels the switch (spec 050 FR-017, SC-009) ──
+
+[<Fact>]
+let ``a switch to a zone whose environment is missing is cancelled`` () =
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+
+    // The initial zone names an environment asset the manager does not hold.
+    let absent : Environment =
+        { Base = entity "room"
+          AssetId = "missing"
+          Orientation = Quaternion.Identity
+          Epoch = 1u
+          Parts = SlotMap<Prop>(4u) }
+    state.Zones.["main"].Environment <- Some absent
+
+    // Switch away (the incoming zone has no environment), then back: the load fails and the
+    // switch must not happen.
+    GameplayState.addZone shared &state "classroom"
+    Assert.Equal("classroom", state.ActiveZone)
+    let raised =
+        try GameplayState.switchZone shared &state "main"; false
+        with _ -> true
+    Assert.True raised
+    Assert.Equal("classroom", state.ActiveZone)
+
 [<Fact>]
 let ``deleting a zone and undoing restores its entities, environment and light`` () =
     let assets = roomAssets ()
     // A placed prop asset too, so the round trip covers a prop as well as the environment's own part.
-    assets.Props.["crate"] <- envAsset "crate" [| assetSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
+    assets.Props.["crate"] <- residentAsset "crate" [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |] [||]
     let shared = sharedState assets
     let mutable state = newState ()
 
