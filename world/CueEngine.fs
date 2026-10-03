@@ -7,13 +7,15 @@ module CueEngine
 // Compiled *after* `state/GameplayState.fs` — the project's one deliberate ordering inversion — because
 // each op performs its effect on the gameplay state where the walk reaches it: an `Exposit` writes the
 // screen's dialogue, a `SwitchZone` reuses `GameplayState.switchZone` (which is why the walk carries
-// `shared` for the physics swap), and the camera ops write the camera from a named waypoint (research D3).
+// `shared` for the physics swap), the camera ops write the camera from a named waypoint, and the advent ops
+// read and write `SharedState.Advents` (research D3).
 
 open System.Numerics
 open Prime
 open Cue
 open Entity
 open Maths
+open Advent
 
 // ── The ops' effects, performed where the walk reaches them ──
 
@@ -131,6 +133,26 @@ let rec advance
             let t = (now - (endsAt - duration)) / duration
             do setCamera &state (evalSpline points t) (evalRotation rotations t)
             ValueNone
+
+    | AddAdvent advent ->
+        shared.Advents <- Set.add advent shared.Advents
+        ValueSome Fin // no progress of its own: performed here and gone
+
+    | RemoveAdvent advent ->
+        shared.Advents <- Set.remove advent shared.Advents
+        ValueSome Fin
+
+    | Await advent ->
+        if Set.contains advent shared.Advents then ValueSome Fin // already satisfied: over before it begins
+        else ValueSome(AwaitState advent) // begun: the walk and the panel can now see it is the running op
+
+    | AwaitState advent ->
+        if Set.contains advent shared.Advents then ValueSome Fin else ValueNone // still waiting: nothing changed
+
+    | If (advent, thenCue, elseCue) ->
+        // the flag is read where the op is reached, and the chosen branch runs in the `If`'s place
+        advance shared &state now (if Set.contains advent shared.Advents then thenCue else elseCue)
+
     | Fork _ -> invalidOp "a Fork is only meaningful at a Sequence's current op"
     | Parallel (left, right) -> stepParallel shared &state now left right
     | Sequence (current, rest) -> stepSequence shared &state now current rest

@@ -17,6 +17,7 @@ open System
 open System.Numerics
 open Prime
 open Cue
+open Advent
 
 // ── what the cue looks like ──
 
@@ -30,7 +31,11 @@ type Row =
     { Path : int list
       Depth : int
       Label : string
-      Locked : bool }
+      Locked : bool
+      // The branch a label row names (`"then"` / `"else"`) and `""` for an ordinary node row. A label row is
+      // shown above its branch to tell an `If`'s two branches apart; it carries no node, so it is never selectable
+      // and `Path` is only its branch's own path.
+      Branch : string }
 
 /// Whether this node is *executing* — an ancestor-or-self of a leaf that is in flight — which is when it is
 /// read-only (`FR-011`): a node on the running path is not retuned, replaced or removed. (An *addition* is
@@ -42,11 +47,11 @@ type Row =
 /// structure or an op that has not begun. A suite can therefore assert the lock with no device.
 let rec executing (cue: Cue) : bool =
     match cue with
-    | WaitState _ | FlyCameraState _ -> true
+    | WaitState _ | FlyCameraState _ | AwaitState _ -> true
     | Sequence (current, _) -> executing current
     | Parallel (left, right) -> executing left || executing right
     | Fork inner -> executing inner
-    | Fin | Wait _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCamera _ -> false
+    | Fin | Wait _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
 
 /// What a row says. A leaf in flight is shown as the op it came from — a `WaitState` as its `Wait` — because
 /// the view is what is left to run, never an internal state's name (`FR-004`).
@@ -62,6 +67,10 @@ let private label (cue: Cue) : string =
     | SwitchZone zone -> "Zone: " + zone
     | SetCamera waypoint -> "Camera: " + waypoint
     | FlyCamera (path, _) | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
+    | AddAdvent advent -> "Add: " + Advent.name advent
+    | RemoveAdvent advent -> "Remove: " + Advent.name advent
+    | Await advent | AwaitState advent -> "Await: " + Advent.name advent
+    | If (advent, _, _) -> "If: " + Advent.name advent
 
 /// A `Sequence`'s children in index order: the op in flight first, then the queue behind it.
 let private sequenceChildren (current: Cue) (rest: Cue FDeque) : Cue list =
@@ -73,22 +82,40 @@ let children (cue: Cue) : Cue list =
     | Sequence (current, rest) -> sequenceChildren current rest
     | Parallel (left, right) -> [ left; right ]
     | Fork inner -> [ inner ]
-    | Fin | Wait _ | WaitState _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCamera _ | FlyCameraState _ -> []
+    | If (_, thenCue, elseCue) -> [ thenCue; elseCue ]
+    | Fin | Wait _ | WaitState _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCamera _ | FlyCameraState _
+    | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ -> []
 
 /// Every row of the cue as the panel shows it, in display order: a row per container with its children
-/// indented beneath it, the queue behind a running op in its own order, and `Fin` its own row. The one thing
-/// the author is *told*, so it is a function of the cue alone (`FR-002`, `FR-007`).
+/// indented beneath it, the queue behind a running op in its own order, and `Fin` its own row. An `If`'s two
+/// branches each get a label row (`then` / `else`) above them, so the author can tell them apart; the label
+/// carries no node of its own. The one thing the author is *told*, so it is a function of the cue alone
+/// (`FR-002`, `FR-007`).
 ///
 /// List-based and allocating on purpose: this runs while the editor is open and the play chain is stopped, so
 /// it is a cold path, and the constitution's guidance ("clarity first, then measure") is about the frame
 /// loop. Keeping it one function is also what stops the drawing and the assertion from drifting apart.
 let rows (cue: Cue) : Row list =
-    let rec walk (path: int list) (depth: int) (node: Cue) (acc: Row list) : Row list =
-        let acc = { Path = path; Depth = depth; Label = label node; Locked = executing node } :: acc
-        children node
-        |> List.mapi (fun i child -> i, child)
-        |> List.fold (fun acc (i, child) -> walk (path @ [ i ]) (depth + 1) child acc) acc
-    List.rev (walk [] 0 cue [])
+    let nodeRow (path: int list) (depth: int) (node: Cue) : Row =
+        { Path = path; Depth = depth; Label = label node; Locked = executing node; Branch = "" }
+    let branchRow (path: int list) (depth: int) (name: string) : Row =
+        { Path = path; Depth = depth; Label = name; Locked = false; Branch = name }
+    let rec walk (path: int list) (depth: int) (node: Cue) : Row list =
+        match node with
+        // An `If`'s branches are told apart by a label row above each: the label one step deeper than the `If`,
+        // the branch it names one deeper again, so the label reads as heading the branch.
+        | If (_, thenCue, elseCue) ->
+            let thenPath = path @ [ 0 ]
+            let elsePath = path @ [ 1 ]
+            [ nodeRow path depth node ]
+            @ [ branchRow thenPath (depth + 1) "then" ]
+            @ walk thenPath (depth + 2) thenCue
+            @ [ branchRow elsePath (depth + 1) "else" ]
+            @ walk elsePath (depth + 2) elseCue
+        | _ ->
+            nodeRow path depth node
+            :: (children node |> List.mapi (fun i child -> walk (path @ [ i ]) (depth + 1) child) |> List.concat)
+    walk [] 0 cue
 
 /// The ImGui id of a row: the caller's prefix and the node's path, so two cues drawn in one window cannot
 /// collide and the same node keeps its id from frame to frame (`FR-006`). Pure, so the one property of the
@@ -177,7 +204,7 @@ let canAppend (path: int list) (cue: Cue) : bool =
     | _ -> false
 
 /// The kinds a node can be turned into, in the order the dropdown lists them.
-let private kinds = [| "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Exposit"; "Zone"; "Set camera"; "Fly camera" |]
+let private kinds = [| "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Exposit"; "Zone"; "Set camera"; "Fly camera"; "Add advent"; "Remove advent"; "Await"; "If" |]
 
 /// What the dropdown shows for a node: its authored kind. The in-flight `…State` cases show as the op they
 /// came from, so re-choosing a kind never shows a name the author did not write.
@@ -192,6 +219,10 @@ let private kindName (cue: Cue) : string =
     | SwitchZone _ -> "Zone"
     | SetCamera _ -> "Set camera"
     | FlyCamera _ | FlyCameraState _ -> "Fly camera"
+    | AddAdvent _ -> "Add advent"
+    | RemoveAdvent _ -> "Remove advent"
+    | Await _ | AwaitState _ -> "Await"
+    | If _ -> "If"
 
 /// What choosing a kind replaces the node with. Every op is reachable without an editor per op.
 ///
@@ -202,6 +233,7 @@ let private kindName (cue: Cue) : string =
 /// it in the editor is out of scope; the name still raises loudly where it always did, in
 /// `GameplayState.switchZone`.
 let private defaultOfKind (kind: string) : Cue =
+    let defaultAdvent = List.head Advent.all
     match kind with
     | "Fin" -> Fin
     | "Sequence" -> Sequence(Fin, FDeque.ofList [])
@@ -211,6 +243,10 @@ let private defaultOfKind (kind: string) : Cue =
     | "Exposit" -> Exposit ""
     | "Zone" -> SwitchZone ""
     | "Set camera" -> SetCamera ""
+    | "Add advent" -> AddAdvent defaultAdvent
+    | "Remove advent" -> RemoveAdvent defaultAdvent
+    | "Await" -> Await defaultAdvent
+    | "If" -> If(defaultAdvent, Fin, Fin)
     | _ -> FlyCamera("", 1.0)
 
 /// The node's editable text, or `ValueNone` when it has none. The field that edits it belongs to the caller
@@ -236,6 +272,16 @@ let withText (cue: Cue) (text: string) : Cue =
     | FlyCamera (_, speed) -> FlyCamera(text, speed)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no text" (label cue))
 
+/// The node with its milestone replaced — the write the chooser commits. Only the advent ops carry one.
+let private withAdvent (advent: Advent) (cue: Cue) : Cue =
+    match cue with
+    | AddAdvent _ -> AddAdvent advent
+    | RemoveAdvent _ -> RemoveAdvent advent
+    | Await _ -> Await advent
+    | AwaitState _ -> AwaitState advent
+    | If (_, thenCue, elseCue) -> If(advent, thenCue, elseCue)
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no milestone" (label cue))
+
 // ── the drawing ──
 
 let private selectable (label: string) (selected: bool) : bool =
@@ -246,14 +292,21 @@ let private selectable (label: string) (selected: bool) : bool =
 /// truncated (`FR-009`) — no `beginChild` and no cap.
 ///
 /// A locked row is drawn like any other, and stays selectable: `FR-011` withholds the *editor*, not the
-/// reading, so the author can still open a running op and see what it is.
+/// reading, so the author can still open a running op and see what it is. An `If`'s branch label row is drawn
+/// as plain text above its branch: it is shown (so the author reads which branch is which) but not selectable,
+/// because no node is behind it.
 let drawTree (idPrefix: string) (selection: int list option) (cue: Cue) : int list option =
     let mutable clicked = None
     for row in rows cue do
-        // Spaces indent the label because the binding has no `indent`; `##` separates what is shown from the
-        // widget's id, which is what keeps two co-visible cues apart (the reference's own row idiom).
-        let text = String.replicate (row.Depth * 2) " " + row.Label + "##" + rowId idPrefix row.Path
-        if selectable text (selection = Some row.Path) then clicked <- Some row.Path
+        // Spaces indent the label because the binding has no `indent`.
+        let indent = String.replicate (row.Depth * 2) " "
+        if row.Branch <> "" then
+            do ImGui.text (indent + row.Branch)
+        else
+            // `##` separates what is shown from the widget's id, which is what keeps two co-visible cues apart
+            // (the reference's own row idiom).
+            let text = indent + row.Label + "##" + rowId idPrefix row.Path
+            if selectable text (selection = Some row.Path) then clicked <- Some row.Path
     clicked
 
 /// One draggable number, committing when the gesture ends **and** the value actually moved — one gesture, one
@@ -321,6 +374,15 @@ let drawEditor
             // a flight's own number: how fast to travel. Its path is text, which the caller's field edits,
             // and its start and end are the chain's, so the authored form carries neither.
             dragNumber idBase "Speed" (float32 speed) (fun v -> commit (withAt selection (FlyCamera(path, float v)) cue))
+
+        | AddAdvent advent | RemoveAdvent advent | Await advent | AwaitState advent | If (advent, _, _) ->
+            // the milestone, chosen from the closed list — a milestone needs no zone or registry, so the
+            // control can offer it where it could not offer a zone or waypoint name (FR-006).
+            if ImGui.beginCombo("Advent##" + idBase, Advent.name advent, 0) then
+                for candidate in Advent.all do
+                    if selectable (Advent.name candidate) (candidate = advent) && candidate <> advent then
+                        do commit (withAt selection (withAdvent candidate node) cue)
+                do ImGui.endCombo()
 
         | Fin | Sequence _ | Parallel _ | Fork _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCameraState _ ->
             // no numbers of their own. `Exposit`, `SwitchZone` and `SetCamera` carry text, and a `FlyCamera`

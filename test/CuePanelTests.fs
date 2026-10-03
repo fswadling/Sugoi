@@ -25,6 +25,7 @@ open EditorState
 open CueEditor
 open Entity
 open Physics
+open Advent
 
 // ── fixtures ──
 
@@ -49,6 +50,10 @@ let rec private describe (cue: Cue) : string =
     | SwitchZone z -> sprintf "Zone(%s)" z
     | SetCamera w -> sprintf "Camera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "Fly(%s)" p
+    | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
+    | RemoveAdvent m -> sprintf "Remove(%s)" (Advent.name m)
+    | Await m | AwaitState m -> sprintf "Await(%s)" (Advent.name m)
+    | If (m, _, _) -> sprintf "If(%s)" (Advent.name m)
 
 let private raises (f: unit -> unit) : bool =
     try
@@ -157,6 +162,11 @@ let ``every kind's row says what it is, and a leaf in flight as the op it came f
     // ... and the in-flight forms read as the ops they came from
     Assert.Equal("Wait 2", labelOf (WaitState(2.0, 10.0)))
     Assert.Equal("Fly: route", labelOf (FlyCameraState("route", [| Vector3.Zero; Vector3.One |], [| Quaternion.Identity; Quaternion.Identity |], 1.0, 5.0)))
+    Assert.Equal("Add: MetAiko", labelOf (AddAdvent MetAiko))
+    Assert.Equal("Remove: MetAiko", labelOf (RemoveAdvent MetAiko))
+    Assert.Equal("Await: MetAiko", labelOf (Await MetAiko))
+    Assert.Equal("Await: MetAiko", labelOf (AwaitState MetAiko))
+    Assert.Equal("If: MetAiko", labelOf (If(MetAiko, Fin, Fin)))
 
 [<Fact>]
 let ``a sequence inside a sequence is indented one deeper again, and a container's sides are siblings`` () =
@@ -212,6 +222,21 @@ let ``a running flight is locked and reads as the op it came from`` () =
     let flying = FlyCameraState("route", [| Vector3.Zero; Vector3.One |], [| Quaternion.Identity; Quaternion.Identity |], 2.0, 2.0)
     Assert.Equal<string list>([ "Fly: route" ], List.map (fun (r: Row) -> r.Label) (rows flying))
     Assert.True((List.head (rows flying)).Locked)
+
+[<Fact>]
+let ``an if shows its two branches under then and else labels, and a running await is locked`` () =
+    let rs = rows (If(MetAiko, Exposit "t", Exposit "e"))
+    // the two branches are told apart by a label row above each, one indentation deeper than the `If`
+    Assert.Equal<string list>([ "If: MetAiko"; "then"; "Exposit: t"; "else"; "Exposit: e" ], List.map (fun (r: Row) -> r.Label) rs)
+    Assert.Equal<string list>([ ""; "then"; ""; "else"; "" ], List.map (fun (r: Row) -> r.Branch) rs)
+    Assert.Equal<int list>([ 0; 1; 2; 1; 2 ], List.map (fun (r: Row) -> r.Depth) rs)
+    Assert.Equal<int list list>([ []; [ 0 ]; [ 0 ]; [ 1 ]; [ 1 ] ], List.map (fun (r: Row) -> r.Path) rs)
+
+    // a running await is read-only; an authored one is not
+    let waiting = rows (AwaitState MetAiko)
+    Assert.Equal("Await: MetAiko", (List.head waiting).Label)
+    Assert.True((List.head waiting).Locked)
+    Assert.False((List.head (rows (Await MetAiko))).Locked)
 
 [<Fact>]
 let ``an addition is offered to a sequence whether or not it is running`` () =
@@ -293,6 +318,9 @@ let ``only the text-bearing kinds carry text, and writing it replaces exactly th
     Assert.Equal(ValueSome "balcony", textOf (SetCamera "balcony"))
     Assert.Equal(ValueSome "route", textOf (FlyCamera("route", 1.0)))
     Assert.Equal(ValueNone, textOf (Wait 1.0))
+    Assert.Equal(ValueNone, textOf (AddAdvent MetAiko))
+    Assert.Equal(ValueNone, textOf (Await MetAiko))
+    Assert.Equal(ValueNone, textOf (If(MetAiko, Fin, Fin)))
     Assert.Equal(ValueNone, textOf Fin)
     Assert.Equal("Exposit(hi)", describe (withText (Exposit "hello") "hi"))
     Assert.Equal("Zone(atrium)", describe (withText (SwitchZone "classroom") "atrium"))

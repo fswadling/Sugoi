@@ -4,19 +4,22 @@ module Cue
 // beside it: a cue *is* its own execution state, an immutable value that shrinks as it is stepped
 // down to `Fin` — what is left when a cue finishes, and where it then rolls.
 //
-// The ops with no progress of their own (`Exposit`, `SwitchZone`, `SetCamera`) hold no record; a leaf
-// that spans time carries its numbers in its own `…State` case (`WaitState`'s deadline,
-// `FlyCameraState`'s resolved path). So a case suffixed `State` appears exactly where the run form
-// holds something the authored form does not — the convention the reference lineage uses
-// (`wait` / `waitstate`), and FR-017's "a leaf op and its own state case".
+// The ops with no progress of their own (`Exposit`, `SwitchZone`, `SetCamera`, `AddAdvent`,
+// `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
+// (`WaitState`'s deadline, `FlyCameraState`'s resolved path). So a case suffixed `State` appears exactly
+// where the run form holds something the authored form does not — the convention the reference lineage
+// uses (`wait` / `waitstate`), and FR-017's "a leaf op and its own state case". (`AwaitState` is the one
+// exception: it carries the same `Advent`, existing only to mark a blocking op as begun — spec 056.)
 //
 // Neither names a zone, a screen, an asset or a device: this module depends on `Prime` (for
-// `FDeque`) and `System.Numerics` only, so it loads on its own. The engine that walks it
+// `FDeque`), `System.Numerics` and `Advent` (the closed milestone union) only, so it loads on its own. The
+// engine that walks it
 // (`world/CueEngine.fs`) is compiled *after* `state/GameplayState.fs`, because the ops perform
 // their effects on the gameplay state where the walk reaches them (research D3).
 
 open System.Numerics
 open Prime
+open Advent
 
 // ── The cue — and therefore the run ──
 
@@ -40,3 +43,8 @@ type Cue =
     | SetCamera of waypoint: string
     | FlyCamera of path: string * speed: float
     | FlyCameraState of path: string * points: Vector3[] * rotations: Quaternion[] * duration: float * endsAt: float
+    | AddAdvent of advent: Advent
+    | RemoveAdvent of advent: Advent
+    | Await of advent: Advent
+    | AwaitState of advent: Advent
+    | If of advent: Advent * thenCue: Cue * elseCue: Cue

@@ -15,6 +15,7 @@ open Prime
 open Cue
 open CueEngine
 open Entity
+open Advent
 
 // ── Headless fixtures ──
 
@@ -72,6 +73,10 @@ let rec private describe (cue: Cue) : string =
     | SwitchZone z -> sprintf "Zone(%s)" z
     | SetCamera w -> sprintf "SetCamera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "FlyCamera(%s)" p
+    | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
+    | RemoveAdvent m -> sprintf "Remove(%s)" (Advent.name m)
+    | Await m | AwaitState m -> sprintf "Await(%s)" (Advent.name m)
+    | If (m, t, e) -> sprintf "If(%s, %s, %s)" (Advent.name m) (describe t) (describe e)
 
 /// The nodes actually in flight. The queue behind a sequence's current op is data, not live nodes, so a
 /// long cue costs no more than a short one.
@@ -311,6 +316,132 @@ let ``a flight in progress allocates nothing per tick`` () =
     for _ in 1 .. 2000 do tick shared &state 0.5
     let bytes = GC.GetAllocatedBytesForCurrentThread() - before
     Assert.Equal(0L, bytes)
+
+// ══════ The advent ops (spec 056) — milestones drive a cue ══════
+
+[<Fact>]
+let ``an add advent op sets the flag and costs no time`` () =
+    shared.Advents <- Set.empty
+    let mutable state = newState ()
+    state.Cue <- seqOf [ AddAdvent MetAiko; Exposit "after" ]
+    tick shared &state 0.0
+    Assert.True(Set.contains MetAiko shared.Advents)
+    Assert.True state.Dialogue.Shown // the next op ran in the same step
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a remove advent op clears the flag, and both writes are idempotent`` () =
+    shared.Advents <- Set.ofList [ MetAiko ]
+    let mutable state = newState ()
+    state.Cue <- seqOf [ RemoveAdvent MetAiko; AddAdvent MetAkane ]
+    tick shared &state 0.0
+    Assert.False(Set.contains MetAiko shared.Advents)
+    Assert.True(Set.contains MetAkane shared.Advents)
+
+    // adding a set flag and removing a clear one are no-ops, not errors
+    state.Cue <- seqOf [ AddAdvent MetAkane; RemoveAdvent MetAiko ]
+    tick shared &state 1.0
+    Assert.True(Set.contains MetAkane shared.Advents)
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``an await op waits until its flag is set, then continues`` () =
+    shared.Advents <- Set.empty
+    let mutable state = newState ()
+    state.Cue <- seqOf [ Await MetAkane; Exposit "after" ]
+    tick shared &state 0.0
+    Assert.Equal("Seq[Await(MetAkane), Exposit(after)]", describe state.Cue)
+    Assert.False state.Dialogue.Shown
+
+    shared.Advents <- Set.add MetAkane shared.Advents
+    tick shared &state 1.0
+    Assert.True state.Dialogue.Shown
+    Assert.Equal("after", state.Dialogue.Text)
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``an await of an already-set flag costs no time`` () =
+    shared.Advents <- Set.ofList [ MetAiko ]
+    let mutable state = newState ()
+    state.Cue <- seqOf [ Await MetAiko; Exposit "after" ]
+    tick shared &state 0.0
+    Assert.True state.Dialogue.Shown
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``an add earlier in the same cue satisfies a later await in the same step`` () =
+    shared.Advents <- Set.empty
+    let mutable state = newState ()
+    state.Cue <- seqOf [ AddAdvent MetAiko; Await MetAiko; Exposit "after" ]
+    tick shared &state 0.0
+    Assert.True state.Dialogue.Shown
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``clearing the flag while waiting leaves the await waiting`` () =
+    shared.Advents <- Set.empty
+    let mutable state = newState ()
+    state.Cue <- Await MetAiko
+    tick shared &state 0.0
+    Assert.Equal("Await(MetAiko)", describe state.Cue)
+
+    // set then clear between steps: membership is re-read, clearing is not remembered
+    shared.Advents <- Set.add MetAiko shared.Advents
+    shared.Advents <- Set.remove MetAiko shared.Advents
+    tick shared &state 1.0
+    Assert.Equal("Await(MetAiko)", describe state.Cue)
+
+[<Fact>]
+let ``a waiting await allocates nothing per step`` () =
+    shared.Advents <- Set.empty
+    let mutable state = newState ()
+    state.Cue <- Await MetAiko
+    tick shared &state 0.0
+    for _ in 1 .. 50 do tick shared &state 1.0
+
+    let before = GC.GetAllocatedBytesForCurrentThread()
+    for _ in 1 .. 2000 do tick shared &state 1.0
+    let bytes = GC.GetAllocatedBytesForCurrentThread() - before
+    Assert.Equal(0L, bytes)
+
+[<Fact>]
+let ``an if runs the branch its flag selects`` () =
+    shared.Advents <- Set.empty
+    let mutable state = newState ()
+    state.Cue <- If(MetAiko, Exposit "then", Exposit "else")
+    tick shared &state 0.0
+    Assert.Equal("else", state.Dialogue.Text) // flag clear: the else branch
+    Assert.Equal("Fin", describe state.Cue)
+
+    shared.Advents <- Set.add MetAiko shared.Advents
+    state.Cue <- If(MetAiko, Exposit "then", Exposit "else")
+    tick shared &state 1.0
+    Assert.Equal("then", state.Dialogue.Text)
+
+[<Fact>]
+let ``an if's Fin branch costs no time and a timed branch begins in its place`` () =
+    shared.Advents <- Set.ofList [ MetAiko ]
+    let mutable state = newState ()
+    state.Cue <- seqOf [ If(MetAiko, Fin, Exposit "nefarious"); Wait 1.0 ]
+    tick shared &state 0.0
+    Assert.Equal("Seq[Wait 1]", describe state.Cue) // the `Fin` branch was over at once; the wait is the run
+    Assert.False state.Dialogue.Shown // the untaken branch never ran
+
+    let mutable state2 = newState ()
+    state2.Cue <- If(MetAiko, Wait 2.0, Fin)
+    tick shared &state2 0.0
+    Assert.Equal("Wait 2", describe state2.Cue)
+    tick shared &state2 2.0
+    Assert.Equal("Fin", describe state2.Cue)
+
+[<Fact>]
+let ``an if nests inside a sequence and the untaken branch never runs`` () =
+    shared.Advents <- Set.ofList [ MetAiko ]
+    let mutable state = newState ()
+    state.Cue <- seqOf [ If(MetAiko, Exposit "then", Exposit "nefarious"); Exposit "after" ]
+    tick shared &state 0.0
+    Assert.Equal("after", state.Dialogue.Text)
+    Assert.Equal("Fin", describe state.Cue)
 
 // ══════ Story 2 — a cue can be forked ══════
 

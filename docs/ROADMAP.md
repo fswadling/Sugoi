@@ -292,8 +292,10 @@ between them at runtime. *(complete — `specs/024`)*
 
 **Deliverables**
 - `Waypoint` / `Trigger` entities in `world/Entity.fs` (or `world/Zone.fs`).
-- `world/Advent.fs` — named flag set; `editor/AdventPanel.fs` — the docked **Advent** panel.
-  *(complete — `specs/055-advent-flags`)*
+- `world/Advent.fs` — named flag set; `editor/AdventPanel.fs` — the docked **Advent** panel; and the
+  cue ops that read and write the flags (`AddAdvent`, `RemoveAdvent`, `Await`, `If`).
+  *(complete — `specs/055-advent-flags` for the flags and the panel, `specs/056-advent-cue-ops` for the
+  cue ops)*
 - cast — delivered ahead of this phase by `specs/032-cast-binding`: the roster is `cast/Roster.fs`
   (one declaration, shared with the narrative engine), the look vocabulary and the slot → actor
   asset binding are `world/Casting.fs`, and the panel is `editor/CastPanel.fs`.
