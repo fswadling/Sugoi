@@ -11,8 +11,9 @@ Add the story milestones — `world/Advent.fs`, a **closed union** `Advent`, wit
 `editor/AdventPanel.fs`, the **Advent** tab docked on the **right** beside the Inspector. Each tick
 and untick is one state-level step on the one undo history (`Command.Advent`, carried by
 `state/History.fs`, as `SetCue` is), so a flag set by mistake is one `Ctrl+Z` from gone and the flags
-share the timeline of the zone moves and cue edits around them. `editor/Editor.fs` draws the Inspector
-last, so it is the selected tab when the editor opens.
+share the timeline of the zone moves and cue edits around them. `editor/Editor.fs` submits the
+Inspector first among the right node's panels and focuses it, so it is the leftmost and selected tab
+when the editor opens (revised 2026-10-03; tab order follows submission order).
 
 The work is small and lands entirely in existing clusters:
 
@@ -24,7 +25,8 @@ The work is small and lands entirely in existing clusters:
   zone-level runner refuses (like `SetCue`), because it is not a zone's.
 - `state/History.fs` — the two arms that write `shared.Advents` on apply/undo.
 - `editor/AdventPanel.fs` — NEW: the milestone checklist and the write path.
-- `editor/Editor.fs` — draw the panel; draw the Inspector last so it is the startup tab.
+- `editor/Editor.fs` — draw the panel; submit the Inspector first among the right node's panels and
+  focus it, so it is the leftmost, selected tab at startup.
 - `native/cimgui_sdl3.cpp` — one `DockBuilderDockWindow("Advent", right)` line + `native/build.sh`.
 - `fsharp-game.fsproj` — two `Compile` entries (the module and the panel).
 - The five `SharedState` record fixtures in `test/` gain `Advents = Set.empty`, and a new
@@ -109,8 +111,8 @@ state/
 editor/
 ├── AdventPanel.fs       # NEW: the milestone checklist — one checkbox per `Advent.all`, seeded with
 │                        #   `Set.contains`; a toggle is one `Advent` step via `History.commit` (FR-007).
-└── Editor.fs            # CHANGED: draw `AdventPanel`; draw the Inspector LAST so it is the selected
-                         #   tab when the editor opens (research D5).
+└── Editor.fs            # CHANGED: draw `AdventPanel`; submit the Inspector first among the right node's
+                         #   panels and focus it, so it is the leftmost, selected tab at startup (research D5).
 
 native/
 └── cimgui_sdl3.cpp      # CHANGED: `DockBuilderDockWindow("Advent", right)`, beside Inspector and Cue.

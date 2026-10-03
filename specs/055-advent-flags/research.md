@@ -69,9 +69,15 @@
   last is the one on top. The Inspector shares that node with the Cue and the Advent, so submitting it
   after both is what makes it the selected tab at startup, with no focus call and no state. (This is
   the same mechanism that made the Cue, previously the last-drawn panel, the startup tab.)
-- **Alternatives considered**: `SetWindowFocus("Inspector")` after a frame — rejected: it needs a
+- **Alternatives considered**: `SetWindowFocus("Inspector")` after a frame — rejected at the time: it needs a
   second flag to avoid firing before the windows exist and only reaches the same result a frame later;
   a native `SelectedTabId` poke — rejected as fragile against the tab-id derivation.
+- **Revised (2026-10-03)**: the Inspector is now also the **first** tab, so it is submitted **first** among
+  the right node's panels and the selection is made explicitly. `DockBuilderDockWindow` does not set tab order
+  (it clears `DockOrder` to `-1`), and a node's tab order is the order its windows are first submitted with the
+  selected tab defaulting to the last submitted — so submitting the Inspector first makes it leftmost, and
+  `PendingFocus <- Some "Inspector"` on the docking-init frame selects it (the alternative above, now adopted,
+  with `DockingInitialized` as the flag that keeps it to one frame).
 
 ## Decision 6 — The panel is a checklist, one box per case
 

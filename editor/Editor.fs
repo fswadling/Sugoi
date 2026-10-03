@@ -401,7 +401,10 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
     if not state.Editor.DockingInitialized then
         do ImGui.setupDockLayout(dockspaceId)
-        state.Editor <- { state.Editor with DockingInitialized = true }
+        // The right node's tab order is the order its windows are first submitted (ImGui discards the
+        // DockBuilder order), and its selected tab defaults to the last submitted — so the Inspector is
+        // submitted first below, and the focus queued here selects it once its window exists (next frame).
+        state.Editor <- { state.Editor with DockingInitialized = true; PendingFocus = Some "Inspector" }
 
     let mutable transition = Screen.ScreenTransition.None
 
@@ -423,18 +426,20 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
         do ImGui.endMainMenuBar()
 
+    // The right node's panels (Inspector, Cue, Advent) are submitted in that order: a dock node's tab order
+    // is the order its windows are first submitted — ImGui discards the DockBuilder order
+    // (`DockBuilderDockWindow` clears `DockOrder`) — and it defaults to selecting the last tab submitted. So
+    // this order is the tab order (kept aligned with `cimgui_setup_dock_layout` for reference), submitting the
+    // Inspector first makes it the leftmost tab, and the focus queued above selects it.
+    do Inspector.draw shared &state
     do Outliner.draw shared &state
     do AssetBrowser.draw shared &state
     do CastPanel.draw shared &state
-    do AdventPanel.draw shared &state
-    do ZoneRegistryPanel.draw shared &state
-    do DialoguePanel.draw shared &state
     // The cue panel (spec 047): the screen's cue, read-only where it is executing and editable ahead of it.
     // It takes no `shared` — the control is the cue's own, and a zone name is typed rather than chosen.
     do CueEditor.draw &state
-    // The Inspector is drawn **last**: when a dock node's tab bar is first built, ImGui selects the last
-    // window submitted to it, and the Inspector shares the right node with the Advent and Cue panels — so
-    // submitting it last is what makes it the selected tab when the editor opens.
-    do Inspector.draw shared &state
+    do AdventPanel.draw shared &state
+    do ZoneRegistryPanel.draw shared &state
+    do DialoguePanel.draw shared &state
 
     transition

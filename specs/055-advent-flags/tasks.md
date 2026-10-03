@@ -132,9 +132,10 @@ redo and assert it is back (quickstart §3).
 
 **Purpose**: the startup tab, the docs, and the green build.
 
-- [X] T014 In `editor/Editor.fs`, submit `Inspector.draw` **last**, so the Inspector is the selected
-  tab when the editor opens (the last window submitted to the dock node is the tab ImGui selects when
-  the bar is first built). (research D5; user request.)
+- [X] T014 In `editor/Editor.fs`, submit `Inspector.draw` **first** among the right node's panels and queue
+  `PendingFocus <- Some "Inspector"` on the docking-init frame, so the Inspector is both the leftmost and the
+  selected tab when the editor opens (a node's tab order follows its windows' submission order; the selected tab
+  defaults to the last submitted). (Revised 2026-10-03 from "submit it last"; research D5; user request.)
 - [X] T015 [P] Update `docs/PROJECT_STRUCTURE.md`, `docs/EDITOR_DESIGN.md` (the Advent docks right and
   is a milestone checklist; D-011: the flags ride the one history) and `docs/ROADMAP.md`.
 - [X] T016 Build `fsharp-game.fsproj` and `test/fsharp-game.Tests.fsproj` with **0 warnings** and run
@@ -179,7 +180,7 @@ left). On review it was revised to:
 - a **checklist** with one checkbox per case, removing the add field, the `AdventNameBuffer` and the
   blank/duplicate rules (D6; FR-005);
 - a **right** dock beside the Inspector, not the left (D4; FR-003);
-- the **Inspector as the startup tab**, by submitting it last (D5; T014).
+- the **Inspector as the startup tab**, by submitting it first and focusing it (D5; T014; revised 2026-10-03).
 
 ### Implementation status (2026-10-03)
 

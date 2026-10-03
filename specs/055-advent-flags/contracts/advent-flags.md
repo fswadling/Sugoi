@@ -73,9 +73,11 @@ type SharedState =
 ## `editor/Editor.fs` — CHANGED
 
 - `panelNames` gains `"Advent"` (after `"Cast"`), so Ctrl+Tab reaches it.
-- The draw order changes: `Inspector.draw` is called **last**, so the Inspector is the selected tab
-  when the editor opens (the last window submitted to a dock node is the tab ImGui selects when the
-  bar is first built). `AdventPanel.draw` is called after `CastPanel.draw`.
+- The draw order changes: `Inspector.draw` is submitted **first** among the right node's panels and the
+  docking-init frame queues `PendingFocus <- Some "Inspector"`, so the Inspector is both the leftmost and the
+  selected tab when the editor opens (a node's tab order is its windows' submission order; its selected tab
+  defaults to the last submitted — revised 2026-10-03 from "call it last"). `AdventPanel.draw` is called after
+  `CastPanel.draw`.
 
 ## `native/cimgui_sdl3.cpp` — CHANGED
 
