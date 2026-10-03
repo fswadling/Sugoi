@@ -2,7 +2,8 @@ module CueEngine
 
 // The cue engine (spec 046). `advance` is the whole of it — one cue in, the cue as it now stands out — and
 // `tick` writes that answer back, so setting the cue *is* the beginning and there is no start call.
-// `forkInto` runs an arriving cue beside the running one.
+// `forkInto`, which runs an arriving cue beside the running one, lives beside the type in `world/Cue.fs` so the
+// trigger system — compiled before this engine — can fork without waiting for it (spec 058).
 //
 // Compiled *after* `state/GameplayState.fs` — the project's one deliberate ordering inversion — because
 // each op performs its effect on the gameplay state where the walk reaches it: an `Exposit` writes the
@@ -19,9 +20,9 @@ open Advent
 
 // ── The ops' effects, performed where the walk reaches them ──
 
-let private exposit (state: byref<GameplayState.GameplayState>) (text: string) : unit =
+let private exposit (state: byref<GameplayState.GameplayState>) (text: string) (kind: Dialogue.Kind) : unit =
     state.Dialogue.Shown <- true
-    state.Dialogue.Kind <- Dialogue.Kind.Dialogue
+    state.Dialogue.Kind <- kind
     state.Dialogue.Text <- text
 
 // ── Camera ops (spec 054) ──
@@ -95,8 +96,8 @@ let rec advance
     (cue: Cue) : Cue voption =
     match cue with
     | Fin -> ValueSome Fin // nothing left, and it stays nothing left — the fixed point, and still a *value*
-    | Exposit text ->
-        exposit &state text
+    | Exposit (text, kind) ->
+        exposit &state text kind
         ValueSome Fin // no progress of its own: performed here and gone
     | SwitchZone name ->
         GameplayState.switchZone shared &state name
@@ -241,11 +242,3 @@ let tick
     match advance shared &state now current with
     | ValueSome next -> state.Cue <- next
     | ValueNone -> ()
-
-/// Run an arriving cue beside whatever is running: `Fin` becomes the cue, anything else becomes a
-/// parallel with it. The running cue is not rebuilt, so nothing in flight is disturbed (FR-009). This
-/// is what a trigger will call; `Fork` is the authored form of the same thing.
-let forkInto (joined: Cue) (current: Cue) : Cue =
-    match current with
-    | Fin -> joined
-    | _ -> Parallel(current, joined)

@@ -319,6 +319,20 @@ would have left an undo with no visible effect; the reference's properties panel
 **"Player Locomotion"** checkbox back the same way. The action is still only *setting*: the reference's
 checkbox can also clear the designation, and this one does not (spec 045 FR-008).
 
+## Trigger cue, inline (D-026)
+
+A trigger **owns an authored cue**, edited **inline in the Inspector** and drawn through the same control as the Cue
+panel (`editor/CueTree.fs`). The field lives on the trigger's authored state, so an edit is one `TriggerSet` step on
+the one history and needs no command of its own (D-011); it carries no resource, so it rides the trigger's own
+create/delete/duplicate too. The inline editor keeps **its own** node selection and text field, distinct from the Cue
+panel's, and re-points them when the selected trigger changes, so a path or line typed for one trigger is never
+applied to another.
+
+When the trigger fires, the cue is **forked** into the screen's running cue — it runs beside it rather than replacing
+it (`docs/ARCHITECTURE.md`, `specs/046`). The authored value is never consumed, so the same trigger fires again on
+re-entry. A non-interactable, enabled trigger fires on the rising edge of "player inside"; an interactable one fires
+on the interact key while it is the tracked trigger, not on entry (`specs/058-trigger-cue`).
+
 ## Selection and gizmos (D-012, D-015, D-016)
 
 - M5/early editor uses a **minimal raycast** (screen-ray → sphere/box) for

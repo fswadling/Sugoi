@@ -477,7 +477,8 @@ let ``setTrigger refuses a ref of another kind`` () =
           Radius = 1.0f
           Height = 1.0f
           Interactable = false
-          Prompt = "" }
+          Prompt = ""
+          Cue = Cue.Fin }
 
     let mutable message = ""
     try

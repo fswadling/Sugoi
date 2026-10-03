@@ -12,8 +12,8 @@ module Cue
 // exception: it carries the same `Advent`, existing only to mark a blocking op as begun — spec 056.)
 //
 // Neither names a zone, a screen, an asset or a device: this module depends on `Prime` (for
-// `FDeque`), `System.Numerics` and `Advent` (the closed milestone union) only, so it loads on its own. The
-// engine that walks it
+// `FDeque`), `System.Numerics`, `Advent` (the closed milestone union) and `Dialogue` (the closed
+// presentation union, which names `Roster`) only, so it loads on its own. The engine that walks it
 // (`world/CueEngine.fs`) is compiled *after* `state/GameplayState.fs`, because the ops perform
 // their effects on the gameplay state where the walk reaches them (research D3).
 
@@ -38,7 +38,11 @@ type Cue =
     | Fork of inner: Cue
     | Wait of seconds: float
     | WaitState of seconds: float * endsAt: float
-    | Exposit of text: string
+    // The line and how it is presented (spec 057): a plain dialogue line, a thought, or a portrait line
+    // with a speaker and an expression — the closed `Dialogue.Kind`, so a mis-spelled speaker or
+    // expression is unrepresentable and a portrait line always carries both. The view resolves the
+    // portrait at draw time (`world/DialogueRender.fs`); the op names a character, not an asset.
+    | Exposit of text: string * kind: Dialogue.Kind
     | SwitchZone of zone: string
     | SetCamera of waypoint: string
     | FlyCamera of path: string * speed: float
@@ -48,3 +52,14 @@ type Cue =
     | Await of advent: Advent
     | AwaitState of advent: Advent
     | If of advent: Advent * thenCue: Cue * elseCue: Cue
+
+// ── Forking ──
+
+/// Run an arriving cue beside whatever is running: `Fin` becomes the cue, anything else becomes a
+/// parallel with it. The running cue is not rebuilt, so nothing in flight is disturbed (FR-009). It is pure
+/// and device-free, so it lives here beside the type rather than in the engine; a trigger fires its authored
+/// cue with this (spec 058).
+let forkInto (joined: Cue) (current: Cue) : Cue =
+    match current with
+    | Fin -> joined
+    | _ -> Parallel(current, joined)

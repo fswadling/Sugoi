@@ -299,11 +299,13 @@ between them at runtime. *(complete — `specs/024`)*
 - cast — delivered ahead of this phase by `specs/032-cast-binding`: the roster is `cast/Roster.fs`
   (one declaration, shared with the narrative engine), the look vocabulary and the slot → actor
   asset binding are `world/Casting.fs`, and the panel is `editor/CastPanel.fs`.
-- Trigger→cue wiring inline in the Inspector.
+- Trigger→cue wiring inline in the Inspector: a trigger owns an authored cue, drawn and edited inline, and
+  forked into the screen's running cue when the trigger fires on entry (or on the interact key, when
+  interactable). *(complete — `specs/058-trigger-cue`)*
 
 **Done when**: you can place waypoints/triggers, wire triggers to cues, set
-adventure flags, and manage the cast. *(Waypoints, triggers, the cast and the adventure flags are
-in; trigger→cue wiring is the remaining piece.)*
+adventure flags, and manage the cast. *(Complete: `specs/026-waypoints`–`specs/029-triggers`, the cast and
+the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`.)*
 
 ### 11 · Scenario editor
 

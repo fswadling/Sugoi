@@ -318,15 +318,16 @@ let captureTemplate (zone: Zone) : ZoneTemplate option =
     Some (ZoneTemplate.ofEnvironment environment props zone.Light)
 
 // The authored value a trigger is created with: a one-metre radius two metres tall, not
-// interactable, with no prompt. It is only ever a new trigger's starting point — what a
-// command records is the value the live trigger holds, so a delete or a copy carries the
+// interactable, with no prompt and no cue. It is only ever a new trigger's starting point —
+// what a command records is the value the live trigger holds, so a delete or a copy carries the
 // trigger's own shape rather than these defaults.
 let private defaultTrigger (entity: Entity) : TriggerState =
     { Base = entity
       Radius = 1.0f
       Height = 2.0f
       Interactable = false
-      Prompt = "" }
+      Prompt = ""
+      Cue = Cue.Fin }
 
 // Change a mesh-backed entity's transform in `map` (a placed prop or an
 // environment part), keeping its body in step. A mesh shape bakes the entity

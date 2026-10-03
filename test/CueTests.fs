@@ -69,7 +69,7 @@ let rec private describe (cue: Cue) : string =
     | Parallel (l, r) -> sprintf "Par(%s, %s)" (describe l) (describe r)
     | Fork c -> sprintf "Fork(%s)" (describe c)
     | Wait s | WaitState (s, _) -> sprintf "Wait %g" s
-    | Exposit t -> sprintf "Exposit(%s)" t
+    | Exposit (t, _) -> sprintf "Exposit(%s)" t
     | SwitchZone z -> sprintf "Zone(%s)" z
     | SetCamera w -> sprintf "SetCamera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "FlyCamera(%s)" p
@@ -92,7 +92,7 @@ let rec private liveCount (cue: Cue) : int =
 
 [<Fact>]
 let ``a sequence runs each op at the step the cue asks for`` () =
-    let mutable state = withCue (seqOf [ Wait 2.0; Exposit "hello"; Wait 1.0 ])
+    let mutable state = withCue (seqOf [ Wait 2.0; Exposit("hello", Dialogue.Kind.Dialogue); Wait 1.0 ])
 
     tick shared &state 0.0
     tick shared &state 1.0
@@ -124,24 +124,70 @@ let ``two branches run at once and the point is Fin only when both have`` () =
 
 [<Fact>]
 let ``a cue of no-progress ops is Fin within one step`` () =
-    let mutable state = withCue (seqOf [ Exposit "a"; Exposit "b" ])
+    let mutable state = withCue (seqOf [ Exposit("a", Dialogue.Kind.Dialogue); Exposit("b", Dialogue.Kind.Dialogue) ])
     tick shared &state 0.0
     Assert.Equal("Fin", describe state.Cue)
     Assert.Equal("b", state.Dialogue.Text)
+
+// ══════ Story 1 (spec 057) — an exposit presents a line, however it is spoken ══════
+
+[<Fact>]
+let ``an exposit writes the authored text and kind, for each presentation`` () =
+    // a plain dialogue line
+    let mutable plain = withCue (Exposit("hello", Dialogue.Kind.Dialogue))
+    tick shared &plain 0.0
+    Assert.True plain.Dialogue.Shown
+    Assert.Equal(Dialogue.Kind.Dialogue, plain.Dialogue.Kind)
+    Assert.Equal("hello", plain.Dialogue.Text)
+
+    // a thought
+    let mutable thought = withCue (Exposit("...", Dialogue.Kind.Thought))
+    tick shared &thought 0.0
+    Assert.Equal(Dialogue.Kind.Thought, thought.Dialogue.Kind)
+    Assert.Equal("...", thought.Dialogue.Text)
+
+    // a portrait line, carrying its speaker and expression
+    let portrait = Dialogue.Kind.PortraitDialogue(Roster.Akane, Dialogue.Emotion.Happy)
+    let mutable spoken = withCue (Exposit("You're late.", portrait))
+    tick shared &spoken 0.0
+    Assert.Equal(portrait, spoken.Dialogue.Kind)
+    Assert.Equal("You're late.", spoken.Dialogue.Text)
+
+[<Fact>]
+let ``an exposit costs no time and a later one replaces it`` () =
+    let second = Dialogue.Kind.PortraitDialogue(Roster.Yuki, Dialogue.Emotion.Sad)
+    let mutable state = withCue (seqOf [ Exposit("first", Dialogue.Kind.Dialogue); Exposit("second", second) ])
+    tick shared &state 0.0
+    Assert.Equal("Fin", describe state.Cue) // both ran in the one step
+    Assert.Equal("second", state.Dialogue.Text)
+    Assert.Equal(second, state.Dialogue.Kind)
+
+// ══════ Story 2 (spec 057) — an unresolved portrait is an expected miss ══════
+
+[<Fact>]
+let ``a portrait line whose speaker is unbound is written and does not block`` () =
+    // `shared` binds no cast member and loads no asset, so the portrait cannot resolve: the view will leave
+    // it undrawn and the panel will explain (`specs/038`). The op itself still writes the line and the run
+    // continues — authoring a line before its art is bound must not break a cue.
+    let portrait = Dialogue.Kind.PortraitDialogue(Roster.Akane, Dialogue.Emotion.Neutral)
+    let mutable state = withCue (seqOf [ Exposit("...", portrait); Wait 1.0 ])
+    tick shared &state 0.0
+    Assert.Equal(portrait, state.Dialogue.Kind) // the op succeeded
+    Assert.Equal("Seq[Wait 1]", describe state.Cue) // and the cue advanced past it
 
 [<Fact>]
 let ``an authored Fin in a sequence is skipped rather than stopping it`` () =
     // `Fin` means "nothing to run", so a `Fin` written into a queue is a *hole* the walk carries past in the
     // same step — it does not terminate the sequence. (The type system cannot say "terminal, and last", so
     // this is a rule about the walk rather than a rule the type enforces: FR-017.)
-    let mutable state = withCue (seqOf [ Fin; Exposit "x"; Fin; Wait 0.0 ])
+    let mutable state = withCue (seqOf [ Fin; Exposit("x", Dialogue.Kind.Dialogue); Fin; Wait 0.0 ])
     tick shared &state 0.0 // one tick consumes the whole run: the holes are skipped, the wait is over at once
     Assert.True state.Dialogue.Shown
     Assert.Equal("x", state.Dialogue.Text)
     Assert.Equal("Fin", describe state.Cue)
 
     // and a queue whose front is `Fin` pulls the op behind it in the same step
-    let mutable state2 = withCue (Sequence(Wait 1.0, FDeque.ofList [ Fin; Exposit "after" ]))
+    let mutable state2 = withCue (Sequence(Wait 1.0, FDeque.ofList [ Fin; Exposit("after", Dialogue.Kind.Dialogue) ]))
     tick shared &state2 0.0
     Assert.Equal("Seq[Wait 1, Fin, Exposit(after)]", describe state2.Cue) // the wait is in flight, the hole waits behind it
     Assert.False state2.Dialogue.Shown
@@ -161,7 +207,7 @@ let ``Fin stays Fin`` () =
 
 [<Fact>]
 let ``the same authored value can be run again from the start`` () =
-    let cue = seqOf [ Wait 2.0; Exposit "again"; Wait 1.0 ]
+    let cue = seqOf [ Wait 2.0; Exposit("again", Dialogue.Kind.Dialogue); Wait 1.0 ]
 
     let run () =
         let mutable state = withCue cue
@@ -179,7 +225,7 @@ let ``the same authored value can be run again from the start`` () =
 
 [<Fact>]
 let ``two runs of the same cue against the same clock agree after every step`` () =
-    let cue = seqOf [ Wait 2.0; Exposit "hi"; Wait 1.0; SwitchZone "main" ]
+    let cue = seqOf [ Wait 2.0; Exposit("hi", Dialogue.Kind.Dialogue); Wait 1.0; SwitchZone "main" ]
     let mutable a = withCue cue
     let mutable b = withCue cue
 
@@ -198,7 +244,7 @@ let ``a set camera op frames from its waypoint and costs no time`` () =
     // the waypoint's arrow faces +X: `-UnitZ` rotated -90° about +Y (the Viewport arrow convention)
     let rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, -MathF.PI / 2.0f)
     do ignore (placeWaypoint state "balcony" (Vector3(4.0f, 5.0f, 6.0f)) rotation)
-    state.Cue <- seqOf [ SetCamera "balcony"; Exposit "after" ]
+    state.Cue <- seqOf [ SetCamera "balcony"; Exposit("after", Dialogue.Kind.Dialogue) ]
 
     tick shared &state 0.0
 
@@ -323,7 +369,7 @@ let ``a flight in progress allocates nothing per tick`` () =
 let ``an add advent op sets the flag and costs no time`` () =
     shared.Advents <- Set.empty
     let mutable state = newState ()
-    state.Cue <- seqOf [ AddAdvent MetAiko; Exposit "after" ]
+    state.Cue <- seqOf [ AddAdvent MetAiko; Exposit("after", Dialogue.Kind.Dialogue) ]
     tick shared &state 0.0
     Assert.True(Set.contains MetAiko shared.Advents)
     Assert.True state.Dialogue.Shown // the next op ran in the same step
@@ -348,7 +394,7 @@ let ``a remove advent op clears the flag, and both writes are idempotent`` () =
 let ``an await op waits until its flag is set, then continues`` () =
     shared.Advents <- Set.empty
     let mutable state = newState ()
-    state.Cue <- seqOf [ Await MetAkane; Exposit "after" ]
+    state.Cue <- seqOf [ Await MetAkane; Exposit("after", Dialogue.Kind.Dialogue) ]
     tick shared &state 0.0
     Assert.Equal("Seq[Await(MetAkane), Exposit(after)]", describe state.Cue)
     Assert.False state.Dialogue.Shown
@@ -363,7 +409,7 @@ let ``an await op waits until its flag is set, then continues`` () =
 let ``an await of an already-set flag costs no time`` () =
     shared.Advents <- Set.ofList [ MetAiko ]
     let mutable state = newState ()
-    state.Cue <- seqOf [ Await MetAiko; Exposit "after" ]
+    state.Cue <- seqOf [ Await MetAiko; Exposit("after", Dialogue.Kind.Dialogue) ]
     tick shared &state 0.0
     Assert.True state.Dialogue.Shown
     Assert.Equal("Fin", describe state.Cue)
@@ -372,7 +418,7 @@ let ``an await of an already-set flag costs no time`` () =
 let ``an add earlier in the same cue satisfies a later await in the same step`` () =
     shared.Advents <- Set.empty
     let mutable state = newState ()
-    state.Cue <- seqOf [ AddAdvent MetAiko; Await MetAiko; Exposit "after" ]
+    state.Cue <- seqOf [ AddAdvent MetAiko; Await MetAiko; Exposit("after", Dialogue.Kind.Dialogue) ]
     tick shared &state 0.0
     Assert.True state.Dialogue.Shown
     Assert.Equal("Fin", describe state.Cue)
@@ -408,13 +454,13 @@ let ``a waiting await allocates nothing per step`` () =
 let ``an if runs the branch its flag selects`` () =
     shared.Advents <- Set.empty
     let mutable state = newState ()
-    state.Cue <- If(MetAiko, Exposit "then", Exposit "else")
+    state.Cue <- If(MetAiko, Exposit("then", Dialogue.Kind.Dialogue), Exposit("else", Dialogue.Kind.Dialogue))
     tick shared &state 0.0
     Assert.Equal("else", state.Dialogue.Text) // flag clear: the else branch
     Assert.Equal("Fin", describe state.Cue)
 
     shared.Advents <- Set.add MetAiko shared.Advents
-    state.Cue <- If(MetAiko, Exposit "then", Exposit "else")
+    state.Cue <- If(MetAiko, Exposit("then", Dialogue.Kind.Dialogue), Exposit("else", Dialogue.Kind.Dialogue))
     tick shared &state 1.0
     Assert.Equal("then", state.Dialogue.Text)
 
@@ -422,7 +468,7 @@ let ``an if runs the branch its flag selects`` () =
 let ``an if's Fin branch costs no time and a timed branch begins in its place`` () =
     shared.Advents <- Set.ofList [ MetAiko ]
     let mutable state = newState ()
-    state.Cue <- seqOf [ If(MetAiko, Fin, Exposit "nefarious"); Wait 1.0 ]
+    state.Cue <- seqOf [ If(MetAiko, Fin, Exposit("nefarious", Dialogue.Kind.Dialogue)); Wait 1.0 ]
     tick shared &state 0.0
     Assert.Equal("Seq[Wait 1]", describe state.Cue) // the `Fin` branch was over at once; the wait is the run
     Assert.False state.Dialogue.Shown // the untaken branch never ran
@@ -438,7 +484,7 @@ let ``an if's Fin branch costs no time and a timed branch begins in its place`` 
 let ``an if nests inside a sequence and the untaken branch never runs`` () =
     shared.Advents <- Set.ofList [ MetAiko ]
     let mutable state = newState ()
-    state.Cue <- seqOf [ If(MetAiko, Exposit "then", Exposit "nefarious"); Exposit "after" ]
+    state.Cue <- seqOf [ If(MetAiko, Exposit("then", Dialogue.Kind.Dialogue), Exposit("nefarious", Dialogue.Kind.Dialogue)); Exposit("after", Dialogue.Kind.Dialogue) ]
     tick shared &state 0.0
     Assert.Equal("after", state.Dialogue.Text)
     Assert.Equal("Fin", describe state.Cue)
@@ -461,7 +507,7 @@ let ``a fork detaches beside the sequence and both run`` () =
 
 [<Fact>]
 let ``a cue forked in runs beside the running one without disturbing it`` () =
-    let mutable state = withCue (seqOf [ Wait 5.0; Exposit "queued" ])
+    let mutable state = withCue (seqOf [ Wait 5.0; Exposit("queued", Dialogue.Kind.Dialogue) ])
     tick shared &state 0.0
 
     state.Cue <- forkInto (Wait 1.0) state.Cue
@@ -481,22 +527,22 @@ let ``a cue forked in runs beside the running one without disturbing it`` () =
 
 [<Fact>]
 let ``forking into Fin makes the arriving cue the cue`` () =
-    Assert.Equal("Exposit(arrived)", describe (forkInto (Exposit "arrived") Fin))
+    Assert.Equal("Exposit(arrived)", describe (forkInto (Exposit("arrived", Dialogue.Kind.Dialogue)) Fin))
 
 [<Fact>]
 let ``a forked cue carries no knowledge of its host`` () =
-    let joined = Exposit "j"
+    let joined = Exposit("j", Dialogue.Kind.Dialogue)
     Assert.Equal("Par(Wait 5, Exposit(j))", describe (forkInto joined (Wait 5.0)))
     Assert.Equal("Par(Wait 6, Exposit(j))", describe (forkInto joined (Wait 6.0)))
 
 [<Fact>]
 let ``past forks do not accumulate in the cue`` () =
-    let mutable state = withCue (seqOf [ Wait 100.0; Exposit "done" ])
+    let mutable state = withCue (seqOf [ Wait 100.0; Exposit("done", Dialogue.Kind.Dialogue) ])
     tick shared &state 0.0
     let running = describe state.Cue
 
     for _ in 1 .. 1000 do
-        state.Cue <- forkInto (Exposit "x") state.Cue
+        state.Cue <- forkInto (Exposit("x", Dialogue.Kind.Dialogue)) state.Cue
         tick shared &state 0.5
 
     // every fork did its work and dropped out; the cue is exactly what it was, and nothing piled up
@@ -578,7 +624,7 @@ let ``peak live nodes do not grow with the cue's length`` () =
 
 [<Fact>]
 let ``200,000 no-progress ops in a row do not grow the stack`` () =
-    let mutable state = withCue (seqOf (List.replicate 200000 (Exposit "x")))
+    let mutable state = withCue (seqOf (List.replicate 200000 (Exposit("x", Dialogue.Kind.Dialogue))))
     tick shared &state 0.0 // one tick must consume the whole run
     Assert.Equal("Fin", describe state.Cue)
 
@@ -586,8 +632,8 @@ let ``200,000 no-progress ops in a row do not grow the stack`` () =
 
 [<Fact>]
 let ``an idle tick allocates nothing, flat and several sequences deep, and Fin costs nothing`` () =
-    let mutable flat = withCue (seqOf [ Wait 100.0; Exposit "later" ])
-    let mutable deep = withCue (seqOf [ seqOf [ seqOf [ Wait 100.0 ] ]; Exposit "later" ])
+    let mutable flat = withCue (seqOf [ Wait 100.0; Exposit("later", Dialogue.Kind.Dialogue) ])
+    let mutable deep = withCue (seqOf [ seqOf [ seqOf [ Wait 100.0 ] ]; Exposit("later", Dialogue.Kind.Dialogue) ])
     let mutable fin = withCue Fin
 
     for _ in 1 .. 50 do
@@ -658,7 +704,7 @@ let ``a sequence reports the moved-up queue even when its new front is in flight
     // The queue's front is data, so stepping *onto* a new front changes the sequence even though that op
     // itself reports nothing: the answer is the sequence with the new front, not `ValueNone`.
     let mutable state = newState ()
-    let cue = Sequence(Exposit "x", FDeque.ofList [ WaitState(5.0, 10.0) ])
+    let cue = Sequence(Exposit("x", Dialogue.Kind.Dialogue), FDeque.ofList [ WaitState(5.0, 10.0) ])
     match advance shared &state 0.0 cue with
     | ValueSome moved ->
         Assert.Equal("Seq[Wait 5]", describe moved) // the `Exposit` ran, the moved-up wait is the front

@@ -40,7 +40,8 @@ let ``Waypoint and Trigger compose the shared Entity base`` () =
               Radius = 1.5f
               Height = 2.0f
               Interactable = false
-              Prompt = "" }
+              Prompt = ""
+              Cue = Cue.Fin }
           Triggered = false }
     Assert.Equal("start", waypoint.Base.Name)
     Assert.True(waypoint.Base.Selectable)

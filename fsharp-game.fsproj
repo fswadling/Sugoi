@@ -79,6 +79,10 @@
     <!-- The interact prompt's view (spec 039): the 2D layer's second consumer. Needs only `Ui`,
          so it sits beside the dialogue view. -->
     <Compile Include="world/PromptRender.fs" />
+    <!-- The cue — and therefore the run (spec 046): one type, the vocabulary and its execution
+         state, shrinking to `Fin`. Needs `Prime`, `System.Numerics`, `Advent` and `Dialogue` only, and names no
+         zone, screen, asset or device. Listed before `Entity.fs`, which names it (a trigger owns a cue, spec 058). -->
+    <Compile Include="world/Cue.fs" />
     <Compile Include="world/Entity.fs" />
     <Compile Include="world/EnvironmentBatch.fs" />
     <!-- The record of a registered zone (spec 034): listed before `Zone.fs`, because the loader there
@@ -88,11 +92,6 @@
     <!-- The game's places and the zone registered at each (spec 034). Listed after `Zone.fs`, and it
          needs neither that module nor any editor one: it records environments, not zones. -->
     <Compile Include="world/ZoneRegistry.fs" />
-    <!-- The cue — and therefore the run (spec 046): one type, the vocabulary and its execution
-         state, shrinking to `Fin`. Needs `Prime` and `System.Numerics` only, and names no zone,
-         screen, asset or device — so it sits before the state that must name it, and stays
-         loadable on its own. -->
-    <Compile Include="world/Cue.fs" />
     <Compile Include="world/Systems.fs" />
     <Compile Include="state/Screen.fs" />
     <Compile Include="state/SharedState.fs" />
@@ -110,6 +109,12 @@
     <Compile Include="state/History.fs" />
     <Compile Include="editor/Spawning.fs" />
     <Compile Include="editor/Selection.fs" />
+    <!-- The cue control and the editor that draws it (spec 047). Listed here, after `Selection` (the inline
+         trigger editor commits through `Selection.updateTriggerRef`) and before `Inspector` (which draws a
+         trigger's cue inline, spec 058): the control first, then the editor that calls it. `editor/Editor.fs`
+         still calls the panel last. -->
+    <Compile Include="editor/CueTree.fs" />
+    <Compile Include="editor/CueEditor.fs" />
     <Compile Include="editor/Raycast.fs" />
     <Compile Include="editor/Viewport.fs" />
     <Compile Include="editor/Outliner.fs" />
@@ -123,13 +128,6 @@
     <!-- The dialogue authoring surface (spec 038): a panel of its own, because the dialogue
          state is not a selection and so cannot live in the Inspector. -->
     <Compile Include="editor/DialoguePanel.fs" />
-    <!-- The cue panel and the one control it draws through (spec 047). The control first: it holds the cue's
-         row vocabulary, the read-only rule for what is executing, and the path helpers, all as pure
-         functions the suite asserts headlessly, plus the thin drawing over them. The panel calls the
-         control, and `editor/Editor.fs` calls the panel. Both follow `state/`: the panel writes
-         `GameplayState.Cue`, and the editor's own state holds the cue's history. -->
-    <Compile Include="editor/CueTree.fs" />
-    <Compile Include="editor/CueEditor.fs" />
     <Compile Include="editor/Editor.fs" />
     <Compile Include="screen/MainMenuScreen.fs" />
     <Compile Include="screen/GameplayScreen.fs" />

@@ -63,7 +63,7 @@ let private label (cue: Cue) : string =
     | Fork _ -> "Fork"
     | Wait seconds -> sprintf "Wait %g" seconds
     | WaitState (seconds, _) -> sprintf "Wait %g" seconds
-    | Exposit text -> "Exposit: " + text
+    | Exposit (text, _) -> "Exposit: " + text
     | SwitchZone zone -> "Zone: " + zone
     | SetCamera waypoint -> "Camera: " + waypoint
     | FlyCamera (path, _) | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
@@ -228,7 +228,8 @@ let private kindName (cue: Cue) : string =
 ///
 /// Two of these defaults are deliberately not "nothing": a `Sequence` starts with a `Fin` front and an empty
 /// queue (the walk pulls the queue's front into the front in the same step, so the author can add to it and
-/// it runs), and the defaults for `Zone` and `Exposit` are empty strings. An empty zone name is wrong and
+// it), and the defaults for `Zone` and `Exposit` are empty strings (the `Exposit` also defaulting to a
+// plain dialogue line). An empty zone name is wrong and
 /// **will block** when the op is reached — the type system cannot say "a zone that exists", and preventing
 /// it in the editor is out of scope; the name still raises loudly where it always did, in
 /// `GameplayState.switchZone`.
@@ -240,7 +241,7 @@ let private defaultOfKind (kind: string) : Cue =
     | "Parallel" -> Parallel(Fin, Fin)
     | "Fork" -> Fork Fin
     | "Wait" -> Wait 1.0
-    | "Exposit" -> Exposit ""
+    | "Exposit" -> Exposit("", Dialogue.Kind.Dialogue)
     | "Zone" -> SwitchZone ""
     | "Set camera" -> SetCamera ""
     | "Add advent" -> AddAdvent defaultAdvent
@@ -257,7 +258,7 @@ let private defaultOfKind (kind: string) : Cue =
 /// so a caller drawing this field needs no lock check of its own.
 let textOf (cue: Cue) : string voption =
     match cue with
-    | Exposit text -> ValueSome text
+    | Exposit (text, _) -> ValueSome text
     | SwitchZone zone -> ValueSome zone
     | SetCamera waypoint -> ValueSome waypoint
     | FlyCamera (path, _) -> ValueSome path
@@ -266,11 +267,18 @@ let textOf (cue: Cue) : string voption =
 /// The node with its text replaced — the write the caller's field commits.
 let withText (cue: Cue) (text: string) : Cue =
     match cue with
-    | Exposit _ -> Exposit text
+    | Exposit (_, kind) -> Exposit(text, kind)
     | SwitchZone _ -> SwitchZone text
     | SetCamera _ -> SetCamera text
     | FlyCamera (_, speed) -> FlyCamera(text, speed)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no text" (label cue))
+
+/// The node with its presentation replaced — the write the choosers commit. Only an exposit carries one, and a
+/// caller that reaches for it on anything else is a bug (`Principle II`), as `withText` is.
+let withExpositKind (kind: Dialogue.Kind) (cue: Cue) : Cue =
+    match cue with
+    | Exposit (text, _) -> Exposit(text, kind)
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no presentation" (label cue))
 
 /// The node with its milestone replaced — the write the chooser commits. Only the advent ops carry one.
 let private withAdvent (advent: Advent) (cue: Cue) : Cue =
@@ -384,9 +392,46 @@ let drawEditor
                         do commit (withAt selection (withAdvent candidate node) cue)
                 do ImGui.endCombo()
 
-        | Fin | Sequence _ | Parallel _ | Fork _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCameraState _ ->
-            // no numbers of their own. `Exposit`, `SwitchZone` and `SetCamera` carry text, and a `FlyCamera`
-            // carries its path and speed above; the caller's field edits the text (`textOf` / `withText`).
+        | Exposit (_, kind) ->
+            // the presentation, chosen from the closed vocabularies: a character and an emotion need no zone or
+            // asset, so the control can offer them where it could not offer a waypoint name (FR-006/FR-007).
+            // Re-choosing the current kind must not clobber a portrait pair, so the kind is written only when it
+            // actually changes (the Dialogue panel's rule for its own kind combo).
+            let presentation =
+                match kind with
+                | Dialogue.Kind.PortraitDialogue _ -> "Portrait"
+                | Dialogue.Kind.Dialogue -> "Dialogue"
+                | Dialogue.Kind.Thought -> "Thought"
+            if ImGui.beginCombo("Presentation##" + idBase, presentation, 0) then
+                let alreadyPortrait = match kind with Dialogue.Kind.PortraitDialogue _ -> true | _ -> false
+                if selectable "Dialogue" (kind = Dialogue.Kind.Dialogue) && kind <> Dialogue.Kind.Dialogue then
+                    do commit (withAt selection (withExpositKind Dialogue.Kind.Dialogue node) cue)
+                if selectable "Thought" (kind = Dialogue.Kind.Thought) && kind <> Dialogue.Kind.Thought then
+                    do commit (withAt selection (withExpositKind Dialogue.Kind.Thought node) cue)
+                if selectable "Portrait" alreadyPortrait && not alreadyPortrait then
+                    let defaultPortrait = Dialogue.Kind.PortraitDialogue(List.head Roster.characters, Dialogue.Emotion.Neutral)
+                    do commit (withAt selection (withExpositKind defaultPortrait node) cue)
+                do ImGui.endCombo()
+
+            // the speaker and the expression are meaningful only for a portrait line, so they are offered only
+            // for that kind: a plain line or a thought has neither.
+            match kind with
+            | Dialogue.Kind.PortraitDialogue (character, emotion) ->
+                if ImGui.beginCombo("Speaker##" + idBase, Roster.characterName character, 0) then
+                    for candidate in Roster.characters do
+                        if selectable (Roster.characterName candidate) (candidate = character) && candidate <> character then
+                            do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(candidate, emotion)) node) cue)
+                    do ImGui.endCombo()
+                if ImGui.beginCombo("Expression##" + idBase, Dialogue.emotionName emotion, 0) then
+                    for candidate in Dialogue.emotions do
+                        if selectable (Dialogue.emotionName candidate) (candidate = emotion) && candidate <> emotion then
+                            do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(character, candidate)) node) cue)
+                    do ImGui.endCombo()
+            | _ -> ()
+
+        | Fin | Sequence _ | Parallel _ | Fork _ | SwitchZone _ | SetCamera _ | FlyCameraState _ ->
+            // no numbers of their own. `SwitchZone` and `SetCamera` carry text, and a `FlyCamera` carries its
+            // path and speed above; the caller's field edits the text (`textOf` / `withText`).
             ()
 
     // ── Add Child: the one container that takes one, whether or not it is running ──

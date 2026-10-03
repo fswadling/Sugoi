@@ -11,6 +11,7 @@ open System
 open System.Numerics
 open Entity
 open SlotMap
+open Cue
 
 
 // ── Tuning constants ──
@@ -70,15 +71,31 @@ let private contains (trigger: Trigger) (p: Vector3) : bool =
     && p.Y <= basePosition.Y + trigger.State.Height
 
 // Detect the player in the active zone's triggers: write each trigger's `Triggered` flag in place,
-// and write the nearest enabled interactable trigger the player is inside into `closest` — what an
-// interact prompt is shown for, and what an interaction will act on once a trigger can run a cue. A
-// disabled trigger is never inside, and with no live designated player every trigger is cleared and
-// `closest` is set to ValueNone. Reads the player's entity position (already synced from its body
-// this frame), so it needs no physics world and no device. The answer is a `voption` out-parameter:
-// this runs every play frame, and `Some` on a struct would box. Reads and writes each payload
-// through the slot's own byref, as `syncActors` does, and updates by reference as `cameraFollow`
-// does rather than returning state for the caller to assign.
-let updateTriggers (zone: Zone.Zone) (closest: byref<EntityRef voption>) : unit =
+// write the nearest enabled interactable trigger the player is inside into `closest`, and fork the
+// authored cue of any enabled non-interactable trigger the player has just entered into `cue` (spec
+// 058). A disabled trigger is never inside, an interactable trigger fires on interaction rather than on
+// entry, and with no live designated player every trigger is cleared, `closest` is set to ValueNone and
+// nothing fires. Reads the player's entity position (already synced from its body this frame), so it
+// needs no physics world and no device. The answer is a `voption` out-parameter: this runs every play
+// frame, and `Some` on a struct would box. Reads and writes each payload through the slot's own byref,
+// as `syncActors` does, and updates by reference as `cameraFollow` does rather than returning state for
+// the caller to assign.
+
+// Fork a trigger's authored cue into `cue` — the one rule both fire sites share (an entry here, the
+// interact key in the play chain): resolve the ref, do nothing for a trigger that is gone or whose cue is
+// `Fin`, and otherwise run the cue beside the running one. Device-free, so the fire is assertable headlessly.
+let forkTriggerCue (zone: Zone.Zone) (ref: EntityRef voption) (cue: byref<Cue>) : unit =
+    match ref with
+    | ValueSome r ->
+        match Zone.tryTriggerAt zone r with
+        | ValueSome trigger ->
+            match trigger.State.Cue with
+            | Fin -> ()
+            | authored -> cue <- forkInto authored cue
+        | ValueNone -> ()
+    | ValueNone -> ()
+
+let updateTriggers (zone: Zone.Zone) (closest: byref<EntityRef voption>) (cue: byref<Cue>) : unit =
     let playerPosition =
         match zone.Player with
         | ValueSome handle when zone.Actors.IsAlive handle ->
@@ -98,7 +115,13 @@ let updateTriggers (zone: Zone.Zone) (closest: byref<EntityRef voption>) : unit 
         let trigger = &slot.Value
         match playerPosition with
         | ValueSome p when trigger.State.Base.Enabled && contains trigger p ->
+            let wasTriggered = trigger.Triggered
             trigger.Triggered <- true
+
+            // A non-interactable trigger fires on the rising edge only: one entry, one fire, and
+            // remaining inside is not an entry.
+            if not wasTriggered && not trigger.State.Interactable then
+                do forkTriggerCue zone (ValueSome (triggerRef index generation)) &cue
 
             // The nearest interactable one wins; distance is measured to the volume's centre.
             if trigger.State.Interactable then

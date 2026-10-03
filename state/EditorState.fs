@@ -100,7 +100,17 @@ type EditorState =
       CueSelection : int list option
       CueTextBuffer : byte[]
       CueTextPath : int list option
-      CueTextEditing : bool }
+      CueTextEditing : bool
+      // The Inspector's inline trigger-cue editor (spec 058): which node of the selected trigger's cue is
+      // selected, the trigger those fields belong to, and the reused buffer for the selected node's text. Kept
+      // apart from the Cue panel's fields above so the two editors cannot share a selection or a buffer; the
+      // fields reset when `TriggerCueRef` changes, so a path or text typed for one trigger is never applied to
+      // another (the `NameEditRef` rule). The commit is a `TriggerSet` step on `Undo` above.
+      TriggerCueSelection : int list option
+      TriggerCueRef : EntityRef option
+      TriggerCueTextBuffer : byte[]
+      TriggerCueTextPath : int list option
+      TriggerCueEditing : bool }
 
 let create () : EditorState =
     { Selection = None
@@ -125,4 +135,9 @@ let create () : EditorState =
       CueSelection = None
       CueTextBuffer = Array.zeroCreate cueTextBufferSize
       CueTextPath = None
-      CueTextEditing = false }
+      CueTextEditing = false
+      TriggerCueSelection = None
+      TriggerCueRef = None
+      TriggerCueTextBuffer = Array.zeroCreate cueTextBufferSize
+      TriggerCueTextPath = None
+      TriggerCueEditing = false }

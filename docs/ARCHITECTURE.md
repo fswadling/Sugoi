@@ -144,6 +144,11 @@ parsed from s-syntax manifests, keyed by `id`.
   retired (`docs/CUE_MODEL_DECISION.md`, `specs/046`).
 - A cue arrives at a running one by **fork** — it runs beside it. There is no join
   and no splice.
+- A **trigger owns an authored cue** (a field on `TriggerState`, drawn inline in the
+  Inspector), and fires it by forking it into the screen's running cue: on the rising
+  edge of "player inside" for a non-interactable trigger, and on the interact key for
+  the tracked interactable one (`specs/058-trigger-cue`). The authored value is never
+  consumed, so the same trigger fires again on re-entry.
 - The cue lives on the **gameplay screen**, not in `Shared_State` — a cue spans
   zones, so it cannot be a zone's, and it is not cross-screen state either.
 

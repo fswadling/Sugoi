@@ -66,7 +66,11 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
         do Systems.playerInput shared.Physics zone frame.Input frame.Dt
         do Physics.step shared.Physics frame.Dt
         do Systems.syncActors shared.Physics zone
-        do Systems.updateTriggers zone &state.InteractableTrigger
+        do Systems.updateTriggers zone &state.InteractableTrigger &state.Cue
+        // Interaction (spec 058): the tracked interactable trigger's authored cue runs on the press edge of the
+        // interact key — not on entry, and not once per frame while held.
+        if Input.isPressed Input.Key.E frame.Input then
+            do Systems.forkTriggerCue zone state.InteractableTrigger &state.Cue
         do Systems.cameraFollow zone &state.Follow &state.Camera
         do Systems.animate zone frame.Input
         // The cue advances last (research D5), on play time: an op's effect is what the next frame's

@@ -208,14 +208,17 @@ type Waypoint =
 // cross-section; the rotation exists so the volume can be aimed like any entity, but
 // containment is radially symmetric and the scale is not the volume's size. Composes
 // the shared base entity like actors, props and waypoints, and carries no renderer,
-// collider, or asset binding. `Base.Enabled` is the trigger's disabled flag.
+// collider, or asset binding. `Base.Enabled` is the trigger's disabled flag. `Cue` is
+// the cue forked into the screen's running cue when the trigger fires (spec 058):
+// authored state like the rest of the record, `Fin` when the trigger does nothing.
 [<Struct>]
 type TriggerState =
     { Base : Entity
       Radius : float32
       Height : float32
       Interactable : bool
-      Prompt : string }
+      Prompt : string
+      Cue : Cue.Cue }
 
 // A trigger is its authored shape plus its runtime flag, which is neither authored nor
 // derived: it is recomputed in place by the trigger system and never recorded.

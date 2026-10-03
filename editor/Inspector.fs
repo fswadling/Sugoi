@@ -260,6 +260,11 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             if ImGui.checkbox("Enabled", &enabled) then
                 Selection.updateTriggerRef shared &state ref (fun t -> { t with Base = { t.Base with Enabled = enabled } })
 
+            // The trigger's authored cue (spec 058), edited inline through the shared control. Every
+            // accepted edit is one `TriggerSet` step via `Selection.updateTriggerRef`.
+            do ImGui.text("Cue")
+            do CueEditor.drawTrigger shared &state ref
+
         // Actor-only: bind this actor as the played character. It is a zone's own edit like the zone's
         // light (spec 045), so it is one undoable step and the control reads the designation back — an
         // undo with nothing to see would not be much of an undo. It still touches no physics.

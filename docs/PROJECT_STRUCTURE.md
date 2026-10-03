@@ -59,6 +59,8 @@ The `.fsproj` compile list is ordered like this (abridged):
   <Compile Include="render/Camera.fs" />
   ...
   <!-- world (the game domain: entities, zones, assets) -->
+  <!-- the cue is listed before Entity.fs: a trigger owns a cue (spec 058) -->
+  <Compile Include="world/Cue.fs" />
   <Compile Include="world/Entity.fs" />
   <Compile Include="world/ZoneTemplate.fs" />
   <Compile Include="world/Zone.fs" />
@@ -69,6 +71,10 @@ The `.fsproj` compile list is ordered like this (abridged):
   <Compile Include="state/Command.fs" />
   ...
   <!-- editor (consumes everything below) -->
+  <!-- CueTree/CueEditor are listed before Inspector.fs: the Inspector draws a trigger's cue inline (spec 058) -->
+  <Compile Include="editor/CueTree.fs" />
+  <Compile Include="editor/CueEditor.fs" />
+  <Compile Include="editor/Inspector.fs" />
   <Compile Include="editor/Editor.fs" />
   ...
   <!-- screen (composed last; consumes editor) -->
@@ -143,8 +149,8 @@ fsharp-game/
 │   ├── Dialogue.fs             #   the dialogue state: Kind and Emotion, runtime screen state
 │   ├── DialogueRender.fs       #   the dialogue view + the panel layout (pure)
 │   ├── PromptRender.fs         #   the interact prompt view + its layout (pure)
-│   ├── Cue.fs                  #   the cue: one type, the vocabulary and its run (spec 046)
-│   ├── CueEngine.fs            #   advance / tick / forkInto (spec 046; compiled after state/)
+│   ├── Cue.fs                  #   the cue: one type, the vocabulary, its run and forkInto (spec 046/058)
+│   ├── CueEngine.fs            #   advance / tick (spec 046; compiled after state/)
 │   ├── Scenario.fs             #   scenario library (planned)
 │   ├── Systems.fs              #   named play-mode systems
 │   └── Project.fs              #   DTO persistence (project.json) (planned)
@@ -174,7 +180,7 @@ fsharp-game/
 │   ├── ZoneRegistryPanel.fs    #   the places tree: register a zone against one, instantiate one
 │   ├── DialoguePanel.fs        #   the dialogue authoring surface (direct write)
 │   ├── AdventPanel.fs          #   the milestone checklist (spec 055), docked right; a toggle is an Advent step
-│   ├── CueEditor.fs            #   the cue panel (spec 047); an edit is a SetCue step on the one history (spec 049)
+│   ├── CueEditor.fs            #   the cue panel (spec 047) + the inline trigger-cue editor (spec 058); a SetCue/TriggerSet step on the one history
 │   ├── CueTree.fs              #   shared recursive cue-tree control (spec 047)
 │   └── ScenarioEditor.fs       #   (planned)
 ├── native/                     # native libs (ImGui + cimgui + backends)
