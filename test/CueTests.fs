@@ -14,6 +14,7 @@ open System.Numerics
 open Prime
 open Cue
 open CueEngine
+open Entity
 
 // ── Headless fixtures ──
 
@@ -43,6 +44,18 @@ let private seqOf (cues: Cue list) : Cue =
     | [ only ] -> only
     | head :: tail -> Sequence(head, FDeque.ofList tail)
 
+/// A waypoint named `name` at `position`, facing `rotation`, in the state's active zone.
+let private placeWaypoint (state: GameplayState.GameplayState) (name: string) (position: Vector3) (rotation: Quaternion) : EntityRef =
+    let zone = GameplayState.activeZone state
+    let entity : Entity =
+        { Name = name
+          Transform = { transformIdentity with Position = position; Rotation = rotation }
+          Enabled = true
+          Visible = true
+          Selectable = true
+          Draggable = true }
+    Zone.spawnWaypoint zone entity
+
 /// The cue as a person (or the editor's panel) reads it. The in-flight `WaitState` renders as the `Wait`
 /// it came from: the view is what is left to run, and its front is the running op.
 let rec private describe (cue: Cue) : string =
@@ -56,7 +69,8 @@ let rec private describe (cue: Cue) : string =
     | Wait s | WaitState (s, _) -> sprintf "Wait %g" s
     | Exposit t -> sprintf "Exposit(%s)" t
     | SwitchZone z -> sprintf "Zone(%s)" z
-    | MoveCamera _ | MoveCameraState _ -> "MoveCamera"
+    | SetCamera w -> sprintf "SetCamera(%s)" w
+    | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "FlyCamera(%s)" p
 
 /// The nodes actually in flight. The queue behind a sequence's current op is data, not live nodes, so a
 /// long cue costs no more than a short one.
@@ -170,30 +184,132 @@ let ``two runs of the same cue against the same clock agree after every step`` (
         Assert.Equal(a.Dialogue.Text, b.Dialogue.Text)
         Assert.Equal(a.ActiveZone, b.ActiveZone)
 
+// ══════ Story 1 (spec 054) — the camera snaps from a named waypoint ══════
+
 [<Fact>]
-let ``a camera move interpolates and lands on its target`` () =
-    let target = { Position = Vector3(10.0f, 10.0f, 10.0f); Target = Vector3(1.0f, 1.0f, 1.0f) }
-    let mutable state = withCue (seqOf [ MoveCamera(target, 2.0) ])
-    let from = state.Camera.Position
+let ``a set camera op frames from its waypoint and costs no time`` () =
+    let mutable state = newState ()
+    // the waypoint's arrow faces +X: `-UnitZ` rotated -90° about +Y (the Viewport arrow convention)
+    let rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, -MathF.PI / 2.0f)
+    do ignore (placeWaypoint state "balcony" (Vector3(4.0f, 5.0f, 6.0f)) rotation)
+    state.Cue <- seqOf [ SetCamera "balcony"; Exposit "after" ]
 
     tick shared &state 0.0
-    Assert.Equal(from, state.Camera.Position) // progress 0: still at the start
 
-    tick shared &state 1.0
-    Assert.True(state.Camera.Position.X > from.X && state.Camera.Position.X < target.Position.X)
-
-    tick shared &state 2.0
-    Assert.Equal(target.Position, state.Camera.Position)
-    Assert.Equal(target.Target, state.Camera.Target)
+    Assert.Equal(Vector3(4.0f, 5.0f, 6.0f), state.Camera.Position)
+    // the camera looks the way the arrow points, not the other way (`-UnitZ`, not `UnitZ`)
+    let arrow = Vector3.Transform(-Vector3.UnitZ, rotation)
+    let expected = Vector3(4.0f, 5.0f, 6.0f) + arrow * 3.5f
+    Assert.True((state.Camera.Target - expected).Length() < 0.001f, sprintf "look target: expected %A, got %A" expected state.Camera.Target)
+    Assert.True state.Dialogue.Shown // the op costs no time: the next op ran in the same step
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
-let ``a camera move of zero duration is over before it begins`` () =
-    let target = { Position = Vector3(4.0f, 5.0f, 6.0f); Target = Vector3(1.0f, 1.0f, 1.0f) }
-    let mutable state = withCue (seqOf [ MoveCamera(target, 0.0) ])
+let ``a set camera op with no such waypoint raises`` () =
+    let mutable state = newState ()
+    let raises (cue: Cue) =
+        state.Cue <- cue
+        let mutable raised = false
+        try tick shared &state 0.0 with _ -> raised <- true
+        raised
+    Assert.True(raises (SetCamera "nope"))
+    Assert.True(raises (SetCamera ""))
+
+[<Fact>]
+let ``a set camera op resolves names only in the active zone`` () =
+    let mutable state = newState ()
+    GameplayState.addZone shared &state "atrium" // atrium is now active
+    do ignore (placeWaypoint state "arch" Vector3.Zero Quaternion.Identity)
+    GameplayState.switchZone shared &state "main"
+
+    state.Cue <- SetCamera "arch"
+    let mutable raised = false
+    try tick shared &state 0.0 with _ -> raised <- true
+    Assert.True raised
+
+// ══════ Story 2 (spec 054) — the camera flies along a named chain ══════
+
+[<Fact>]
+let ``a fly camera op travels its chain and lands on the last waypoint`` () =
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    let a = placeWaypoint state "a" (Vector3(0.0f, 0.0f, 0.0f)) Quaternion.Identity
+    let b = placeWaypoint state "b" (Vector3(3.0f, 0.0f, 0.0f)) Quaternion.Identity
+    let c = placeWaypoint state "c" (Vector3(6.0f, 0.0f, 0.0f)) Quaternion.Identity
+    do Zone.setWaypointNext zone a (Some b)
+    do Zone.setWaypointNext zone b (Some c)
+
+    state.Cue <- FlyCamera("a", 1.0) // collinear 0..6 at speed 1: duration 6
+
     tick shared &state 0.0
+    Assert.Equal(Vector3(0.0f, 0.0f, 0.0f), state.Camera.Position) // cut to the path start
+
+    tick shared &state 3.0
+    Assert.True(abs (state.Camera.Position.X - 3.0f) < 0.1f, sprintf "expected mid-path, got %A" state.Camera.Position)
+
+    tick shared &state 6.0
+    Assert.Equal(Vector3(6.0f, 0.0f, 0.0f), state.Camera.Position)
     Assert.Equal("Fin", describe state.Cue)
-    Assert.Equal(target.Position, state.Camera.Position)
+
+[<Fact>]
+let ``a flight is pinned to the path it resolved`` () =
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    let a = placeWaypoint state "a" (Vector3(0.0f, 0.0f, 0.0f)) Quaternion.Identity
+    let b = placeWaypoint state "b" (Vector3(4.0f, 0.0f, 0.0f)) Quaternion.Identity
+    do Zone.setWaypointNext zone a (Some b)
+
+    state.Cue <- FlyCamera("a", 1.0)
+    tick shared &state 0.0
+    do Zone.removeWaypoint zone b // the end waypoint goes while the camera flies
+    tick shared &state 5.0
+    Assert.Equal(Vector3(4.0f, 0.0f, 0.0f), state.Camera.Position)
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a fly camera op with a bad path or speed raises`` () =
+    let mutable state = newState ()
+    do ignore (placeWaypoint state "solo" Vector3.Zero Quaternion.Identity)
+    let raises (cue: Cue) =
+        state.Cue <- cue
+        let mutable raised = false
+        try tick shared &state 0.0 with _ -> raised <- true
+        raised
+    Assert.True(raises (FlyCamera("nope", 1.0)))    // no such waypoint
+    Assert.True(raises (FlyCamera("solo", 1.0)))    // a chain of one
+    Assert.True(raises (FlyCamera("solo", 0.0)))    // speed is not positive
+    Assert.True(raises (FlyCamera("solo", -1.0)))
+
+[<Fact>]
+let ``a cyclic chain terminates`` () =
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    let a = placeWaypoint state "a" (Vector3(0.0f, 0.0f, 0.0f)) Quaternion.Identity
+    let b = placeWaypoint state "b" (Vector3(2.0f, 0.0f, 0.0f)) Quaternion.Identity
+    do Zone.setWaypointNext zone a (Some b)
+    do Zone.setWaypointNext zone b (Some a) // a -> b -> a
+
+    state.Cue <- FlyCamera("a", 1.0)
+    tick shared &state 0.0
+    tick shared &state 100.0
+    Assert.True(state.Cue.IsFin, "a cyclic chain must terminate rather than loop")
+
+[<Fact>]
+let ``a flight in progress allocates nothing per tick`` () =
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    let a = placeWaypoint state "a" (Vector3(0.0f, 0.0f, 0.0f)) Quaternion.Identity
+    let b = placeWaypoint state "b" (Vector3(1000.0f, 0.0f, 0.0f)) Quaternion.Identity
+    do Zone.setWaypointNext zone a (Some b)
+    state.Cue <- FlyCamera("a", 1.0)
+
+    tick shared &state 0.0
+    for _ in 1 .. 50 do tick shared &state 0.5
+
+    let before = GC.GetAllocatedBytesForCurrentThread()
+    for _ in 1 .. 2000 do tick shared &state 0.5
+    let bytes = GC.GetAllocatedBytesForCurrentThread() - before
+    Assert.Equal(0L, bytes)
 
 // ══════ Story 2 — a cue can be forked ══════
 

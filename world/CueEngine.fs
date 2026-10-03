@@ -7,11 +7,13 @@ module CueEngine
 // Compiled *after* `state/GameplayState.fs` — the project's one deliberate ordering inversion — because
 // each op performs its effect on the gameplay state where the walk reaches it: an `Exposit` writes the
 // screen's dialogue, a `SwitchZone` reuses `GameplayState.switchZone` (which is why the walk carries
-// `shared` for the physics swap), and a `MoveCamera` writes the camera (research D3).
+// `shared` for the physics swap), and the camera ops write the camera from a named waypoint (research D3).
 
 open System.Numerics
 open Prime
 open Cue
+open Entity
+open Maths
 
 // ── The ops' effects, performed where the walk reaches them ──
 
@@ -20,14 +22,54 @@ let private exposit (state: byref<GameplayState.GameplayState>) (text: string) :
     state.Dialogue.Kind <- Dialogue.Kind.Dialogue
     state.Dialogue.Text <- text
 
-let private applyPose (state: byref<GameplayState.GameplayState>) (p: CameraPose) : unit =
-    state.Camera.Position <- p.Position
-    state.Camera.Target <- p.Target
+// ── Camera ops (spec 054) ──
 
-let private lerpPose (a: CameraPose) (b: CameraPose) (t: float) : CameraPose =
-    let t32 = float32 t
-    { Position = Vector3.Lerp(a.Position, b.Position, t32)
-      Target = Vector3.Lerp(a.Target, b.Target, t32) }
+/// How far along a waypoint's facing the camera looks, in world units. The reference's fixed distance.
+let private cameraLookDistance = 3.5f
+
+/// The direction a waypoint faces: `-UnitZ` rotated by it — the convention the viewport's arrow draws
+/// (`editor/Viewport.fs`) and `newWaypointAtCamera` authors (`editor/Outliner.fs`, via `CreateWorld`), so a
+/// snap looks the way the arrow points and a waypoint placed at the camera round-trips.
+let private facing (rotation: Quaternion) : Vector3 =
+    Vector3.Transform(-Vector3.UnitZ, rotation)
+
+/// Point the camera at a position, looking along a waypoint's facing.
+let private setCamera (state: byref<GameplayState.GameplayState>) (position: Vector3) (rotation: Quaternion) : unit =
+    state.Camera.Position <- position
+    state.Camera.Target <- position + facing rotation * cameraLookDistance
+
+/// The first live waypoint named `name` in the zone; raises when there is none (FR-009).
+let private namedWaypoint (zone: Zone.Zone) (name: string) : EntityRef =
+    match Zone.tryWaypointByName zone name with
+    | Some r -> r
+    | None -> invalidOp (sprintf "cue camera: no waypoint named '%s' in zone '%s'" name zone.Name)
+
+/// A waypoint's position and facing. Raises if the resolved waypoint is no longer alive.
+let private poseAt (zone: Zone.Zone) (ref: EntityRef) (name: string) : Vector3 * Quaternion =
+    match Zone.tryEntityAt zone ref with
+    | Some e -> e.Transform.Position, e.Transform.Rotation
+    | None -> invalidOp (sprintf "cue camera: waypoint '%s' is not alive" name)
+
+/// Resolve a waypoint's pose for a snap, raising when the name does not resolve (FR-009).
+let private snapPose (zone: Zone.Zone) (name: string) : Vector3 * Quaternion =
+    poseAt zone (namedWaypoint zone name) name
+
+/// Resolve the chain starting at `name` into positions and facings. Raises for an unknown name or a
+/// chain of fewer than two waypoints (FR-010).
+let private resolvedPath (zone: Zone.Zone) (name: string) : Vector3[] * Quaternion[] =
+    let start = namedWaypoint zone name
+    let chain = Zone.waypointChain zone start
+    if List.length chain < 2 then
+        invalidOp (sprintf "cue camera: path '%s' has fewer than two waypoints" name)
+    else
+
+    let points = Array.zeroCreate chain.Length
+    let rotations = Array.zeroCreate chain.Length
+    for i in 0 .. chain.Length - 1 do
+        let (position, rotation) = poseAt zone chain.[i] name
+        points.[i] <- position
+        rotations.[i] <- rotation
+    points, rotations
 
 /// Begin a timed op. A duration of zero (or less) is over before it begins.
 let private beginWait (now: float) (seconds: float) : Cue =
@@ -60,21 +102,34 @@ let rec advance
     | Wait seconds -> ValueSome(beginWait now seconds)
     | WaitState (_, endsAt) ->
         if now >= endsAt then ValueSome Fin else ValueNone // not due yet: nothing to change
-    | MoveCamera (target, duration) ->
+    | SetCamera waypoint ->
+        let zone = GameplayState.activeZone state
+        let (position, rotation) = snapPose zone waypoint
+        do setCamera &state position rotation
+        ValueSome Fin // no progress of its own: performed here and gone
+
+    | FlyCamera (path, speed) ->
+        if speed <= 0.0 then invalidOp (sprintf "cue camera: speed must be positive (was %g)" speed) else
+
+        let zone = GameplayState.activeZone state
+        let (points, rotations) = resolvedPath zone path
+        let duration = pathLength points 10 / speed
         if duration <= 0.0 then
-            do applyPose &state target
+            // over before it begins: land on the last waypoint and hold no state
+            do setCamera &state points.[points.Length - 1] rotations.[rotations.Length - 1]
             ValueSome Fin
         else
-            let from : CameraPose = { Position = state.Camera.Position; Target = state.Camera.Target }
-            ValueSome(MoveCameraState(from, target, duration, now + duration))
-    | MoveCameraState (from, target, duration, endsAt) ->
+            do setCamera &state points.[0] rotations.[0] // cut to the path's start as the flight begins
+            ValueSome(FlyCameraState(path, points, rotations, duration, now + duration))
+
+    | FlyCameraState (_, points, rotations, duration, endsAt) ->
         if now >= endsAt then
-            do applyPose &state target
+            do setCamera &state points.[points.Length - 1] rotations.[rotations.Length - 1]
             ValueSome Fin
         else
-            // only the camera moves while the move runs, so there is no new cue to hand back — and, since
-            // the cue value is untouched, no allocation either
-            do applyPose &state (lerpPose from target ((now - (endsAt - duration)) / duration))
+            // only the camera moves while the flight runs: no new cue to hand back, and no allocation
+            let t = (now - (endsAt - duration)) / duration
+            do setCamera &state (evalSpline points t) (evalRotation rotations t)
             ValueNone
     | Fork _ -> invalidOp "a Fork is only meaningful at a Sequence's current op"
     | Parallel (left, right) -> stepParallel shared &state now left right

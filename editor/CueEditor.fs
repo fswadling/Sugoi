@@ -5,7 +5,8 @@ module CueEditor
 //
 // It takes only the gameplay state. Nothing it needs is in `SharedState`: the control is the cue's, and a
 // zone name is typed rather than chosen, because a dropdown would have the control read the zone registry
-// (`FR-006`).
+// (`FR-006`). A camera op's waypoint *is* chosen from a combo — but from the active zone's waypoints, read
+// here in the panel, so the control still names no zone.
 //
 // An accepted edit is one `SetCue` step on `state.Editor.Undo` (`docs/EDITOR_DESIGN.md`, D-011). The cue is
 // immutable, so the step carries two references — the value before the edit and after it — and the panel keeps
@@ -69,6 +70,30 @@ let private drawText (state: byref<GameplayState.GameplayState>) (idPrefix: stri
 
     state.Editor <- { state.Editor with CueTextEditing = ImGui.isItemActive() }
 
+// ── the selected camera op's waypoint ──
+
+/// The selected camera op's waypoint, chosen from the active zone's live waypoints rather than typed, so the
+/// name the op names always resolves (`Zone.tryWaypointByName`, the resolution the engine uses). The panel
+/// reads the zone — the control names none (`FR-006`) — and the write is the control's own `withText`, which
+/// for a camera op replaces the waypoint and keeps a `FlyCamera`'s speed. A value that names no live waypoint
+/// (the waypoint was deleted, or the op belongs to another zone) still shows; the combo only ever writes a
+/// name it offers.
+let private drawWaypointCombo (state: byref<GameplayState.GameplayState>) (idPrefix: string) (path: int list) (node: Cue) (current: string) : unit =
+    let id = CueTree.rowId idPrefix path
+    let preview = if current = "" then "(none)" else current
+    if ImGui.beginCombo("Waypoint##" + id, preview, 0) then
+        let zone = GameplayState.activeZone state
+        let slots = zone.Waypoints.Slots
+        for i in 0 .. slots.Length - 1 do
+            let slot = slots.[i]
+            if slot.Alive then
+                let name = slot.Value.Base.Name
+                // The slot index keeps two waypoints sharing a name apart in ImGui; the *name* is what the op
+                // resolves by, so choosing either writes the same thing, as at run time.
+                if ImGui.selectableBool(name + "##wp" + id + string i, name = current, 0, ImGui.ImVec2(0.0f, 0.0f)) && name <> current then
+                    do commit &state (CueTree.withAt path (CueTree.withText node name) state.Cue)
+        do ImGui.endCombo()
+
 // ── the panel ──
 
 let draw (state: byref<GameplayState.GameplayState>) : unit =
@@ -99,15 +124,20 @@ let draw (state: byref<GameplayState.GameplayState>) : unit =
         | Some next -> do commit &state next
         | None -> ()
 
-        // the node's text, when it carries any. A node that carries text is never executing — only the two
-        // in-flight leaves are — so this needs no lock check of its own (CueTree.textOf says so).
+        // the node's text, when it carries any: a camera op's waypoint is chosen from the active zone's
+        // waypoints, every other text-bearing node is typed into. A node that carries text is never
+        // executing — only the two in-flight leaves are — so this needs no lock check of its own
+        // (CueTree.textOf says so).
         match selection with
         | Some path' ->
             match CueTree.tryAt path' state.Cue with
             | Some node ->
-                match CueTree.textOf node with
-                | ValueSome current -> do drawText &state idPrefix path' node current
-                | ValueNone -> ()
+                match node with
+                | SetCamera current | FlyCamera (current, _) -> do drawWaypointCombo &state idPrefix path' node current
+                | _ ->
+                    match CueTree.textOf node with
+                    | ValueSome current -> do drawText &state idPrefix path' node current
+                    | ValueNone -> ()
             | None -> ()
         | None -> ()
 

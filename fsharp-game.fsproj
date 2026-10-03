@@ -37,6 +37,10 @@
     <Compile Include="core/Iqm.fs" />
     <Compile Include="core/Gltf.fs" />
     <Compile Include="core/Input.fs" />
+    <!-- Spline geometry (spec 054): a curve through points and a turn through rotations, sampled at a
+         global parameter. Pure and device-free (positions/rotations only), so it sits in `core` and is
+         exercised on its own; the cue's camera flight is its first caller. -->
+    <Compile Include="core/Maths.fs" />
     <Compile Include="physics/Physics.fs" />
     <Compile Include="render/Gpu.fs" />
     <Compile Include="render/Texture.fs" />
@@ -93,7 +97,7 @@
     <Compile Include="state/GameplayState.fs" />
     <!-- The cue engine (spec 046). Listed AFTER the gameplay state — a deliberate inversion, the
          only `world/` file below `state/` — because the ops perform their effects on that state
-         where the walk reaches them: a zone switch, an exposition, a camera move (research D3).
+         where the walk reaches them: a zone switch, an exposition, a camera flight (research D3).
          It must precede `screen/GameplayScreen.fs`, which ticks it. -->
     <Compile Include="world/CueEngine.fs" />
     <!-- The one undo history (spec 048). Listed AFTER the gameplay state — the same deliberate inversion

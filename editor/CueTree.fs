@@ -37,16 +37,16 @@ type Row =
 /// still offered to a `Sequence` on it — see `drawEditor` — because a queue's tail is ahead of the running op.)
 ///
 /// Read off the value rather than decided by the editor: `world/CueEngine.fs` gives a run state of its own to
-/// two cases only (`WaitState`'s deadline, `MoveCameraState`'s start), so a `Sequence`'s front is executing
+/// two cases only (`WaitState`'s deadline, `FlyCameraState`'s resolved path), so a `Sequence`'s front is executing
 /// when what it holds is, a `Parallel`'s sides are executing together, and everything else is either
 /// structure or an op that has not begun. A suite can therefore assert the lock with no device.
 let rec executing (cue: Cue) : bool =
     match cue with
-    | WaitState _ | MoveCameraState _ -> true
+    | WaitState _ | FlyCameraState _ -> true
     | Sequence (current, _) -> executing current
     | Parallel (left, right) -> executing left || executing right
     | Fork inner -> executing inner
-    | Fin | Wait _ | Exposit _ | SwitchZone _ | MoveCamera _ -> false
+    | Fin | Wait _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCamera _ -> false
 
 /// What a row says. A leaf in flight is shown as the op it came from — a `WaitState` as its `Wait` — because
 /// the view is what is left to run, never an internal state's name (`FR-004`).
@@ -60,8 +60,8 @@ let private label (cue: Cue) : string =
     | WaitState (seconds, _) -> sprintf "Wait %g" seconds
     | Exposit text -> "Exposit: " + text
     | SwitchZone zone -> "Zone: " + zone
-    | MoveCamera _ -> "Move camera"
-    | MoveCameraState _ -> "Move camera"
+    | SetCamera waypoint -> "Camera: " + waypoint
+    | FlyCamera (path, _) | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
 
 /// A `Sequence`'s children in index order: the op in flight first, then the queue behind it.
 let private sequenceChildren (current: Cue) (rest: Cue FDeque) : Cue list =
@@ -73,7 +73,7 @@ let children (cue: Cue) : Cue list =
     | Sequence (current, rest) -> sequenceChildren current rest
     | Parallel (left, right) -> [ left; right ]
     | Fork inner -> [ inner ]
-    | Fin | Wait _ | WaitState _ | Exposit _ | SwitchZone _ | MoveCamera _ | MoveCameraState _ -> []
+    | Fin | Wait _ | WaitState _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCamera _ | FlyCameraState _ -> []
 
 /// Every row of the cue as the panel shows it, in display order: a row per container with its children
 /// indented beneath it, the queue behind a running op in its own order, and `Fin` its own row. The one thing
@@ -177,7 +177,7 @@ let canAppend (path: int list) (cue: Cue) : bool =
     | _ -> false
 
 /// The kinds a node can be turned into, in the order the dropdown lists them.
-let private kinds = [| "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Exposit"; "Zone"; "Move camera" |]
+let private kinds = [| "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Exposit"; "Zone"; "Set camera"; "Fly camera" |]
 
 /// What the dropdown shows for a node: its authored kind. The in-flight `…State` cases show as the op they
 /// came from, so re-choosing a kind never shows a name the author did not write.
@@ -190,7 +190,8 @@ let private kindName (cue: Cue) : string =
     | Wait _ | WaitState _ -> "Wait"
     | Exposit _ -> "Exposit"
     | SwitchZone _ -> "Zone"
-    | MoveCamera _ | MoveCameraState _ -> "Move camera"
+    | SetCamera _ -> "Set camera"
+    | FlyCamera _ | FlyCameraState _ -> "Fly camera"
 
 /// What choosing a kind replaces the node with. Every op is reachable without an editor per op.
 ///
@@ -209,7 +210,8 @@ let private defaultOfKind (kind: string) : Cue =
     | "Wait" -> Wait 1.0
     | "Exposit" -> Exposit ""
     | "Zone" -> SwitchZone ""
-    | _ -> MoveCamera({ Position = Vector3.Zero; Target = Vector3.Zero }, 1.0)
+    | "Set camera" -> SetCamera ""
+    | _ -> FlyCamera("", 1.0)
 
 /// The node's editable text, or `ValueNone` when it has none. The field that edits it belongs to the caller
 /// (the buffer is a widget's scaffolding, not the cue's), so the control names no editor state and says only
@@ -221,6 +223,8 @@ let textOf (cue: Cue) : string voption =
     match cue with
     | Exposit text -> ValueSome text
     | SwitchZone zone -> ValueSome zone
+    | SetCamera waypoint -> ValueSome waypoint
+    | FlyCamera (path, _) -> ValueSome path
     | _ -> ValueNone
 
 /// The node with its text replaced — the write the caller's field commits.
@@ -228,6 +232,8 @@ let withText (cue: Cue) (text: string) : Cue =
     match cue with
     | Exposit _ -> Exposit text
     | SwitchZone _ -> SwitchZone text
+    | SetCamera _ -> SetCamera text
+    | FlyCamera (_, speed) -> FlyCamera(text, speed)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no text" (label cue))
 
 // ── the drawing ──
@@ -311,24 +317,14 @@ let drawEditor
         | Wait seconds | WaitState (seconds, _) ->
             dragNumber idBase "Seconds" (float32 seconds) (fun v -> commit (withAt selection (Wait(float v)) cue))
 
-        | MoveCamera (target, duration) | MoveCameraState (_, target, duration, _) ->
-            // a camera move's own numbers: where to stand, where to look, and how long to take. Where it
-            // starts from is the camera's position when the op *begins*, so the authored form has none and
-            // none is presented (research D7).
-            let position = target.Position
-            let look = target.Target
-            let moved (pose: CameraPose) (seconds: float) = commit (withAt selection (MoveCamera(pose, seconds)) cue)
-            dragNumber idBase "Position X" position.X (fun v -> moved { target with Position = Vector3(v, position.Y, position.Z) } duration)
-            dragNumber idBase "Position Y" position.Y (fun v -> moved { target with Position = Vector3(position.X, v, position.Z) } duration)
-            dragNumber idBase "Position Z" position.Z (fun v -> moved { target with Position = Vector3(position.X, position.Y, v) } duration)
-            dragNumber idBase "Look X" look.X (fun v -> moved { target with Target = Vector3(v, look.Y, look.Z) } duration)
-            dragNumber idBase "Look Y" look.Y (fun v -> moved { target with Target = Vector3(look.X, v, look.Z) } duration)
-            dragNumber idBase "Look Z" look.Z (fun v -> moved { target with Target = Vector3(look.X, look.Y, v) } duration)
-            dragNumber idBase "Seconds" (float32 duration) (fun v -> moved target (float v))
+        | FlyCamera (path, speed) ->
+            // a flight's own number: how fast to travel. Its path is text, which the caller's field edits,
+            // and its start and end are the chain's, so the authored form carries neither.
+            dragNumber idBase "Speed" (float32 speed) (fun v -> commit (withAt selection (FlyCamera(path, float v)) cue))
 
-        | Fin | Sequence _ | Parallel _ | Fork _ | Exposit _ | SwitchZone _ ->
-            // no numbers of their own. `Exposit` and `SwitchZone` carry text, which the caller's field edits
-            // (`textOf` / `withText`).
+        | Fin | Sequence _ | Parallel _ | Fork _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCameraState _ ->
+            // no numbers of their own. `Exposit`, `SwitchZone` and `SetCamera` carry text, and a `FlyCamera`
+            // carries its path and speed above; the caller's field edits the text (`textOf` / `withText`).
             ()
 
     // ── Add Child: the one container that takes one, whether or not it is running ──

@@ -623,6 +623,30 @@ let setWaypointNext (zone: Zone) (ref: EntityRef) (next: EntityRef option) : uni
     let waypoint = &zone.Waypoints.Get(handleOf ref)
     waypoint <- { waypoint with Next = target }
 
+// The first live waypoint named `name`, in slot order, or None when there is none. Names are not
+// required to be unique: the first match wins, deterministically. Used by the cue's camera ops to
+// resolve the waypoint an author typed into a cue (`world/CueEngine.fs`).
+let tryWaypointByName (zone: Zone) (name: string) : EntityRef option =
+    let slots = zone.Waypoints.Slots
+    let mutable found = None
+    for i in 0 .. slots.Length - 1 do
+        if found.IsNone then
+            let slot = &slots.[i]
+            if slot.Alive && slot.Value.Base.Name = name then
+                found <- Some (waypointRef (uint32 i) slot.Generation)
+    found
+
+// The chain starting at `start`, following `Next` links to the end, `start` first. Bounded by the
+// zone's live waypoint count, so a chain that loops back on itself terminates rather than running
+// forever. The caller resolves `start` with `tryWaypointByName`.
+let waypointChain (zone: Zone) (start: EntityRef) : EntityRef list =
+    let rec go (ref: EntityRef) (acc: EntityRef list) (remaining: int) =
+        if remaining <= 0 then List.rev acc else
+        match waypointNext zone ref with
+        | Some next -> go next (next :: acc) (remaining - 1)
+        | None -> List.rev acc
+    go start [ start ] (int zone.Waypoints.Count)
+
 // ── Triggers ──
 
 // Spawn a trigger from its base entity and return its ref, with the default shape.

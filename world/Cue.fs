@@ -4,11 +4,11 @@ module Cue
 // beside it: a cue *is* its own execution state, an immutable value that shrinks as it is stepped
 // down to `Fin` — what is left when a cue finishes, and where it then rolls.
 //
-// The ops with no progress of their own (`Exposit`, `SwitchZone`) hold no record; a leaf that spans
-// time carries its numbers in its own `…State` case (`WaitState`'s deadline, `MoveCameraState`'s
-// start). So a case suffixed `State` appears exactly where the run form holds something the authored
-// form does not — the convention the reference lineage uses (`wait` / `waitstate`), and FR-017's
-// "a leaf op and its own state case".
+// The ops with no progress of their own (`Exposit`, `SwitchZone`, `SetCamera`) hold no record; a leaf
+// that spans time carries its numbers in its own `…State` case (`WaitState`'s deadline,
+// `FlyCameraState`'s resolved path). So a case suffixed `State` appears exactly where the run form
+// holds something the authored form does not — the convention the reference lineage uses
+// (`wait` / `waitstate`), and FR-017's "a leaf op and its own state case".
 //
 // Neither names a zone, a screen, an asset or a device: this module depends on `Prime` (for
 // `FDeque`) and `System.Numerics` only, so it loads on its own. The engine that walks it
@@ -17,16 +17,6 @@ module Cue
 
 open System.Numerics
 open Prime
-
-// ── The ops' own numbers ──
-
-/// A camera pose: where the camera is and what it looks at. The op's own numbers, and deliberately
-/// not `render/Camera.fs`'s `Camera` — naming the renderer here would make the vocabulary depend on
-/// the render path for no gain.
-[<Struct>]
-type CameraPose =
-    { Position : Vector3
-      Target : Vector3 }
 
 // ── The cue — and therefore the run ──
 
@@ -47,5 +37,6 @@ type Cue =
     | WaitState of seconds: float * endsAt: float
     | Exposit of text: string
     | SwitchZone of zone: string
-    | MoveCamera of target: CameraPose * duration: float
-    | MoveCameraState of from: CameraPose * target: CameraPose * duration: float * endsAt: float
+    | SetCamera of waypoint: string
+    | FlyCamera of path: string * speed: float
+    | FlyCameraState of path: string * points: Vector3[] * rotations: Quaternion[] * duration: float * endsAt: float

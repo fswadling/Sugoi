@@ -47,7 +47,8 @@ let rec private describe (cue: Cue) : string =
     | Wait s | WaitState (s, _) -> sprintf "Wait %g" s
     | Exposit t -> sprintf "Exposit(%s)" t
     | SwitchZone z -> sprintf "Zone(%s)" z
-    | MoveCamera _ | MoveCameraState _ -> "MoveCamera"
+    | SetCamera w -> sprintf "Camera(%s)" w
+    | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "Fly(%s)" p
 
 let private raises (f: unit -> unit) : bool =
     try
@@ -150,10 +151,11 @@ let ``every kind's row says what it is, and a leaf in flight as the op it came f
     Assert.Equal("Wait 1", labelOf (Wait 1.0))
     Assert.Equal("Exposit: hello", labelOf (Exposit "hello"))
     Assert.Equal("Zone: classroom", labelOf (SwitchZone "classroom"))
-    Assert.Equal("Move camera", labelOf (MoveCamera({ Position = Vector3.Zero; Target = Vector3.Zero }, 1.0)))
-    // ... and the two in-flight forms read as the ops they came from
+    Assert.Equal("Camera: balcony", labelOf (SetCamera "balcony"))
+    Assert.Equal("Fly: route", labelOf (FlyCamera("route", 1.0)))
+    // ... and the in-flight forms read as the ops they came from
     Assert.Equal("Wait 2", labelOf (WaitState(2.0, 10.0)))
-    Assert.Equal("Move camera", labelOf (MoveCameraState({ Position = Vector3.Zero; Target = Vector3.Zero }, { Position = Vector3.One; Target = Vector3.One }, 1.0, 5.0)))
+    Assert.Equal("Fly: route", labelOf (FlyCameraState("route", [| Vector3.Zero; Vector3.One |], [| Quaternion.Identity; Quaternion.Identity |], 1.0, 5.0)))
 
 [<Fact>]
 let ``a sequence inside a sequence is indented one deeper again, and a container's sides are siblings`` () =
@@ -203,6 +205,12 @@ let ``a fork's inner branch is locked while the remainder behind it is not`` () 
     let running = Sequence(Fork(WaitState(2.0, 10.0)), FDeque.ofList [ Exposit "after" ])
     Assert.Equal<int list list>([ []; [ 0 ]; [ 0; 0 ] ], lockedPaths running)
     Assert.False((rows running |> List.last).Locked)
+
+[<Fact>]
+let ``a running flight is locked and reads as the op it came from`` () =
+    let flying = FlyCameraState("route", [| Vector3.Zero; Vector3.One |], [| Quaternion.Identity; Quaternion.Identity |], 2.0, 2.0)
+    Assert.Equal<string list>([ "Fly: route" ], List.map (fun (r: Row) -> r.Label) (rows flying))
+    Assert.True((List.head (rows flying)).Locked)
 
 [<Fact>]
 let ``an addition is offered to a sequence whether or not it is running`` () =
@@ -281,10 +289,14 @@ let ``appending to a sequence gives the node and the new child's path`` () =
 let ``only the text-bearing kinds carry text, and writing it replaces exactly that`` () =
     Assert.Equal(ValueSome "hello", textOf (Exposit "hello"))
     Assert.Equal(ValueSome "classroom", textOf (SwitchZone "classroom"))
+    Assert.Equal(ValueSome "balcony", textOf (SetCamera "balcony"))
+    Assert.Equal(ValueSome "route", textOf (FlyCamera("route", 1.0)))
     Assert.Equal(ValueNone, textOf (Wait 1.0))
     Assert.Equal(ValueNone, textOf Fin)
     Assert.Equal("Exposit(hi)", describe (withText (Exposit "hello") "hi"))
     Assert.Equal("Zone(atrium)", describe (withText (SwitchZone "classroom") "atrium"))
+    Assert.Equal("Camera(atrium)", describe (withText (SetCamera "balcony") "atrium"))
+    Assert.Equal("Fly(route)", describe (withText (FlyCamera("lo", 2.0)) "route"))
     Assert.True(raises (fun () -> withText (Wait 1.0) "x" |> ignore))
 
 // ══════ the cue's edits on the one history (spec 049: FR-001, FR-004, SC-001, SC-004) ══════
