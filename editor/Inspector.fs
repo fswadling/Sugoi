@@ -132,6 +132,17 @@ let private drawMorphs (zone: Zone.Zone) (ref: EntityRef) : unit =
     if addable = 0 then
         do ImGui.text("(all morphs added)")
 
+// The active zone's environment (a zone has at most one): its name, read-only, shown above the
+// zone's lighting. Both are the zone's own settings and the Inspector draws them together when
+// nothing is selected, the environment saying where the scene comes from and the lighting how it is
+// lit. The Outliner lists places and entities, not zone settings, so the readout lives here.
+let private drawEnvironment (zone: Zone.Zone) : unit =
+    let name =
+        match zone.Environment with
+        | None -> "(none)"
+        | Some environment -> environment.Base.Name
+    do ImGui.text(sprintf "Environment: %s" name)
+
 // The active zone's lighting (spec 043, FR-003): the Inspector's fallback subject, drawn when no
 // entity is selected. Each control commits one `SetLight` step when it is released or left — the
 // rule the trigger fields below use — so tuning the sun is reversible (FR-006) without putting a
@@ -268,8 +279,9 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do drawAnimations zone ref
             do drawMorphs zone ref
     | None ->
-        // No entity selected: the Inspector falls back to the active zone, whose lighting is the
-        // zone-level setting it edits (spec 043, FR-003).
+        // No entity selected: the Inspector falls back to the active zone, whose environment and
+        // lighting are the zone-level settings it edits (spec 043, FR-003).
+        do drawEnvironment zone
         do drawLighting shared &state zone
 
     do ImGui.endWindow()

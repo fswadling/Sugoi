@@ -98,14 +98,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
     let zone = GameplayState.activeZone state
 
-    // The currently loaded environment (a zone has at most one).
-    let environmentName =
-        match zone.Environment with
-        | None -> "(none)"
-        | Some environment -> environment.Base.Name
-    do ImGui.text(sprintf "Environment: %s" environmentName)
-    do ImGui.text("")
-
     if ImGui.collapsingHeader("Actors", 0) then
         if zone.Actors.Count = 0u then
             do ImGui.text("(none)")

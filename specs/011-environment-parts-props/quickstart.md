@@ -36,8 +36,9 @@ dotnet test   # GltfTests (parts/local-space), AssetsTests, EntityTests, Command
    and the art-room parts are spawned. Placed props added before the swap are kept.
 7. **Undo/redo environment** — after spawning an environment, undo removes it (the
    previous environment — or none — returns); redo re-applies it.
-8. **Outliner indicator** — the Outliner's top line shows `Environment: <name>` (or
-   `(none)`), and the Asset Browser groups assets into Actors / Environments / Props.
+8. **Environment readout** — with nothing selected, the Inspector shows
+   `Environment: <name>` (or `(none)`) above the zone's Lighting, and the Asset Browser
+   groups assets into Actors / Environments / Props.
 9. **Composition** — import an environment, spawn a prop, and spawn Akane; all
    render together with correct depth, and grid/markers/gizmos remain visible.
 10. **Fail loudly** — point an environment manifest `Model` at a missing or

@@ -358,7 +358,7 @@ rest are in `editor/`.
 | `Selection` | selection edits (delete / duplicate / rename) + stale-part-selection cleanup |
 | `EditorState` | selection + transient UI state |
 | `Outliner` | hierarchical entity list |
-| `Inspector` | single editing surface for the selection (and the active zone's lighting when nothing is selected) |
+| `Inspector` | single editing surface for the selection (and the active zone's environment and lighting when nothing is selected) |
 | `Viewport` | 3D viewport + transform gizmo |
 | `CastPanel` / `AdventPanel` / `AssetBrowser` | docked list panels |
 | `CueEditor` / `CueTree` | the cue panel (right column, beside the Inspector) + the shared recursive cue-tree control |
