@@ -6,7 +6,7 @@ module Cue
 //
 // The ops with no progress of their own (`Exposit`, `SwitchZone`, `SetCamera`, `AddAdvent`,
 // `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
-// (`WaitState`'s deadline, `FlyCameraState`'s resolved path). So a case suffixed `State` appears exactly
+// (`WaitState`'s deadline, `FlyCameraState`'s resolved path, the fade states' captured level). So a case suffixed `State` appears exactly
 // where the run form holds something the authored form does not — the convention the reference lineage
 // uses (`wait` / `waitstate`), and FR-017's "a leaf op and its own state case". (`AwaitState` is the one
 // exception: it carries the same `Advent`, existing only to mark a blocking op as begun — spec 056.)
@@ -38,6 +38,12 @@ type Cue =
     | Fork of inner: Cue
     | Wait of seconds: float
     | WaitState of seconds: float * endsAt: float
+    // The screen fade (spec 060): drive `GameplayState.Fade` toward an endpoint over a duration. A `…State`
+    // captures the level where the op was reached — so a fade from part-way is correct — and the deadline.
+    | FadeOut of duration: float
+    | FadeIn of duration: float
+    | FadeOutState of initial: float32 * duration: float * endsAt: float
+    | FadeInState of initial: float32 * duration: float * endsAt: float
     // The line and how it is presented (spec 057): a plain dialogue line, a thought, or a portrait line
     // with a speaker and an expression — the closed `Dialogue.Kind`, so a mis-spelled speaker or
     // expression is unrepresentable and a portrait line always carries both. The view resolves the

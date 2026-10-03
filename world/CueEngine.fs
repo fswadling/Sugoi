@@ -79,6 +79,20 @@ let private beginWait (now: float) (seconds: float) : Cue =
     let endsAt = now + seconds
     if now >= endsAt then Fin else WaitState(seconds, endsAt)
 
+// ── Fade ops (spec 060) ──
+
+/// Drive the screen's fade level toward `target` along `initial`..`target` spanning `duration`, ending at
+/// `endsAt`: writes `state.Fade` and answers whether the fade is over, in which case the level is exactly
+/// `target`. Shared by the two ops, which differ only in their endpoint (research D4).
+let private stepFade (state: byref<GameplayState.GameplayState>) (initial: float32) (target: float32) (duration: float) (endsAt: float) (now: float) : bool =
+    if now >= endsAt then
+        state.Fade <- target
+        true
+    else
+        let t = (now - (endsAt - duration)) / duration
+        state.Fade <- initial + float32 t * (target - initial)
+        false
+
 // ── The engine — a cue in, the cue as it now stands out ──
 
 /// Advance a cue one tick, performing each op's effect where the walk reaches it.
@@ -105,6 +119,25 @@ let rec advance
     | Wait seconds -> ValueSome(beginWait now seconds)
     | WaitState (_, endsAt) ->
         if now >= endsAt then ValueSome Fin else ValueNone // not due yet: nothing to change
+
+    | FadeOut duration ->
+        // capture the level where the walk reaches the op, so a fade from part-way is correct (research D6)
+        let initial = state.Fade
+        let endsAt = now + duration
+        if stepFade &state initial 1.0f duration endsAt now then ValueSome Fin
+        else ValueSome(FadeOutState(initial, duration, endsAt))
+
+    | FadeOutState (initial, duration, endsAt) ->
+        if stepFade &state initial 1.0f duration endsAt now then ValueSome Fin else ValueNone
+
+    | FadeIn duration ->
+        let initial = state.Fade
+        let endsAt = now + duration
+        if stepFade &state initial 0.0f duration endsAt now then ValueSome Fin
+        else ValueSome(FadeInState(initial, duration, endsAt))
+
+    | FadeInState (initial, duration, endsAt) ->
+        if stepFade &state initial 0.0f duration endsAt now then ValueSome Fin else ValueNone
     | SetCamera waypoint ->
         let zone = GameplayState.activeZone state
         let (position, rotation) = snapPose zone waypoint

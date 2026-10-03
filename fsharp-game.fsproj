@@ -124,6 +124,9 @@
     <!-- The named adventure flags' panel (spec 055): a tab beside the Inspector on the right. It writes
          through `History.commit`, so a toggle is one `Advent` step on the one history. -->
     <Compile Include="editor/AdventPanel.fs" />
+    <!-- The Miscellaneous panel (spec 059): a right-column home for game-wide, non-entity runtime tuning,
+         starting with the screen fade level. It writes the state in place (no step on the one history). -->
+    <Compile Include="editor/MiscPanel.fs" />
     <Compile Include="editor/ZoneRegistryPanel.fs" />
     <!-- The dialogue authoring surface (spec 038): a panel of its own, because the dialogue
          state is not a selection and so cannot live in the Inspector. -->

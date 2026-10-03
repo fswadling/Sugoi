@@ -47,11 +47,11 @@ type Row =
 /// structure or an op that has not begun. A suite can therefore assert the lock with no device.
 let rec executing (cue: Cue) : bool =
     match cue with
-    | WaitState _ | FlyCameraState _ | AwaitState _ -> true
+    | WaitState _ | FlyCameraState _ | FadeOutState _ | FadeInState _ | AwaitState _ -> true
     | Sequence (current, _) -> executing current
     | Parallel (left, right) -> executing left || executing right
     | Fork inner -> executing inner
-    | Fin | Wait _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
+    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
 
 /// What a row says. A leaf in flight is shown as the op it came from — a `WaitState` as its `Wait` — because
 /// the view is what is left to run, never an internal state's name (`FR-004`).
@@ -63,6 +63,8 @@ let private label (cue: Cue) : string =
     | Fork _ -> "Fork"
     | Wait seconds -> sprintf "Wait %g" seconds
     | WaitState (seconds, _) -> sprintf "Wait %g" seconds
+    | FadeOut duration | FadeOutState (_, duration, _) -> sprintf "Fade out %g" duration
+    | FadeIn duration | FadeInState (_, duration, _) -> sprintf "Fade in %g" duration
     | Exposit (text, _) -> "Exposit: " + text
     | SwitchZone zone -> "Zone: " + zone
     | SetCamera waypoint -> "Camera: " + waypoint
@@ -83,7 +85,8 @@ let children (cue: Cue) : Cue list =
     | Parallel (left, right) -> [ left; right ]
     | Fork inner -> [ inner ]
     | If (_, thenCue, elseCue) -> [ thenCue; elseCue ]
-    | Fin | Wait _ | WaitState _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCamera _ | FlyCameraState _
+    | Fin | Wait _ | WaitState _ | FadeOut _ | FadeIn _ | FadeOutState _ | FadeInState _ | Exposit _
+    | SwitchZone _ | SetCamera _ | FlyCamera _ | FlyCameraState _
     | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ -> []
 
 /// Every row of the cue as the panel shows it, in display order: a row per container with its children
@@ -204,7 +207,10 @@ let canAppend (path: int list) (cue: Cue) : bool =
     | _ -> false
 
 /// The kinds a node can be turned into, in the order the dropdown lists them.
-let private kinds = [| "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Exposit"; "Zone"; "Set camera"; "Fly camera"; "Add advent"; "Remove advent"; "Await"; "If" |]
+let private kinds = [|
+    "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Fade out"; "Fade in"; "Exposit"; "Zone"; "Set camera";
+    "Fly camera"; "Add advent"; "Remove advent"; "Await"; "If"
+|]
 
 /// What the dropdown shows for a node: its authored kind. The in-flight `…State` cases show as the op they
 /// came from, so re-choosing a kind never shows a name the author did not write.
@@ -215,6 +221,8 @@ let private kindName (cue: Cue) : string =
     | Parallel _ -> "Parallel"
     | Fork _ -> "Fork"
     | Wait _ | WaitState _ -> "Wait"
+    | FadeOut _ | FadeOutState _ -> "Fade out"
+    | FadeIn _ | FadeInState _ -> "Fade in"
     | Exposit _ -> "Exposit"
     | SwitchZone _ -> "Zone"
     | SetCamera _ -> "Set camera"
@@ -241,6 +249,8 @@ let private defaultOfKind (kind: string) : Cue =
     | "Parallel" -> Parallel(Fin, Fin)
     | "Fork" -> Fork Fin
     | "Wait" -> Wait 1.0
+    | "Fade out" -> FadeOut 1.0
+    | "Fade in" -> FadeIn 1.0
     | "Exposit" -> Exposit("", Dialogue.Kind.Dialogue)
     | "Zone" -> SwitchZone ""
     | "Set camera" -> SetCamera ""
@@ -377,6 +387,14 @@ let drawEditor
         match node with
         | Wait seconds | WaitState (seconds, _) ->
             dragNumber idBase "Seconds" (float32 seconds) (fun v -> commit (withAt selection (Wait(float v)) cue))
+
+        | FadeOut duration | FadeOutState (_, duration, _) ->
+            // a fade's own number: how long it takes. Its endpoint is the op's, so the authored form carries
+            // only the duration.
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (FadeOut(float v)) cue))
+
+        | FadeIn duration | FadeInState (_, duration, _) ->
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (FadeIn(float v)) cue))
 
         | FlyCamera (path, speed) ->
             // a flight's own number: how fast to travel. Its path is text, which the caller's field edits,

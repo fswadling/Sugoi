@@ -40,7 +40,7 @@ A single editor workspace with a menu bar and dockable panels (ImGui docking):
 |-------|------|---------|
 | **Viewport** | center | 3D scene, selection, gizmos, waypoint/trigger overlays |
 | **Outliner** | left | hierarchical tree: Zone → Actors/Props/Waypoints/Triggers; tabs with Cast, Scenario, and Zone Registry |
-| **Inspector** | right | the single editing surface: the selected item's properties (entity / scenario / zone entry); tabs with Cue and Advent |
+| **Inspector** | right | the single editing surface: the selected item's properties (entity / scenario / zone entry); tabs with Cue, Advent and Miscellaneous |
 | **Asset Browser** | bottom | actors/environments/props; drag into the viewport to spawn |
 | **Dialogue** | bottom | the dialogue state put on screen by hand — shown, kind, speaker, expression, text (spec 038) |
 
@@ -64,6 +64,13 @@ The Cue presents the cue as a recursive tree list (D-013): nothing that is execu
 replaced or removed, everything ahead of it can be edited, an addition is always taken, and its edits
 are steps on the one undo history (D-010, `specs/049`). The Advent presents the milestones as one
 checkbox each, and a toggle is likewise a step on the one history (D-011, `specs/055`).
+
+The **Miscellaneous** panel (spec 059) docks on the **right** too: it is the home for **game-wide runtime
+tuning** — values that belong to no zone and no selection, so they cannot live in the Inspector. Its first
+control is the screen **fade level**, a slider over 0..1 for the black overlay the gameplay screen draws
+over the rendered game view. Unlike the Cue and Advent panels it writes the value **in place**, not as a
+step on the history, because it is live screen state rather than an authored edit (the same class as the
+Cast binding and the collider overlay, D-022).
 
 The **Dialogue** panel (spec 038) docks by exception as a tab beside the **Asset Browser** at the
 **bottom** rather than in the left column, because it is a line of text and wants the dock's width —
@@ -380,6 +387,7 @@ rest are in `editor/`.
 | `Inspector` | single editing surface for the selection (and the active zone's environment and lighting when nothing is selected) |
 | `Viewport` | 3D viewport + transform gizmo |
 | `CastPanel` / `AdventPanel` / `AssetBrowser` | docked list panels |
+| `MiscPanel` | the right-docked Miscellaneous panel: game-wide runtime tuning (the fade level is its first control) |
 | `CueEditor` / `CueTree` | the cue panel (right column, beside the Inspector) + the shared recursive cue-tree control |
 | `ScenarioEditor` / `ZoneRegistryPanel` | scenario / zone registry editors |
 | `Command` | undoable editor commands |

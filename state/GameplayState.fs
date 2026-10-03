@@ -37,7 +37,11 @@ type GameplayState =
       // a zone switch does not disturb it. `PlayTime` is play-mode time, advanced only by the play
       // chain, so an edit freezes it and Play resumes a cue rather than leaping it forward (FR-002).
       mutable Cue : Cue.Cue
-      mutable PlayTime : float }
+      mutable PlayTime : float
+      // The screen's fade level (0 = the game view untouched, 1 = fully black). Screen-scoped and
+      // runtime-only: a zone switch does not touch it, and it is never authored, persisted, or a step
+      // on the undo history. The cue ops FadeOut/FadeIn will drive it when they arrive.
+      mutable Fade : float32 }
 
 let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) : GameplayState =
     let zones = Dictionary<string, Zone.Zone>()
@@ -54,7 +58,8 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui
       Follow = Systems.createFollow ()
       InteractableTrigger = ValueNone
       Cue = Cue.Fin
-      PlayTime = 0.0 }
+      PlayTime = 0.0
+      Fade = 0.0f }
 
 // The active zone (one dictionary lookup).
 let activeZone (state: GameplayState) : Zone.Zone =

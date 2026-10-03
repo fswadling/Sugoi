@@ -116,7 +116,8 @@ bool cimgui_is_window_active(const char* name)
 }
 
 // Build the default editor dock layout: Outliner with the Cast panel (left), Inspector
-// (right), Asset Browser (bottom), and a passthru central node for the 3D viewport.
+// with the Cue/Advent/Miscellaneous panels (right), Asset Browser (bottom), and a passthru central
+// node for the 3D viewport.
 void cimgui_setup_dock_layout(ImGuiID dockspace_id)
 {
     ImGui::DockBuilderRemoveNode(dockspace_id);
@@ -151,6 +152,9 @@ void cimgui_setup_dock_layout(ImGuiID dockspace_id)
     // The Advent panel (spec 055) docks on the right too, beside the Inspector: it edits a set of story
     // facts rather than a place in the scene, so it belongs with the editing surfaces.
     ImGui::DockBuilderDockWindow("Advent", right);
+    // The Miscellaneous panel (spec 059) docks on the right as well: it edits game-wide runtime values
+    // (the screen fade level is its first control) rather than a place or a selection.
+    ImGui::DockBuilderDockWindow("Miscellaneous", right);
     ImGui::DockBuilderDockWindow("Asset Browser", bottom);
     // The Dialogue authoring surface (spec 038): a tab beside the Asset Browser at the bottom,
     // next to the other authoring surfaces rather than in the left column.

@@ -38,6 +38,10 @@
     <!-- The interact prompt (spec 039): the pure layout. -->
     <Compile Include="PromptTests.fs" />
 
+    <!-- The screen fade (spec 059): the default level and the pure overlay rule (the no-op at 0 and the
+         full-view coverage), asserted with no device. -->
+    <Compile Include="FadeTests.fs" />
+
     <!-- A zone's authored light (spec 043): the pitch/yaw -> direction derivation and the defaults
          that keep an unedited scene identical to the constant they replace. -->
     <Compile Include="LightTests.fs" />

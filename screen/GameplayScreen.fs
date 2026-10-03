@@ -88,14 +88,21 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
 // (FR-010); the text is used as authored, not trimmed (FR-002). A dialogue line takes the screen
 // (FR-012), and the prompt is a play-mode read-out, so it is silent while editing (FR-001).
 let private promptText (state: GameplayState.GameplayState) (zone: Zone.Zone) : string =
-    if state.Editing || state.Dialogue.Shown then ""
-    else
-        match state.InteractableTrigger with
-        | ValueSome triggerRef ->
-            match Zone.tryTriggerAt zone triggerRef with
-            | ValueSome trigger -> trigger.State.Prompt
-            | ValueNone -> ""
-        | ValueNone -> ""
+    if state.Editing || state.Dialogue.Shown then "" else
+    match state.InteractableTrigger with
+    | ValueNone -> ""
+    | ValueSome triggerRef ->
+    match Zone.tryTriggerAt zone triggerRef with
+    | ValueSome trigger -> trigger.State.Prompt
+    | ValueNone -> ""
+
+
+// The fade overlay for a `width` × `height` view at `level`: no overlay at 0, so the pre-feature frame is
+// unchanged, otherwise a full-view black quad at alpha `level`. Pure, so the no-op and the full coverage are
+// assertable headlessly.
+let fadeOverlay (width: float32) (height: float32) (level: float32) : struct (Ui.Rect * Vector4) voption =
+    if level <= 0.0f then ValueNone
+    else ValueSome (struct ({ X = 0.0f; Y = 0.0f; W = width; H = height }, Vector4(0.0f, 0.0f, 0.0f, level)))
 
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
     let transition = Editor.draw shared &state
@@ -108,6 +115,13 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     do Ui.beginBatch &state.Ui viewport.x viewport.y
     do DialogueRender.draw shared.Assets shared.Cast viewport.x viewport.y &state.Ui state.Dialogue
     do PromptRender.draw (promptText state (GameplayState.activeZone state)) viewport.x viewport.y &state.Ui
+
+    // The fade (spec 059) is the last thing in the layer's batch, so it covers the dialogue and prompt
+    // above, and — the layer being drawn inside the scene pass — it stays under the editor's ImGui panels
+    // (FR-002, FR-008). At level 0 nothing is emitted, so the frame is unchanged (FR-003).
+    match fadeOverlay viewport.x viewport.y state.Fade with
+    | ValueSome (struct (overlay, colour)) -> Ui.rect &state.Ui overlay colour
+    | ValueNone -> ()
 
     if state.Editing then
         do Viewport.buildLines &state

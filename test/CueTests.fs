@@ -69,6 +69,8 @@ let rec private describe (cue: Cue) : string =
     | Parallel (l, r) -> sprintf "Par(%s, %s)" (describe l) (describe r)
     | Fork c -> sprintf "Fork(%s)" (describe c)
     | Wait s | WaitState (s, _) -> sprintf "Wait %g" s
+    | FadeOut d | FadeOutState (_, d, _) -> sprintf "FadeOut %g" d
+    | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
     | SwitchZone z -> sprintf "Zone(%s)" z
     | SetCamera w -> sprintf "SetCamera(%s)" w
@@ -355,6 +357,77 @@ let ``a flight in progress allocates nothing per tick`` () =
     do Zone.setWaypointNext zone a (Some b)
     state.Cue <- FlyCamera("a", 1.0)
 
+    tick shared &state 0.0
+    for _ in 1 .. 50 do tick shared &state 0.5
+
+    let before = GC.GetAllocatedBytesForCurrentThread()
+    for _ in 1 .. 2000 do tick shared &state 0.5
+    let bytes = GC.GetAllocatedBytesForCurrentThread() - before
+    Assert.Equal(0L, bytes)
+
+// ── the fade ops (spec 060): the level over a timeline, the part-way start, the exact endpoint ──
+
+[<Fact>]
+let ``a fade out darkens to black over its duration and a fade in clears it`` () =
+    let mutable state = newState ()
+    state.Fade <- 0.0f
+    state.Cue <- FadeOut 2.0
+    tick shared &state 0.0
+    Assert.Equal(0.0f, state.Fade) // the begin step holds the captured level
+    tick shared &state 1.0
+    Assert.Equal(0.5f, state.Fade)
+    tick shared &state 2.0
+    Assert.Equal(1.0f, state.Fade) // exactly the endpoint
+    Assert.Equal("Fin", describe state.Cue)
+
+    state.Cue <- FadeIn 2.0
+    tick shared &state 0.0
+    Assert.Equal(1.0f, state.Fade)
+    tick shared &state 1.0
+    Assert.Equal(0.5f, state.Fade)
+    tick shared &state 2.0
+    Assert.Equal(0.0f, state.Fade)
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a fade starts from the level it finds, not an endpoint`` () =
+    let mutable state = newState ()
+    state.Fade <- 0.4f
+    state.Cue <- FadeOut 2.0
+    tick shared &state 0.0
+    tick shared &state 1.0
+    Assert.True(abs (state.Fade - 0.7f) < 0.0001f) // 0.4 + 0.5 * (1 - 0.4)
+    tick shared &state 2.0
+    Assert.Equal(1.0f, state.Fade)
+
+    state.Fade <- 0.4f
+    state.Cue <- FadeIn 2.0
+    tick shared &state 0.0
+    tick shared &state 1.0
+    Assert.True(abs (state.Fade - 0.2f) < 0.0001f) // 0.4 + 0.5 * (0 - 0.4)
+    tick shared &state 2.0
+    Assert.Equal(0.0f, state.Fade)
+
+[<Fact>]
+let ``a fade of zero or less is over before it begins`` () =
+    let mutable state = newState ()
+    state.Fade <- 0.3f
+    state.Cue <- FadeOut 0.0
+    tick shared &state 5.0
+    Assert.Equal(1.0f, state.Fade)
+    Assert.Equal("Fin", describe state.Cue)
+
+    state.Fade <- 0.3f
+    state.Cue <- FadeIn -1.0
+    tick shared &state 5.0
+    Assert.Equal(0.0f, state.Fade)
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a fade in flight allocates nothing per tick`` () =
+    let mutable state = newState ()
+    state.Fade <- 0.0f
+    state.Cue <- FadeOut 1000.0
     tick shared &state 0.0
     for _ in 1 .. 50 do tick shared &state 0.5
 

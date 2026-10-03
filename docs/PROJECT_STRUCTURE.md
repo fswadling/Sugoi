@@ -75,6 +75,8 @@ The `.fsproj` compile list is ordered like this (abridged):
   <Compile Include="editor/CueTree.fs" />
   <Compile Include="editor/CueEditor.fs" />
   <Compile Include="editor/Inspector.fs" />
+  <!-- MiscPanel is listed before Editor.fs: Editor.draw submits it (spec 059) -->
+  <Compile Include="editor/MiscPanel.fs" />
   <Compile Include="editor/Editor.fs" />
   ...
   <!-- screen (composed last; consumes editor) -->
@@ -180,6 +182,7 @@ fsharp-game/
 │   ├── ZoneRegistryPanel.fs    #   the places tree: register a zone against one, instantiate one
 │   ├── DialoguePanel.fs        #   the dialogue authoring surface (direct write)
 │   ├── AdventPanel.fs          #   the milestone checklist (spec 055), docked right; a toggle is an Advent step
+│   ├── MiscPanel.fs            #   the Miscellaneous panel (spec 059), docked right: game-wide runtime tuning (the fade level)
 │   ├── CueEditor.fs            #   the cue panel (spec 047) + the inline trigger-cue editor (spec 058); a SetCue/TriggerSet step on the one history
 │   ├── CueTree.fs              #   shared recursive cue-tree control (spec 047)
 │   └── ScenarioEditor.fs       #   (planned)

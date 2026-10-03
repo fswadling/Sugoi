@@ -45,7 +45,8 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       Follow = Systems.createFollow ()
       InteractableTrigger = ValueNone
       Cue = Cue.Fin
-      PlayTime = 0.0 }
+      PlayTime = 0.0
+      Fade = 0.0f }
 
 // ── Rename ──
 

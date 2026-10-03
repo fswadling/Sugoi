@@ -133,6 +133,11 @@ extern bool isItemActive()
 [<DllImport("cimgui", EntryPoint = "igDragFloat", CallingConvention = CallingConvention.Cdecl)>]
 extern bool dragFloat(string label, float32& v, float32 speed, float32 min, float32 max, string format, int flags)
 
+// A bounded slider over a caller-owned value (cimgui's igSliderFloat). Returns true while the value is
+// being dragged; the write is in place.
+[<DllImport("cimgui", EntryPoint = "igSliderFloat", CallingConvention = CallingConvention.Cdecl)>]
+extern bool sliderFloat(string label, float32& v, float32 min, float32 max, string format, int flags)
+
 // A colour edit widget over a caller-owned `float[3]` (cimgui's igColorEdit3). The array marshals
 // as a writable pointer, as `inputText`'s byte buffer does. Returns true while the colour is being
 // edited; a caller wanting one commit per edit reads `isItemDeactivatedAfterEdit` straight after it.

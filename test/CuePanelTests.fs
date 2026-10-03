@@ -46,6 +46,8 @@ let rec private describe (cue: Cue) : string =
     | Parallel (l, r) -> sprintf "Par(%s, %s)" (describe l) (describe r)
     | Fork c -> sprintf "Fork(%s)" (describe c)
     | Wait s | WaitState (s, _) -> sprintf "Wait %g" s
+    | FadeOut d | FadeOutState (_, d, _) -> sprintf "FadeOut %g" d
+    | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
     | SwitchZone z -> sprintf "Zone(%s)" z
     | SetCamera w -> sprintf "Camera(%s)" w
@@ -159,9 +161,13 @@ let ``every kind's row says what it is, and a leaf in flight as the op it came f
     Assert.Equal("Zone: classroom", labelOf (SwitchZone "classroom"))
     Assert.Equal("Camera: balcony", labelOf (SetCamera "balcony"))
     Assert.Equal("Fly: route", labelOf (FlyCamera("route", 1.0)))
+    Assert.Equal("Fade out 2", labelOf (FadeOut 2.0))
+    Assert.Equal("Fade in 2", labelOf (FadeIn 2.0))
     // ... and the in-flight forms read as the ops they came from
     Assert.Equal("Wait 2", labelOf (WaitState(2.0, 10.0)))
     Assert.Equal("Fly: route", labelOf (FlyCameraState("route", [| Vector3.Zero; Vector3.One |], [| Quaternion.Identity; Quaternion.Identity |], 1.0, 5.0)))
+    Assert.Equal("Fade out 2", labelOf (FadeOutState(0.0f, 2.0, 10.0)))
+    Assert.Equal("Fade in 2", labelOf (FadeInState(1.0f, 2.0, 10.0)))
     Assert.Equal("Add: MetAiko", labelOf (AddAdvent MetAiko))
     Assert.Equal("Remove: MetAiko", labelOf (RemoveAdvent MetAiko))
     Assert.Equal("Await: MetAiko", labelOf (Await MetAiko))
@@ -222,6 +228,16 @@ let ``a running flight is locked and reads as the op it came from`` () =
     let flying = FlyCameraState("route", [| Vector3.Zero; Vector3.One |], [| Quaternion.Identity; Quaternion.Identity |], 2.0, 2.0)
     Assert.Equal<string list>([ "Fly: route" ], List.map (fun (r: Row) -> r.Label) (rows flying))
     Assert.True((List.head (rows flying)).Locked)
+
+[<Fact>]
+let ``a running fade is locked and reads as the op it came from`` () =
+    for fading in [ FadeOutState(0.0f, 2.0, 10.0); FadeInState(1.0f, 2.0, 10.0) ] do
+        let rs = rows fading
+        Assert.True((List.head rs).Locked)
+    Assert.Equal<string list>([ "Fade out 2" ], List.map (fun (r: Row) -> r.Label) (rows (FadeOutState(0.0f, 2.0, 10.0))))
+    Assert.Equal<string list>([ "Fade in 2" ], List.map (fun (r: Row) -> r.Label) (rows (FadeInState(1.0f, 2.0, 10.0))))
+    // the authored forms are editable
+    Assert.False((List.head (rows (FadeOut 2.0))).Locked)
 
 [<Fact>]
 let ``an if shows its two branches under then and else labels, and a running await is locked`` () =
@@ -379,6 +395,21 @@ let ``one accepted edit is one step, and the steppers walk it`` () =
     Assert.Equal("Seq[Wait 2, Exposit(b), Wait 3]", describe state.Cue)
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
     Assert.Equal(0, List.length state.Editor.Undo.Redo)
+
+[<Fact>]
+let ``retuning a fade's duration is one step the steppers walk`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    state.Cue <- FadeOut 1.0
+    let before = describe state.Cue
+    // the panel's write: the fade with its duration replaced (`drawEditor` commits through `withAt`)
+    do CueEditor.commit &state (withAt [] (FadeOut 3.0) state.Cue)
+    Assert.Equal("FadeOut 3", describe state.Cue)
+    Assert.Equal(1, List.length state.Editor.Undo.Applied)
+    do History.undoHistory shared &state
+    Assert.Equal(before, describe state.Cue)
+    do History.redoHistory shared &state
+    Assert.Equal("FadeOut 3", describe state.Cue)
 
 [<Fact>]
 let ``a cue edit and a scene edit are undone in the reverse of the order they were made`` () =
