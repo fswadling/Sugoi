@@ -23,6 +23,7 @@ let private sharedState () : SharedState.SharedState =
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
       Cast = { Casting.Bindings = Dictionary() }
       ZoneRegistry = ZoneRegistry.create ()
+      Advents = Set.empty
       Physics = Physics.create () }
 
 let private newState () : GameplayState.GameplayState =

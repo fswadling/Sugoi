@@ -292,15 +292,16 @@ between them at runtime. *(complete — `specs/024`)*
 
 **Deliverables**
 - `Waypoint` / `Trigger` entities in `world/Entity.fs` (or `world/Zone.fs`).
-- `world/Advent.fs` — named flag set.
+- `world/Advent.fs` — named flag set; `editor/AdventPanel.fs` — the docked **Advent** panel.
+  *(complete — `specs/055-advent-flags`)*
 - cast — delivered ahead of this phase by `specs/032-cast-binding`: the roster is `cast/Roster.fs`
   (one declaration, shared with the narrative engine), the look vocabulary and the slot → actor
   asset binding are `world/Casting.fs`, and the panel is `editor/CastPanel.fs`.
-- `editor/AdventPanel.fs` — docked panel.
 - Trigger→cue wiring inline in the Inspector.
 
 **Done when**: you can place waypoints/triggers, wire triggers to cues, set
-adventure flags, and manage the cast.
+adventure flags, and manage the cast. *(Waypoints, triggers, the cast and the adventure flags are
+in; trigger→cue wiring is the remaining piece.)*
 
 ### 11 · Scenario editor
 
@@ -446,12 +447,13 @@ PBR → physics → walk around). After that, the content-authoring path is
 
 ## Next step
 
-**Phase 10 — story primitives** (`/speckit-specify`): waypoints, triggers, advent flags
-and cast as dockable panels, with trigger → cue wiring inline in the Inspector. The cue is
-complete — `world/Cue.fs` (one type: the vocabulary and the run, shrinking to `Fin`) and
-`world/CueEngine.fs` (`advance` / `tick` / `forkInto`) running in the play chain on play
-time (`specs/046`), and the Cue panel whose edits are steps on the one undo history
-(`specs/047`, `specs/049`).
-Wiring a trigger to a cue is what phase 10 is for, and `CueEngine.forkInto` is what it
-will call — as is the panel's control, which a trigger's cue draws unchanged. (Phase 9 is
+**Phase 10 — story primitives**: waypoints, triggers, the adventure flags and cast are in as dockable
+surfaces (the flags and their **Advent** panel are `specs/055-advent-flags`); what remains is
+**trigger → cue wiring inline in the Inspector**. The cue is complete — `world/Cue.fs` (one type: the
+vocabulary and the run, shrinking to `Fin`) and `world/CueEngine.fs` (`advance` / `tick` /
+`forkInto`) running in the play chain on play time (`specs/046`), and the Cue panel whose edits are
+steps on the one undo history (`specs/047`, `specs/049`). Wiring a trigger to a cue is what the rest
+of phase 10 is for, and `CueEngine.forkInto` is what it will call — as is the panel's control, which
+a trigger's cue draws unchanged. The advent cue ops (`AddAdvent`/`RemoveAdvent`/`Await`/`If`) are the
+vocabulary extension that follows, and are also `specs/055`'s deliberate scope boundary. (Phase 9 is
 complete.)

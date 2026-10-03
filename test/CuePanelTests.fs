@@ -76,6 +76,7 @@ let private sharedState () : SharedState.SharedState =
       Assets = assets
       Cast = { Casting.Bindings = Dictionary() }
       ZoneRegistry = ZoneRegistry.create ()
+      Advents = Set.empty
       Physics = Physics.create () }
 
 /// An actor placed directly in a zone, its renderer left default: enough for a `Transform` step, which rebuilds

@@ -24,6 +24,7 @@ open Entity
 open Zone
 open Texture
 open SlotMap
+open Advent
 
 type Command =
     // An edit of the properties every kind shares.
@@ -76,6 +77,11 @@ type Command =
     // own history stored before this feature. `Cue.Cue` is module-qualified because the module and the type share
     // the name; `state/EditorState.fs` writes it the same way.
     | SetCue of Previous : Cue.Cue * Next : Cue.Cue
+    // The named adventure flags were edited (spec 055). Like `SetCue`, it is not a zone's — the set is project state on
+    // `SharedState` (`specs/055` FR-002) — so it is a state-level step carried by `History` and never by the zone-level
+    // runner. The payload is the two set values: the set is immutable, so a snapshot is the set itself, and a before/after
+    // pair makes undo total (an add and a remove are the same shape).
+    | Advent of Previous : Set<Advent> * Next : Set<Advent>
 
 // ── apply / undo a single command ──
 
@@ -124,7 +130,8 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
     | ZoneMove _
     | ZoneAdd _
     | ZoneDelete _
-    | SetCue _ ->
+    | SetCue _
+    | Advent _ ->
         invalidOp "Command.apply: a state-level step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         for cmd in commands do apply zone physics assets cmd
@@ -171,7 +178,8 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
     | ZoneMove _
     | ZoneAdd _
     | ZoneDelete _
-    | SetCue _ ->
+    | SetCue _
+    | Advent _ ->
         invalidOp "Command.undo: a state-level step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         // Backwards, so the reversal of a mutation happens before the reversal of what it depended on.

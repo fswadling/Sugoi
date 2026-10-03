@@ -71,6 +71,10 @@
          and the cue's own history — asserted headlessly, so what the panel shows and what it will let the
          author change are checkable with no device. -->
     <Compile Include="CuePanelTests.fs" />
+
+    <!-- The adventure flags (spec 055): the milestone union and its `Set`, the panel's write path, and
+         the flag edit on the one history — all headless. -->
+    <Compile Include="AdventTests.fs" />
   </ItemGroup>
 
   <!-- Serialize test collections: `Physics.create` calls Jolt's process-global

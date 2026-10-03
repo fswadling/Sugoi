@@ -138,7 +138,7 @@ fsharp-game/
 │   ├── ActorRender.fs          #   skinned actor rendering
 │   ├── EnvironmentAsset.fs     #   static-model asset record
 │   ├── EnvironmentRender.fs    #   static environment + prop rendering
-│   ├── Advent.fs               #   adventure flag set (planned)
+│   ├── Advent.fs               #   the milestone union and its flag set (spec 055)
 │   ├── Casting.fs              #   Look, Slot and the sparse slot → actor asset binding
 │   ├── Dialogue.fs             #   the dialogue state: Kind and Emotion, runtime screen state
 │   ├── DialogueRender.fs       #   the dialogue view + the panel layout (pure)
@@ -173,7 +173,7 @@ fsharp-game/
 │   ├── CastPanel.fs            #   the cast tree: a look per row, an asset per slot
 │   ├── ZoneRegistryPanel.fs    #   the places tree: register a zone against one, instantiate one
 │   ├── DialoguePanel.fs        #   the dialogue authoring surface (direct write)
-│   ├── AdventPanel.fs          #   (planned)
+│   ├── AdventPanel.fs          #   the milestone checklist (spec 055), docked right; a toggle is an Advent step
 │   ├── CueEditor.fs            #   the cue panel (spec 047); an edit is a SetCue step on the one history (spec 049)
 │   ├── CueTree.fs              #   shared recursive cue-tree control (spec 047)
 │   └── ScenarioEditor.fs       #   (planned)

@@ -36,7 +36,7 @@ let private propAssets () : Assets.AssetManager =
     TestSupport.manager IntPtr.Zero (Dictionary()) props (Dictionary())
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; ZoneRegistry = ZoneRegistry.create (); Physics = Physics.create () }
+    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; ZoneRegistry = ZoneRegistry.create (); Advents = Set.empty; Physics = Physics.create () }
 
 // A gameplay state seeded with the single `main` zone, as the app starts.
 let private newState () : GameplayState.GameplayState =

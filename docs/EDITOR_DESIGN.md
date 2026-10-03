@@ -39,29 +39,31 @@ A single editor workspace with a menu bar and dockable panels (ImGui docking):
 | Panel | Dock | Purpose |
 |-------|------|---------|
 | **Viewport** | center | 3D scene, selection, gizmos, waypoint/trigger overlays |
-| **Outliner** | left | hierarchical tree: Zone → Actors/Props/Waypoints/Triggers; tabs with Cast, Advent, Scenario, and Zone Registry |
-| **Inspector** | right | the single editing surface: the selected item's properties (entity / scenario / zone entry); tabs with Cue |
+| **Outliner** | left | hierarchical tree: Zone → Actors/Props/Waypoints/Triggers; tabs with Cast, Scenario, and Zone Registry |
+| **Inspector** | right | the single editing surface: the selected item's properties (entity / scenario / zone entry); tabs with Cue and Advent |
 | **Asset Browser** | bottom | actors/environments/props; drag into the viewport to spawn |
 | **Dialogue** | bottom | the dialogue state put on screen by hand — shown, kind, speaker, expression, text (spec 038) |
 
 The sub-editors are dockable windows/tabs opened from a **Window** menu, not
-separate screens. Cast, Advent, Scenario, and Zone Registry dock as tabs in
+separate screens. Cast, Scenario, and Zone Registry dock as tabs in
 the **left** panel (alongside the Outliner) and are shown by default:
 
 - **Cast** — the cast as a tree: each member a collapsible node, and under her one row per
   look with the actor asset bound to that slot (D-022).
-- **Advent** — named flag set.
+- **Advent** — the story milestones as a checklist (a typed union; spec 055), docked on the **right**.
 - **Scenario** — scenario list; selecting one shows its Cue/Scene tabs in the Inspector.
 - **Zone Registry** — the game's places as a tree: a zone per node and one row per variant it
   declares, each row registering the active zone's environment against that place or instantiating
   one into the active zone (D-023).
 
-The **Cue** panel (spec 047) is the exception among the sub-editors: it docks as a tab beside the
-**Inspector** in the **right** column rather than in the left, because what it edits is a cue rather
-than a place in the scene, and the right column is where the editing surfaces are. It presents the
-cue as a recursive tree list (D-013): nothing that is executing can be retuned, replaced or removed, everything
-ahead of it can be edited, an addition is always taken, and its edits are steps on the one undo history
-(D-010, `specs/049`).
+The **Cue** panel (spec 047) and the **Advent** panel (spec 055) are the exceptions among the
+sub-editors: they dock as tabs beside the **Inspector** in the **right** column rather than in the
+left, because what the Cue edits is a cue rather than a place in the scene and what the Advent edits
+is a set of story facts rather than a place, and the right column is where the editing surfaces are.
+The Cue presents the cue as a recursive tree list (D-013): nothing that is executing can be retuned,
+replaced or removed, everything ahead of it can be edited, an addition is always taken, and its edits
+are steps on the one undo history (D-010, `specs/049`). The Advent presents the milestones as one
+checkbox each, and a toggle is likewise a step on the one history (D-011, `specs/055`).
 
 The **Dialogue** panel (spec 038) docks by exception as a tab beside the **Asset Browser** at the
 **bottom** rather than in the left column, because it is a line of text and wants the dock's width —
@@ -148,8 +150,10 @@ undo stack. Commands store **values** (not closures):
 - Non-entity surfaces (scenario, advent flags, cue root) store
   **name-keyed before/after snapshots** of the immutable map/set entry. The cue's has landed
   (`specs/049-cue-on-one-history`): its edits are `SetCue` steps — before/after cue values — on the one history,
-  pruned on the way into play (D-010). The scenario and the adventure flags still have no stack, so they are the
-  surfaces a project-scoped stack is still owed to.
+  pruned on the way into play (D-010). The adventure flags' has landed too (`specs/055-advent-flags`): its edits are
+  `Advent` steps — the set before and after the edit — on the same history, carried by `state/History.fs` because the
+  set is not a zone's. The scenario is the one surface a project-scoped stack is still owed to, and it is a gap for a
+  surface that does not exist yet rather than for this one.
   Two surfaces that were expected
   to need one are not among them: the cast binding (D-022) and the zone registry (D-023)
   are both direct writes, because neither is a scene edit and re-making an entry by hand
@@ -235,8 +239,9 @@ direct write, like the collider overlay's visualisation preference, both of whic
 treats as binding actions rather than scene edits. (A zone's player designation used to be
 cited here as a third; it is neither project-scoped nor, since
 `specs/045-undoable-player-designation`, a direct write — D-025.) A project-scoped stack is a
-real gap, but it is a gap for the *editable* surfaces that do not exist yet (scenario, advent
-flags, cue root), not for this one: an assignment is two clicks in a list, and re-making it by
+real gap, but it is a gap for the *editable* surfaces that do not yet ride the one history (the
+scenario, and the cue root); the adventure flags, which used to be named here, have landed as an
+`Advent` step on that history (`specs/055-advent-flags`). Not for this one: an assignment is two clicks in a list, and re-making it by
 hand costs less than undoing it. The zone registry, which since `specs/034-zone-registry` does
 exist, answered the same way (D-023).
 

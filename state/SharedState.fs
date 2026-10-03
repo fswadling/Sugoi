@@ -9,6 +9,8 @@ module SharedState
 // type so screens can write shared values back (e.g. loaded assets) instead of
 // threading struct copies.
 
+open Advent
+
 type SharedState =
     { mutable Gpu : Gpu.Gpu
       Assets : Assets.AssetManager
@@ -16,6 +18,10 @@ type SharedState =
       // Project state that belongs to no zone, like the cast binding: the undo stacks are per zone, so
       // anything that must outlive every zone lives here (spec 034).
       ZoneRegistry : ZoneRegistry.Registry
+      // The named adventure flags (spec 055): story milestones, also project state that outlives every
+      // zone and likewise not a zone's. Mutable because the one undo history writes it in place — a
+      // flag edit is a state-level step, as the cue's `SetCue` is (specs/048, specs/049).
+      mutable Advents : Set<Advent>
       Physics : Physics.World }
 
 let create (gpu: Gpu.Gpu) : SharedState =
@@ -23,4 +29,5 @@ let create (gpu: Gpu.Gpu) : SharedState =
       Assets = Assets.scan "assets" gpu.Device
       Cast = { Casting.Bindings = System.Collections.Generic.Dictionary() }
       ZoneRegistry = ZoneRegistry.create ()
+      Advents = Set.empty
       Physics = Physics.create () }

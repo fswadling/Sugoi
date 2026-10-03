@@ -17,7 +17,7 @@ open Command
 
 // The docked panels in focus order. The viewport is a passthru node, not an
 // ImGui window, so it is intentionally absent from this list.
-let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Cast"; "Zone Registry"; "Dialogue"; "Cue" |]
+let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Cast"; "Advent"; "Zone Registry"; "Dialogue"; "Cue" |]
 
 // Compute the index the focus should move to (forward/backward, wrapping).
 let private nextPanelIndex (forward: bool) : int =
@@ -424,13 +424,17 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         do ImGui.endMainMenuBar()
 
     do Outliner.draw shared &state
-    do Inspector.draw shared &state
     do AssetBrowser.draw shared &state
     do CastPanel.draw shared &state
+    do AdventPanel.draw shared &state
     do ZoneRegistryPanel.draw shared &state
     do DialoguePanel.draw shared &state
     // The cue panel (spec 047): the screen's cue, read-only where it is executing and editable ahead of it.
     // It takes no `shared` — the control is the cue's own, and a zone name is typed rather than chosen.
     do CueEditor.draw &state
+    // The Inspector is drawn **last**: when a dock node's tab bar is first built, ImGui selects the last
+    // window submitted to it, and the Inspector shares the right node with the Advent and Cue panels — so
+    // submitting it last is what makes it the selected tab when the editor opens.
+    do Inspector.draw shared &state
 
     transition

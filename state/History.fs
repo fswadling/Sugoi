@@ -1,7 +1,8 @@
 module History
 
-// The one undo history (spec 048). A scene edit, a zone move, a zone add, a zone delete and a cue edit are all
-// steps on `EditorState.Undo`; there is no history per zone, and none of its own for the cue (spec 049). The
+// The one undo history (spec 048). A scene edit, a zone move, a zone add, a zone delete, a cue edit and an
+// adventure-flag edit are all steps on `EditorState.Undo`; there is no history per zone, and none of its own for the
+// cue (spec 049) or the flags (spec 055). The
 // reason is order: last-in-first-out means that when undo reaches a step, the active zone is the zone that step
 // was recorded in, so no command has to name a zone.
 //
@@ -26,6 +27,9 @@ let apply (shared: SharedState.SharedState) (state: byref<GameplayState.Gameplay
     // selection (research D5). The cue is the screen's own value, so it needs neither `shared.Physics` nor
     // `shared.Assets`.
     | SetCue (_, next) -> state.Cue <- next
+    // The adventure flags are not a zone's either: the step writes `SharedState.Advents`, so the state-level
+    // runner carries it as it carries `SetCue` (spec 055 FR-007).
+    | Advent (_, next) -> shared.Advents <- next
     | _ -> Command.apply (GameplayState.activeZone state) shared.Physics shared.Assets cmd
 
 /// The inverse of `apply`.
@@ -46,6 +50,7 @@ let undo (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         Zone.occupyZone state.Zones.[name] shared.Physics shared.Assets contents
         if previous <> name then GameplayState.switchZone shared &state previous
     | SetCue (previous, _) -> state.Cue <- previous
+    | Advent (previous, _) -> shared.Advents <- previous
     | _ -> Command.undo (GameplayState.activeZone state) shared.Physics shared.Assets cmd
 
 /// Apply a command and push it onto the one history, clearing the redo side. The editor's write path for a zone
