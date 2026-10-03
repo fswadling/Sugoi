@@ -8,6 +8,7 @@ module Texture
 // by the shader's has* flags.
 
 open System
+open System.Diagnostics
 open System.IO
 open System.Numerics
 open System.Runtime.InteropServices
@@ -106,11 +107,24 @@ let private preloadImageDep = lazy (
     let path = Path.Combine(AppContext.BaseDirectory, "libjbig.so.0")
     if File.Exists(path) then NativeLibrary.Load(path) |> ignore)
 
-// Decode an image file into an R8G8B8A8Unorm SDL_gpu texture with a full mip
-// chain. SDL_image's `IMG_LoadGPUTexture` cannot create mip levels, so decode to a
-// surface, upload level 0, and let SDL generate the rest (requires >1 level and
-// ColorTarget usage; the call must be outside any pass).
-let load (device: Gpu.Device) (path: string) : Texture =
+// ── texture decode instrumentation (spec 052 FR-008) ──
+// The asset loader resets this before building an asset and reads it after, to report the CPU
+// decode cost, which batching does not change. Only meaningful while one load runs.
+type TextureLoadStats =
+    { mutable DecodeNs : int64
+      mutable Decoded : int
+      mutable CreateNs : int64 }
+
+let mutable private stats = { DecodeNs = 0L; Decoded = 0; CreateNs = 0L }
+let resetLoadStats () : unit = stats <- { DecodeNs = 0L; Decoded = 0; CreateNs = 0L }
+let loadStats () : TextureLoadStats = stats
+
+// Decode an image file and record its upload into `batch` as an R8G8B8A8Unorm texture with a full
+// mip chain. SDL_image's `IMG_LoadGPUTexture` cannot create mip levels, so decode to a surface and
+// upload level 0; the batch generates the rest at submit (spec 052). Creation happens here; only
+// the level-0 copy is deferred to the batch.
+let load (batch: Gpu.UploadBatch) (device: Gpu.Device) (path: string) : Texture =
+    let t0 = Stopwatch.GetTimestamp()
     do preloadImageDep.Value
     let decoded = SDL3.Image.Load(path)
     if decoded = IntPtr.Zero then failwithf "texture: failed to load '%s'" path
@@ -131,6 +145,8 @@ let load (device: Gpu.Device) (path: string) : Texture =
     let packed = Array.zeroCreate<byte> (rowBytes * s.Height)
     for y in 0 .. s.Height - 1 do
         do Marshal.Copy(IntPtr.Add(s.Pixels, y * s.Pitch), packed, y * rowBytes, rowBytes)
+    stats.DecodeNs <- stats.DecodeNs + (Stopwatch.GetTimestamp() - t0)
+    stats.Decoded <- stats.Decoded + 1
 
     let levels = uint32 (int (MathF.Log2(float32 (max s.Width s.Height)))) + 1u
     let mutable info = SDL.GPUTextureCreateInfo()
@@ -142,37 +158,16 @@ let load (device: Gpu.Device) (path: string) : Texture =
     info.LayerCountOrDepth <- 1u
     info.NumLevels <- levels
     info.SampleCount <- SDL.GPUSampleCount.SampleCount1
+    let c0 = Stopwatch.GetTimestamp()
     let handle = SDL.CreateGPUTexture(device, &info)
     if handle = IntPtr.Zero then failwithf "texture: failed to create GPU texture '%s'" path
+    let sampler = createSampler device
+    stats.CreateNs <- stats.CreateNs + (Stopwatch.GetTimestamp() - c0)
 
-    let transfer = Gpu.createTransferBuffer device (uint32 packed.Length)
-    let mapped = SDL.MapGPUTransferBuffer(device, transfer, false)
-    Marshal.Copy(packed, 0, mapped, packed.Length)
-    SDL.UnmapGPUTransferBuffer(device, transfer)
-
-    let cmd = SDL.AcquireGPUCommandBuffer(device)
-    let copyPass = SDL.BeginGPUCopyPass(cmd)
-    let mutable transferInfo = SDL.GPUTextureTransferInfo()
-    transferInfo.TransferBuffer <- transfer
-    transferInfo.Offset <- 0u
-    let mutable region = SDL.GPUTextureRegion()
-    region.Texture <- handle
-    region.MipLevel <- 0u
-    region.Layer <- 0u
-    region.X <- 0u
-    region.Y <- 0u
-    region.Z <- 0u
-    region.W <- uint32 s.Width
-    region.H <- uint32 s.Height
-    region.D <- 1u
-    SDL.UploadToGPUTexture(copyPass, &transferInfo, &region, false)
-    SDL.EndGPUCopyPass(copyPass)
-    SDL.GenerateMipmapsForGPUTexture(cmd, handle)
-    SDL.SubmitGPUCommandBuffer(cmd) |> ignore
+    Gpu.recordTexture batch handle packed (uint32 s.Width) (uint32 s.Height) levels
 
     do SDL.DestroySurface(surface)
-    do SDL.ReleaseGPUTransferBuffer(device, transfer)
-    { Device = device; Handle = handle; Sampler = createSampler device; Bytes = int64 s.Width * int64 s.Height * 4L * 4L / 3L }
+    { Device = device; Handle = handle; Sampler = sampler; Bytes = int64 s.Width * int64 s.Height * 4L * 4L / 3L }
 
 // A 1x1 solid RGBA texture (used as the shared placeholder for absent maps).
 let solid (device: Gpu.Device) (r: byte) (g: byte) (b: byte) (a: byte) : Texture =

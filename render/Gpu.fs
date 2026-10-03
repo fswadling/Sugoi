@@ -6,6 +6,7 @@ module Gpu
 // the scene pass attaches.
 
 open System
+open System.Diagnostics
 open System.IO
 open System.Numerics
 open System.Runtime.InteropServices
@@ -52,12 +53,42 @@ let loadShader (device: Device) (stage: SDL.GPUShaderStage) (path: string) (unif
     info.Props <- 0u
     SDL.CreateGPUShader(device, &info, ReadOnlySpan<byte>(code), "main")
 
+// ── upload instrumentation (spec 052 FR-008/FR-010) ──
+//
+// The asset loader resets this before building an asset and reads it after, so the per-load log can
+// report where the time goes: `CreateNs`/`Creates` (GPU buffer creation), `StageNs`/`StageBuffers`
+// (staging create + map/unmap), `MemcpyNs`/`Copies` (host copies into staging), and
+// `SubmitNs`/`Submissions` (command-buffer acquire, copy pass, submit). Process-global and not
+// thread-safe: only meaningful while one synchronous load runs.
+type UploadStats =
+    { mutable CreateNs : int64
+      mutable Creates : int
+      mutable StageNs : int64
+      mutable StageBuffers : int
+      mutable MemcpyNs : int64
+      mutable Copies : int
+      mutable SubmitNs : int64
+      mutable Submissions : int }
+
+let mutable private stats =
+    { CreateNs = 0L; Creates = 0; StageNs = 0L; StageBuffers = 0; MemcpyNs = 0L; Copies = 0; SubmitNs = 0L; Submissions = 0 }
+
+let resetUploadStats () : unit =
+    stats <- { CreateNs = 0L; Creates = 0; StageNs = 0L; StageBuffers = 0; MemcpyNs = 0L; Copies = 0; SubmitNs = 0L; Submissions = 0 }
+
+let uploadStats () : UploadStats = stats
+let private tstamp () : int64 = Stopwatch.GetTimestamp()
+
 let createBuffer (device: Device) (usage: SDL.GPUBufferUsageFlags) (byteSize: uint32) : Buffer =
     let mutable info = SDL.GPUBufferCreateInfo()
     info.Usage <- usage
     info.Size <- byteSize
     info.Props <- 0u
-    SDL.CreateGPUBuffer(device, &info)
+    let t0 = tstamp ()
+    let buffer = SDL.CreateGPUBuffer(device, &info)
+    stats.CreateNs <- stats.CreateNs + (tstamp () - t0)
+    stats.Creates <- stats.Creates + 1
+    buffer
 
 // Release a GPU buffer, if one was created.
 let releaseBuffer (device: Device) (buffer: Buffer) : unit =
@@ -70,28 +101,239 @@ let createTransferBuffer (device: Device) (byteSize: uint32) : TransferBuffer =
     info.Props <- 0u
     SDL.CreateGPUTransferBuffer(device, &info)
 
-// One-time buffer upload (used for static data like an index buffer): acquires a
-// temporary command buffer, copies, submits.
-let uploadBufferOnce (device: Device) (dst: Buffer) (data: byte array) : unit =
-    let byteSize = uint32 data.Length
-    let transfer = createTransferBuffer device byteSize
-    let mapped = SDL.MapGPUTransferBuffer(device, transfer, false)
-    Marshal.Copy(data, 0, mapped, data.Length)
-    SDL.UnmapGPUTransferBuffer(device, transfer)
+// ── batched uploads (spec 052) ──
 
-    let cmd : CommandBuffer = SDL.AcquireGPUCommandBuffer(device)
-    let copyPass : CopyPass = SDL.BeginGPUCopyPass(cmd)
-    let mutable loc = SDL.GPUTransferBufferLocation()
-    loc.TransferBuffer <- transfer
-    loc.Offset <- 0u
-    let mutable region = SDL.GPUBufferRegion()
-    region.Buffer <- dst
-    region.Offset <- 0u
-    region.Size <- byteSize
-    SDL.UploadToGPUBuffer(copyPass, &loc, &region, false)
-    SDL.EndGPUCopyPass(copyPass)
-    SDL.SubmitGPUCommandBuffer(cmd) |> ignore
+// The maximum staging bound. Copies are packed into a staging buffer and flushed (submitted) when
+// it fills, so peak staging memory is bounded and submissions scale with flushes, not resources
+// (FR-001/FR-004). The first buffer is sized to the workload (up to `InitialStaging`) so a small
+// asset does not allocate the maximum; once an asset has flushed, later buffers use this.
+[<Literal>]
+let StagingCapacity = 256 * 1024 * 1024
+
+// The first staging buffer's size: a small asset stays small (SC-005); a large asset grows to
+// `StagingCapacity` after its first flush.
+[<Literal>]
+let InitialStaging = 4 * 1024 * 1024
+
+// The current staging transfer buffer: mapped once and filled with packed copies until full.
+type Staging =
+    { Transfer : TransferBuffer
+      Capacity : int
+      mutable Filled : int
+      mutable Mapped : nativeint }
+
+// One recorded copy: its byte offset in the current staging, and its destination.
+type Copy =
+    | BufferCopy of SrcOffset : int * Dest : Buffer * DestOffset : uint32 * Size : uint32
+    | TextureCopy of SrcOffset : int * Tex : Texture * W : uint32 * Y : uint32 * H : uint32
+
+// One asset's uploads. Recording packs copies into the current staging buffer and flushes it (one
+// submit) when it fills; the final flush also generates mips. Peak staging is one buffer, not the
+// asset's size (research D2, amended).
+type UploadBatch =
+    { Device : Device
+      mutable Staging : Staging option
+      Copies : ResizeArray<Copy>
+      MipTextures : ResizeArray<Texture>
+      mutable StagingAllocs : int }
+
+let beginUpload (device: Device) : UploadBatch =
+    { Device = device
+      Staging = None
+      Copies = ResizeArray()
+      MipTextures = ResizeArray()
+      StagingAllocs = 0 }
+
+// Copy offsets must be aligned to the format's texel size (4 bytes for RGBA8); pad each reservation.
+let private alignUp (n: int) : int = (n + 3) &&& ~~~3
+
+// Release the current staging buffer, if any. Clears `Staging` first so a throwing release cannot
+// leave it to be released twice.
+let private releaseStaging (batch: UploadBatch) : unit =
+    match batch.Staging with
+    | None -> ()
+    | Some staging ->
+        batch.Staging <- None
+        let t0 = tstamp ()
+        if staging.Mapped <> IntPtr.Zero then
+            SDL.UnmapGPUTransferBuffer(batch.Device, staging.Transfer)
+        SDL.ReleaseGPUTransferBuffer(batch.Device, staging.Transfer)
+        stats.StageNs <- stats.StageNs + (tstamp () - t0)
+
+// Submit the copies recorded so far — and, on the final flush, generate mips — then release the
+// staging so the next recording starts fresh. A failure cancels the command buffer.
+let private submit (batch: UploadBatch) (final: bool) : unit =
+    let hasCopies = batch.Copies.Count > 0
+    let hasMips = final && batch.MipTextures.Count > 0
+    if hasCopies || hasMips then
+        match batch.Staging with
+        | Some staging when staging.Mapped <> IntPtr.Zero ->
+            SDL.UnmapGPUTransferBuffer(batch.Device, staging.Transfer)
+            staging.Mapped <- IntPtr.Zero
+        | _ -> ()
+        let t0 = tstamp ()
+        let cmd = SDL.AcquireGPUCommandBuffer(batch.Device)
+        try
+            if hasCopies then
+                let transfer =
+                    match batch.Staging with
+                    | Some staging -> staging.Transfer
+                    | None -> failwith "gpu: a batch has copies but no staging buffer"
+                let copyPass = SDL.BeginGPUCopyPass(cmd)
+                for copy in batch.Copies do
+                    match copy with
+                    | BufferCopy (srcOffset, dst, destOffset, size) ->
+                        let mutable loc = SDL.GPUTransferBufferLocation()
+                        loc.TransferBuffer <- transfer
+                        loc.Offset <- uint32 srcOffset
+                        let mutable region = SDL.GPUBufferRegion()
+                        region.Buffer <- dst
+                        region.Offset <- destOffset
+                        region.Size <- size
+                        SDL.UploadToGPUBuffer(copyPass, &loc, &region, false)
+                    | TextureCopy (srcOffset, tex, w, y, h) ->
+                        let mutable transferInfo = SDL.GPUTextureTransferInfo()
+                        transferInfo.TransferBuffer <- transfer
+                        transferInfo.Offset <- uint32 srcOffset
+                        // Read the band as `h` rows of `w` pixels with no padding from `srcOffset`
+                        // (explicit rather than relying on the 0-default to the region size).
+                        transferInfo.PixelsPerRow <- w
+                        transferInfo.RowsPerLayer <- h
+                        let mutable region = SDL.GPUTextureRegion()
+                        region.Texture <- tex
+                        region.MipLevel <- 0u
+                        region.Layer <- 0u
+                        region.X <- 0u
+                        region.Y <- y
+                        region.Z <- 0u
+                        region.W <- w
+                        region.H <- h
+                        region.D <- 1u
+                        SDL.UploadToGPUTexture(copyPass, &transferInfo, &region, false)
+                SDL.EndGPUCopyPass(copyPass)
+            if hasMips then
+                for tex in batch.MipTextures do SDL.GenerateMipmapsForGPUTexture(cmd, tex)
+            SDL.SubmitGPUCommandBuffer(cmd) |> ignore
+            stats.SubmitNs <- stats.SubmitNs + (tstamp () - t0)
+            stats.Submissions <- stats.Submissions + 1
+        with _ ->
+            SDL.CancelGPUCommandBuffer(cmd) |> ignore
+            reraise ()
+    releaseStaging batch
+    batch.Copies.Clear()
+    if hasMips then batch.MipTextures.Clear()
+
+// Reserve `size` bytes in the current staging buffer, flushing and starting a new one when it does
+// not fit. Returns the byte offset. Callers pre-split at `StagingCapacity`, so `need ≤ capacity`
+// except for a single texture row larger than the capacity — not reachable with real assets, whose
+// row width SDL would reject long before — which is given a buffer of its own (defensive).
+let private reserve (batch: UploadBatch) (size: int) : int =
+    let need = alignUp size
+    let fits =
+        match batch.Staging with
+        | Some staging -> staging.Filled + need <= staging.Capacity
+        | None -> false
+    if not fits then
+        submit batch false
+        // The first buffer is sized to the workload (up to `InitialStaging`) so a small asset stays
+        // small; after a flush the asset is known to be large, so later buffers use `StagingCapacity`.
+        // A single copy larger than the capacity (a pathological texture row) gets its own buffer.
+        let capacity =
+            if need > StagingCapacity then need
+            elif batch.StagingAllocs = 0 then max need InitialStaging
+            else StagingCapacity
+        let t0 = tstamp ()
+        let transfer = createTransferBuffer batch.Device (uint32 capacity)
+        let mapped = SDL.MapGPUTransferBuffer(batch.Device, transfer, false)
+        stats.StageNs <- stats.StageNs + (tstamp () - t0)
+        stats.StageBuffers <- stats.StageBuffers + 1
+        batch.StagingAllocs <- batch.StagingAllocs + 1
+        batch.Staging <- Some { Transfer = transfer; Capacity = capacity; Filled = 0; Mapped = mapped }
+    let staging = batch.Staging.Value
+    let offset = staging.Filled
+    staging.Filled <- staging.Filled + need
+    offset
+
+// Copy `size` bytes from `data.[dataOffset..]` into the staging at `offset`.
+let private write (batch: UploadBatch) (offset: int) (data: byte array) (dataOffset: int) (size: int) : unit =
+    let t0 = tstamp ()
+    Marshal.Copy(data, dataOffset, IntPtr.Add(batch.Staging.Value.Mapped, offset), size)
+    stats.MemcpyNs <- stats.MemcpyNs + (tstamp () - t0)
+    stats.Copies <- stats.Copies + 1
+
+// Record a buffer upload, splitting data larger than the staging bound into copies.
+let recordBuffer (batch: UploadBatch) (dst: Buffer) (data: byte array) : unit =
+    let mutable offset = 0
+    while offset < data.Length do
+        let size = min StagingCapacity (data.Length - offset)
+        let srcOffset = reserve batch size
+        write batch srcOffset data offset size
+        batch.Copies.Add(BufferCopy(srcOffset, dst, uint32 offset, uint32 size))
+        offset <- offset + size
+
+// Record a texture level-0 upload, splitting data larger than the staging bound into whole-row
+// bands. `mipLevels > 1` schedules mip generation at the final flush.
+let recordTexture (batch: UploadBatch) (tex: Texture) (data: byte array) (width: uint32) (height: uint32) (mipLevels: uint32) : unit =
+    let rowBytes = int width * 4
+    let rowsPerChunk = max 1 (StagingCapacity / max 1 rowBytes)
+    let mutable y = 0u
+    while y < height do
+        let rows = min (uint32 rowsPerChunk) (height - y)
+        let start = int y * rowBytes
+        let length = int rows * rowBytes
+        let srcOffset = reserve batch length
+        write batch srcOffset data start length
+        batch.Copies.Add(TextureCopy(srcOffset, tex, width, y, rows))
+        y <- y + rows
+    if mipLevels > 1u then batch.MipTextures.Add tex
+
+// Finish the batch: flush the remaining copies and generate mips, in one submit.
+let finishUpload (batch: UploadBatch) : unit =
+    submit batch true
+
+// Abandon a batch: release the staging and drop the records. No GPU work is submitted.
+let abortUpload (batch: UploadBatch) : unit =
+    releaseStaging batch
+    batch.Copies.Clear()
+    batch.MipTextures.Clear()
+
+// One-time buffer upload (static data like an index buffer): its own transfer buffer, sized to the
+// data (not to `StagingCapacity`), submitted once. A failure cancels the command buffer. Its cost
+// is attributed to the same aggregate stats as the batch (this path is not part of an asset build,
+// so it does not surface in the per-asset line).
+let uploadBufferOnce (device: Device) (dst: Buffer) (data: byte array) : unit =
+    let t0 = tstamp ()
+    let transfer = createTransferBuffer device (uint32 data.Length)
+    let mapped = SDL.MapGPUTransferBuffer(device, transfer, false)
+    stats.StageNs <- stats.StageNs + (tstamp () - t0)
+    stats.StageBuffers <- stats.StageBuffers + 1
+    let t1 = tstamp ()
+    Marshal.Copy(data, 0, mapped, data.Length)
+    stats.MemcpyNs <- stats.MemcpyNs + (tstamp () - t1)
+    stats.Copies <- stats.Copies + 1
+    SDL.UnmapGPUTransferBuffer(device, transfer)
+    let cmd = SDL.AcquireGPUCommandBuffer(device)
+    let t2 = tstamp ()
+    try
+        let copyPass = SDL.BeginGPUCopyPass(cmd)
+        let mutable loc = SDL.GPUTransferBufferLocation()
+        loc.TransferBuffer <- transfer
+        loc.Offset <- 0u
+        let mutable region = SDL.GPUBufferRegion()
+        region.Buffer <- dst
+        region.Offset <- 0u
+        region.Size <- uint32 data.Length
+        SDL.UploadToGPUBuffer(copyPass, &loc, &region, false)
+        SDL.EndGPUCopyPass(copyPass)
+        SDL.SubmitGPUCommandBuffer(cmd) |> ignore
+        stats.SubmitNs <- stats.SubmitNs + (tstamp () - t2)
+        stats.Submissions <- stats.Submissions + 1
+    with _ ->
+        SDL.CancelGPUCommandBuffer(cmd) |> ignore
+        reraise ()
+    let t3 = tstamp ()
     SDL.ReleaseGPUTransferBuffer(device, transfer)
+    stats.StageNs <- stats.StageNs + (tstamp () - t3)
 
 // Create a static GraphicsStorageRead buffer and upload `data` into it once — the shape a
 // shader reads from a storage buffer (the bone palette, the morph offsets).

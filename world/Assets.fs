@@ -12,10 +12,17 @@ module Assets
 
 open System
 open System.Collections.Generic
+open System.Diagnostics
 open System.IO
 open System.Numerics
 open Prime
 open EnvironmentAsset
+
+// The per-asset load-timing line is opt-in (`FFS_LOAD_TIMING=1`): one line per asset build.
+let private loadTiming =
+    match Environment.GetEnvironmentVariable "FFS_LOAD_TIMING" with
+    | null -> false
+    | v -> v <> "" && v <> "0"
 
 // The on-disk manifest shape (id/name/model, plus an optional morph sidecar path and an
 // optional portrait block). Fields are named, so the SymbolicExpansion parser is robust to
@@ -95,13 +102,13 @@ let private createLoader (device: Gpu.Device) : Loader =
 
 // Acquire a texture by path: get or create its cache entry, bump the refcount, and return the
 // texture with the bytes newly made resident (0 when it was already resident).
-let private acquireTexture (loader: Loader) (path: string) : Texture.Texture * int64 =
+let private acquireTexture (loader: Loader) (batch: Gpu.UploadBatch) (path: string) : Texture.Texture * int64 =
     match loader.Textures.TryGetValue path with
     | true, entry ->
         entry.Refs <- entry.Refs + 1
         entry.Texture, 0L
     | false, _ ->
-    let t = Texture.load loader.Device path
+    let t = Texture.load batch loader.Device path
     loader.Textures.[path] <- { Texture = t; Refs = 1 }
     t, t.Bytes
 
@@ -117,14 +124,23 @@ let private releaseTexture (loader: Loader) (path: string) : int64 =
     do Texture.release entry.Texture
     entry.Texture.Bytes
 
-// The actor path: acquire a texture and hold it for the process (actors are never evicted).
+// The actor path: acquire a texture and hold it for the process (actors are never evicted). It is
+// not part of an asset build, so it runs in its own one-shot batch.
 let private loadTexture (loader: Loader) (path: string) : Texture.Texture =
-    fst (acquireTexture loader path)
+    let batch = Gpu.beginUpload loader.Device
+    try
+        let t, _ = acquireTexture loader batch path
+        do Gpu.finishUpload batch
+        t
+    with _ ->
+        // The batch owns staging buffers; release them if the load failed.
+        do Gpu.abortUpload batch
+        reraise ()
 
 // Build a runtime PBR material from a parsed glTF material, resolving its texture URIs against
 // the glTF file's directory. Returns the material, the texture keys it acquired (in order) and
 // the bytes newly made resident, so an eviction can release exactly what a load acquired.
-let private resolveMaterial (loader: Loader) (gltfDir: string) (m: Gltf.Material) : Texture.Material * string list * int64 =
+let private resolveMaterial (loader: Loader) (batch: Gpu.UploadBatch) (gltfDir: string) (m: Gltf.Material) : Texture.Material * string list * int64 =
     // Track each acquire as it happens so a later failure can undo the partial work; on success the
     // keys/bytes are handed back for the caller's own rollback and eventual release (FR-018).
     let acquired = ResizeArray<string>()
@@ -135,7 +151,7 @@ let private resolveMaterial (loader: Loader) (gltfDir: string) (m: Gltf.Material
         | Some rr ->
 
         let path = Path.Combine(gltfDir, rr.Uri)
-        let t, delta = acquireTexture loader path
+        let t, delta = acquireTexture loader batch path
         acquired.Add path
         added <- added + delta
         Some t
@@ -284,68 +300,101 @@ let private submeshRangeBounds (submeshes: Gltf.Submesh array) (first: int) (cou
 // its material (acquiring the material's textures), and measure the unit. Returns the unit and
 // the bytes newly made resident by the textures it acquired (the submesh bytes are on the unit).
 let private buildLoaded (loader: Loader) (modelPath: string) (includeParts: bool) : EnvironmentLoaded * int64 =
-    let model = Gltf.load modelPath
-    let gltfDir = Path.GetDirectoryName modelPath
-    // A material is resolved — and its textures acquired — once per distinct material index. A
-    // cache hit must contribute no keys and no bytes, or a material shared by several submeshes
-    // would double-count its textures and over-release them (FR-018).
-    let materialCache = Dictionary<int, Texture.Material>()
-    let materialFor (index: int) : Texture.Material * string list * int64 =
-        match materialCache.TryGetValue index with
-        | true, material -> material, [], 0L
-        | false, _ ->
-        let material, keys, added =
-            if index < 0 || index >= model.Materials.Length then loader.DefaultMaterial, [], 0L
-            else resolveMaterial loader gltfDir model.Materials.[index]
-        materialCache.[index] <- material
-        material, keys, added
-    let mutable submeshBytes = 0L
-    let mutable textureAdded = 0L
+    // One batch for the whole asset: every buffer and texture upload is recorded into it, packed into
+    // a bounded staging buffer and flushed as it fills, then finished here (spec 052).
+    Gpu.resetUploadStats()
+    Texture.resetLoadStats()
+    let totalStart = Stopwatch.GetTimestamp()
+    let batch = Gpu.beginUpload loader.Device
     // Track what is built so a failure partway (e.g. a corrupt submesh) rolls back the GPU
     // resources already made, keeping the loader's refcounts balanced.
-    let created = ResizeArray<StaticMesh.StaticMesh>(model.Submeshes.Length)
+    let created = ResizeArray<StaticMesh.StaticMesh>()
     let keys = ResizeArray<string>()
-    try
-        let submeshes =
-            model.Submeshes
-            |> Array.map (fun s ->
-                let mesh = StaticMesh.create loader.Device s.Positions s.Normals s.Uvs s.Indices
-                created.Add mesh
-                let vertexCount = s.Positions.Length / 3
-                // The unit's bytes: the retained geometry (RAM) plus the uploaded buffers (VRAM).
-                let cpuBytes = int64 (s.Positions.Length + s.Normals.Length + s.Uvs.Length + s.Indices.Length) * 4L
-                let gpuBytes = int64 (vertexCount * 32) + int64 (s.Indices.Length * 4)
-                submeshBytes <- submeshBytes + cpuBytes + gpuBytes
-                let material, ks, added = materialFor s.Material
-                textureAdded <- textureAdded + added
-                for k in ks do keys.Add k
-                { LoadedSubmesh.Positions = s.Positions
-                  Normals = s.Normals
-                  Uvs = s.Uvs
-                  Indices = s.Indices
-                  MaterialIndex = s.Material
-                  Mesh = mesh
-                  Material = material })
-        let parts =
-            if not includeParts then Array.empty else
-            model.Parts
-            |> Array.map (fun p ->
-                { EnvironmentPart.Name = p.Name
-                  HierarchyPath = p.HierarchyPath
-                  World = p.World
-                  Bounds = submeshRangeBounds model.Submeshes p.SubmeshIndex p.SubmeshCount
-                  SubmeshIndex = p.SubmeshIndex
-                  SubmeshCount = p.SubmeshCount })
-        { EnvironmentLoaded.Submeshes = submeshes
-          Parts = parts
-          Bounds = model.Bounds
-          Materials = model.Materials
-          SubmeshBytes = submeshBytes
-          TextureKeys = keys.ToArray() }, textureAdded
-    with _ ->
-        for mesh in created do StaticMesh.release mesh
-        for key in keys do releaseTexture loader key |> ignore
-        reraise ()
+    let mutable parseTicks = 0L
+    // Only the build rolls back; the timing print below is outside the `try`, so a logging failure
+    // cannot undo a successful upload.
+    let loaded, textureAdded =
+        try
+            let t0 = Stopwatch.GetTimestamp()
+            let model = Gltf.load modelPath
+            parseTicks <- Stopwatch.GetTimestamp() - t0
+            let gltfDir = Path.GetDirectoryName modelPath
+            // A material is resolved — and its textures acquired — once per distinct material index.
+            // A cache hit must contribute no keys and no bytes, or a material shared by several
+            // submeshes would double-count its textures and over-release them (FR-018).
+            let materialCache = Dictionary<int, Texture.Material>()
+            let materialFor (index: int) : Texture.Material * string list * int64 =
+                match materialCache.TryGetValue index with
+                | true, material -> material, [], 0L
+                | false, _ ->
+                let material, keys, added =
+                    if index < 0 || index >= model.Materials.Length then loader.DefaultMaterial, [], 0L
+                    else resolveMaterial loader batch gltfDir model.Materials.[index]
+                materialCache.[index] <- material
+                material, keys, added
+            let mutable submeshBytes = 0L
+            let mutable textureAdded = 0L
+            let submeshes =
+                model.Submeshes
+                |> Array.map (fun s ->
+                    let mesh = StaticMesh.create batch loader.Device s.Positions s.Normals s.Uvs s.Indices
+                    created.Add mesh
+                    let vertexCount = s.Positions.Length / 3
+                    // The unit's bytes: the retained geometry (RAM) plus the uploaded buffers (VRAM).
+                    let cpuBytes = int64 (s.Positions.Length + s.Normals.Length + s.Uvs.Length + s.Indices.Length) * 4L
+                    let gpuBytes = int64 (vertexCount * 32) + int64 (s.Indices.Length * 4)
+                    submeshBytes <- submeshBytes + cpuBytes + gpuBytes
+                    let material, ks, added = materialFor s.Material
+                    textureAdded <- textureAdded + added
+                    for k in ks do keys.Add k
+                    { LoadedSubmesh.Positions = s.Positions
+                      Normals = s.Normals
+                      Uvs = s.Uvs
+                      Indices = s.Indices
+                      MaterialIndex = s.Material
+                      Mesh = mesh
+                      Material = material })
+            let parts =
+                if not includeParts then Array.empty else
+                model.Parts
+                |> Array.map (fun p ->
+                    { EnvironmentPart.Name = p.Name
+                      HierarchyPath = p.HierarchyPath
+                      World = p.World
+                      Bounds = submeshRangeBounds model.Submeshes p.SubmeshIndex p.SubmeshCount
+                      SubmeshIndex = p.SubmeshIndex
+                      SubmeshCount = p.SubmeshCount })
+            // Flush and finish the whole asset before it is made resident.
+            Gpu.finishUpload batch
+            let unit =
+                { EnvironmentLoaded.Submeshes = submeshes
+                  Parts = parts
+                  Bounds = model.Bounds
+                  Materials = model.Materials
+                  SubmeshBytes = submeshBytes
+                  TextureKeys = keys.ToArray() }
+            unit, textureAdded
+        with _ ->
+            do Gpu.abortUpload batch
+            for mesh in created do StaticMesh.release mesh
+            for key in keys do releaseTexture loader key |> ignore
+            reraise ()
+    // Per-asset instrumentation (FR-008/FR-010): one line per asset build, opt-in.
+    if loadTiming then
+        let ms (t: int64) = float t / float Stopwatch.Frequency * 1000.0
+        let g = Gpu.uploadStats()
+        let d = Texture.loadStats()
+        do printfn "load %-12s total %7.1fms | parse %6.1f | buf-create %5.1fms x%d | tex-create %6.1fms x%d | stage %6.1fms x%d | memcpy %6.1fms x%d | submit %6.1fms x%d | decode %7.1fms x%d"
+            (Path.GetFileNameWithoutExtension modelPath)
+            (ms (Stopwatch.GetTimestamp() - totalStart))
+            (ms parseTicks)
+            (ms g.CreateNs) g.Creates
+            (ms d.CreateNs) d.Decoded
+            (ms g.StageNs) g.StageBuffers
+            (ms g.MemcpyNs) g.Copies
+            (ms g.SubmitNs) g.Submissions
+            (ms d.DecodeNs) d.Decoded
+    loaded, textureAdded
 
 // The ids evictable this pass, in eviction order: the LRU order walked from the tail with the
 // protected ids removed. Pure, so the policy (tail-first, the environment in use exempt) is

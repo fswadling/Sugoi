@@ -40,16 +40,18 @@ let private interleave (positions: float32 array) (normals: float32 array) (uvs:
         do bw.Write(uvs.[u]); bw.Write(uvs.[u + 1])
     ms.ToArray()
 
-let create (device: Gpu.Device) (positions: float32 array) (normals: float32 array) (uvs: float32 array) (indices: int array) : StaticMesh =
+let create (batch: Gpu.UploadBatch) (device: Gpu.Device) (positions: float32 array) (normals: float32 array) (uvs: float32 array) (indices: int array) : StaticMesh =
     let vertexBytes = interleave positions normals uvs
 
     let vertexBuffer = createBuffer device SDL.GPUBufferUsageFlags.Vertex (uint32 vertexBytes.Length)
     let indexBuffer = createBuffer device SDL.GPUBufferUsageFlags.Index (uint32 (indices.Length * 4))
 
-    do uploadBufferOnce device vertexBuffer vertexBytes
+    // Record the two uploads into the caller's batch: they are submitted once for the whole asset
+    // (spec 052), not one command buffer per buffer.
+    Gpu.recordBuffer batch vertexBuffer vertexBytes
     let indexBytes = Array.zeroCreate<byte> (indices.Length * 4)
     do Buffer.BlockCopy(indices, 0, indexBytes, 0, indices.Length * 4)
-    do uploadBufferOnce device indexBuffer indexBytes
+    Gpu.recordBuffer batch indexBuffer indexBytes
 
     let mutable indexBinding = SDL.GPUBufferBinding()
     indexBinding.Buffer <- indexBuffer

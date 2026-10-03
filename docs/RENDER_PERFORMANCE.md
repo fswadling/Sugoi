@@ -509,3 +509,31 @@ copying only as the optional §7 step 3 cache; the v1 plan is a per-frame gather
 
 **Caveat:** this is a source-read of `Repos/Nu`, not a measured run — treat the
 "in budget" claim as inference from the design, not a benchmark.
+
+## 13. Asset upload batching (spec 052)
+
+Loading an environment or prop used to submit **one command buffer per vertex/index buffer and
+per texture**. Measured on ArtRoom: **469 submissions**, of which ~820 ms was pure submission
+overhead (~0.67 s across 382 geometry-buffer uploads + ~0.55 s across 87 texture uploads), while
+the geometry itself is only ~1.84 MB.
+
+Spec 052 batches one asset's uploads. `Gpu.UploadBatch` packs every buffer/texture copy into a
+staging transfer buffer and **flushes** it (one command buffer: one copy pass, mips outside the
+pass, one submit) when it fills. The first buffer is sized to the workload (up to 4 MiB), growing
+to `StagingCapacity` (256 MiB) only for a large asset. So **peak staging memory is bounded** (one
+buffer, not the asset's size) and the submission count is a small handful, not one per resource.
+
+| | Baseline | After (expected) |
+|---|---|---|
+| submissions | 469 | a few (single digits) |
+| submit overhead | ~820 ms | a few ms |
+| peak staging | ~one resource | ≤ 256 MiB |
+| aggregate upload work | ~1.0 s | ~0.3 s |
+
+`uploadBufferOnce` (actor meshes, storage buffers) keeps a direct, data-sized one-shot upload, so
+a small one-off buffer does not allocate a 256 MiB staging buffer. Texture decode (~4.3 s for
+ArtRoom, ~89% of the load) is unchanged and out of scope — see `docs/ENVIRONMENT_LRU_PLAN.md`
+and the async follow-on.
+
+The per-asset instrumentation is opt-in (`FFS_LOAD_TIMING=1`) and reports
+`parse | buf-create | tex-create | stage | memcpy | submit | decode`.
