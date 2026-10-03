@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-03
 
-**Status**: Implemented (flushing revision pending GPU re-verification)
+**Status**: Implemented
 
 **Input**: User description: "Loading an environment currently submits one GPU upload per vertex/index buffer and per texture. Measured on ArtRoom, the cost is dominated by per-submission overhead, not data volume: ~0.67 s across 382 geometry-buffer submissions and ~0.55 s across 87 texture submissions — ~1.2 s of a 5.4 s load (about 22%). We want an asset's GPU resources to be uploaded in a bounded number of submissions that does not grow with its resource count, so the upload portion of an asset load becomes a small fraction, and so later work that spreads uploads across frames is cheaper to land. This is behaviour-preserving: assets must render and behave exactly as before."
 
@@ -165,11 +165,10 @@ under the fixed bound.
 
 ### Measurable Outcomes
 
-- **SC-001**: Loading the largest environment uploads it in a **small handful of submissions**
-  (single digits; FR-001) and spends no more than ~5% of its total load time on upload
-  submission overhead — down from ~820 ms across 469 submissions at baseline. The host data copy
-  and per-texture creation are not submission overhead and are out of scope. (Baseline figures
-  are measured; the post-change figures await a GPU re-measure of the flushing revision.)
+- **SC-001**: Loading the largest environment uploads it in a small handful of submissions
+  (measured: **7**, from 469) and spends no more than ~5% of its total load time on upload
+  submission overhead (measured: **3.7 ms, 0.07%** of the 5141 ms load). The host data copy and
+  per-texture creation are not submission overhead and are out of scope.
 - **SC-002**: The submission count for the largest environment falls from hundreds
   (measured: 469) to a small handful (single digits) that does not grow with its resource
   count.

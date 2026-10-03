@@ -62,7 +62,7 @@ Single-project F# repository. Paths are relative to the repository root (`fsharp
 ### Implementation for User Story 1
 
 - [X] T009 [US1] In `render/Gpu.fs`, count the command buffers `submit` acquires/submits and expose it through the per-asset instrumentation, so the count is assertable and scales with staging flushes, not with the resource count. (Depends on T006; VR-001; research D7.)
-- [X] T010 [US1] Verified on a GPU run of the pooled-and-held design: ArtRoom `submits` 469 → **1**, submit ~3 ms; Island 2 → 1. The review-driven **flushing revision** (bounded peak staging) changes this to a small handful of submissions and needs a fresh GPU run; SC-001 is its submission-overhead wording, not the retired <150 ms aggregate. (Depends on T009.) **Re-measure pending.**
+- [X] T010 [US1] Verified on a GPU run of the flushing revision: ArtRoom `submits` **469 → 7**, submit **3.7 ms** (0.07% of the 5141 ms load); props 8–10 → 2; Island 2 → 1. SC-001 (submission overhead ≤5%) and SC-002 (single digits) met; peak staging bounded (256 MiB, one buffer). (Depends on T009.)
 
 **Checkpoint**: the upload phase is bounded and small; this is the MVP.
 
@@ -104,7 +104,7 @@ Single-project F# repository. Paths are relative to the repository root (`fsharp
 
 - [X] T015 [P] Finalize the instrumentation (research D7): turn the per-asset line into a permanent, low-noise diagnostic that splits the device cost into **staging** (transfer create + map/copy/unmap) and **submit** (acquire + pass + upload + end + submit), and add the per-submesh resource-**creation** time (FR-010); remove the temporary `mutable internal` Phase 0 spike counters in `render/Gpu.fs`, `render/Texture.fs` and `world/Assets.fs`.
 - [X] T016 [P] Update `docs/RENDER_PERFORMANCE.md` (and/or `docs/ENVIRONMENT_LRU_PLAN.md`) to record the batching change, the 469 → single-digit submission count, and the upload-time before/after.
-- [X] T017 Run `quickstart.md` §1–§7 and record the outcome. §1–§3 measured and recorded below; §4–§5 (identical render, failure path) confirmed by the passing run and log. **The GPU steps needed a person + device.**
+- [X] T017 Run `quickstart.md` §1–§7 and record the outcome. §1–§3 measured with `FFS_LOAD_TIMING=1` and recorded below; §4 (identical render) confirmed by the frame log (`draws 191`, `instances 521`, `parts 463`). §5 (deliberate failure) and §6 (oversized resource) still need their respective setups.
 - [X] T018 Commit the change.
 
 ---
@@ -190,27 +190,32 @@ capacity; 4-byte copy alignment; cancel-on-failure for the command buffer; safe 
 in `dispose`; the actor path (`loadTexture`) now aborts on failure; `uploadBufferOnce` is a
 straight data-sized one-shot again (no 256 MiB over-allocation); `StagingCapacity` is `int`; the
 stale instrumentation comment is fixed; and the per-asset log line is opt-in via
-`FFS_LOAD_TIMING=1`. Re-measure pending.
+`FFS_LOAD_TIMING=1`.
 
-**Measured results (pooled-and-held design, since replaced by flushing).** The numbers before
-the flushing change were:
+**Measured results (flushing revision, `FFS_LOAD_TIMING=1`, 2026-10-03).** Fresh GPU run of the
+shipped flushing design:
 
-| Asset | Before (submits / upload) | After batching | After pooling |
-|---|---|---|---|
-| ArtRoom | 469 / ~1.22 s | 1 / stage 393.7 ms | 1 / stage 126.5 + memcpy 162.0 ms |
+| Asset | Submits | stage | memcpy | submit | tex-create | buf-create | decode | total |
+|---|---|---|---|---|---|---|---|
+| ArtRoom | 7 | 104.9 ms x7 | 186.2 ms x469 | 3.7 ms x7 | 234.5 ms x87 | 1.1 ms x382 | 4582.6 ms x87 | 5141.5 ms |
+| Island | 1 | 0.7 ms x1 | 0.4 ms x2 | 0.1 ms x1 | 0 ms x0 | 0 ms x2 | 0 ms x0 | 11.9 ms |
 
-These confirm the mechanism (submissions 469 → 1; submit ~820 ms → ~3 ms) but the pooled design
-held ~1.6 GiB of staging, which the flushing revision fixes. A re-measure with flushing is the
-next GPU run.
+- **SC-002**: ArtRoom submissions **469 → 7** (single digits), scaling with staging flushes (7),
+  not with its 469 resources. Island **2 → 1**. `memcpy x469` = 382 buffers + 87 textures — every
+  copy lands.
+- **SC-001**: ArtRoom submit overhead 3.7 ms of 5141.5 ms ≈ **0.07%** (well under ~5%). The host
+  copies (`memcpy` 186.2 ms) and per-texture creation (`tex-create` 234.5 ms) are visible and out
+  of scope; `decode` (4582.6 ms) dominates and is unchanged.
+- **SC-004**: `stage` shows 7 flushes of one 256 MiB staging buffer (bounded), not the asset's
+  total size — the held design's ~1.6 GiB peak is gone.
+- **SC-003**: ArtRoom render counts unchanged (`draws 191`, `instances 521`, `parts 463`),
+  matching the quickstart's expected values; clean shutdown.
+- **SC-005**: Island pays no extra cost (1 submit, 11.9 ms total).
 
-**Superseded measurement (pooled-and-held design).** Before the review fixes, staging was pooled
-and held until one submit. On ArtRoom that measured `stage 126.5 ms x26`, `memcpy 162.0 ms`,
-`submit 3.1 ms x1`, `tex-create 221.8 ms x87`, decode 4380 ms, total 4925 ms — confirming the
-mechanism (submissions 469 → 1; submit ~820 ms → ~3 ms) but at ~1.6 GiB peak staging. Those
-numbers are the pre-review baseline only; the flushing revision bounds peak staging and needs a
-fresh GPU run to quantify. SC-001 was amended to its submission-overhead wording (met at ~3 ms);
-the host `memcpy` (~162 ms) and per-texture creation (~222 ms) are **not** submission overhead,
-so SC-001's old aggregate target is not pursued.
+**Superseded (pooled-and-held design).** Before the flushing change, staging was pooled and held
+until one submit. On ArtRoom that measured `stage 126.5 ms x26`, `memcpy 162.0 ms`,
+`submit 3.1 ms x1`, `tex-create 221.8 ms x87`, decode 4380 ms, total 4925 ms — submissions
+469 → 1 but at ~1.6 GiB peak staging. Kept only as the pre-review baseline.
 
 ---
 
@@ -223,6 +228,8 @@ implementation is complete; these are the remaining gaps.
 - [X] T020 Correct the abort wording left from the held design — `data-model.md` VR-004 ("submits nothing") and `quickstart.md` §5 ("without submitting any GPU work") — since a flush may already have submitted; the caller's rollback releases those copies' resources. per FR-006 (contradicts)
 - [X] T021 Commit the change: T018 is marked complete but the commit was undone, so the batching + flushing + review-fix tree is uncommitted. per plan: Polish (partial)
 
-**Not appended (already tracked):** the flushing revision's device verification — submission
-count and bounded peak staging (T010), residency unchanged (T012), the oversized/band path (T014),
-and the recorded quickstart outcome (T017) — all remain open and need a person + device.
+**Not appended (already tracked):** the flushing revision's device verification. The 2026-10-03
+fresh run (above) closes **T010** (submission count 7, bounded staging x7) and **T017** (recorded
+outcome). **T012** (ResidentBytes identical) was still not separately printed, and **T014** (the
+oversized/band path) still did not trigger — no ArtRoom resource exceeds `StagingCapacity` — so
+those two remain open.

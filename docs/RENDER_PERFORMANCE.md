@@ -523,12 +523,16 @@ pass, one submit) when it fills. The first buffer is sized to the workload (up t
 to `StagingCapacity` (256 MiB) only for a large asset. So **peak staging memory is bounded** (one
 buffer, not the asset's size) and the submission count is a small handful, not one per resource.
 
-| | Baseline | After (expected) |
+Measured on ArtRoom (`FFS_LOAD_TIMING=1`, 2026-10-03):
+
+| | Baseline | After |
 |---|---|---|
-| submissions | 469 | a few (single digits) |
-| submit overhead | ~820 ms | a few ms |
-| peak staging | ~one resource | ≤ 256 MiB |
-| aggregate upload work | ~1.0 s | ~0.3 s |
+| submissions | 469 | **7** |
+| submit overhead | ~820 ms | **3.7 ms** (0.07% of the load) |
+| peak staging | ~one resource | **≤ 256 MiB** (one buffer, 4 MiB for a small asset) |
+| aggregate upload work | ~1.0 s | ~0.30 s |
+
+Island: 1 submission, 11.9 ms. Props: 2 submissions each.
 
 `uploadBufferOnce` (actor meshes, storage buffers) keeps a direct, data-sized one-shot upload, so
 a small one-off buffer does not allocate a 256 MiB staging buffer. Texture decode (~4.3 s for
