@@ -9,6 +9,9 @@
     <Compile Include="TestSupport.fs" />
     <Compile Include="SlotMapTests.fs" />
     <Compile Include="LruTests.fs" />
+    <!-- The pure half of async environment loading (spec 053): the pending set's bound/dedup/recency/
+         pinning/drop and the pool's concurrent-decode bound. Device-free. -->
+    <Compile Include="AssetLoadTests.fs" />
     <Compile Include="EntityTests.fs" />
     <Compile Include="AssetsTests.fs" />
     <Compile Include="InputTests.fs" />

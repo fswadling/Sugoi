@@ -60,12 +60,14 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         for name in names do
             if state.Zones.ContainsKey name then
                 let marker = if name = state.ActiveZone then "* " else "  "
-                // Residency (spec 050): whether the zone's environment is on the GPU right now.
-                // `[-]` no environment, `[+]` resident, `[ ]` not resident; no binding, no panel.
+                // Residency (spec 050; loading/failed states spec 053): `[-]` no environment,
+                // `[ ]` not loaded, `[~]` loading, `[+]` resident, `[x]` failed. No binding, no panel.
                 let residency =
                     match state.Zones.[name].Environment with
                     | None -> "[-]"
                     | Some environment when Assets.isEnvironmentResident shared.Assets environment.AssetId -> "[+]"
+                    | Some environment when Assets.hasFailed shared.Assets environment.AssetId -> "[x]"
+                    | Some environment when Assets.isLoading shared.Assets environment.AssetId -> "[~]"
                     | Some _ -> "[ ]"
                 // A click always makes the zone the Inspector's subject, whether it switches or is
                 // the zone already in use (spec 043, FR-003). A click that *changes* the zone is a step on the

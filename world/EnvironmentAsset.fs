@@ -49,34 +49,47 @@ type EnvironmentLoaded =
       SubmeshBytes : int64
       TextureKeys : string array }
 
+// The asset's coarse lifecycle (spec 053), single-writer on the render thread. `Resident` is the one
+// state the accessors read; `Loading` is coarse because the fine phases are derived on the manager.
+type Residency =
+    | NotLoaded
+    | Loading
+    | Resident of EnvironmentLoaded
+    | Failed of Message : string
+
 type EnvironmentAsset =
     { Id : string
       Name : string
       ModelPath : string          // absolute; resolved once at scan so a lazy load needs no root
       Orientation : Quaternion
-      mutable Loaded : EnvironmentLoaded option } // None == never parsed/uploaded
+      mutable Residency : Residency } // the coarse lifecycle (spec 053); `Resident` == on the GPU
 
 // ── loaded accessors ──
 //
 // The unit is reached only where it must be present; a render or physics path over a not-loaded
 // asset is a bug that fails loudly rather than reading a freed handle (spec 050 FR-011).
 
+let isResident (asset: EnvironmentAsset) : bool =
+    match asset.Residency with
+    | Resident _ -> true
+    | _ -> false
+
 let submeshes (asset: EnvironmentAsset) : LoadedSubmesh array =
-    match asset.Loaded with
-    | Some loaded -> loaded.Submeshes
-    | None -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)
+    match asset.Residency with
+    | Resident loaded -> loaded.Submeshes
+    | _ -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)
 
 let parts (asset: EnvironmentAsset) : EnvironmentPart array =
-    match asset.Loaded with
-    | Some loaded -> loaded.Parts
-    | None -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)
+    match asset.Residency with
+    | Resident loaded -> loaded.Parts
+    | _ -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)
 
 let bounds (asset: EnvironmentAsset) : Gltf.Bounds =
-    match asset.Loaded with
-    | Some loaded -> loaded.Bounds
-    | None -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)
+    match asset.Residency with
+    | Resident loaded -> loaded.Bounds
+    | _ -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)
 
 let materials (asset: EnvironmentAsset) : Gltf.Material array =
-    match asset.Loaded with
-    | Some loaded -> loaded.Materials
-    | None -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)
+    match asset.Residency with
+    | Resident loaded -> loaded.Materials
+    | _ -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)

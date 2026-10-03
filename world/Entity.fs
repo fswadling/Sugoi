@@ -169,13 +169,23 @@ type Prop =
 // map (one prop per mesh-bearing glTF node), so environment churn never touches
 // the zone's placed-prop or actor maps. `Epoch` identifies this environment so a
 // part ref can be checked against the current one.
+//
+// `PartsSource` (spec 053) records where the parts came from: the parse is off-thread, so an
+// asset-authored environment starts with an empty parts map that is materialised when the asset
+// lands, while a registered template or an undo/redo payload is already final. It lives here (not on
+// the zone) so it rides the `SetEnvironment`/`ZoneContents` payload.
+type PartsSource =
+    | FromAsset    // the asset's parsed parts; materialise them when it lands
+    | Authored     // final (a registered template, or an undo/redo payload)
+
 [<Struct>]
 type Environment =
     { Base : Entity
       AssetId : string
       Orientation : Quaternion
       Epoch : uint32
-      Parts : SlotMap<Prop> }
+      Parts : SlotMap<Prop>
+      PartsSource : PartsSource }
 
 module Prop =
     // Release a prop's renderer GPU buffers.

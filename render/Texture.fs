@@ -107,30 +107,36 @@ let private preloadImageDep = lazy (
     let path = Path.Combine(AppContext.BaseDirectory, "libjbig.so.0")
     if File.Exists(path) then NativeLibrary.Load(path) |> ignore)
 
-// ── texture decode instrumentation (spec 052 FR-008) ──
-// The asset loader resets this before building an asset and reads it after, to report the CPU
-// decode cost, which batching does not change. Only meaningful while one load runs.
+// ── texture instrumentation (spec 052 FR-008; spec 053 T008) ──
+// Creation cost only: decode happens on a worker and its timing rides `DecodedImage.DecodeNs`, so no
+// worker writes a process-global. Reset/read by the loader around an asset build (render thread).
 type TextureLoadStats =
-    { mutable DecodeNs : int64
-      mutable Decoded : int
-      mutable CreateNs : int64 }
+    { mutable CreateNs : int64
+      mutable Creates : int }
 
-let mutable private stats = { DecodeNs = 0L; Decoded = 0; CreateNs = 0L }
-let resetLoadStats () : unit = stats <- { DecodeNs = 0L; Decoded = 0; CreateNs = 0L }
+let mutable private stats = { CreateNs = 0L; Creates = 0 }
+let resetLoadStats () : unit = stats <- { CreateNs = 0L; Creates = 0 }
 let loadStats () : TextureLoadStats = stats
 
-// Decode an image file and record its upload into `batch` as an R8G8B8A8Unorm texture with a full
-// mip chain. SDL_image's `IMG_LoadGPUTexture` cannot create mip levels, so decode to a surface and
-// upload level 0; the batch generates the rest at submit (spec 052). Creation happens here; only
-// the level-0 copy is deferred to the batch.
-let load (batch: Gpu.UploadBatch) (device: Gpu.Device) (path: string) : Texture =
+// The CPU-side result of decoding one image: compacted RGBA8 rows and the decode cost. Produced on a
+// worker by `decode`; consumed on the render thread by `createFromDecoded`. Declared here (not in
+// `world/AssetLoad.fs`) because `Texture.decode` returns it and `Texture.fs` is compiled first.
+[<Struct>]
+type DecodedImage =
+    { Width : int
+      Height : int
+      Pixels : byte array   // Width*4*Height, rows compacted (no pitch padding)
+      DecodeNs : int64 }
+
+// Decode an image file to compacted RGBA8, CPU-only (worker-safe): no device, no batch. SDL_image
+// reads it and, when needed, `ConvertSurface` normalises to ABGR8888 (bytes R,G,B,A little-endian).
+// Raises on a missing/corrupt file; the worker turns that into a `LoadFailed`.
+let decode (path: string) : DecodedImage =
     let t0 = Stopwatch.GetTimestamp()
     do preloadImageDep.Value
     let decoded = SDL3.Image.Load(path)
     if decoded = IntPtr.Zero then failwithf "texture: failed to load '%s'" path
 
-    // Normalise to bytes R,G,B,A (SDL's ABGR8888 on little-endian); decoders may
-    // hand back e.g. RGB24 for JPEGs.
     let decodedInfo = Marshal.PtrToStructure<SDL.Surface>(decoded)
     let surface =
         if decodedInfo.Format = SDL.PixelFormat.ABGR8888 then decoded else
@@ -145,29 +151,35 @@ let load (batch: Gpu.UploadBatch) (device: Gpu.Device) (path: string) : Texture 
     let packed = Array.zeroCreate<byte> (rowBytes * s.Height)
     for y in 0 .. s.Height - 1 do
         do Marshal.Copy(IntPtr.Add(s.Pixels, y * s.Pitch), packed, y * rowBytes, rowBytes)
-    stats.DecodeNs <- stats.DecodeNs + (Stopwatch.GetTimestamp() - t0)
-    stats.Decoded <- stats.Decoded + 1
+    do SDL.DestroySurface(surface)
+    { Width = s.Width; Height = s.Height; Pixels = packed; DecodeNs = Stopwatch.GetTimestamp() - t0 }
 
-    let levels = uint32 (int (MathF.Log2(float32 (max s.Width s.Height)))) + 1u
+// Create the GPU texture + full mip chain from decoded pixels and record the level-0 upload into
+// `batch` (spec 052). Render thread only. The `Bytes` accounting is identical to the pre-053 `load`.
+let createFromDecoded (batch: Gpu.UploadBatch) (device: Gpu.Device) (image: DecodedImage) : Texture =
+    let c0 = Stopwatch.GetTimestamp()
+    let levels = uint32 (int (MathF.Log2(float32 (max image.Width image.Height)))) + 1u
     let mutable info = SDL.GPUTextureCreateInfo()
     info.Type <- SDL.GPUTextureType.TextureType2D
     info.Format <- SDL.GPUTextureFormat.R8G8B8A8Unorm
     info.Usage <- SDL.GPUTextureUsageFlags.Sampler ||| SDL.GPUTextureUsageFlags.ColorTarget
-    info.Width <- uint32 s.Width
-    info.Height <- uint32 s.Height
+    info.Width <- uint32 image.Width
+    info.Height <- uint32 image.Height
     info.LayerCountOrDepth <- 1u
     info.NumLevels <- levels
     info.SampleCount <- SDL.GPUSampleCount.SampleCount1
-    let c0 = Stopwatch.GetTimestamp()
     let handle = SDL.CreateGPUTexture(device, &info)
-    if handle = IntPtr.Zero then failwithf "texture: failed to create GPU texture '%s'" path
+    if handle = IntPtr.Zero then failwith "texture: failed to create GPU texture"
     let sampler = createSampler device
     stats.CreateNs <- stats.CreateNs + (Stopwatch.GetTimestamp() - c0)
+    stats.Creates <- stats.Creates + 1
 
-    Gpu.recordTexture batch handle packed (uint32 s.Width) (uint32 s.Height) levels
+    Gpu.recordTexture batch handle image.Pixels (uint32 image.Width) (uint32 image.Height) levels
 
-    do SDL.DestroySurface(surface)
-    { Device = device; Handle = handle; Sampler = sampler; Bytes = int64 s.Width * int64 s.Height * 4L * 4L / 3L }
+    { Device = device
+      Handle = handle
+      Sampler = sampler
+      Bytes = int64 image.Width * int64 image.Height * 4L * 4L / 3L }
 
 // A 1x1 solid RGBA texture (used as the shared placeholder for absent maps).
 let solid (device: Gpu.Device) (r: byte) (g: byte) (b: byte) (a: byte) : Texture =

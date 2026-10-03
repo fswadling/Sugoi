@@ -59,6 +59,9 @@
     <Compile Include="world/ActorRender.fs" />
     <Compile Include="world/EnvironmentAsset.fs" />
     <Compile Include="world/EnvironmentRender.fs" />
+    <!-- The async load substrate (spec 053): the decoded payload, the bounded recency queue and the
+         worker pool. CPU-only; depends on `Gltf` and `Texture`, and is depended on by `Assets`. -->
+    <Compile Include="world/AssetLoad.fs" />
     <Compile Include="world/Assets.fs" />
     <Compile Include="world/Casting.fs" />
     <!-- The dialogue view (spec 038): the only module that knows the whole chain from a

@@ -43,6 +43,18 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
     let zone = GameplayState.activeZone state
     let transition = Editor.update shared frame &state
 
+    // Async environment loading (spec 053): on the render thread, refresh the pin set to the active
+    // zone's environment (never dropped, never evicted), drain decoded payloads and advance the
+    // budgeted GPU build, then finish an environment that landed for the active zone. Runs every
+    // frame, in edit and play alike.
+    let pinned =
+        match (GameplayState.activeZone state).EnvironmentState with
+        | Zone.Active environment | Zone.Awaiting environment -> [ environment.AssetId ]
+        | Zone.NoEnvironment -> []
+    do Assets.setPinned shared.Assets pinned
+    do Assets.pump shared.Assets Assets.UploadBudgetMs
+    do Zone.reconcileEnvironment (GameplayState.activeZone state) shared.Physics shared.Assets
+
     if not state.Editing then
         // The animation clock advances only while playing, so an actor stands still while it is being
         // placed and edited.

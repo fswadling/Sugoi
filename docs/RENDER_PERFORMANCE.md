@@ -541,3 +541,34 @@ and the async follow-on.
 
 The per-asset instrumentation is opt-in (`FFS_LOAD_TIMING=1`) and reports
 `parse | buf-create | tex-create | stage | memcpy | submit | decode`.
+
+## Async environment loading (spec 053)
+
+A load used to run entirely on the render thread: `Gltf.load`, then per submesh the GPU mesh + the
+texture decode + the upload, all inline in `Assets.buildLoaded`. On ArtRoom that froze the frame loop
+for the whole **~5.1 s** of the load (decode alone ~4.6 s, ~89%), and a zone switch committed only
+after it finished (spec 050's load-before-commit).
+
+The load is now split across threads. A small pool of **worker threads** (`LOAD_WORKERS = 2`, a
+*memory* bound — a decoded ArtRoom is ~1.3 GB of pixels — overridable by `FFS_LOAD_WORKERS`) reads the
+model file, parses it, and decodes every texture it references, posting a `DecodedEnvironment`
+(parsed geometry + decoded pixels) to the render thread. The render thread owns **every** `SDL_gpu`
+call: `Assets.pump` (once per frame) drains decoded payloads and builds the GPU resources within a
+**time budget** (`UploadBudgetMs = 4 ms`), resuming across frames, so no frame stalls for the load.
+
+Requests are a **bounded, de-duplicated, most-recent-first** set (`LoadQueue`, an LRU under a lock):
+a burst of zone switches keeps only the most recently requested, drops the least recent, and never
+drops the active environment (pinned) or the id whose GPU work is in flight. A load that is already
+decoding is not cancelled; its payload is discarded if the asset is no longer wanted when it
+completes.
+
+Because the parse is off-thread, a zone switch no longer waits: the zone becomes active in the
+requesting frame and the environment **pops in** when its upload lands (spec 053 FR-004 supersedes
+spec 050 FR-017). Until then the zone's environment is `Awaiting` — present but undrawn — and its
+part colliders/renderers are attached when the asset lands. A failed load is logged and shown as a
+failed state on the zone's residency glyph (`[~]` loading, `[+]` resident, `[x]` failed), never stuck
+loading.
+
+The residency accounting, the byte budget (`EnvironmentBudgetBytes`, 2 GB), the LRU eviction order
+and the texture refcount cache are unchanged (FR-010). The instrumentation line now reports the
+worker's `queue-wait | parse | decode` and the render side's `tex-create | stage | memcpy | submit`.

@@ -64,7 +64,7 @@ let ``evictionCandidates offers nothing when every candidate is protected`` () =
 [<Fact>]
 let ``isEnvironmentResident reflects the loaded unit`` () =
     let resident = residentAsset "room" [||] [||]
-    let evicted = { resident with Id = "hall"; Loaded = None }
+    let evicted = { resident with Id = "hall"; Residency = NotLoaded }
     let envs = Dictionary<string, EnvironmentAsset>()
     envs.["room"] <- resident
     envs.["hall"] <- evicted
@@ -79,8 +79,8 @@ let ``ensuring the same asset id twice keeps one residency entry`` () =
     let envs = Dictionary<string, EnvironmentAsset>()
     envs.["room"] <- residentAsset "room" [||] [||]
     let manager = TestSupport.manager 0n (Dictionary()) (Dictionary()) envs
-    ensureEnvironmentResident manager "room" [ "room" ]
-    ensureEnvironmentResident manager "room" [ "room" ]
+    requestEnvironment manager "room"
+    requestEnvironment manager "room"
     Assert.Equal(1, Lru.count manager.Cache)
 
 // ── Metadata-only startup (spec 050 FR-010, SC-005) ──
@@ -94,7 +94,7 @@ let ``scan records an environment without parsing its model`` () =
         // The model file deliberately does not exist: a metadata-only scan never reads it.
         let manager = Assets.scan tmp.FullName 0n
         Assert.Equal(1, manager.Environments.Count)
-        Assert.True(manager.Environments.["hall"].Loaded.IsNone)
+        Assert.True(manager.Environments.["hall"].Residency = NotLoaded)
         Assert.Equal(0, Lru.count manager.Cache)
     finally
         tmp.Delete(recursive = true)

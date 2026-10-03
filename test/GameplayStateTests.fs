@@ -389,24 +389,25 @@ let ``adding a zone and undoing it leaves the zones and the active zone as they 
     Assert.True(state.Zones.ContainsKey "atrium")
     Assert.Equal("atrium", state.ActiveZone)
 
-// ── A failed environment load cancels the switch (spec 050 FR-017, SC-009) ──
+// ── A zone naming an unknown environment asset fails loudly (spec 053 FR-004 supersedes 050 FR-017) ──
 
 [<Fact>]
-let ``a switch to a zone whose environment is missing is cancelled`` () =
+let ``a switch to a zone naming an unknown environment asset fails loudly`` () =
     let shared = sharedState (propAssets ())
     let mutable state = newState ()
 
-    // The initial zone names an environment asset the manager does not hold.
+    // The zone names an environment asset the manager does not hold. This is an authoring bug, not a
+    // recoverable async failure: `requestEnvironment` raises on an unregistered id. (A *registered*
+    // asset whose model file is missing now fails asynchronously and the switch completes — FR-004.)
     let absent : Environment =
         { Base = entity "room"
           AssetId = "missing"
           Orientation = Quaternion.Identity
           Epoch = 1u
-          Parts = SlotMap<Prop>(4u) }
-    state.Zones.["main"].Environment <- Some absent
+          Parts = SlotMap<Prop>(4u)
+          PartsSource = Authored }
+    state.Zones.["main"].EnvironmentState <- Zone.Active absent
 
-    // Switch away (the incoming zone has no environment), then back: the load fails and the
-    // switch must not happen.
     GameplayState.addZone shared &state "classroom"
     Assert.Equal("classroom", state.ActiveZone)
     let raised =

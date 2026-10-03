@@ -63,7 +63,7 @@ let private actor (name: string) : Actor =
 // An environment owning `parts`, installed directly (loading one needs assets).
 // The epoch scopes its part refs; tests assign it explicitly.
 let private environment (epoch: uint32) (parts: SlotMap<Prop>) : Environment =
-    { Base = entity "room"; AssetId = "room"; Orientation = Quaternion.Identity; Epoch = epoch; Parts = parts }
+    { Base = entity "room"; AssetId = "room"; Orientation = Quaternion.Identity; Epoch = epoch; Parts = parts; PartsSource = Authored }
 
 // ── Headless asset fixture ──
 //
@@ -249,7 +249,7 @@ let ``setName renames each stored kind in place`` () =
     let waypointRef = Zone.spawnWaypoint zone (entity "start")
     let parts = SlotMap<Prop>(4u)
     let partHandle = parts.Add(part "wall")
-    zone.Environment <- Some (environment 1u parts)
+    zone.EnvironmentState <- Active (environment 1u parts)
     let partRef = partRef 1u partHandle.Index partHandle.Generation
 
     do Zone.setName zone actorRef "villain"
@@ -595,7 +595,7 @@ let ``environment parts use their own slot map, not the placed-prop map`` () =
     let placedHandle = zone.Props.Add(prop "crate")          // index 0 in Props
     let parts = SlotMap<Prop>(8u)
     let partHandle = parts.Add(part "wall")                  // index 0 in Parts too
-    zone.Environment <- Some (environment 1u parts)
+    zone.EnvironmentState <- Active (environment 1u parts)
 
     // The same index in two maps; both refs are live and resolve independently, so
     // an environment load can never take a placed prop's slot.
@@ -612,14 +612,14 @@ let ``a part ref from one environment does not resolve in another`` () =
     let zone = Zone.create ()
     let partsA = SlotMap<Prop>(8u)
     let handleA = partsA.Add(part "wall-a")
-    zone.Environment <- Some (environment 1u partsA)
+    zone.EnvironmentState <- Active (environment 1u partsA)
     let refA = partRef 1u handleA.Index handleA.Generation
 
     // Swap in a different environment whose part occupies the same index with the
     // same slot generation. The ref from the first must not alias it.
     let partsB = SlotMap<Prop>(8u)
     let handleB = partsB.Add(part "wall-b")
-    zone.Environment <- Some (environment 2u partsB)
+    zone.EnvironmentState <- Active (environment 2u partsB)
     Assert.Equal(handleA.Index, handleB.Index)
     Assert.Equal(handleA.Generation, handleB.Generation)
 
@@ -642,7 +642,7 @@ let ``removing a part frees its slot without disturbing placed props`` () =
     let placedHandle = zone.Props.Add(prop "placed")
     let parts = SlotMap<Prop>(8u)
     let partHandle = parts.Add(part "wall")
-    zone.Environment <- Some (environment 1u parts)
+    zone.EnvironmentState <- Active (environment 1u parts)
     let wallRef = partRef 1u partHandle.Index partHandle.Generation
 
     Zone.removePart zone world wallRef
@@ -659,12 +659,12 @@ let ``removing a foreign part ref leaves the current environment's part intact``
     let world = Physics.create ()
     let partsA = SlotMap<Prop>(8u)
     let handleA = partsA.Add(part "wall-a")
-    zone.Environment <- Some (environment 1u partsA)
+    zone.EnvironmentState <- Active (environment 1u partsA)
     let refA = partRef 1u handleA.Index handleA.Generation
 
     let partsB = SlotMap<Prop>(8u)
     let handleB = partsB.Add(part "wall-b")
-    zone.Environment <- Some (environment 2u partsB)
+    zone.EnvironmentState <- Active (environment 2u partsB)
     let refB = partRef 2u handleB.Index handleB.Generation
 
     // A ref naming environment A is a no-op while B is loaded, even though B has a
@@ -680,7 +680,7 @@ let ``setTransform updates an environment part in place`` () =
     let world = Physics.create ()
     let parts = SlotMap<Prop>(8u)
     let handle = parts.Add(part "wall")
-    zone.Environment <- Some (environment 1u parts)
+    zone.EnvironmentState <- Active (environment 1u parts)
     let ref = partRef 1u handle.Index handle.Generation
 
     let moved = { transformIdentity with Position = Vector3(1.0f, 2.0f, 3.0f) }
@@ -695,7 +695,7 @@ let ``a captured part carries its submesh range`` () =
     let parts = SlotMap<Prop>(8u)
     let wall = part "wall"
     let handle = parts.Add({ wall with State.SubmeshIndex = 2; State.SubmeshCount = 3 })
-    zone.Environment <- Some (environment 1u parts)
+    zone.EnvironmentState <- Active (environment 1u parts)
     let ref = partRef 1u handle.Index handle.Generation
 
     let record = Zone.capturePart zone ref
@@ -799,6 +799,35 @@ let ``undo and redo of an environment load route through the real lifecycle`` ()
     let stack = UndoStack.redo stack zone world assets
     Assert.True(Option.isSome zone.Environment)
     Assert.True(Zone.isAlive zone reference)
+
+// ── Deferred part materialisation (spec 053: `FromAsset` vs `Authored`, VR-010) ──
+
+[<Fact>]
+let ``an asset-authored environment materialises the asset's parts`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = roomAssets ()
+    let environment = Zone.loadEnvironment zone world assets "room"
+    // `FromAsset`: the parts are materialised from the asset once it is resident (the fixture has one).
+    Assert.Equal(1u, environment.Parts.Count)
+    Assert.True(Zone.isAlive zone (partRef environment.Epoch 0u 0u))
+
+[<Fact>]
+let ``a registered template's parts are never filled from the asset`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = roomAssets ()
+    // A bare entry: an environment with no parts of its own (`Authored`). Loading it must keep it
+    // empty and never materialise the asset's parts, which a `FromAsset` value would (spec 034).
+    let template : ZoneTemplate.ZoneTemplate =
+        { AssetId = "room"
+          Base = entity "room"
+          Orientation = Quaternion.Identity
+          Light = Texture.defaultLight
+          Parts = [||]
+          Props = [||] }
+    let environment = Zone.loadEnvironmentFrom zone world assets template
+    Assert.Equal(0u, environment.Parts.Count)
 
 // ── Recorded state: what a command carries ──
 

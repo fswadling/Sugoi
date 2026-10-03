@@ -97,7 +97,8 @@ let private environment (assetId: string) (names: string array) : Environment =
       AssetId = assetId
       Orientation = Quaternion.Identity
       Epoch = 1u
-      Parts = parts }
+      Parts = parts
+      PartsSource = Authored }
 
 let private places () =
     byZone |> List.collect (fun zone -> zone.Places) |> List.map (fun entry -> entry.Place)

@@ -16,10 +16,18 @@ open Entity
 open SlotMap
 open ZoneTemplate
 
+// The zone's environment as one state (spec 053). Only `Active` has attached part resources
+// (bodies + renderers) and may be drawn; `Awaiting` is set but its asset is not resident yet, so its
+// parts are drawn only once it lands (pop-in). The DU encodes drawability rather than a flag.
+type ZoneEnvironment =
+    | NoEnvironment
+    | Active of Environment
+    | Awaiting of Environment
+
 type Zone =
     { Name : string
       Actors : SlotMap<Actor>
-      mutable Environment : Environment option
+      mutable EnvironmentState : ZoneEnvironment
       // The zone's authored light (spec 043): a sun pitch, sun yaw, colour and ambient, resolved
       // into the scene's one sun. A zone-level setting rather than an entity's, and one every
       // zone owns — a zone lights its scene whether or not an environment is loaded.
@@ -34,10 +42,18 @@ type Zone =
       // active zone's designation is live. `ValueNone` means it drives no character.
       mutable Player : Handle voption }
 
+    // The environment as an option (`Active` and `Awaiting` are both `Some`), so every existing read
+    // site is unchanged. A member cannot share a record field's name in F# (FS0023), which is why the
+    // field is `EnvironmentState`.
+    member this.Environment : Environment option =
+        match this.EnvironmentState with
+        | Active environment | Awaiting environment -> Some environment
+        | NoEnvironment -> None
+
 let create () : Zone =
     { Name = ""
       Actors = SlotMap<Actor>(64u)
-      Environment = None
+      EnvironmentState = NoEnvironment
       Light = Texture.defaultLight
       Props = SlotMap<Prop>(32u)
       Waypoints = SlotMap<Waypoint>(128u)
@@ -54,9 +70,9 @@ let create () : Zone =
 // device; the buffer is allocated on first gather.
 let gatherStatic (device: Gpu.Device) (zone: Zone) : unit =
     let parts =
-        match zone.Environment with
-        | Some environment -> ValueSome environment.Parts
-        | None -> ValueNone
+        match zone.EnvironmentState with
+        | Active environment -> ValueSome environment.Parts
+        | NoEnvironment | Awaiting _ -> ValueNone
     EnvironmentBatch.gather device zone.Batch zone.Props parts
 
 // ── Ref resolution ──
@@ -312,8 +328,6 @@ let private defaultTrigger (entity: Entity) : TriggerState =
       Interactable = false
       Prompt = "" }
 
-
-
 // Change a mesh-backed entity's transform in `map` (a placed prop or an
 // environment part), keeping its body in step. A mesh shape bakes the entity
 // scale into its vertices, so a move or rotate updates the existing body in
@@ -429,7 +443,7 @@ let private ensureSlotFree (map: SlotMap<'T>) (ref: EntityRef) : unit =
 // Raises when the slot is not free.
 let occupyTrigger (zone: Zone) (ref: EntityRef) (state: TriggerState) : unit =
     do ensureSlotFree zone.Triggers ref
-    zone.Triggers.Occupy(handleOf ref, { State = state; Triggered = false })
+    do zone.Triggers.Occupy(handleOf ref, { State = state; Triggered = false })
 
 // ── Restoring a recorded record ──
 //
@@ -447,9 +461,9 @@ let occupyActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager
     do ensureSlotFree zone.Actors ref
     let renderer = Assets.createActorRender assets state.AssetId
     let attachment = attachActorPhysics world assets state.AssetId state.Base.Transform
-    zone.Actors.Occupy(handleOf ref, { State = state
-                                       Physics = attachment
-                                       Renderer = renderer })
+    do zone.Actors.Occupy(handleOf ref, { State = state
+                                          Physics = attachment
+                                          Renderer = renderer })
     do mapBody zone attachment ref
 
 let occupyProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (state: PropState) : unit =
@@ -457,9 +471,9 @@ let occupyProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager)
     let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
     let renderer = propRenderer zone assets binding
     let attachment = attachPropPhysics world zone assets binding state.Base.Transform
-    zone.Props.Occupy(handleOf ref, { State = state
-                                      Physics = attachment
-                                      Renderer = renderer })
+    do zone.Props.Occupy(handleOf ref, { State = state
+                                         Physics = attachment
+                                         Renderer = renderer })
     do mapBody zone attachment ref
 
 // A part restore only runs while the environment it names is loaded: swaps are commands
@@ -473,9 +487,9 @@ let occupyPart (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager)
     let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
     let renderer = propRenderer zone assets binding
     let attachment = attachPropPhysics world zone assets binding state.Base.Transform
-    parts.Occupy(handleOf ref, { State = state
-                                 Physics = attachment
-                                 Renderer = renderer })
+    do parts.Occupy(handleOf ref, { State = state
+                                    Physics = attachment
+                                    Renderer = renderer })
     do mapBody zone attachment ref
 
 // Toggle an actor's collider overlay. A direct write rather than a command: the overlay
@@ -489,7 +503,7 @@ let setShowCollider (zone: Zone) (ref: EntityRef) (show: bool) : unit =
 
 let occupyWaypoint (zone: Zone) (ref: EntityRef) (waypoint: Waypoint) : unit =
     do ensureSlotFree zone.Waypoints ref
-    zone.Waypoints.Occupy(handleOf ref, { Base = waypoint.Base; Next = waypoint.Next })
+    do zone.Waypoints.Occupy(handleOf ref, { Base = waypoint.Base; Next = waypoint.Next })
 
 // ── Removing an entity ──
 //
@@ -504,13 +518,13 @@ let private removeMeshEntity (zone: Zone) (world: Physics.World) (map: SlotMap<P
         // Copy the attachment out first: `Remove` mutates the slot.
         let physics = (map.Get(handleOf ref)).Physics
         do destroyBody world zone physics
-        map.Remove(handleOf ref, Some Prop.releaseRenderer)
+        do map.Remove(handleOf ref, Some Prop.releaseRenderer)
 
 let removeActor (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
     if zone.Actors.IsAlive(handleOf ref) then
         let physics = (zone.Actors.Get(handleOf ref)).Physics
         do destroyBody world zone physics
-        zone.Actors.Remove(handleOf ref, Some Actor.releaseRenderer)
+        do zone.Actors.Remove(handleOf ref, Some Actor.releaseRenderer)
 
 let removeProp (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
     do removeMeshEntity zone world zone.Props ref
@@ -522,11 +536,11 @@ let removePart (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
 
 let removeWaypoint (zone: Zone) (ref: EntityRef) : unit =
     if zone.Waypoints.IsAlive(handleOf ref) then
-        zone.Waypoints.Free(handleOf ref)
+        do zone.Waypoints.Free(handleOf ref)
 
 let removeTrigger (zone: Zone) (ref: EntityRef) : unit =
     if zone.Triggers.IsAlive(handleOf ref) then
-        zone.Triggers.Free(handleOf ref)
+        do zone.Triggers.Free(handleOf ref)
 
 // Spawn a new actor and return the new ref (renderer + physics attached).
 let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) : EntityRef =
@@ -705,19 +719,20 @@ let private assetPartStates (asset: EnvironmentAsset.EnvironmentAsset) : PropSta
 // Build a fresh environment value from an authored record: an asset's own part states, or a
 // registered template's. One builder for both, so an instantiated zone and a loaded asset cannot
 // diverge in how their parts are built, activated or stamped with an epoch.
-let private buildEnvironment (assetId: string) (baseEntity: Entity) (orientation: Quaternion) (states: PropState array) (epoch: uint32) : Environment =
+let private buildEnvironment (assetId: string) (baseEntity: Entity) (orientation: Quaternion) (states: PropState array) (source: PartsSource) (epoch: uint32) : Environment =
     { Base = baseEntity
       AssetId = assetId
       Orientation = orientation
       Epoch = epoch
-      Parts = partsOf states }
+      Parts = partsOf states
+      PartsSource = source }
 
 // Tear down the current environment's part resources (bodies + renderers) but keep
 // its slot map, so its slots survive the swap and rebuild on the way back.
 let private deactivateEnvironment (zone: Zone) (world: Physics.World) : unit =
-    match zone.Environment with
-    | None -> ()
-    | Some environment ->
+    match zone.EnvironmentState with
+    | NoEnvironment -> ()
+    | Active environment | Awaiting environment ->
     let parts = environment.Parts
     let slots = parts.Slots
     for i in 0 .. slots.Length - 1 do
@@ -727,11 +742,11 @@ let private deactivateEnvironment (zone: Zone) (world: Physics.World) : unit =
             do destroyBody world zone p.Physics
             do Prop.releaseRenderer p
             slot.Value <- { p with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
-    zone.Environment <- None
+    zone.EnvironmentState <- NoEnvironment
 
 // Rebuild an environment's part resources and make it the current environment.
 let private activateEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (environment: Environment) : unit =
-    zone.Environment <- Some environment
+    zone.EnvironmentState <- Active environment
     let parts = environment.Parts
     let slots = parts.Slots
     for i in 0 .. slots.Length - 1 do
@@ -739,27 +754,39 @@ let private activateEnvironment (zone: Zone) (world: Physics.World) (assets: Ass
         if slot.Alive then
             do attachPart zone world assets environment { Index = uint32 i; Generation = slot.Generation }
 
-// The asset ids an environment load must not evict: the incoming environment and the zone's
-// current one. The current environment is still the active zone's until the load commits, so
-// evicting it here would break "never unload what is in use" and, if a later step failed, strand
-// the zone on a non-resident environment the render path rejects (spec 050 FR-005, FR-017).
-let private protectedForLoad (zone: Zone) (incomingId: string) : string list =
-    match zone.Environment with
-    | Some current -> [ incomingId; current.AssetId ]
-    | None -> [ incomingId ]
+// Materialise an asset-authored environment's parts when the asset lands: only `FromAsset` with an
+// empty map, so a registered template (which may deliberately hold a subset) is never filled from the
+// asset, and a redo of an already-materialised value is not filled twice (FR-004; VR-010).
+let private materialiseParts (assets: Assets.AssetManager) (environment: Environment) : unit =
+    if environment.PartsSource = FromAsset && environment.Parts.Count = 0u then
+        for state in assetPartStates assets.Environments.[environment.AssetId] do
+            let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
+            do environment.Parts.Add(meshProp state.Base binding) |> ignore
 
-// Swap the current environment for `environment` (None clears it): tear down the
-// outgoing parts and rebuild the incoming ones.
+// Swap the current environment for `environment` (None clears it): request residency, tear down the
+// outgoing parts, then make the incoming one current — activating it now if its asset is already
+// resident, else leaving it `Awaiting` for `reconcileEnvironment` to finish when it lands.
 let setEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (environment: Environment option) : unit =
-    // Load the incoming environment before any mutation, so a failed load cancels the swap
-    // rather than leaving the zone half-changed (FR-017).
     match environment with
-    | Some incoming -> do Assets.ensureEnvironmentResident assets incoming.AssetId (protectedForLoad zone incoming.AssetId)
+    | Some incoming -> do Assets.requestEnvironment assets incoming.AssetId
     | None -> ()
     do deactivateEnvironment zone world
     match environment with
-    | Some incoming -> do activateEnvironment zone world assets incoming
     | None -> ()
+    | Some incoming ->
+    if Assets.isEnvironmentResident assets incoming.AssetId then
+        do materialiseParts assets incoming
+        do activateEnvironment zone world assets incoming
+    else
+        zone.EnvironmentState <- Awaiting incoming
+
+// Finish an `Awaiting` environment once its asset is resident (called per frame after `Assets.pump`).
+let reconcileEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) : unit =
+    match zone.EnvironmentState with
+    | Awaiting environment when Assets.isEnvironmentResident assets environment.AssetId ->
+        do materialiseParts assets environment
+        do activateEnvironment zone world assets environment
+    | _ -> ()
 
 // ── A zone's authored contents, recorded and put back ──
 //
@@ -819,9 +846,8 @@ let occupyZone (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManage
 // epoch, so refs from a previously loaded environment never resolve against this one.
 let loadEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (assetId: string) : Environment =
     let asset = assets.Environments.[assetId]
-    // The parts read below needs the parsed CPU data, so ensure residency first; the environment
-    // being replaced is protected so an eviction for this load cannot strand the zone (FR-005).
-    do Assets.ensureEnvironmentResident assets assetId (protectedForLoad zone assetId)
+    // Request residency; the pin set is owned by the gameplay layer, not the load.
+    do Assets.requestEnvironment assets assetId
     let epoch = zone.NextEnvironmentEpoch + 1u
     zone.NextEnvironmentEpoch <- epoch
     let baseEntity : Entity =
@@ -831,7 +857,8 @@ let loadEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetMan
           Visible = true
           Selectable = true
           Draggable = true }
-    let environment = buildEnvironment assetId baseEntity asset.Orientation (assetPartStates asset) epoch
+    // Asset-authored: an empty parts map, materialised when the asset lands (`FromAsset`).
+    let environment = buildEnvironment assetId baseEntity asset.Orientation [||] FromAsset epoch
     do setEnvironment zone world assets (Some environment)
     environment
 
@@ -840,10 +867,11 @@ let loadEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetMan
 // is only where the settings and the parts come from, which is what makes a registration reproducible
 // (spec 034 FR-012).
 let loadEnvironmentFrom (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (template: ZoneTemplate) : Environment =
-    do Assets.ensureEnvironmentResident assets template.AssetId (protectedForLoad zone template.AssetId)
+    do Assets.requestEnvironment assets template.AssetId
     let epoch = zone.NextEnvironmentEpoch + 1u
     zone.NextEnvironmentEpoch <- epoch
-    let environment = buildEnvironment template.AssetId template.Base template.Orientation template.Parts epoch
+    // A registered template's parts are final (`Authored`), never filled from the asset (spec 034).
+    let environment = buildEnvironment template.AssetId template.Base template.Orientation template.Parts Authored epoch
     do setEnvironment zone world assets (Some environment)
     environment
 
@@ -946,5 +974,5 @@ let release (zone: Zone) (world: Physics.World) (device: Gpu.Device) : unit =
                 do Prop.releaseRenderer p
     | None -> ()
 
-    EnvironmentBatch.release device zone.Batch
-    zone.BodyToEntity.Clear()
+    do EnvironmentBatch.release device zone.Batch
+    do zone.BodyToEntity.Clear()

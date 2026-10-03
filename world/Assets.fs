@@ -5,10 +5,11 @@ module Assets
 // `Asset_Manager`. Actors load via IQM; environments and props load via the scoped glTF
 // parser into shared static submeshes.
 //
-// Environments are **loaded on demand** (spec 050): startup reads only their manifests, and
-// their whole loaded unit — parsed geometry plus GPU meshes and textures — is built on first
-// use and held under a byte budget by an LRU over asset ids. Props and actors keep their eager
-// load; only environments are bounded.
+// Environments are **loaded on demand** (spec 050) and **asynchronously** (spec 053): a request
+// enqueues the asset, a worker reads/parses/decodes it off the render thread, and `pump` (once per
+// frame, render thread) builds the GPU resources within a budget and installs the loaded unit. The
+// whole loaded unit is held under a byte budget by an LRU over asset ids. Props and actors keep
+// their eager, synchronous load; only environments are bounded and deferred.
 
 open System
 open System.Collections.Generic
@@ -17,6 +18,7 @@ open System.IO
 open System.Numerics
 open Prime
 open EnvironmentAsset
+open AssetLoad
 
 // The per-asset load-timing line is opt-in (`FFS_LOAD_TIMING=1`): one line per asset build.
 let private loadTiming =
@@ -48,32 +50,55 @@ type Loader =
     { Device : Gpu.Device
       White : Texture.Texture
       DefaultMaterial : Texture.Material
-      Textures : Dictionary<string, TextureEntry> }
+      Textures : Dictionary<TextureKey, TextureEntry> }
+
+// The resumable render-side build cursor for one decoded payload (one asset). The batch is created
+// lazily (only the active cursor holds one, so peak staging is one buffer — research D3), and
+// `Created`/`Keys`/the byte counters track exactly what has been made so a failure can roll it back.
+type PendingUpload =
+    { AssetId : AssetId
+      ModelPath : ModelPath
+      Payload : DecodedEnvironment
+      mutable Batch : Gpu.UploadBatch option
+      Created : ResizeArray<StaticMesh.StaticMesh>
+      Keys : ResizeArray<TextureKey>
+      MaterialCache : Dictionary<int, Texture.Material * TextureKey list * int64>
+      Submeshes : ResizeArray<LoadedSubmesh>
+      mutable NextSubmesh : int
+      mutable SubmeshBytes : int64
+      mutable TextureAdded : int64 }
 
 // Cross-screen asset manager, mirroring odin-game's `Asset_Manager`. Lives on
 // `SharedState` so every screen reaches the same loaded assets and GPU device.
 type AssetManager =
     { Device : Gpu.Device
       Root : string
-      Actors : Dictionary<string, ActorAsset.ActorAsset>
-      Props : Dictionary<string, EnvironmentAsset.EnvironmentAsset>
-      Environments : Dictionary<string, EnvironmentAsset.EnvironmentAsset>
+      Actors : Dictionary<AssetId, ActorAsset.ActorAsset>
+      Props : Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>
+      Environments : Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>
       // Created on first use, so a headless scan (no assets, or no GPU) never allocates a texture.
-      // A texture-cache detail, not environment residency (see `scan` and `ensureEnvironmentResident`).
       Loader : Lazy<Loader>
       // Residency of environment assets: the LRU order (head = most recently used) and the
       // actual bytes those loaded environments hold (parsed geometry plus GPU data).
       Cache : Lru.Lru
-      mutable ResidentBytes : int64 }
+      mutable ResidentBytes : int64
+      // Async loading (spec 053): the worker pool (lazy), the in-progress upload cursors, and the
+      // durable pin set (never dropped from the pending set, never evicted) that seeds the pool.
+      mutable Pool : LoadPool option
+      mutable Uploads : Dictionary<AssetId, PendingUpload>
+      mutable PinnedIds : HashSet<AssetId> }
 
 // ── the residency budget ──
 
 // Bound on environment residency. Bounds the *whole loaded unit* — parsed geometry plus GPU
 // meshes and textures — so it caps process RAM as well as VRAM. Sized for the measured worst
-// case: `ArtRoom` is ~1.68 GB of textures alone; its parsed geometry is ~2 MB. A byte budget
-// (not a count) keeps one heavy environment plus many light ones resident and caps growth.
+// case: `ArtRoom` is ~1.68 GB of textures alone; its parsed geometry is ~2 MB.
 [<Literal>]
-let ENVIRONMENT_BUDGET_BYTES : int64 = 2048L * 1024L * 1024L   // 2 GB
+let EnvironmentBudgetBytes : int64 = 2048L * 1024L * 1024L   // 2 GB
+
+// The per-frame GPU upload budget (ms) the pump is allowed (research D3; FR-003).
+[<Literal>]
+let UploadBudgetMs : float = 4.0
 
 // ── scanning ──
 
@@ -98,22 +123,24 @@ let private createLoader (device: Gpu.Device) : Loader =
     { Device = device
       White = white
       DefaultMaterial = Texture.defaultMaterial white (Vector4(0.9f, 0.9f, 0.9f, 1.0f))
-      Textures = Dictionary<string, TextureEntry>() }
+      Textures = Dictionary<TextureKey, TextureEntry>() }
 
 // Acquire a texture by path: get or create its cache entry, bump the refcount, and return the
-// texture with the bytes newly made resident (0 when it was already resident).
-let private acquireTexture (loader: Loader) (batch: Gpu.UploadBatch) (path: string) : Texture.Texture * int64 =
+// texture with the bytes newly made resident (0 when it was already resident). On a cache miss the
+// pixels come from `imageOf` — the decoded payload on the async path, or an inline decode for the
+// eager prop/actor paths.
+let private acquireTexture (loader: Loader) (batch: Gpu.UploadBatch) (imageOf: TextureKey -> Texture.DecodedImage) (path: TextureKey) : Texture.Texture * int64 =
     match loader.Textures.TryGetValue path with
     | true, entry ->
         entry.Refs <- entry.Refs + 1
         entry.Texture, 0L
     | false, _ ->
-    let t = Texture.load batch loader.Device path
+    let t = Texture.createFromDecoded batch loader.Device (imageOf path)
     loader.Textures.[path] <- { Texture = t; Refs = 1 }
     t, t.Bytes
 
 // Release a texture: decrement its refcount and free it (returning the bytes freed) at zero.
-let private releaseTexture (loader: Loader) (path: string) : int64 =
+let private releaseTexture (loader: Loader) (path: TextureKey) : int64 =
     match loader.Textures.TryGetValue path with
     | false, _ -> 0L
     | true, entry ->
@@ -124,12 +151,12 @@ let private releaseTexture (loader: Loader) (path: string) : int64 =
     do Texture.release entry.Texture
     entry.Texture.Bytes
 
-// The actor path: acquire a texture and hold it for the process (actors are never evicted). It is
-// not part of an asset build, so it runs in its own one-shot batch.
-let private loadTexture (loader: Loader) (path: string) : Texture.Texture =
+// The actor path: acquire a texture (decoding inline on a cache miss) and hold it for the process
+// (actors are never evicted). It is not part of an asset build, so it runs in its own one-shot batch.
+let private loadTexture (loader: Loader) (path: TextureKey) : Texture.Texture =
     let batch = Gpu.beginUpload loader.Device
     try
-        let t, _ = acquireTexture loader batch path
+        let t, _ = acquireTexture loader batch Texture.decode path
         do Gpu.finishUpload batch
         t
     with _ ->
@@ -140,10 +167,10 @@ let private loadTexture (loader: Loader) (path: string) : Texture.Texture =
 // Build a runtime PBR material from a parsed glTF material, resolving its texture URIs against
 // the glTF file's directory. Returns the material, the texture keys it acquired (in order) and
 // the bytes newly made resident, so an eviction can release exactly what a load acquired.
-let private resolveMaterial (loader: Loader) (batch: Gpu.UploadBatch) (gltfDir: string) (m: Gltf.Material) : Texture.Material * string list * int64 =
+let private resolveMaterial (loader: Loader) (batch: Gpu.UploadBatch) (imageOf: TextureKey -> Texture.DecodedImage) (gltfDir: string) (m: Gltf.Material) : Texture.Material * TextureKey list * int64 =
     // Track each acquire as it happens so a later failure can undo the partial work; on success the
     // keys/bytes are handed back for the caller's own rollback and eventual release (FR-018).
-    let acquired = ResizeArray<string>()
+    let acquired = ResizeArray<TextureKey>()
     let mutable added = 0L
     let tex (r: Gltf.TextureRef option) : Texture.Texture option =
         match r with
@@ -151,8 +178,8 @@ let private resolveMaterial (loader: Loader) (batch: Gpu.UploadBatch) (gltfDir: 
         | Some rr ->
 
         let path = Path.Combine(gltfDir, rr.Uri)
-        let t, delta = acquireTexture loader batch path
-        acquired.Add path
+        let t, delta = acquireTexture loader batch imageOf path
+        do acquired.Add path
         added <- added + delta
         Some t
 
@@ -177,8 +204,8 @@ let private resolveMaterial (loader: Loader) (batch: Gpu.UploadBatch) (gltfDir: 
 // IQM meshes each name an albedo texture (their `Material` string); these become per-submesh
 // PBR materials sharing one combined vertex/index buffer. The loader is lazy so a headless
 // scan (no actors) never touches the GPU.
-let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<string, ActorAsset.ActorAsset> =
-    let actors = Dictionary<string, ActorAsset.ActorAsset>()
+let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<AssetId, ActorAsset.ActorAsset> =
+    let actors = Dictionary<AssetId, ActorAsset.ActorAsset>()
     for (id, name, modelPath, morphsPath, portraitPaths) in scanDir root "actors" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: actor asset '%s' has no model path" id
@@ -296,111 +323,127 @@ let private submeshRangeBounds (submeshes: Gltf.Submesh array) (first: int) (cou
             maxV <- Vector3(max maxV.X x, max maxV.Y y, max maxV.Z z)
     { Min = minV; Max = maxV }
 
-// Build an asset's whole loaded unit in one pass: parse the glTF, upload each submesh, resolve
-// its material (acquiring the material's textures), and measure the unit. Returns the unit and
-// the bytes newly made resident by the textures it acquired (the submesh bytes are on the unit).
-let private buildLoaded (loader: Loader) (modelPath: string) (includeParts: bool) : EnvironmentLoaded * int64 =
-    // One batch for the whole asset: every buffer and texture upload is recorded into it, packed into
-    // a bounded staging buffer and flushed as it fills, then finished here (spec 052).
-    Gpu.resetUploadStats()
-    Texture.resetLoadStats()
-    let totalStart = Stopwatch.GetTimestamp()
-    let batch = Gpu.beginUpload loader.Device
-    // Track what is built so a failure partway (e.g. a corrupt submesh) rolls back the GPU
-    // resources already made, keeping the loader's refcounts balanced.
-    let created = ResizeArray<StaticMesh.StaticMesh>()
-    let keys = ResizeArray<string>()
-    let mutable parseTicks = 0L
-    // Only the build rolls back; the timing print below is outside the `try`, so a logging failure
-    // cannot undo a successful upload.
-    let loaded, textureAdded =
-        try
-            let t0 = Stopwatch.GetTimestamp()
-            let model = Gltf.load modelPath
-            parseTicks <- Stopwatch.GetTimestamp() - t0
-            let gltfDir = Path.GetDirectoryName modelPath
-            // A material is resolved — and its textures acquired — once per distinct material index.
-            // A cache hit must contribute no keys and no bytes, or a material shared by several
-            // submeshes would double-count its textures and over-release them (FR-018).
-            let materialCache = Dictionary<int, Texture.Material>()
-            let materialFor (index: int) : Texture.Material * string list * int64 =
-                match materialCache.TryGetValue index with
-                | true, material -> material, [], 0L
-                | false, _ ->
-                let material, keys, added =
-                    if index < 0 || index >= model.Materials.Length then loader.DefaultMaterial, [], 0L
-                    else resolveMaterial loader batch gltfDir model.Materials.[index]
-                materialCache.[index] <- material
-                material, keys, added
-            let mutable submeshBytes = 0L
-            let mutable textureAdded = 0L
-            let submeshes =
-                model.Submeshes
-                |> Array.map (fun s ->
-                    let mesh = StaticMesh.create batch loader.Device s.Positions s.Normals s.Uvs s.Indices
-                    created.Add mesh
-                    let vertexCount = s.Positions.Length / 3
-                    // The unit's bytes: the retained geometry (RAM) plus the uploaded buffers (VRAM).
-                    let cpuBytes = int64 (s.Positions.Length + s.Normals.Length + s.Uvs.Length + s.Indices.Length) * 4L
-                    let gpuBytes = int64 (vertexCount * 32) + int64 (s.Indices.Length * 4)
-                    submeshBytes <- submeshBytes + cpuBytes + gpuBytes
-                    let material, ks, added = materialFor s.Material
-                    textureAdded <- textureAdded + added
-                    for k in ks do keys.Add k
-                    { LoadedSubmesh.Positions = s.Positions
-                      Normals = s.Normals
-                      Uvs = s.Uvs
-                      Indices = s.Indices
-                      MaterialIndex = s.Material
-                      Mesh = mesh
-                      Material = material })
-            let parts =
-                if not includeParts then Array.empty else
-                model.Parts
-                |> Array.map (fun p ->
-                    { EnvironmentPart.Name = p.Name
-                      HierarchyPath = p.HierarchyPath
-                      World = p.World
-                      Bounds = submeshRangeBounds model.Submeshes p.SubmeshIndex p.SubmeshCount
-                      SubmeshIndex = p.SubmeshIndex
-                      SubmeshCount = p.SubmeshCount })
-            // Flush and finish the whole asset before it is made resident.
-            Gpu.finishUpload batch
-            let unit =
-                { EnvironmentLoaded.Submeshes = submeshes
-                  Parts = parts
-                  Bounds = model.Bounds
-                  Materials = model.Materials
-                  SubmeshBytes = submeshBytes
-                  TextureKeys = keys.ToArray() }
-            unit, textureAdded
-        with _ ->
-            do Gpu.abortUpload batch
-            for mesh in created do StaticMesh.release mesh
-            for key in keys do releaseTexture loader key |> ignore
-            reraise ()
-    // Per-asset instrumentation (FR-008/FR-010): one line per asset build, opt-in.
+// The pixels for a texture path: the payload's decoded image, or a loud failure if the worker did
+// not produce it (a bug, since `decodeEnvironment` decodes every path any material references).
+let private imageProvider (payload: DecodedEnvironment) (path: TextureKey) : Texture.DecodedImage =
+    match payload.Images.TryGetValue path with
+    | true, image -> image
+    | false, _ -> failwithf "environment '%s': decoded image for '%s' is missing" payload.AssetId path
+
+// Resolve the material at `index` once per cursor (`MaterialCache`), so a material shared by several
+// submeshes is resolved — and its textures acquired — once (spec 050 FR-018).
+let private materialFor (loader: Loader) (cursor: PendingUpload) (batch: Gpu.UploadBatch) (imageOf: TextureKey -> Texture.DecodedImage) (gltfDir: string) (index: int) : Texture.Material * TextureKey list * int64 =
+    match cursor.MaterialCache.TryGetValue index with
+    | true, (material, _, _) -> material, [], 0L
+    | false, _ ->
+    let material, keys, added =
+        if index < 0 || index >= cursor.Payload.Model.Materials.Length then loader.DefaultMaterial, [], 0L
+        else resolveMaterial loader batch imageOf gltfDir cursor.Payload.Model.Materials.[index]
+    cursor.MaterialCache.[index] <- (material, keys, added)
+    material, keys, added
+
+// Advance a cursor: build the GPU mesh for the next submesh and resolve its material, until the
+// whole asset is built or the deadline passes. Returns the loaded unit when complete (`finishUpload`
+// has then run), else None so the caller keeps the cursor for the next frame.
+let private advanceCursor (loader: Loader) (device: Gpu.Device) (cursor: PendingUpload) (includeParts: bool) (deadline: int64) : EnvironmentLoaded option =
+    let model = cursor.Payload.Model
+    let gltfDir = Path.GetDirectoryName cursor.ModelPath
+    let imageOf = imageProvider cursor.Payload
+    let batch =
+        match cursor.Batch with
+        | Some b -> b
+        | None ->
+        let b = Gpu.beginUpload device
+        cursor.Batch <- Some b
+        b
+    while cursor.NextSubmesh < model.Submeshes.Length && Stopwatch.GetTimestamp() < deadline do
+        let s = model.Submeshes.[cursor.NextSubmesh]
+        let mesh = StaticMesh.create batch device s.Positions s.Normals s.Uvs s.Indices
+        do cursor.Created.Add mesh
+        let vertexCount = s.Positions.Length / 3
+        // The unit's bytes: the retained geometry (RAM) plus the uploaded buffers (VRAM).
+        let cpuBytes = int64 (s.Positions.Length + s.Normals.Length + s.Uvs.Length + s.Indices.Length) * 4L
+        let gpuBytes = int64 (vertexCount * 32) + int64 (s.Indices.Length * 4)
+        cursor.SubmeshBytes <- cursor.SubmeshBytes + cpuBytes + gpuBytes
+        let material, ks, added = materialFor loader cursor batch imageOf gltfDir s.Material
+        cursor.TextureAdded <- cursor.TextureAdded + added
+        for k in ks do cursor.Keys.Add k
+        do cursor.Submeshes.Add
+            { LoadedSubmesh.Positions = s.Positions
+              Normals = s.Normals
+              Uvs = s.Uvs
+              Indices = s.Indices
+              MaterialIndex = s.Material
+              Mesh = mesh
+              Material = material }
+        cursor.NextSubmesh <- cursor.NextSubmesh + 1
+    if cursor.NextSubmesh < model.Submeshes.Length then None else
+
+    let parts =
+        if not includeParts then Array.empty else
+        model.Parts
+        |> Array.map (fun p ->
+            { EnvironmentPart.Name = p.Name
+              HierarchyPath = p.HierarchyPath
+              World = p.World
+              Bounds = submeshRangeBounds model.Submeshes p.SubmeshIndex p.SubmeshCount
+              SubmeshIndex = p.SubmeshIndex
+              SubmeshCount = p.SubmeshCount })
+    Gpu.finishUpload batch
+    Some
+        { EnvironmentLoaded.Submeshes = cursor.Submeshes.ToArray()
+          Parts = parts
+          Bounds = model.Bounds
+          Materials = model.Materials
+          SubmeshBytes = cursor.SubmeshBytes
+          TextureKeys = cursor.Keys.ToArray() }
+
+let private newCursor (assetId: AssetId) (modelPath: ModelPath) (payload: DecodedEnvironment) : PendingUpload =
+    if loadTiming then
+        do Gpu.resetUploadStats()
+        do Texture.resetLoadStats()
+    { AssetId = assetId
+      ModelPath = modelPath
+      Payload = payload
+      Batch = None
+      Created = ResizeArray()
+      Keys = ResizeArray()
+      MaterialCache = Dictionary()
+      Submeshes = ResizeArray()
+      NextSubmesh = 0
+      SubmeshBytes = 0L
+      TextureAdded = 0L }
+
+// The per-asset load line (opt-in via `FFS_LOAD_TIMING=1`): the worker's queue-wait/parse/decode and
+// the render-side creation/staging/copy/submit. The GPU figures come from the process-global upload
+// stats reset when the cursor was created, so a concurrent per-frame upload can inflate them — a
+// diagnostic, not a benchmark.
+let private printLoad (name: string) (payload: DecodedEnvironment) : unit =
     if loadTiming then
         let ms (t: int64) = float t / float Stopwatch.Frequency * 1000.0
+        let t = Texture.loadStats()
         let g = Gpu.uploadStats()
-        let d = Texture.loadStats()
-        do printfn "load %-12s total %7.1fms | parse %6.1f | buf-create %5.1fms x%d | tex-create %6.1fms x%d | stage %6.1fms x%d | memcpy %6.1fms x%d | submit %6.1fms x%d | decode %7.1fms x%d"
-            (Path.GetFileNameWithoutExtension modelPath)
-            (ms (Stopwatch.GetTimestamp() - totalStart))
-            (ms parseTicks)
-            (ms g.CreateNs) g.Creates
-            (ms d.CreateNs) d.Decoded
-            (ms g.StageNs) g.StageBuffers
-            (ms g.MemcpyNs) g.Copies
-            (ms g.SubmitNs) g.Submissions
-            (ms d.DecodeNs) d.Decoded
-    loaded, textureAdded
+        do printfn "load %-12s | queue-wait %6.1f | parse %6.1f | decode %7.1f | tex-create %6.1fms x%d | stage %6.1fms x%d | memcpy %6.1fms x%d | submit %6.1fms x%d"
+            name (ms payload.QueueNs) (ms payload.ParseNs) (ms payload.DecodeNs)
+            (ms t.CreateNs) t.Creates (ms g.StageNs) g.StageBuffers (ms g.MemcpyNs) g.Copies (ms g.SubmitNs) g.Submissions
+
+// The eager (props/actors) build: decode on the render thread and advance the cursor to completion.
+let private buildSync (loader: Loader) (device: Gpu.Device) (modelPath: ModelPath) (includeParts: bool) : EnvironmentLoaded * int64 =
+    match AssetLoad.decodeEnvironment "" modelPath with
+    | LoadFailed (_, msg) -> failwithf "asset '%s': %s" modelPath msg
+    | Decoded payload ->
+    let cursor = newCursor "" modelPath payload
+    match advanceCursor loader device cursor includeParts Int64.MaxValue with
+    | None -> failwithf "asset '%s': the build did not complete" modelPath
+    | Some loaded ->
+    do printLoad (Path.GetFileNameWithoutExtension modelPath) payload
+    loaded, cursor.TextureAdded
+
 
 // The ids evictable this pass, in eviction order: the LRU order walked from the tail with the
 // protected ids removed. Pure, so the policy (tail-first, the environment in use exempt) is
-// asserted headlessly; the caller releases them and stops at the budget on the actual freed
-// bytes.
-let evictionCandidates (order: string list) (protectedIds: string list) : string list =
+// asserted headlessly; the caller releases them and stops at the budget on the actual freed bytes.
+let evictionCandidates (order: AssetId list) (protectedIds: AssetId list) : AssetId list =
     [ for id in List.rev order do
         if not (List.contains id protectedIds) then yield id ]
 
@@ -410,79 +453,212 @@ let private metadataOnly (id: string) (name: string) (modelPath: string) : Envir
       Name = name
       ModelPath = modelPath
       Orientation = Quaternion.Identity
-      Loaded = None }
+      Residency = NotLoaded }
 
 // ── residency ──
 
 // Unload an asset: release its meshes and acquired textures (freeing each texture at refcount
 // zero), subtract its bytes and drop the whole unit (its geometry becomes collectable), then
-// remove it from the cache. A not-loaded asset is a no-op. Nothing of a zone is touched
-// (spec 050 FR-006).
-let releaseEnvironment (manager: AssetManager) (assetId: string) : unit =
+// remove it from the cache. A not-loaded asset is a no-op.
+let releaseEnvironment (manager: AssetManager) (assetId: AssetId) : unit =
     let asset = manager.Environments.[assetId]
-    match asset.Loaded with
-    | None -> ()
-    | Some loaded ->
+    match asset.Residency with
+    | NotLoaded | Loading | Failed _ -> ()
+    | Resident loaded ->
 
     for sub in loaded.Submeshes do StaticMesh.release sub.Mesh
     let mutable freed = 0L
     for key in loaded.TextureKeys do freed <- freed + releaseTexture manager.Loader.Value key
     manager.ResidentBytes <- manager.ResidentBytes - loaded.SubmeshBytes - freed
-    asset.Loaded <- None
+    asset.Residency <- NotLoaded
     do Lru.remove manager.Cache assetId
 
-// Make an environment asset loaded: build its whole unit (parse + upload + acquire textures),
-// insert it at the LRU head, then evict tails while over budget — skipping every id in
-// `protectedIds` (the caller passes the asset being loaded, which is the environment becoming
-// active, so the environment in use is never evicted). A cache hit only touches. Raises if the
-// asset or its model file is missing or corrupt, before any state changes, so a failed load
-// cancels cleanly.
-let ensureEnvironmentResident (manager: AssetManager) (assetId: string) (protectedIds: string list) : unit =
-    let asset = manager.Environments.[assetId]
-    match asset.Loaded with
-    | Some _ -> Lru.touch manager.Cache assetId
+
+// Roll a cursor back: abort its batch and release everything it made. Used on failure and on a drop.
+let private releaseCursor (manager: AssetManager) (cursor: PendingUpload) : unit =
+    match cursor.Batch with
+    | Some batch -> do Gpu.abortUpload batch
+    | None -> ()
+    cursor.Batch <- None
+    for mesh in cursor.Created do StaticMesh.release mesh
+    for key in cursor.Keys do releaseTexture manager.Loader.Value key |> ignore
+    do cursor.Created.Clear()
+    do cursor.Keys.Clear()
+
+let private ensurePool (manager: AssetManager) : LoadPool =
+    match manager.Pool with
+    | Some pool -> pool
     | None ->
-    let loaded, textureAdded = buildLoaded manager.Loader.Value asset.ModelPath true
-    asset.Loaded <- Some loaded
+    let pool = AssetLoad.createPool AssetLoad.loadWorkers AssetLoad.LoadQueueCapacity AssetLoad.decodeEnvironment
+    do AssetLoad.setPinnedPool pool (manager.PinnedIds |> Seq.toList)
+    manager.Pool <- Some pool
+    pool
+
+// Request that an environment become resident. De-duplicated and bounded; returns immediately — never
+// loads on the calling thread (FR-001/FR-004). The pin set is owned by the gameplay layer
+// (`setPinned`, narrowed to the active environment every frame), so a request never adds to it.
+let requestEnvironment (manager: AssetManager) (assetId: AssetId) : unit =
+    let asset = manager.Environments.[assetId]
+    match asset.Residency with
+    | Resident _ -> Lru.touch manager.Cache assetId
+    | _ ->
+    let pool = ensurePool manager
+    let dropped = AssetLoad.requestLoad pool assetId asset.ModelPath
+    asset.Residency <- Loading
+    // A dropped request may never start (or its payload is discarded); its residency must not stay
+    // `Loading` (VR-011).
+    for droppedId in dropped do
+        match manager.Environments.TryGetValue droppedId with
+        | true, a when a.Residency = Loading -> a.Residency <- NotLoaded
+        | _ -> ()
+
+// Replace the pin set (the durable home is the manager; the pool mirrors it).
+let setPinned (manager: AssetManager) (pinnedIds: AssetId list) : unit =
+    do manager.PinnedIds.Clear()
+    for p in pinnedIds do manager.PinnedIds.Add p |> ignore
+    match manager.Pool with
+    | None -> ()
+    | Some pool ->
+    do AssetLoad.setPinnedPool pool pinnedIds
+
+
+// Install a completed build: mark it resident, account its bytes, touch the LRU, leave the pending
+// set, then evict LRU tails over budget using the bytes each release actually frees.
+let private settle (manager: AssetManager) (pool: LoadPool) (assetId: AssetId) (loaded: EnvironmentLoaded) (textureAdded: int64) : unit =
+    let asset = manager.Environments.[assetId]
+    asset.Residency <- Resident loaded
     manager.ResidentBytes <- manager.ResidentBytes + loaded.SubmeshBytes + textureAdded
     do Lru.touch manager.Cache assetId
-    // Evict LRU tails until within budget, using the bytes each release actually frees
-    // (`releaseEnvironment` updates `ResidentBytes`), never a protected id. If only protected
-    // environments remain the loop ends and the budget is allowed to be exceeded (FR-005).
-    for victim in evictionCandidates (Lru.keys manager.Cache) protectedIds do
-        if manager.ResidentBytes > ENVIRONMENT_BUDGET_BYTES then
-            releaseEnvironment manager victim
+    do AssetLoad.endUploadOutcome pool assetId
+    do AssetLoad.makeResidentOutcome pool assetId
+    do manager.Uploads.Remove assetId |> ignore
+    do AssetLoad.releaseSlot pool   // the cursor is done: its payload is now resident
+    let pins = manager.PinnedIds |> Seq.toList
+    for victim in evictionCandidates (Lru.keys manager.Cache) pins do
+        if manager.ResidentBytes > EnvironmentBudgetBytes then releaseEnvironment manager victim
 
-let isEnvironmentResident (manager: AssetManager) (assetId: string) : bool =
+let private resetIfLoading (manager: AssetManager) (assetId: AssetId) : unit =
     match manager.Environments.TryGetValue assetId with
-    | true, asset -> asset.Loaded.IsSome
+    | true, asset when asset.Residency = Loading -> asset.Residency <- NotLoaded
+    | _ -> ()
+
+let private failAsset (manager: AssetManager) (assetId: AssetId) (message: string) : unit =
+    match manager.Environments.TryGetValue assetId with
+    | true, asset -> asset.Residency <- Failed message
+    | false, _ -> ()
+
+// Render thread, once per frame. Drain decoded payloads, advance the in-progress builds within the
+// budget (sequentially), and settle what lands. Discards payloads for assets no longer wanted.
+let pump (manager: AssetManager) (budgetMs: float) : unit =
+    match manager.Pool with
+    | None -> ()
+    | Some pool ->
+
+    let mutable draining = true
+    while draining do
+        match AssetLoad.tryTakeReady pool with
+        | None -> draining <- false
+        | Some outcome ->
+        match outcome with
+        | LoadFailed (assetId, message) ->
+            if AssetLoad.isPendingOutcome pool assetId then
+                do eprintfn "environment load failed: %s: %s" assetId message
+                do failAsset manager assetId message
+            // The claim is released here (the id leaves the wanted set whether it failed or was
+            // dropped). `makeResident` clears the claim, `Pending` and `Uploading`.
+            do AssetLoad.makeResidentOutcome pool assetId
+            do AssetLoad.releaseSlot pool   // the decode's slot is no longer needed
+
+        | Decoded payload ->
+
+        if AssetLoad.isPendingOutcome pool payload.AssetId then
+            if manager.Uploads.ContainsKey payload.AssetId then
+                // Defensive: a second payload for an id already uploading. The claim is held
+                // from claim until resident, so this cannot normally happen; discard it rather
+                // than overwrite (and leak) the cursor in progress.
+                do eprintfn "environment load: duplicate payload for '%s' discarded" payload.AssetId
+                do AssetLoad.releaseSlot pool
+            else
+                // The payload becomes a cursor, which holds its slot until it settles; the
+                // claim is held through the upload, so this id is never decoded a second time.
+                manager.Uploads.[payload.AssetId] <- newCursor payload.AssetId manager.Environments.[payload.AssetId].ModelPath payload
+        else
+            // No longer wanted: discard the decoded payload, release the claim and the slot.
+            do resetIfLoading manager payload.AssetId
+            do AssetLoad.makeResidentOutcome pool payload.AssetId
+            do AssetLoad.releaseSlot pool
+
+    if manager.Uploads.Count > 0 then
+        let deadline = Stopwatch.GetTimestamp() + int64 (budgetMs / 1000.0 * float Stopwatch.Frequency)
+        // Advance any cursor already holding a batch first, so one staging buffer at a time is
+        // enforced regardless of dictionary enumeration order (VR-008).
+        let ids =
+            manager.Uploads
+            |> Seq.map (fun kv -> kv.Key, (match kv.Value.Batch with Some _ -> 0 | None -> 1))
+            |> Seq.sortBy snd
+            |> Seq.map fst
+            |> Seq.toArray
+        for assetId in ids do
+            if manager.Uploads.ContainsKey assetId then
+                if not (AssetLoad.isPendingOutcome pool assetId) then
+                    // Dropped while queued/decoding: discard the cursor, releasing what it made.
+                    do releaseCursor manager manager.Uploads.[assetId]
+                    do manager.Uploads.Remove assetId |> ignore
+                    do AssetLoad.makeResidentOutcome pool assetId
+                    do AssetLoad.releaseSlot pool
+                    do resetIfLoading manager assetId
+                elif Stopwatch.GetTimestamp() < deadline then
+                    do AssetLoad.beginUploadOutcome pool assetId
+                    let cursor = manager.Uploads.[assetId]
+                    try
+                        match advanceCursor manager.Loader.Value manager.Device cursor true deadline with
+                        | None -> ()
+                        | Some loaded ->
+                        do settle manager pool assetId loaded cursor.TextureAdded
+                        do printLoad (Path.GetFileNameWithoutExtension cursor.ModelPath) cursor.Payload
+
+                    with e ->
+                        do releaseCursor manager cursor
+                        do manager.Uploads.Remove assetId |> ignore
+                        do AssetLoad.makeResidentOutcome pool assetId
+                        do AssetLoad.releaseSlot pool
+                        do failAsset manager assetId e.Message
+
+let isEnvironmentResident (manager: AssetManager) (assetId: AssetId) : bool =
+    match manager.Environments.TryGetValue assetId with
+    | true, asset -> EnvironmentAsset.isResident asset
+    | false, _ -> false
+
+// The readout predicates (FR-007/FR-008). Allocation-free: they read `Residency` only.
+let isLoading (manager: AssetManager) (assetId: AssetId) : bool =
+    match manager.Environments.TryGetValue assetId with
+    | true, asset -> (match asset.Residency with Loading -> true | _ -> false)
+    | false, _ -> false
+
+let hasFailed (manager: AssetManager) (assetId: AssetId) : bool =
+    match manager.Environments.TryGetValue assetId with
+    | true, asset -> (match asset.Residency with Failed _ -> true | _ -> false)
     | false, _ -> false
 
 // Resident accessor by id (asserts presence; FR-011).
-let submeshes (manager: AssetManager) (assetId: string) : EnvironmentAsset.LoadedSubmesh array =
+let submeshes (manager: AssetManager) (assetId: AssetId) : EnvironmentAsset.LoadedSubmesh array =
     EnvironmentAsset.submeshes manager.Environments.[assetId]
 
 // Scan all asset kinds into the manager. Actors and props load eagerly; environments are
-// recorded from their manifests only, their models loaded on first use (FR-010).
+// recorded from their manifests only, their models loaded on request (spec 053).
 let scan (root: string) (device: Gpu.Device) : AssetManager =
-    // This laziness is a texture-cache detail, NOT environment residency. Environments are loaded
-    // on demand through the `Loaded = None` state every `metadataOnly` asset starts in (see
-    // `ensureEnvironmentResident`). This `Lazy` only defers the device-wide texture cache/white
-    // placeholder, so a scan that loads no texture never touches the GPU. A real project has props,
-    // whose eager upload below forces it at scan anyway, so in production it is effectively a no-op;
-    // its only real effect is keeping device-free scans and tests off the GPU.
     let loader = lazy (createLoader device)
 
-    let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
+    let props = Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>()
     for (id, name, modelPath, _, _) in scanDir root "props" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: prop asset '%s' has no model path" id
         let asset = metadataOnly id name (Path.Combine(root, modelPath))
-        let loaded, _ = buildLoaded loader.Value asset.ModelPath false
-        asset.Loaded <- Some loaded
+        let loaded, _ = buildSync loader.Value device asset.ModelPath false
+        asset.Residency <- Resident loaded
         props.[id] <- asset
 
-    let environments = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
+    let environments = Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>()
     for (id, name, modelPath, _, _) in scanDir root "environments" do
         if String.IsNullOrEmpty modelPath then
             failwithf "asset manager: environment asset '%s' has no model path" id
@@ -497,19 +673,28 @@ let scan (root: string) (device: Gpu.Device) : AssetManager =
       Environments = environments
       Loader = loader
       Cache = Lru.create ()
-      ResidentBytes = 0L }
+      ResidentBytes = 0L
+      Pool = None
+      Uploads = Dictionary<AssetId, PendingUpload>()
+      PinnedIds = HashSet<AssetId>() }
 
-// Release the GPU resources the manager loaded: every loaded environment and prop, the textures
-// (materials and portraits hold only references to them), each actor's mesh and morph storage
-// buffer, and the placeholder.
+// Release the GPU resources the manager loaded. The pool is stopped first (FR-011), so no worker is
+// live while the device is torn down; an in-flight cursor is rolled back with the rest.
 let release (manager: AssetManager) : unit =
-    let releaseAsset (asset: EnvironmentAsset.EnvironmentAsset) : unit =
-        match asset.Loaded with
-        | None -> ()
-        | Some loaded ->
+    match manager.Pool with
+    | Some pool ->
+        do AssetLoad.stopPool pool
+        manager.Pool <- None
+    | None -> ()
+    for KeyValue (_, cursor) in manager.Uploads do releaseCursor manager cursor
+    do manager.Uploads.Clear()
 
-        for sub in loaded.Submeshes do StaticMesh.release sub.Mesh
-        asset.Loaded <- None
+    let releaseAsset (asset: EnvironmentAsset.EnvironmentAsset) : unit =
+        match asset.Residency with
+        | Resident loaded ->
+            for sub in loaded.Submeshes do StaticMesh.release sub.Mesh
+            asset.Residency <- NotLoaded
+        | NotLoaded | Loading | Failed _ -> ()
 
     for KeyValue (_, asset) in manager.Environments do releaseAsset asset
     for KeyValue (_, asset) in manager.Props do releaseAsset asset
@@ -527,18 +712,18 @@ let release (manager: AssetManager) : unit =
 
 // Create the per-instance renderer for an actor asset id (the asset is already loaded at
 // startup).
-let createActorRender (manager: AssetManager) (assetId: string) : ActorRender.ActorRender =
+let createActorRender (manager: AssetManager) (assetId: AssetId) : ActorRender.ActorRender =
     let asset = manager.Actors.[assetId]
     ActorRender.create manager.Device asset
 
 // Create the per-instance renderer for a placed prop asset id (already loaded): the whole model,
 // identity orientation.
-let createPropRender (manager: AssetManager) (assetId: string) : EnvironmentRender.EnvironmentRender =
+let createPropRender (manager: AssetManager) (assetId: AssetId) : EnvironmentRender.EnvironmentRender =
     let asset = manager.Props.[assetId]
     EnvironmentRender.create asset Quaternion.Identity 0 (EnvironmentAsset.submeshes asset).Length
 
 // Create the per-instance renderer for one environment part: the part's submesh range, with the
 // environment's authored orientation.
-let createPartRender (manager: AssetManager) (environmentAssetId: string) (submeshIndex: int) (submeshCount: int) : EnvironmentRender.EnvironmentRender =
+let createPartRender (manager: AssetManager) (environmentAssetId: AssetId) (submeshIndex: int) (submeshCount: int) : EnvironmentRender.EnvironmentRender =
     let asset = manager.Environments.[environmentAssetId]
     EnvironmentRender.create asset asset.Orientation submeshIndex submeshCount

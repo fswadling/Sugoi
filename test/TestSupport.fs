@@ -35,8 +35,8 @@ let residentAsset (id: string) (submeshes: LoadedSubmesh array) (parts: Environm
       Name = id
       ModelPath = ""
       Orientation = Quaternion.Identity
-      Loaded =
-        Some
+      Residency =
+        Resident
             { EnvironmentLoaded.Submeshes = submeshes
               Parts = parts
               Bounds = unitBounds
@@ -64,4 +64,7 @@ let manager
       Environments = environments
       Loader = lazy (loader device)
       Cache = Lru.create ()
-      ResidentBytes = 0L }
+      ResidentBytes = 0L
+      Pool = None
+      Uploads = Dictionary<string, Assets.PendingUpload>()
+      PinnedIds = HashSet<string>() }

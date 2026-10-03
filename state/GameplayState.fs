@@ -81,15 +81,11 @@ let private enterZone (state: byref<GameplayState>) : unit =
 // Detach the outgoing zone's bodies, make `next` active, attach its bodies, then
 // swap the view state.
 let private swapZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (outgoing: string) (next: string) : unit =
-    // Bring the incoming zone's environment onto the GPU before it becomes active, so a failed
-    // load cancels the switch rather than moving to a zone with no geometry (FR-002, FR-017).
-    // Both zones' environments are protected: the incoming one (the environment becoming active)
-    // and the outgoing one, which is still `ActiveZone` until the swap below (FR-005).
-    let protectedIds =
-        [ state.Zones.[next].Environment; state.Zones.[outgoing].Environment ]
-        |> List.choose (Option.map (fun e -> e.AssetId))
+    // Request the incoming environment. This never blocks: the switch completes in-frame and the
+    // environment pops in when it lands (FR-004). The pin set is a gameplay-layer concern, refreshed
+    // to the active environment every frame (`GameplayScreen.update`), so it is not touched here.
     match state.Zones.[next].Environment with
-    | Some environment -> do Assets.ensureEnvironmentResident shared.Assets environment.AssetId protectedIds
+    | Some environment -> do Assets.requestEnvironment shared.Assets environment.AssetId
     | None -> ()
     do Zone.deactivatePhysics state.Zones.[outgoing] shared.Physics
     state.ActiveZone <- next
