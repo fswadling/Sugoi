@@ -82,13 +82,16 @@ Two zone containers exist on purpose:
   those, and `template_saved` belongs to persistence (`docs/ROADMAP.md` phase 15).
 
 In the F# port the runtime container is folded into the gameplay screen: zones live
-in a `Dictionary<string, Zone>` keyed by the zone's unique name, with `ActiveZone`
-naming the active one (zones are addressed by identity and never bulk-iterated, so a
+in a `Dictionary<Place, Zone>` keyed by the place they are — a place is the authored identity of a
+runtime zone, a closed union in `world/Place.fs` (`specs/061-zones-as-places`) — with `ActiveZone : Place`
+naming the active one. A place is either **present** (it has a zone in the map) or **absent**; the
+active place is always present (zones are addressed by identity and never bulk-iterated, so a
 slot map buys nothing). Only the active zone's bodies are attached to the one shared
 physics world: a switch detaches the outgoing zone with `BodyInterface.RemoveBody`
 and re-attaches the incoming one with `AddBody`, then re-optimises the broadphase, so
 inactive zones neither collide nor integrate without rebuilding any shape or body.
-Deleting a zone destroys its bodies and releases its GPU resources. The player
+Deleting a zone destroys its bodies and releases its GPU resources, unloading its environment through
+the asset manager unless another present place still uses that environment. The player
 designation is held per zone; the **undo history is one**, on the gameplay screen
 (`specs/048-unified-undo-stack`), because a zone move, an add and a delete are steps on the same timeline
 as an entity edit.
@@ -162,8 +165,8 @@ graph TD
     SS --> ADV[Advent_Set]
     SS --> CAST[Cast_Members]
 
-    GS --> ZONES["zones: Dictionary(string, Zone)"]
-    GS --> ACTIVE["active zone name"]
+    GS --> ZONES["zones: Dictionary(Place, Zone)"]
+    GS --> ACTIVE["active place"]
     GS --> C["cue: Cue"]
     ZONES --> Z[Zone]
 

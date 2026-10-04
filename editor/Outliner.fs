@@ -5,18 +5,8 @@ module Outliner
 // triggers. Each entity row selects on click and carries inline Del/Dup buttons.
 
 open System.Numerics
-open System.Text
 open Entity
 open Command
-
-// The pending zone name in the text buffer, up to the first NUL byte; "" when empty.
-let private zoneName (buf: byte[]) : string =
-    let zero = System.Array.IndexOf(buf, 0uy)
-    let length = if zero < 0 then buf.Length else zero
-    if length = 0 then "" else Encoding.UTF8.GetString(buf, 0, length)
-
-let private clearName (buf: byte[]) : unit =
-    Array.fill buf 0 buf.Length 0uy
 
 // The base entity a freshly-added waypoint or trigger is created from: the given name
 // and transform, with the default editor flags. The name is what the Outliner shows and
@@ -53,48 +43,46 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     do ImGui.beginWindow("Outliner", System.IntPtr.Zero, 0) |> ignore
 
     // ── Zones ──
-    // The project's zones, active one marked. Adding is offered only for a
-    // non-empty, unused name; deleting is offered only while another zone remains.
+    // The game's places, the present ones listed in declaration order with the active one marked. Adding
+    // offers the absent places (a place already present cannot be added twice, spec 061 FR-003); removing is
+    // refused for the active place, which the author must switch away from first (FR-011).
     if ImGui.collapsingHeader("Zones", 0) then
-        let names = state.Zones.Keys |> Seq.sort |> Seq.toArray
-        for name in names do
-            if state.Zones.ContainsKey name then
-                let marker = if name = state.ActiveZone then "* " else "  "
-                // Residency (spec 050; loading/failed states spec 053): `[-]` no environment,
-                // `[ ]` not loaded, `[~]` loading, `[+]` resident, `[x]` failed. No binding, no panel.
+        for place in Place.all do
+            if state.Zones.ContainsKey place then
+                let name = Place.placeName place
+                let marker = if place = state.ActiveZone then "* " else "  "
+                // Environment residency (spec 050; loading/failed states spec 053): `[-]` no environment,
+                // `[ ]` not loaded, `[~]` loading, `[+]` resident, `[x]` failed.
                 let residency =
-                    match state.Zones.[name].Environment with
+                    match state.Zones.[place].Environment with
                     | None -> "[-]"
                     | Some environment when Assets.isEnvironmentResident shared.Assets environment.AssetId -> "[+]"
                     | Some environment when Assets.hasFailed shared.Assets environment.AssetId -> "[x]"
                     | Some environment when Assets.isLoading shared.Assets environment.AssetId -> "[~]"
                     | Some _ -> "[ ]"
-                // A click always makes the zone the Inspector's subject, whether it switches or is
-                // the zone already in use (spec 043, FR-003). A click that *changes* the zone is a step on the
-                // one history — recording the moves is what lets an edit be undone after moving away, because
-                // it keeps the active zone the one the step being undone belongs to (spec 048). Clicking the
-                // zone already active records nothing.
+                // A click always makes the place the Inspector's subject, whether it switches or is already
+                // active; a click that *changes* the place is a step on the one history (spec 048).
                 if ImGui.button(sprintf "%s%s%s##zone_%s" marker residency name name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    if name = state.ActiveZone then GameplayState.selectZone shared &state name
-                    else History.commit shared &state (ZoneMove (state.ActiveZone, name))
-                if state.Zones.Count > 1 then
-                    do ImGui.sameLine(0.0f, -1.0f)
-                    if ImGui.smallButton(sprintf "Del##delzone_%s" name) then
-                        // One step, carrying the zone's contents so the delete can be taken back (spec 048). The
-                        // contents are read *before* the commit removes the zone, and `previous` is the zone
-                        // active right now — the deleted zone itself when it is the active one, so an undo puts
-                        // the developer back where they were.
-                        History.commit shared &state (ZoneDelete (state.ActiveZone, name, Zone.captureZone state.Zones.[name]))
+                    if place = state.ActiveZone then GameplayState.selectZone shared &state place
+                    else History.commit shared &state (ZoneMove (state.ActiveZone, place))
+                do ImGui.sameLine(0.0f, -1.0f)
+                // The active place cannot be made absent (FR-011), so the control is refused rather than hidden.
+                do ImGui.beginDisabled(place = state.ActiveZone)
+                if ImGui.smallButton(sprintf "Del##delzone_%s" name) then
+                    History.commit shared &state (ZoneDelete (state.ActiveZone, place, Zone.captureZone state.Zones.[place]))
+                do ImGui.endDisabled()
 
         do ImGui.text("")
-        do ImGui.inputText("##newzone", state.Editor.NewZoneName, unativeint state.Editor.NewZoneName.Length, 0, System.IntPtr.Zero, System.IntPtr.Zero) |> ignore
-        let pending = zoneName state.Editor.NewZoneName
-        let canAdd = pending <> "" && not (state.Zones.ContainsKey pending)
-        do ImGui.beginDisabled(not canAdd)
-        if ImGui.button("Add Zone", ImGui.ImVec2(0.0f, 0.0f)) then
-            // One step: the add and the zone change it causes (the new zone becomes active) are one undo.
-            History.commit shared &state (ZoneAdd (state.ActiveZone, pending))
-            clearName state.Editor.NewZoneName
+        // Adding offers the declared places that are not present — a place already present is not offered.
+        // The zone map is read into a local so the filter closes over the dictionary, not the `byref` state.
+        let zones = state.Zones
+        let absent = Place.all |> List.filter (fun place -> not (zones.ContainsKey place))
+        do ImGui.beginDisabled(absent.IsEmpty)
+        if ImGui.beginCombo("Add place##addzone", "(choose a place)", 0) then
+            for place in absent do
+                if ImGui.selectableBool(Place.placeName place, false, 0, ImGui.ImVec2(0.0f, 0.0f)) then
+                    History.commit shared &state (ZoneAdd (state.ActiveZone, place))
+            do ImGui.endCombo()
         do ImGui.endDisabled()
         do ImGui.text("")
 

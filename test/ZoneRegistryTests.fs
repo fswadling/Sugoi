@@ -12,6 +12,7 @@ open Entity
 open SlotMap
 open ZoneTemplate
 open ZoneRegistry
+open Place
 
 // ── The vocabulary (US1) ──
 

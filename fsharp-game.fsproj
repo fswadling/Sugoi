@@ -67,6 +67,11 @@
          immutable, ordered set — project state that belongs to no zone. Pure data — it names no zone,
          screen, asset or device — so it sits before the state that holds it. -->
     <Compile Include="world/Advent.fs" />
+    <!-- The game's places (spec 061): the authored identity of a runtime zone, a closed union. The
+         vocabulary, kept apart from the registry's config store (as `Roster` sits apart from `Casting`),
+         so the runtime keys its zones by a place without depending on the registry. Listed before
+         `world/Cue.fs`, which names a place in its `SetZone`. -->
+    <Compile Include="world/Place.fs" />
     <!-- The async load substrate (spec 053): the decoded payload, the bounded recency queue and the
          worker pool. CPU-only; depends on `Gltf` and `Texture`, and is depended on by `Assets`. -->
     <Compile Include="world/AssetLoad.fs" />

@@ -8,11 +8,6 @@ open System.Numerics
 open Entity
 open Command
 
-// Length of the reusable zone-name text buffer (the pending name in the Outliner
-// zones section). 64 bytes is ample for a zone name.
-[<Literal>]
-let zoneNameBufferSize = 64
-
 // The channels in the Inspector's light-colour buffer (spec 043): one reused `float[3]` the colour
 // picker draws over, so editing the light allocates nothing per frame.
 [<Literal>]
@@ -34,7 +29,7 @@ let entityNameMaxChars = 63
 let dialogueTextBufferSize = 1023
 
 // The Cue panel's text field (spec 047): the selected node's text — an `Exposit`'s line, which is the same
-// prose a dialogue line is, or a `SwitchZone`'s zone name — so it shares the Dialogue panel's size.
+// prose a dialogue line is — so it shares the Dialogue panel's size.
 [<Literal>]
 let cueTextBufferSize = 1023
 
@@ -67,9 +62,6 @@ type EditorState =
       DockingInitialized : bool
       Undo : UndoStack
       NudgeBefore : Transform option
-      // A reused UTF-8 buffer for the pending zone name (Outliner zones section);
-      // one buffer so typing allocates nothing per frame.
-      NewZoneName : byte[]
       // The Inspector's entity-name field: the text, the ref that text belongs to, and
       // whether the field was live as of the last draw. The buffer is re-seeded — and the ref
       // re-pointed — only while the field is not live, so an edit in progress is never
@@ -121,7 +113,6 @@ let create () : EditorState =
       DockingInitialized = false
       Undo = UndoStack.create ()
       NudgeBefore = None
-      NewZoneName = Array.zeroCreate zoneNameBufferSize
       NameBuffer = Array.zeroCreate entityNameBufferSize
       NameEditRef = None
       NameEditing = false

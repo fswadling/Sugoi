@@ -14,6 +14,7 @@ open EnvironmentAsset
 open Gltf
 open Physics
 open TestSupport
+open Place
 
 let private entity (name: string) : Entity =
     { Name = name
@@ -48,15 +49,15 @@ let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState 
 // A minimal gameplay state: the fake draws are never touched on these paths. The
 // zone is installed under a name with exactly one active zone.
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
-    let zones = Dictionary<string, Zone.Zone>()
-    zones.["test"] <- zone
+    let zones = Dictionary<Place, Zone.Zone>()
+    zones.[Place.start] <- zone
     { Camera = Camera.create Vector3.Zero Vector3.Zero
       DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       Ui = Unchecked.defaultof<Ui.Ui>
       Dialogue = Dialogue.empty
       Zones = zones
-      ActiveZone = "test"
+      ActiveZone = Place.start
       Editor = EditorState.create ()
       Editing = true
       Follow = Systems.createFollow ()

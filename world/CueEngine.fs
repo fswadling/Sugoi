@@ -7,7 +7,7 @@ module CueEngine
 //
 // Compiled *after* `state/GameplayState.fs` — the project's one deliberate ordering inversion — because
 // each op performs its effect on the gameplay state where the walk reaches it: an `Exposit` writes the
-// screen's dialogue, a `SwitchZone` reuses `GameplayState.switchZone` (which is why the walk carries
+// screen's dialogue, a `SetZone` reuses `GameplayState.switchZone` (which is why the walk carries
 // `shared` for the physics swap), the camera ops write the camera from a named waypoint, and the advent ops
 // read and write `SharedState.Advents` (research D3).
 
@@ -17,6 +17,7 @@ open Cue
 open Entity
 open Maths
 open Advent
+open Place
 
 // ── The ops' effects, performed where the walk reaches them ──
 
@@ -41,11 +42,12 @@ let private setCamera (state: byref<GameplayState.GameplayState>) (position: Vec
     state.Camera.Position <- position
     state.Camera.Target <- position + facing rotation * cameraLookDistance
 
-/// The first live waypoint named `name` in the zone; raises when there is none (FR-009).
-let private namedWaypoint (zone: Zone.Zone) (name: string) : EntityRef =
+/// The first live waypoint named `name` in the zone; raises when there is none (FR-009). `place` names the
+/// zone for the diagnostic.
+let private namedWaypoint (place: Place) (zone: Zone.Zone) (name: string) : EntityRef =
     match Zone.tryWaypointByName zone name with
     | Some r -> r
-    | None -> invalidOp (sprintf "cue camera: no waypoint named '%s' in zone '%s'" name zone.Name)
+    | None -> invalidOp (sprintf "cue camera: no waypoint named '%s' in '%s'" name (Place.placeName place))
 
 /// A waypoint's position and facing. Raises if the resolved waypoint is no longer alive.
 let private poseAt (zone: Zone.Zone) (ref: EntityRef) (name: string) : Vector3 * Quaternion =
@@ -54,13 +56,13 @@ let private poseAt (zone: Zone.Zone) (ref: EntityRef) (name: string) : Vector3 *
     | None -> invalidOp (sprintf "cue camera: waypoint '%s' is not alive" name)
 
 /// Resolve a waypoint's pose for a snap, raising when the name does not resolve (FR-009).
-let private snapPose (zone: Zone.Zone) (name: string) : Vector3 * Quaternion =
-    poseAt zone (namedWaypoint zone name) name
+let private snapPose (place: Place) (zone: Zone.Zone) (name: string) : Vector3 * Quaternion =
+    poseAt zone (namedWaypoint place zone name) name
 
 /// Resolve the chain starting at `name` into positions and facings. Raises for an unknown name or a
 /// chain of fewer than two waypoints (FR-010).
-let private resolvedPath (zone: Zone.Zone) (name: string) : Vector3[] * Quaternion[] =
-    let start = namedWaypoint zone name
+let private resolvedPath (place: Place) (zone: Zone.Zone) (name: string) : Vector3[] * Quaternion[] =
+    let start = namedWaypoint place zone name
     let chain = Zone.waypointChain zone start
     if List.length chain < 2 then
         invalidOp (sprintf "cue camera: path '%s' has fewer than two waypoints" name)
@@ -113,7 +115,7 @@ let rec advance
     | Exposit (text, kind) ->
         exposit &state text kind
         ValueSome Fin // no progress of its own: performed here and gone
-    | SwitchZone name ->
+    | SetZone name ->
         GameplayState.switchZone shared &state name
         ValueSome Fin
     | Wait seconds -> ValueSome(beginWait now seconds)
@@ -140,7 +142,7 @@ let rec advance
         if stepFade &state initial 0.0f duration endsAt now then ValueSome Fin else ValueNone
     | SetCamera waypoint ->
         let zone = GameplayState.activeZone state
-        let (position, rotation) = snapPose zone waypoint
+        let (position, rotation) = snapPose state.ActiveZone zone waypoint
         do setCamera &state position rotation
         ValueSome Fin // no progress of its own: performed here and gone
 
@@ -148,7 +150,7 @@ let rec advance
         if speed <= 0.0 then invalidOp (sprintf "cue camera: speed must be positive (was %g)" speed) else
 
         let zone = GameplayState.activeZone state
-        let (points, rotations) = resolvedPath zone path
+        let (points, rotations) = resolvedPath state.ActiveZone zone path
         let duration = pathLength points 10 / speed
         if duration <= 0.0 then
             // over before it begins: land on the last waypoint and hold no state

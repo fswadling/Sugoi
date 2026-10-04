@@ -25,6 +25,8 @@ open Zone
 open Texture
 open SlotMap
 open Advent
+open Casting
+open Place
 
 type Command =
     // An edit of the properties every kind shares.
@@ -60,17 +62,19 @@ type Command =
     // the delete that preceded it cannot come apart. One entry on the stack, like any other command,
     // and a step that puts a zone back exactly is what needs it (spec 035 FR-005).
     | Batch of Commands : Command list
-    // The active zone moved (spec 048). The one case that is not a zone edit: recording the moves is what keeps
-    // the active zone the one the step being undone belongs to, so every other command may go on naming no zone
-    // and acting on whatever zone is active, and the history may be one timeline rather than one per zone.
-    | ZoneMove of Previous : string * Next : string
-    // A zone was added, and made active (spec 048). `Previous` is the zone active before the add, which its undo
-    // restores: an add and the zone change it causes are **one** step, so one click is one undo.
-    | ZoneAdd of Previous : string * Name : string
-    // A zone was deleted (spec 048), carrying everything needed to put it back. `Previous` is the zone active
-    // before the delete — the deleted zone itself when it was the active one, so an undo returns the developer
-    // to where they were. Reverses `specs/024` Decision 11's "deletion is not an undoable edit".
-    | ZoneDelete of Previous : string * Name : string * Contents : ZoneContents
+    // The active place moved (spec 048). The one case that is not a zone edit: recording the moves is what
+    // keeps the active place the one the step being undone belongs to, so every other command may go on naming
+    // no zone and acting on whatever place is active, and the history may be one timeline rather than one per
+    // zone.
+    | ZoneMove of Previous : Place * Next : Place
+    // A place was made present, and made active (spec 048, 061). `Previous` is the place active before the
+    // add, which its undo restores: an add and the active change it causes are **one** step, so one click is
+    // one undo.
+    | ZoneAdd of Previous : Place * Name : Place
+    // A place was made absent (spec 048, 061), carrying everything needed to put its zone back. The removed
+    // place is never the active one (spec 061 FR-011), so `Previous` is the active place and is unchanged by
+    // the delete; it is kept so the undo's temporary re-activation can be reversed.
+    | ZoneDelete of Previous : Place * Name : Place * Contents : ZoneContents
     // The screen's cue was edited (spec 049). It is not a zone's — a cue spans zones (spec 046 FR-013) — so, like
     // a zone step, it is carried out against the gameplay state and not by the zone-level runner. The payload is
     // the two cue values: a cue is immutable, so a snapshot is a reference, and that is exactly what the cue's

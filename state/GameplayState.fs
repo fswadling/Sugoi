@@ -10,6 +10,7 @@ open System.Collections.Generic
 open System.Numerics
 open Command
 open Entity
+open Place
 
 [<Struct>]
 type GameplayState =
@@ -22,8 +23,10 @@ type GameplayState =
       // The dialogue state (spec 038): the screen's, not a zone's, so a zone switch does
       // not clear it. Runtime only — never authored, never persisted, never on an entity.
       mutable Dialogue : Dialogue.Dialogue
-      Zones : Dictionary<string, Zone.Zone>
-      mutable ActiveZone : string
+      // The gameplay state's zones, keyed by the place they are (spec 061). A place is either present
+      // (it has a zone here) or absent; the active place is always present.
+      Zones : Dictionary<Place, Zone.Zone>
+      mutable ActiveZone : Place
       mutable Editor : EditorState.EditorState
       mutable Editing : bool
       mutable Follow : Systems.CameraFollow
@@ -44,15 +47,15 @@ type GameplayState =
       mutable Fade : float32 }
 
 let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) : GameplayState =
-    let zones = Dictionary<string, Zone.Zone>()
-    zones.["main"] <- Zone.create ()
+    let zones = Dictionary<Place, Zone.Zone>()
+    zones.[Place.start] <- Zone.create ()
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
       DebugDraw = debugDraw
       GizmoDraw = gizmoDraw
       Ui = ui
       Dialogue = Dialogue.empty
       Zones = zones
-      ActiveZone = "main"
+      ActiveZone = Place.start
       Editor = EditorState.create ()
       Editing = true
       Follow = Systems.createFollow ()
@@ -65,7 +68,7 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui
 let activeZone (state: GameplayState) : Zone.Zone =
     match state.Zones.TryGetValue state.ActiveZone with
     | true, zone -> zone
-    | false, _ -> invalidOp (sprintf "activeZone: '%s' is not a zone" state.ActiveZone)
+    | false, _ -> invalidOp (sprintf "activeZone: '%s' is not present" (Place.placeName state.ActiveZone))
 
 // After `ActiveZone` has changed: drop the (zone-scoped) selection/drag/nudge and re-frame the camera on the
 // incoming zone. The undo history is **not** touched: it is one timeline for the whole gameplay state, and the
@@ -85,7 +88,7 @@ let private enterZone (state: byref<GameplayState>) : unit =
 
 // Detach the outgoing zone's bodies, make `next` active, attach its bodies, then
 // swap the view state.
-let private swapZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (outgoing: string) (next: string) : unit =
+let private swapZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (outgoing: Place) (next: Place) : unit =
     // Request the incoming environment. This never blocks: the switch completes in-frame and the
     // environment pops in when it lands (FR-004). The pin set is a gameplay-layer concern, refreshed
     // to the active environment every frame (`GameplayScreen.update`), so it is not touched here.
@@ -97,9 +100,9 @@ let private swapZone (shared: SharedState.SharedState) (state: byref<GameplaySta
     do Zone.activatePhysics state.Zones.[next] shared.Physics
     enterZone &state
 
-// Make a listed zone active. A no-op when it already is; an unknown name is a bug.
-let switchZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
-    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "switchZone: '%s' is not a zone" name) else
+// Make a present place active. A no-op when it already is; an absent place is a bug.
+let switchZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) : unit =
+    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "switchZone: '%s' is not present" (Place.placeName name)) else
     if name = state.ActiveZone then () else
     swapZone shared &state state.ActiveZone name
 
@@ -107,31 +110,34 @@ let switchZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (
 // entity selection (spec 043 — the Inspector shows the active zone's light when no entity is
 // selected). A switch drops the selection on the way (`enterZone`), so the case this adds is the
 // zone already active, where clicking its row is otherwise a no-op.
-let selectZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
-    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "selectZone: '%s' is not a zone" name) else
+let selectZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) : unit =
+    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "selectZone: '%s' is not present" (Place.placeName name)) else
     if name = state.ActiveZone then
         state.Editor <- { state.Editor with Selection = None; Drag = None }
     else
         switchZone shared &state name
 
-// Add an empty zone under `name` and make it active. The name must be non-empty and
-// unused; the editor only offers the add when it is.
-let addZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
-    if name = "" then invalidOp "addZone: a zone name must not be empty" else
-    if state.Zones.ContainsKey name then invalidOp (sprintf "addZone: zone '%s' already exists" name) else
+// Make an absent declared place present and active. A place already present is a bug — the editor offers
+// only the absent ones (spec 061 FR-003).
+let addZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) : unit =
+    if state.Zones.ContainsKey name then invalidOp (sprintf "addZone: '%s' is already present" (Place.placeName name)) else
     let outgoing = state.ActiveZone
     state.Zones.[name] <- Zone.create ()
     swapZone shared &state outgoing name
 
-// Delete a zone and release everything it owns. The last zone cannot be deleted;
-// deleting the active zone first makes another zone active.
-let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
-    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "deleteZone: '%s' is not a zone" name) else
-    if state.Zones.Count <= 1 then invalidOp "deleteZone: cannot delete the last zone" else
+// Make a present place absent and release everything it owns, including its environment from the GPU
+// unless another present place still uses that environment (spec 061 FR-010). The active place cannot be
+// made absent — the author switches first (FR-011), which also covers a lone present place.
+let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) : unit =
+    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "deleteZone: '%s' is not present" (Place.placeName name)) else
+    if name = state.ActiveZone then invalidOp (sprintf "deleteZone: '%s' is the active place — switch away first" (Place.placeName name)) else
 
-    if name = state.ActiveZone then
-        let replacement = state.Zones.Keys |> Seq.filter (fun key -> key <> name) |> Seq.sort |> Seq.head
-        swapZone shared &state name replacement
-
-    do Zone.release state.Zones.[name] shared.Physics shared.Gpu.Device
+    let zone = state.Zones.[name]
+    do Zone.release zone shared.Physics shared.Gpu.Device
     state.Zones.Remove name |> ignore
+
+    // The environment is the asset manager's, shared by id: unload it only when no still-present place uses it.
+    match zone.Environment with
+    | Some environment when not (state.Zones.Values |> Seq.exists (fun other -> match other.Environment with Some e -> e.AssetId = environment.AssetId | None -> false)) ->
+        do Assets.releaseEnvironment shared.Assets environment.AssetId
+    | _ -> ()

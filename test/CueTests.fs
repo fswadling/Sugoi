@@ -16,6 +16,12 @@ open Cue
 open CueEngine
 open Entity
 open Advent
+open Place
+
+// The game's places, as these tests name them.
+let private mainPlace : Place = Place.start
+let private atriumPlace : Place = Place.ArtRoom Period.Evening
+let private classroomPlace : Place = Place.Island
 
 // ── Headless fixtures ──
 
@@ -72,7 +78,7 @@ let rec private describe (cue: Cue) : string =
     | FadeOut d | FadeOutState (_, d, _) -> sprintf "FadeOut %g" d
     | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
-    | SwitchZone z -> sprintf "Zone(%s)" z
+    | SetZone z -> sprintf "Zone(%s)" (Place.placeName z)
     | SetCamera w -> sprintf "SetCamera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "FlyCamera(%s)" p
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
@@ -227,7 +233,7 @@ let ``the same authored value can be run again from the start`` () =
 
 [<Fact>]
 let ``two runs of the same cue against the same clock agree after every step`` () =
-    let cue = seqOf [ Wait 2.0; Exposit("hi", Dialogue.Kind.Dialogue); Wait 1.0; SwitchZone "main" ]
+    let cue = seqOf [ Wait 2.0; Exposit("hi", Dialogue.Kind.Dialogue); Wait 1.0; SetZone mainPlace ]
     let mutable a = withCue cue
     let mutable b = withCue cue
 
@@ -272,9 +278,9 @@ let ``a set camera op with no such waypoint raises`` () =
 [<Fact>]
 let ``a set camera op resolves names only in the active zone`` () =
     let mutable state = newState ()
-    GameplayState.addZone shared &state "atrium" // atrium is now active
+    GameplayState.addZone shared &state atriumPlace // atrium is now active
     do ignore (placeWaypoint state "arch" Vector3.Zero Quaternion.Identity)
-    GameplayState.switchZone shared &state "main"
+    GameplayState.switchZone shared &state mainPlace
 
     state.Cue <- SetCamera "arch"
     let mutable raised = false
@@ -633,16 +639,16 @@ let ``a Fork outside a sequence raises`` () =
 
 [<Fact>]
 let ``a switch happens at its place and everything after it still runs`` () =
-    let mutable state = withCue (seqOf [ Wait 1.0; SwitchZone "classroom"; Wait 1.0 ])
-    GameplayState.addZone shared &state "classroom"
-    GameplayState.switchZone shared &state "main"
+    let mutable state = withCue (seqOf [ Wait 1.0; SetZone classroomPlace; Wait 1.0 ])
+    GameplayState.addZone shared &state classroomPlace
+    GameplayState.switchZone shared &state mainPlace
     let mutable state = state
 
     tick shared &state 0.0
-    Assert.Equal("main", state.ActiveZone)
+    Assert.Equal(mainPlace, state.ActiveZone)
 
     tick shared &state 1.0
-    Assert.Equal("classroom", state.ActiveZone)
+    Assert.Equal(classroomPlace, state.ActiveZone)
     Assert.Equal("Seq[Wait 1]", describe state.Cue) // nothing dropped
 
     tick shared &state 2.0
@@ -650,18 +656,18 @@ let ``a switch happens at its place and everything after it still runs`` () =
 
 [<Fact>]
 let ``a detached branch's switch while the sequence waits leaves both running`` () =
-    let mutable state = withCue (seqOf [ Fork(SwitchZone "classroom"); Wait 5.0 ])
-    GameplayState.addZone shared &state "classroom"
-    GameplayState.switchZone shared &state "main"
+    let mutable state = withCue (seqOf [ Fork(SetZone classroomPlace); Wait 5.0 ])
+    GameplayState.addZone shared &state classroomPlace
+    GameplayState.switchZone shared &state mainPlace
     let mutable state = state
 
     tick shared &state 0.0
-    Assert.Equal("classroom", state.ActiveZone) // the branch switched
+    Assert.Equal(classroomPlace, state.ActiveZone) // the branch switched
     Assert.Equal("Seq[Wait 5]", describe state.Cue) // the sequence keeps waiting
 
 [<Fact>]
-let ``a switch to an unknown zone raises`` () =
-    let mutable state = withCue (seqOf [ SwitchZone "nope" ])
+let ``a switch to an absent place raises`` () =
+    let mutable state = withCue (seqOf [ SetZone atriumPlace ])
     let mutable raised = false
     try tick shared &state 0.0 with _ -> raised <- true
     Assert.True raised

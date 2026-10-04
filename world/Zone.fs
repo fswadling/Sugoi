@@ -25,8 +25,7 @@ type ZoneEnvironment =
     | Awaiting of Environment
 
 type Zone =
-    { Name : string
-      Actors : SlotMap<Actor>
+    { Actors : SlotMap<Actor>
       mutable EnvironmentState : ZoneEnvironment
       // The zone's authored light (spec 043): a sun pitch, sun yaw, colour and ambient, resolved
       // into the scene's one sun. A zone-level setting rather than an entity's, and one every
@@ -51,8 +50,7 @@ type Zone =
         | NoEnvironment -> None
 
 let create () : Zone =
-    { Name = ""
-      Actors = SlotMap<Actor>(64u)
+    { Actors = SlotMap<Actor>(64u)
       EnvironmentState = NoEnvironment
       Light = Texture.defaultLight
       Props = SlotMap<Prop>(32u)
@@ -752,6 +750,17 @@ let private buildEnvironment (assetId: string) (baseEntity: Entity) (orientation
       Parts = partsOf states
       PartsSource = source }
 
+// Drop every part's live attachments (its body and renderer) without touching its authored state. Used
+// when an environment is torn down, and before a not-yet-resident one is stored `Awaiting`: a captured
+// value may still name bodies a delete already destroyed, and a later release must not touch them.
+let private clearPartAttachments (environment: Environment) : unit =
+    let slots = environment.Parts.Slots
+    for i in 0 .. slots.Length - 1 do
+        let slot = &slots.[i]
+        if slot.Alive then
+            let p = slot.Value
+            slot.Value <- { p with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
+
 // Tear down the current environment's part resources (bodies + renderers) but keep
 // its slot map, so its slots survive the swap and rebuild on the way back.
 let private deactivateEnvironment (zone: Zone) (world: Physics.World) : unit =
@@ -766,7 +775,7 @@ let private deactivateEnvironment (zone: Zone) (world: Physics.World) : unit =
             let p = slot.Value
             do destroyBody world zone p.Physics
             do Prop.releaseRenderer p
-            slot.Value <- { p with Physics = None; Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
+    do clearPartAttachments environment
     zone.EnvironmentState <- NoEnvironment
 
 // Rebuild an environment's part resources and make it the current environment.
@@ -803,6 +812,7 @@ let setEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetMana
         do materialiseParts assets incoming
         do activateEnvironment zone world assets incoming
     else
+        do clearPartAttachments incoming
         zone.EnvironmentState <- Awaiting incoming
 
 // Finish an `Awaiting` environment once its asset is resident (called per frame after `Assets.pump`).

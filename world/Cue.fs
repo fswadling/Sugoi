@@ -4,7 +4,7 @@ module Cue
 // beside it: a cue *is* its own execution state, an immutable value that shrinks as it is stepped
 // down to `Fin` — what is left when a cue finishes, and where it then rolls.
 //
-// The ops with no progress of their own (`Exposit`, `SwitchZone`, `SetCamera`, `AddAdvent`,
+// The ops with no progress of their own (`Exposit`, `SetZone`, `SetCamera`, `AddAdvent`,
 // `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
 // (`WaitState`'s deadline, `FlyCameraState`'s resolved path, the fade states' captured level). So a case suffixed `State` appears exactly
 // where the run form holds something the authored form does not — the convention the reference lineage
@@ -20,6 +20,7 @@ module Cue
 open System.Numerics
 open Prime
 open Advent
+open Place
 
 // ── The cue — and therefore the run ──
 
@@ -49,7 +50,7 @@ type Cue =
     // expression is unrepresentable and a portrait line always carries both. The view resolves the
     // portrait at draw time (`world/DialogueRender.fs`); the op names a character, not an asset.
     | Exposit of text: string * kind: Dialogue.Kind
-    | SwitchZone of zone: string
+    | SetZone of place: Place
     | SetCamera of waypoint: string
     | FlyCamera of path: string * speed: float
     | FlyCameraState of path: string * points: Vector3[] * rotations: Quaternion[] * duration: float * endsAt: float

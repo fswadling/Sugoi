@@ -13,6 +13,8 @@ module ZoneRegistryPanel
 // is the opposite kind of act and is undoable, through the command that already carries a whole
 // environment.
 
+open Command
+
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
     do ImGui.beginWindow("Zone Registry", System.IntPtr.Zero, 0) |> ignore
 
@@ -45,13 +47,11 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                 do ImGui.sameLine(0.0f, 8.0f)
                 do ImGui.text preview
 
-                // Register the active zone against this place: one write, no command. The registry is not
-                // the scene's, so nothing in the scene changes and no undo step is recorded — the
-                // affordance is drawn where it becomes usable rather than hidden. The entry is captured
-                // only when the control is activated, because capturing walks the zone's parts and its
-                // props; the enabled state is the cheap question, and the two cannot disagree.
+                // Register captures the **active place's** zone as that place's template, so it is offered
+                // only for the row that is the active place (spec 061 FR-009): a place's config is captured
+                // from its own zone, not filed under another. One write, no command.
                 do ImGui.sameLine(0.0f, 8.0f)
-                do ImGui.beginDisabled (Option.isNone environment)
+                do ImGui.beginDisabled (Option.isNone environment || entry.Place <> state.ActiveZone)
 
                 if ImGui.smallButton "Register" then
                     match Zone.captureTemplate (GameplayState.activeZone state) with
@@ -60,16 +60,29 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
                 do ImGui.endDisabled()
 
-                // Instantiate the registered zone into the active zone. This is a scene edit, so it goes
-                // through the command that already carries a whole environment and already reverses it:
-                // one step, and undo puts back whatever the zone held (FR-013).
+                // Instantiate the registered zone at **this place**: make the place present and active (so
+                // its bodies may be built) and load its template, as one step (spec 061 FR-009). The presence
+                // change is folded into the step `instantiateZone` pushes, so one undo reverses the whole thing.
                 do ImGui.sameLine(0.0f, 8.0f)
                 do ImGui.beginDisabled (Option.isNone registered)
 
                 if ImGui.smallButton "Instantiate" then
                     match registered with
                     | Some template ->
+                        let place = entry.Place
+                        let presence =
+                            if not (state.Zones.ContainsKey place) then Some (ZoneAdd (state.ActiveZone, place))
+                            elif place <> state.ActiveZone then Some (ZoneMove (state.ActiveZone, place))
+                            else None
+                        match presence with
+                        | Some cmd -> History.apply shared &state cmd
+                        | None -> ()
                         do Spawning.instantiateZone shared &state template
+                        // `instantiateZone` pushed its own step; fold the presence change in front of it.
+                        match presence, state.Editor.Undo.Applied with
+                        | Some cmd, step :: rest ->
+                            state.Editor <- { state.Editor with Undo = { state.Editor.Undo with Applied = Batch [ cmd; step ] :: rest } }
+                        | _ -> ()
                         // The swap leaves a Part selection dangling; the caller reconciles it, the way
                         // the undo and redo paths do.
                         do Selection.dropStalePartSelection &state

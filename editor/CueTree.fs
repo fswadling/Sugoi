@@ -18,6 +18,7 @@ open System.Numerics
 open Prime
 open Cue
 open Advent
+open Place
 
 // ── what the cue looks like ──
 
@@ -51,7 +52,7 @@ let rec executing (cue: Cue) : bool =
     | Sequence (current, _) -> executing current
     | Parallel (left, right) -> executing left || executing right
     | Fork inner -> executing inner
-    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | SwitchZone _ | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
+    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | SetZone _ | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
 
 /// What a row says. A leaf in flight is shown as the op it came from — a `WaitState` as its `Wait` — because
 /// the view is what is left to run, never an internal state's name (`FR-004`).
@@ -66,7 +67,7 @@ let private label (cue: Cue) : string =
     | FadeOut duration | FadeOutState (_, duration, _) -> sprintf "Fade out %g" duration
     | FadeIn duration | FadeInState (_, duration, _) -> sprintf "Fade in %g" duration
     | Exposit (text, _) -> "Exposit: " + text
-    | SwitchZone zone -> "Zone: " + zone
+    | SetZone place -> "Zone: " + Place.placeName place
     | SetCamera waypoint -> "Camera: " + waypoint
     | FlyCamera (path, _) | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
     | AddAdvent advent -> "Add: " + Advent.name advent
@@ -86,7 +87,7 @@ let children (cue: Cue) : Cue list =
     | Fork inner -> [ inner ]
     | If (_, thenCue, elseCue) -> [ thenCue; elseCue ]
     | Fin | Wait _ | WaitState _ | FadeOut _ | FadeIn _ | FadeOutState _ | FadeInState _ | Exposit _
-    | SwitchZone _ | SetCamera _ | FlyCamera _ | FlyCameraState _
+    | SetZone _ | SetCamera _ | FlyCamera _ | FlyCameraState _
     | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ -> []
 
 /// Every row of the cue as the panel shows it, in display order: a row per container with its children
@@ -208,7 +209,7 @@ let canAppend (path: int list) (cue: Cue) : bool =
 
 /// The kinds a node can be turned into, in the order the dropdown lists them.
 let private kinds = [|
-    "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Fade out"; "Fade in"; "Exposit"; "Zone"; "Set camera";
+    "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Fade out"; "Fade in"; "Exposit"; "Set zone"; "Set camera";
     "Fly camera"; "Add advent"; "Remove advent"; "Await"; "If"
 |]
 
@@ -224,7 +225,7 @@ let private kindName (cue: Cue) : string =
     | FadeOut _ | FadeOutState _ -> "Fade out"
     | FadeIn _ | FadeInState _ -> "Fade in"
     | Exposit _ -> "Exposit"
-    | SwitchZone _ -> "Zone"
+    | SetZone _ -> "Set zone"
     | SetCamera _ -> "Set camera"
     | FlyCamera _ | FlyCameraState _ -> "Fly camera"
     | AddAdvent _ -> "Add advent"
@@ -234,13 +235,10 @@ let private kindName (cue: Cue) : string =
 
 /// What choosing a kind replaces the node with. Every op is reachable without an editor per op.
 ///
-/// Two of these defaults are deliberately not "nothing": a `Sequence` starts with a `Fin` front and an empty
-/// queue (the walk pulls the queue's front into the front in the same step, so the author can add to it and
-// it), and the defaults for `Zone` and `Exposit` are empty strings (the `Exposit` also defaulting to a
-// plain dialogue line). An empty zone name is wrong and
-/// **will block** when the op is reached — the type system cannot say "a zone that exists", and preventing
-/// it in the editor is out of scope; the name still raises loudly where it always did, in
-/// `GameplayState.switchZone`.
+/// A `Sequence` defaults deliberately to something rather than nothing: a `Fin` front and an empty queue
+/// (the walk pulls the queue's front into the front in the same step, so the author can add to it and it).
+/// A `Set zone` defaults to the start place — a place is a closed value, so there is no empty-name state to
+/// guard; an `Exposit` defaults to an empty line and a plain dialogue kind.
 let private defaultOfKind (kind: string) : Cue =
     let defaultAdvent = List.head Advent.all
     match kind with
@@ -252,7 +250,7 @@ let private defaultOfKind (kind: string) : Cue =
     | "Fade out" -> FadeOut 1.0
     | "Fade in" -> FadeIn 1.0
     | "Exposit" -> Exposit("", Dialogue.Kind.Dialogue)
-    | "Zone" -> SwitchZone ""
+    | "Set zone" -> SetZone Place.start
     | "Set camera" -> SetCamera ""
     | "Add advent" -> AddAdvent defaultAdvent
     | "Remove advent" -> RemoveAdvent defaultAdvent
@@ -262,14 +260,14 @@ let private defaultOfKind (kind: string) : Cue =
 
 /// The node's editable text, or `ValueNone` when it has none. The field that edits it belongs to the caller
 /// (the buffer is a widget's scaffolding, not the cue's), so the control names no editor state and says only
-/// which nodes carry text and how to write it back.
+/// which nodes carry text and how to write it back. A `SetZone` carries a *place* now, chosen from the
+/// closed set (`drawEditor`), not text.
 ///
 /// The text-bearing kinds are never executing — only the two in-flight leaves are, and neither carries text —
 /// so a caller drawing this field needs no lock check of its own.
 let textOf (cue: Cue) : string voption =
     match cue with
     | Exposit (text, _) -> ValueSome text
-    | SwitchZone zone -> ValueSome zone
     | SetCamera waypoint -> ValueSome waypoint
     | FlyCamera (path, _) -> ValueSome path
     | _ -> ValueNone
@@ -278,7 +276,6 @@ let textOf (cue: Cue) : string voption =
 let withText (cue: Cue) (text: string) : Cue =
     match cue with
     | Exposit (_, kind) -> Exposit(text, kind)
-    | SwitchZone _ -> SwitchZone text
     | SetCamera _ -> SetCamera text
     | FlyCamera (_, speed) -> FlyCamera(text, speed)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no text" (label cue))
@@ -299,6 +296,13 @@ let private withAdvent (advent: Advent) (cue: Cue) : Cue =
     | AwaitState _ -> AwaitState advent
     | If (_, thenCue, elseCue) -> If(advent, thenCue, elseCue)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no milestone" (label cue))
+
+/// The node with its place replaced — the write the place chooser commits. Only `SetZone` carries one
+/// (spec 061).
+let withPlace (place: Place) (cue: Cue) : Cue =
+    match cue with
+    | SetZone _ -> SetZone place
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no place" (label cue))
 
 // ── the drawing ──
 
@@ -447,9 +451,18 @@ let drawEditor
                     do ImGui.endCombo()
             | _ -> ()
 
-        | Fin | Sequence _ | Parallel _ | Fork _ | SwitchZone _ | SetCamera _ | FlyCameraState _ ->
-            // no numbers of their own. `SwitchZone` and `SetCamera` carry text, and a `FlyCamera` carries its
-            // path and speed above; the caller's field edits the text (`textOf` / `withText`).
+        | SetZone place ->
+            // the place, chosen from the closed set — a place needs no zone or registry read, so the control can
+            // offer it where it could not offer a zone name (FR-005).
+            if ImGui.beginCombo("Place##" + idBase, Place.placeName place, 0) then
+                for candidate in Place.all do
+                    if selectable (Place.placeName candidate) (candidate = place) && candidate <> place then
+                        do commit (withAt selection (withPlace candidate node) cue)
+                do ImGui.endCombo()
+
+        | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | FlyCameraState _ ->
+            // no numbers of their own. `SetCamera` carries text (the caller's field edits it) and a `FlyCamera`
+            // carries its path and speed above; a `SetZone`'s place is chosen above.
             ()
 
     // ── Add Child: the one container that takes one, whether or not it is running ──

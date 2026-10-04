@@ -256,16 +256,19 @@ and a following camera. *(complete — `specs/016`)*
 **Goal**: multiple zones with one active; add, select, delete, and switch.
 
 **Deliverables**
-- A name-keyed `Dictionary<string, Zone>` on `GameplayState` plus `ActiveZone`
-  (no `world/ZoneMap.fs` — a dictionary suffices for identity-addressed zones).
+- A `Dictionary<Place, Zone>` on `GameplayState` plus `ActiveZone : Place` (a zone's identity is
+  its declared `Place`, a closed union in `world/Place.fs`; no `world/ZoneMap.fs` — a dictionary
+  suffices for identity-addressed zones). A place is either **present** (it has a zone) or
+  **absent**; the active place is always present.
 - Zone switch path: detach the outgoing zone's bodies and re-attach the incoming
   zone's (`RemoveBody`/`AddBody` + broadphase optimize) in the one shared world.
 - Per-zone player designation and undo history, plus add/select/delete in the
   Outliner's Zones section.
-- Deleting a zone releases its bodies and GPU resources; the last zone is protected.
+- Deleting a zone releases its bodies and GPU resources, unloading its environment unless another
+  present place shares it; the active place cannot be removed.
 
 **Done when**: multiple zones exist and you can add, select, delete, and switch
-between them at runtime. *(complete — `specs/024`)*
+between them at runtime. *(complete — `specs/024`, and place-keyed identity is `specs/061-zones-as-places`)*
 
 ### 9 · Cue engine + editor
 
@@ -323,15 +326,17 @@ the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`.)*
 **Goal**: author zone templates/settings.
 
 **Deliverables**
-- `world/ZoneRegistry.fs` — the game's places, a union whose cases carry their own variant sets,
-  and the sparse map from a place to the zone registered there. `world/ZoneTemplate.fs` holds one
+- `world/Place.fs` — the game's places: a closed union whose cases carry their own variant sets
+  (`ArtRoom of Period`, `Island`), so a zone that is not declared here cannot exist. `world/ZoneRegistry.fs`
+  is the sparse map from a place to the zone registered there. `world/ZoneTemplate.fs` holds one
   entry's record: the environment asset, the environment's settings, and its parts as the author
   left them.
 - `editor/ZoneRegistryPanel.fs` — the places as a tree, with a register control and an instantiate
   control per place.
 
 **Done when**: you can author zone templates/settings in the editor. *(complete —
-`specs/034-zone-registry`, and an entry's placed props are `specs/035-zone-template-props`. Waypoints,
+`specs/034-zone-registry`, and an entry's placed props are `specs/035-zone-template-props`. The places
+vocabulary was hoisted to `world/Place.fs` by `specs/061-zones-as-places`. Waypoints,
 triggers and splat maps are the deferred siblings of an entry's parts; persisting the registry is
 phase 15.)*
 

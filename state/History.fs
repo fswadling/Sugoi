@@ -18,11 +18,15 @@ open Command
 /// Apply one command to the gameplay state. An entity or zone-value command goes to **the active zone**: no
 /// command carries a zone, because recording the moves is what keeps the active zone the one the step belongs
 /// to (research D2).
-let apply (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
+let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
     match cmd with
     | ZoneMove (_, next) -> GameplayState.switchZone shared &state next
     | ZoneAdd (_, name) -> GameplayState.addZone shared &state name
     | ZoneDelete (_, name, _) -> GameplayState.deleteZone shared &state name
+    // A batch may mix state-level and zone-level steps (spec 061: Instantiate is a presence/active change
+    // and a template load as one step), so it is dispatched here, through the state-level runner, rather
+    // than delegated whole to `Command.apply` (which refuses state-level steps).
+    | Batch commands -> for cmd in commands do apply shared &state cmd
     // The cue is not a zone's, so a cue step is a write of the value and nothing else — no zone, no camera, no
     // selection (research D5). The cue is the screen's own value, so it needs neither `shared.Physics` nor
     // `shared.Assets`.
@@ -33,7 +37,7 @@ let apply (shared: SharedState.SharedState) (state: byref<GameplayState.Gameplay
     | _ -> Command.apply (GameplayState.activeZone state) shared.Physics shared.Assets cmd
 
 /// The inverse of `apply`.
-let undo (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
+let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
     match cmd with
     | ZoneMove (previous, _) -> GameplayState.switchZone shared &state previous
     | ZoneAdd (previous, name) ->
@@ -51,6 +55,9 @@ let undo (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         if previous <> name then GameplayState.switchZone shared &state previous
     | SetCue (previous, _) -> state.Cue <- previous
     | Advent (previous, _) -> shared.Advents <- previous
+    | Batch commands ->
+        // Backwards, through the state-level runner, so a mixed batch reverses in dependency order.
+        for cmd in List.rev commands do undo shared &state cmd
     | _ -> Command.undo (GameplayState.activeZone state) shared.Physics shared.Assets cmd
 
 /// Apply a command and push it onto the one history, clearing the redo side. The editor's write path for a zone

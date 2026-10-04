@@ -49,7 +49,7 @@ let rec private describe (cue: Cue) : string =
     | FadeOut d | FadeOutState (_, d, _) -> sprintf "FadeOut %g" d
     | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
-    | SwitchZone z -> sprintf "Zone(%s)" z
+    | SetZone z -> sprintf "Zone(%s)" (Place.placeName z)
     | SetCamera w -> sprintf "Camera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "Fly(%s)" p
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
@@ -158,7 +158,7 @@ let ``every kind's row says what it is, and a leaf in flight as the op it came f
     Assert.Equal("Fork", labelOf (Fork(Wait 1.0)))
     Assert.Equal("Wait 1", labelOf (Wait 1.0))
     Assert.Equal("Exposit: hello", labelOf (Exposit("hello", Dialogue.Kind.Dialogue)))
-    Assert.Equal("Zone: classroom", labelOf (SwitchZone "classroom"))
+    Assert.Equal("Zone: Island", labelOf (SetZone Place.Island))
     Assert.Equal("Camera: balcony", labelOf (SetCamera "balcony"))
     Assert.Equal("Fly: route", labelOf (FlyCamera("route", 1.0)))
     Assert.Equal("Fade out 2", labelOf (FadeOut 2.0))
@@ -330,7 +330,7 @@ let ``appending to a sequence gives the node and the new child's path`` () =
 [<Fact>]
 let ``only the text-bearing kinds carry text, and writing it replaces exactly that`` () =
     Assert.Equal(ValueSome "hello", textOf (Exposit("hello", Dialogue.Kind.Dialogue)))
-    Assert.Equal(ValueSome "classroom", textOf (SwitchZone "classroom"))
+    Assert.Equal(ValueNone, textOf (SetZone Place.Island))
     Assert.Equal(ValueSome "balcony", textOf (SetCamera "balcony"))
     Assert.Equal(ValueSome "route", textOf (FlyCamera("route", 1.0)))
     Assert.Equal(ValueNone, textOf (Wait 1.0))
@@ -339,7 +339,7 @@ let ``only the text-bearing kinds carry text, and writing it replaces exactly th
     Assert.Equal(ValueNone, textOf (If(MetAiko, Fin, Fin)))
     Assert.Equal(ValueNone, textOf Fin)
     Assert.Equal("Exposit(hi)", describe (withText (Exposit("hello", Dialogue.Kind.Dialogue)) "hi"))
-    Assert.Equal("Zone(atrium)", describe (withText (SwitchZone "classroom") "atrium"))
+    Assert.Equal("Zone(Island)", describe (withPlace Place.Island (SetZone Place.start)))
     Assert.Equal("Camera(atrium)", describe (withText (SetCamera "balcony") "atrium"))
     Assert.Equal("Fly(route)", describe (withText (FlyCamera("lo", 2.0)) "route"))
     Assert.True(raises (fun () -> withText (Wait 1.0) "x" |> ignore))
@@ -510,20 +510,20 @@ let ``a cue edit made before a zone move is still reachable after it`` () =
 
     do CueEditor.commit &state (withAt [ 0 ] (Exposit("b", Dialogue.Kind.Dialogue)) state.Cue) // cue edit A, in main
     let afterA = describe state.Cue
-    do History.commit shared &state (ZoneAdd ("main", "classroom")) // a real move: main → classroom
-    Assert.Equal("classroom", state.ActiveZone)
+    do History.commit shared &state (ZoneAdd (Place.start, Place.Island)) // a real move: the art room → the island
+    Assert.Equal(Place.Island, state.ActiveZone)
     do CueEditor.commit &state (withAt [ 0 ] (Exposit("c", Dialogue.Kind.Dialogue)) state.Cue) // cue edit B, in classroom
     let afterB = describe state.Cue
     Assert.NotEqual<string>(afterA, afterB)
 
     // B first, with classroom still on screen.
     do History.undoHistory shared &state
-    Assert.Equal("classroom", state.ActiveZone)
+    Assert.Equal(Place.Island, state.ActiveZone)
     Assert.Equal(afterA, describe state.Cue)
 
     // Then the move steps back, carrying the view to main — where A is now reachable.
     do History.undoHistory shared &state
-    Assert.Equal("main", state.ActiveZone)
+    Assert.Equal(Place.start, state.ActiveZone)
     Assert.Equal(afterA, describe state.Cue)
 
     // Then A itself.

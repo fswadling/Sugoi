@@ -1,7 +1,9 @@
 module ZoneRegistry
 
-// The game's places, and the zone registered at each: the authoring half of the world, and the
-// editor's Zone Registry panel reads all of it (spec 034).
+// The zone registered at each of the game's places: the config half of the world, and the editor's Zone
+// Registry panel reads all of it (spec 034). The **vocabulary** — the `Place`/`Period` union — is
+// `world/Place.fs` (spec 061), kept separate so the runtime may key its zones by a place without depending
+// on this store, as `Roster` sits apart from `Casting`.
 //
 // A *place* is one of the game's zones together with one of the variants that zone declares —
 // `Place.ArtRoom Period.Morning`. Each zone's variants are its own union, unlike the cast's single
@@ -15,25 +17,8 @@ module ZoneRegistry
 
 open System.Collections.Generic
 open Microsoft.FSharp.Reflection
+open Place
 open ZoneTemplate
-
-// ── The vocabulary ──
-//
-// Authored: the game's zones and what each one can look like. Adding a location is a case of `Place`;
-// adding what it can look like is a case of that zone's own union, which is why the variants are
-// carried by the case rather than shared between zones.
-
-/// Which sitting of the art room: the same room, lit for a different part of the day.
-type Period =
-    | Morning
-    | Evening
-
-/// One of the game's zones together with one of the variants it declares. The island declares none:
-/// it is a fieldless case, so it is one place named for itself, and giving it variants later is an
-/// edit to the case rather than an entry in a second list.
-type Place =
-    | ArtRoom of Period
-    | Island
 
 // ── The tree the panel draws ──
 
