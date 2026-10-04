@@ -47,15 +47,6 @@ let orbit (c: byref<Camera>) (yaw: float32) (pitch: float32) : unit =
     let offset' = Vector3.Transform(offset, q)
     c.Target <- c.Position + offset'
 
-// Dolly: scale the position<->target distance by factor (clamped to a minimum).
-// Mutates the camera in place.
-let dolly (c: byref<Camera>) (factor: float32) : unit =
-    let offset = c.Position - c.Target
-    let dist = offset.Length()
-    let newDist = max 0.1f (dist * factor)
-    let dir = offset / dist
-    c.Position <- c.Target + dir * newDist
-
 // Pan/fly: move position and target together by a world-space delta. Mutates the
 // camera in place.
 let pan (c: byref<Camera>) (delta: Vector3) : unit =

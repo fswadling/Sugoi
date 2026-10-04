@@ -18,7 +18,6 @@ let private input (held: Input.KeyMask) : Input.Input =
       MouseY = 0.0f
       MouseDX = 0.0f
       MouseDY = 0.0f
-      Wheel = 0.0f
       LeftDown = false
       LeftPressed = false
       LeftReleased = false

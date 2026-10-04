@@ -19,7 +19,7 @@ let ``Key.mask assigns a unique bit to every key`` () =
 
 [<Fact>]
 let ``isCtrl is true when either control key is held`` () =
-    let input = { MouseX = 0.0f; MouseY = 0.0f; MouseDX = 0.0f; MouseDY = 0.0f; Wheel = 0.0f; LeftDown = false; LeftPressed = false; LeftReleased = false; RightDown = false
+    let input = { MouseX = 0.0f; MouseY = 0.0f; MouseDX = 0.0f; MouseDY = 0.0f; LeftDown = false; LeftPressed = false; LeftReleased = false; RightDown = false
                   Held = Key.mask Key.LeftCtrl; Pressed = KeyMask.zero }
     Assert.True(Input.isCtrl input)
 
@@ -31,7 +31,7 @@ let ``isCtrl is true when either control key is held`` () =
 
 [<Fact>]
 let ``isShift is true when either shift key is held`` () =
-    let input = { MouseX = 0.0f; MouseY = 0.0f; MouseDX = 0.0f; MouseDY = 0.0f; Wheel = 0.0f; LeftDown = false; LeftPressed = false; LeftReleased = false; RightDown = false
+    let input = { MouseX = 0.0f; MouseY = 0.0f; MouseDX = 0.0f; MouseDY = 0.0f; LeftDown = false; LeftPressed = false; LeftReleased = false; RightDown = false
                   Held = Key.mask Key.LeftShift; Pressed = KeyMask.zero }
     Assert.True(Input.isShift input)
 
@@ -43,7 +43,7 @@ let ``isShift is true when either shift key is held`` () =
 
 [<Fact>]
 let ``isPressed is edge-triggered via the Pressed bitmask`` () =
-    let input = { MouseX = 0.0f; MouseY = 0.0f; MouseDX = 0.0f; MouseDY = 0.0f; Wheel = 0.0f; LeftDown = false; LeftPressed = false; LeftReleased = false; RightDown = false
+    let input = { MouseX = 0.0f; MouseY = 0.0f; MouseDX = 0.0f; MouseDY = 0.0f; LeftDown = false; LeftPressed = false; LeftReleased = false; RightDown = false
                   Held = Key.mask Key.Tab; Pressed = Key.mask Key.Tab }
     Assert.True(Input.isPressed Key.Tab input)
     Assert.False(Input.isPressed Key.Escape input)

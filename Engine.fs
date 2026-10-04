@@ -140,20 +140,16 @@ let run () : int =
         let instFps = if dtMs > 0.0 then 1000.0 / dtMs else 0.0
         fps <- fps * 0.9 + instFps * 0.1
 
-        // ── Poll events (forward to ImGui; accumulate the wheel for the frame) ──
+        // ── Poll events (forward to ImGui) ──
         mark <- nowNs ()
-        let mutable wheel = 0.0f
         while SDL.PollEvent(&ev) do
             if ev.Type = uint32 SDL.EventType.Quit then
                 running <- false
 
-            if ev.Type = uint32 SDL.EventType.MouseWheel then
-                wheel <- wheel + ev.Wheel.Y
-
             do ImGuiSdl3.processEvent(NativePtr.toNativeInt (&&ev)) |> ignore
 
         // ── Gather input (mouse + keyboard + edge detection) once per frame ──
-        let struct (nextPrev, input) = Input.gather prevInput wheel
+        let struct (nextPrev, input) = Input.gather prevInput
         prevInput <- nextPrev
 
         // ── Begin a new ImGui frame ──

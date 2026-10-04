@@ -333,8 +333,9 @@ let private interact (physics: Physics.World) (input: Input.Input) (viewportW: f
 
 // ── Camera controls (edit mode) ──
 
-// Apply orbit/dolly/fly to the camera from this frame's input. Fly speed is
-// per second (dt-scaled); orbit and dolly are event-driven and unscaled.
+// Apply orbit/fly to the camera from this frame's input. Fly speed is per second
+// (dt-scaled); orbit is event-driven and unscaled. There is no wheel zoom: it
+// collided with scrolling in the editor's panels, and the camera flies instead.
 let private updateCamera (input: Input.Input) (dt: float32) (state: byref<GameplayState.GameplayState>) : unit =
     if input.RightDown then
         Camera.orbit &state.Camera (-input.MouseDX * 0.01f) (-input.MouseDY * 0.01f)
@@ -357,9 +358,6 @@ let private updateCamera (input: Input.Input) (dt: float32) (state: byref<Gamepl
             if Input.isHeld Input.Key.E input then delta <- delta + up * speed
             if Input.isHeld Input.Key.Q input then delta <- delta - up * speed
             do Camera.pan &state.Camera delta
-
-    if input.Wheel <> 0.0f then
-        Camera.dolly &state.Camera (MathF.Pow(0.9f, input.Wheel))
 
 // ── Per-frame update ──
 

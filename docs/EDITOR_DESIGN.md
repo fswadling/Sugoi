@@ -92,7 +92,8 @@ every member, and one for every variant of every zone.
   between widgets (`Enter`/`Space` activate). App shortcuts yield while a text
   field is being edited.
 - Left-click selects (raycast); right-drag looks (pitch/yaw); right-drag + `WASD`
-  flies (`Q`/`E` up/down); scroll zooms.
+  flies (`Q`/`E` up/down). There is no scroll zoom: the wheel collides with
+  scrolling in the editor's panels, so the camera is fly-only.
 - Tools: `1` move, `2` rotate, `3` scale, `Q` snap toggle.
 - Keyboard nudge: `Shift` + `W`/`A`/`S`/`D`/`Q`/`E` (camera-relative move/rotate/
   scale, held to repeat).

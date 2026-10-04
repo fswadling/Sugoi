@@ -14,22 +14,6 @@ let ``orbit preserves the target distance`` () =
     Assert.True(abs (before - after) < 1e-4f)
 
 [<Fact>]
-let ``dolly scales the distance`` () =
-    let c = Camera.create (Vector3(0.0f, 0.0f, 10.0f)) Vector3.Zero
-    let mutable c' = c
-    Camera.dolly &c' 0.5f
-    let dist = (c'.Position - c'.Target).Length()
-    Assert.True(abs (dist - 5.0f) < 1e-4f)
-
-[<Fact>]
-let ``dolly clamps to a minimum distance`` () =
-    let c = Camera.create (Vector3(0.0f, 0.0f, 10.0f)) Vector3.Zero
-    let mutable c' = c
-    Camera.dolly &c' 0.0001f
-    let dist = (c'.Position - c'.Target).Length()
-    Assert.True(dist >= 0.09f)
-
-[<Fact>]
 let ``pan moves position and target together`` () =
     let c = Camera.create (Vector3(1.0f, 2.0f, 3.0f)) Vector3.Zero
     let mutable c' = c

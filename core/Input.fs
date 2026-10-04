@@ -69,7 +69,6 @@ type Input =
       MouseY : float32
       MouseDX : float32
       MouseDY : float32
-      Wheel : float32
       LeftDown : bool
       LeftPressed : bool
       LeftReleased : bool
@@ -129,9 +128,9 @@ let private computeHeld (keys: ReadOnlySpan<bool>) : KeyMask =
         if keys.[scancode] then held <- held ||| mask
     held
 
-// Gather this frame's input from SDL polled state plus the accumulated wheel,
-// and return the advanced previous-frame state alongside the current input.
-let gather (prev: PrevInput) (wheel: float32) : struct (PrevInput * Input) =
+// Gather this frame's input from SDL polled state, and return the advanced
+// previous-frame state alongside the current input.
+let gather (prev: PrevInput) : struct (PrevInput * Input) =
     let mutable mx = 0.0f
     let mutable my = 0.0f
     let buttons = SDL.GetMouseState(&mx, &my)
@@ -150,7 +149,6 @@ let gather (prev: PrevInput) (wheel: float32) : struct (PrevInput * Input) =
           MouseY = my
           MouseDX = mx - prev.MouseX
           MouseDY = my - prev.MouseY
-          Wheel = wheel
           LeftDown = leftDown
           LeftPressed = leftPressed
           LeftReleased = leftReleased
