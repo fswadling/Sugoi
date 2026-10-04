@@ -50,6 +50,9 @@ let rec private describe (cue: Cue) : string =
     | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
     | SetZone z -> sprintf "Zone(%s)" (Place.placeName z)
+    | AddZone z -> sprintf "AddZone(%s)" (Place.placeName z)
+    | RemoveZone z -> sprintf "RemoveZone(%s)" (Place.placeName z)
+    | PreloadZone z -> sprintf "PreloadZone(%s)" (Place.placeName z)
     | SetCamera w -> sprintf "Camera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "Fly(%s)" p
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
@@ -159,6 +162,9 @@ let ``every kind's row says what it is, and a leaf in flight as the op it came f
     Assert.Equal("Wait 1", labelOf (Wait 1.0))
     Assert.Equal("Exposit: hello", labelOf (Exposit("hello", Dialogue.Kind.Dialogue)))
     Assert.Equal("Zone: Island", labelOf (SetZone Place.Island))
+    Assert.Equal("Add zone: Island", labelOf (AddZone Place.Island))
+    Assert.Equal("Remove zone: Island", labelOf (RemoveZone Place.Island))
+    Assert.Equal("Preload zone: Island", labelOf (PreloadZone Place.Island))
     Assert.Equal("Camera: balcony", labelOf (SetCamera "balcony"))
     Assert.Equal("Fly: route", labelOf (FlyCamera("route", 1.0)))
     Assert.Equal("Fade out 2", labelOf (FadeOut 2.0))
@@ -331,6 +337,9 @@ let ``appending to a sequence gives the node and the new child's path`` () =
 let ``only the text-bearing kinds carry text, and writing it replaces exactly that`` () =
     Assert.Equal(ValueSome "hello", textOf (Exposit("hello", Dialogue.Kind.Dialogue)))
     Assert.Equal(ValueNone, textOf (SetZone Place.Island))
+    Assert.Equal(ValueNone, textOf (AddZone Place.Island))
+    Assert.Equal(ValueNone, textOf (RemoveZone Place.Island))
+    Assert.Equal(ValueNone, textOf (PreloadZone Place.Island))
     Assert.Equal(ValueSome "balcony", textOf (SetCamera "balcony"))
     Assert.Equal(ValueSome "route", textOf (FlyCamera("route", 1.0)))
     Assert.Equal(ValueNone, textOf (Wait 1.0))
@@ -340,6 +349,9 @@ let ``only the text-bearing kinds carry text, and writing it replaces exactly th
     Assert.Equal(ValueNone, textOf Fin)
     Assert.Equal("Exposit(hi)", describe (withText (Exposit("hello", Dialogue.Kind.Dialogue)) "hi"))
     Assert.Equal("Zone(Island)", describe (withPlace Place.Island (SetZone Place.start)))
+    Assert.Equal("AddZone(Island)", describe (withPlace Place.Island (AddZone Place.start)))
+    Assert.Equal("RemoveZone(Island)", describe (withPlace Place.Island (RemoveZone Place.start)))
+    Assert.Equal("PreloadZone(Island)", describe (withPlace Place.Island (PreloadZone Place.start)))
     Assert.Equal("Camera(atrium)", describe (withText (SetCamera "balcony") "atrium"))
     Assert.Equal("Fly(route)", describe (withText (FlyCamera("lo", 2.0)) "route"))
     Assert.True(raises (fun () -> withText (Wait 1.0) "x" |> ignore))

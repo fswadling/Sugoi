@@ -910,6 +910,21 @@ let loadEnvironmentFrom (zone: Zone) (world: Physics.World) (assets: Assets.Asse
     do setEnvironment zone world assets (Some environment)
     environment
 
+// Populate a **fresh** zone from a registered template: its environment, its light and its placed props.
+// The content half of `editor/Spawning.instantiateZone`, without that caller's replace-and-undo machinery —
+// a runtime add (spec 062) builds a zone that did not exist, so there is nothing to replace. The zone is
+// expected to be empty; the caller detaches every body built here when the zone is left inactive.
+let loadTemplate (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (template: ZoneTemplate) : unit =
+    do ignore (loadEnvironmentFrom zone world assets template)
+    zone.Light <- template.Light
+    for state in template.Props do
+        let assetId =
+            match state.AssetId with
+            | Some assetId -> assetId
+            | None -> failwith "loadTemplate: a recorded prop must name an asset"
+        let binding = { AssetId = Some assetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
+        do ignore (spawnPropBinding zone world assets state.Base binding)
+
 // ── Zone-level physics lifecycle ──
 //
 // A switch detaches the outgoing zone's bodies from the simulation and re-attaches

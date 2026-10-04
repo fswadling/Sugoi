@@ -269,6 +269,7 @@ and a following camera. *(complete — `specs/016`)*
 
 **Done when**: multiple zones exist and you can add, select, delete, and switch
 between them at runtime. *(complete — `specs/024`, and place-keyed identity is `specs/061-zones-as-places`)*
+Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-cue-ops`.
 
 ### 9 · Cue engine + editor
 

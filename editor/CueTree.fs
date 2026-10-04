@@ -52,7 +52,7 @@ let rec executing (cue: Cue) : bool =
     | Sequence (current, _) -> executing current
     | Parallel (left, right) -> executing left || executing right
     | Fork inner -> executing inner
-    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | SetZone _ | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
+    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _ | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
 
 /// What a row says. A leaf in flight is shown as the op it came from — a `WaitState` as its `Wait` — because
 /// the view is what is left to run, never an internal state's name (`FR-004`).
@@ -68,6 +68,9 @@ let private label (cue: Cue) : string =
     | FadeIn duration | FadeInState (_, duration, _) -> sprintf "Fade in %g" duration
     | Exposit (text, _) -> "Exposit: " + text
     | SetZone place -> "Zone: " + Place.placeName place
+    | AddZone place -> "Add zone: " + Place.placeName place
+    | RemoveZone place -> "Remove zone: " + Place.placeName place
+    | PreloadZone place -> "Preload zone: " + Place.placeName place
     | SetCamera waypoint -> "Camera: " + waypoint
     | FlyCamera (path, _) | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
     | AddAdvent advent -> "Add: " + Advent.name advent
@@ -87,7 +90,7 @@ let children (cue: Cue) : Cue list =
     | Fork inner -> [ inner ]
     | If (_, thenCue, elseCue) -> [ thenCue; elseCue ]
     | Fin | Wait _ | WaitState _ | FadeOut _ | FadeIn _ | FadeOutState _ | FadeInState _ | Exposit _
-    | SetZone _ | SetCamera _ | FlyCamera _ | FlyCameraState _
+    | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _ | SetCamera _ | FlyCamera _ | FlyCameraState _
     | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ -> []
 
 /// Every row of the cue as the panel shows it, in display order: a row per container with its children
@@ -209,7 +212,8 @@ let canAppend (path: int list) (cue: Cue) : bool =
 
 /// The kinds a node can be turned into, in the order the dropdown lists them.
 let private kinds = [|
-    "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Fade out"; "Fade in"; "Exposit"; "Set zone"; "Set camera";
+    "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Fade out"; "Fade in"; "Exposit"; "Set zone";
+    "Add zone"; "Remove zone"; "Preload zone"; "Set camera";
     "Fly camera"; "Add advent"; "Remove advent"; "Await"; "If"
 |]
 
@@ -226,6 +230,9 @@ let private kindName (cue: Cue) : string =
     | FadeIn _ | FadeInState _ -> "Fade in"
     | Exposit _ -> "Exposit"
     | SetZone _ -> "Set zone"
+    | AddZone _ -> "Add zone"
+    | RemoveZone _ -> "Remove zone"
+    | PreloadZone _ -> "Preload zone"
     | SetCamera _ -> "Set camera"
     | FlyCamera _ | FlyCameraState _ -> "Fly camera"
     | AddAdvent _ -> "Add advent"
@@ -251,6 +258,9 @@ let private defaultOfKind (kind: string) : Cue =
     | "Fade in" -> FadeIn 1.0
     | "Exposit" -> Exposit("", Dialogue.Kind.Dialogue)
     | "Set zone" -> SetZone Place.start
+    | "Add zone" -> AddZone Place.start
+    | "Remove zone" -> RemoveZone Place.start
+    | "Preload zone" -> PreloadZone Place.start
     | "Set camera" -> SetCamera ""
     | "Add advent" -> AddAdvent defaultAdvent
     | "Remove advent" -> RemoveAdvent defaultAdvent
@@ -297,11 +307,14 @@ let private withAdvent (advent: Advent) (cue: Cue) : Cue =
     | If (_, thenCue, elseCue) -> If(advent, thenCue, elseCue)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no milestone" (label cue))
 
-/// The node with its place replaced — the write the place chooser commits. Only `SetZone` carries one
-/// (spec 061).
+/// The node with its place replaced — the write the place chooser commits. Only the zone ops carry one
+/// (specs 061, 062).
 let withPlace (place: Place) (cue: Cue) : Cue =
     match cue with
     | SetZone _ -> SetZone place
+    | AddZone _ -> AddZone place
+    | RemoveZone _ -> RemoveZone place
+    | PreloadZone _ -> PreloadZone place
     | _ -> invalidOp (sprintf "CueTree: a %s carries no place" (label cue))
 
 // ── the drawing ──
@@ -451,9 +464,9 @@ let drawEditor
                     do ImGui.endCombo()
             | _ -> ()
 
-        | SetZone place ->
+        | SetZone place | AddZone place | RemoveZone place | PreloadZone place ->
             // the place, chosen from the closed set — a place needs no zone or registry read, so the control can
-            // offer it where it could not offer a zone name (FR-005).
+            // offer it where it could not offer a zone name (spec 061 FR-005); the four zone ops share it.
             if ImGui.beginCombo("Place##" + idBase, Place.placeName place, 0) then
                 for candidate in Place.all do
                     if selectable (Place.placeName candidate) (candidate = place) && candidate <> place then
@@ -462,7 +475,7 @@ let drawEditor
 
         | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | FlyCameraState _ ->
             // no numbers of their own. `SetCamera` carries text (the caller's field edits it) and a `FlyCamera`
-            // carries its path and speed above; a `SetZone`'s place is chosen above.
+            // carries its path and speed above; a zone op's place is chosen above.
             ()
 
     // ── Add Child: the one container that takes one, whether or not it is running ──

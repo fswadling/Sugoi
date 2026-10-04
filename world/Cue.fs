@@ -4,8 +4,8 @@ module Cue
 // beside it: a cue *is* its own execution state, an immutable value that shrinks as it is stepped
 // down to `Fin` — what is left when a cue finishes, and where it then rolls.
 //
-// The ops with no progress of their own (`Exposit`, `SetZone`, `SetCamera`, `AddAdvent`,
-// `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
+// The ops with no progress of their own (`Exposit`, `SetZone`, `AddZone`, `RemoveZone`, `PreloadZone`,
+// `SetCamera`, `AddAdvent`, `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
 // (`WaitState`'s deadline, `FlyCameraState`'s resolved path, the fade states' captured level). So a case suffixed `State` appears exactly
 // where the run form holds something the authored form does not — the convention the reference lineage
 // uses (`wait` / `waitstate`), and FR-017's "a leaf op and its own state case". (`AwaitState` is the one
@@ -51,6 +51,13 @@ type Cue =
     // portrait at draw time (`world/DialogueRender.fs`); the op names a character, not an asset.
     | Exposit of text: string * kind: Dialogue.Kind
     | SetZone of place: Place
+    // The rest of the zone vocabulary (spec 062): a cue makes a declared place present (streaming its
+    // template in) without entering it, makes a present place absent, and preloads a present zone's
+    // environment so the later switch is instant. Each is a no-progress leaf, and each is a no-op on a
+    // place it cannot act on, so a cue is safe to run more than once.
+    | AddZone of place: Place
+    | RemoveZone of place: Place
+    | PreloadZone of place: Place
     | SetCamera of waypoint: string
     | FlyCamera of path: string * speed: float
     | FlyCameraState of path: string * points: Vector3[] * rotations: Quaternion[] * duration: float * endsAt: float

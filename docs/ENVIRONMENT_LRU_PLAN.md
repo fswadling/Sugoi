@@ -283,7 +283,8 @@ path that forgets the ensure should fail at once, not read a freed handle.
 
 ## Out of scope (follow-ups, matching odin)
 
-- Async/threaded load and a `PreloadZone` cue op.
+- Async/threaded load and a `PreloadZone` cue op. *(Both delivered: async loading is `specs/053`; the
+  cue op is `specs/062-zone-cue-ops`.)*
 - Prop-asset and actor-asset laziness/sharing (they are eagerly loaded today too;
   `Props`/`Actors` stay as-is in this cut).
 - Texture compression / resolution budget (would shrink `ArtRoom` 4–8×).

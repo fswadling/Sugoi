@@ -11,6 +11,7 @@ open System.Numerics
 open Command
 open Entity
 open Place
+open ZoneTemplate
 
 [<Struct>]
 type GameplayState =
@@ -124,6 +125,24 @@ let addZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (nam
     let outgoing = state.ActiveZone
     state.Zones.[name] <- Zone.create ()
     swapZone shared &state outgoing name
+
+// Populate a present zone from a registered template: its environment, light and placed props (spec 062).
+// `Physics.createBody` joins the simulation as it runs, so a zone that is not the active one has its built
+// bodies detached at once — the same "alive but detached" state a switch away leaves it in.
+let populateZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) (template: ZoneTemplate) : unit =
+    let zone = state.Zones.[name]
+    do Zone.loadTemplate zone shared.Physics shared.Assets template
+    if name <> state.ActiveZone then Zone.deactivatePhysics zone shared.Physics
+
+// Make an absent declared place present, populated from its registered template when it has one, and leave
+// the active place, the camera and the selection untouched (spec 062): a cue *prepares* a zone here, and
+// `switchZone` is what enters it. A place already present is a bug — the cue guards it — so this raises.
+let presentZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) (template: ZoneTemplate option) : unit =
+    if state.Zones.ContainsKey name then invalidOp (sprintf "presentZone: '%s' is already present" (Place.placeName name)) else
+    state.Zones.[name] <- Zone.create ()
+    match template with
+    | Some template -> do populateZone shared &state name template
+    | None -> ()
 
 // Make a present place absent and release everything it owns, including its environment from the GPU
 // unless another present place still uses that environment (spec 061 FR-010). The active place cannot be

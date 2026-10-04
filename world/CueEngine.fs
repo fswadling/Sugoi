@@ -116,7 +116,35 @@ let rec advance
         exposit &state text kind
         ValueSome Fin // no progress of its own: performed here and gone
     | SetZone name ->
-        GameplayState.switchZone shared &state name
+        // a cue names where to go; a place that is not present is a no-op, not a fault (spec 062 FR-008)
+        if state.Zones.ContainsKey name then GameplayState.switchZone shared &state name else ()
+        ValueSome Fin
+
+    | AddZone name ->
+        // make a declared place present and stream its registered template in, without entering it (spec 062
+        // FR-002): the active place is unchanged, so add/preload/set compose into a prepared transition.
+        if not (state.Zones.ContainsKey name) then
+            GameplayState.presentZone shared &state name (ZoneRegistry.tryTemplate name shared.ZoneRegistry)
+        ValueSome Fin
+
+    | RemoveZone name ->
+        // an absent place, or the active one, is a no-op (spec 062 FR-003, FR-007)
+        if state.Zones.ContainsKey name && name <> state.ActiveZone then GameplayState.deleteZone shared &state name else ()
+        ValueSome Fin
+
+    | PreloadZone name ->
+        // start a present zone's environment loading ahead of the switch (spec 062 FR-004). A zone with no
+        // environment of its own but a **registered** place has its template streamed in first — the state
+        // the editor's add leaves behind — so a cue can make a bare room ready. Best-effort: an ordinary
+        // request, and the active zone's environment is never what makes room for it.
+        if state.Zones.ContainsKey name then
+            let zone = state.Zones.[name]
+            match zone.Environment with
+            | Some environment -> do Assets.requestEnvironment shared.Assets environment.AssetId
+            | None ->
+            match ZoneRegistry.tryTemplate name shared.ZoneRegistry with
+            | Some template -> GameplayState.populateZone shared &state name template
+            | None -> ()
         ValueSome Fin
     | Wait seconds -> ValueSome(beginWait now seconds)
     | WaitState (_, endsAt) ->

@@ -86,6 +86,39 @@ let ``addZone makes an absent place present and active, and refuses one already 
     Assert.Equal(2, state.Zones.Count)
 
 [<Fact>]
+let ``presentZone makes an absent place present with its template and leaves the active place alone`` () =
+    let assets = roomAssets ()
+    let shared = sharedState assets
+    let mutable state = newState ()
+    let activeBefore = state.ActiveZone
+    let cameraBefore = state.Camera
+
+    let part : PropState = { Base = entity "wall"; AssetId = None; SubmeshIndex = 0; SubmeshCount = 1 }
+    let template : ZoneTemplate.ZoneTemplate =
+        { AssetId = "room"; Base = entity "room"; Orientation = Quaternion.Identity
+          Light = Texture.defaultLight; Parts = [| part |]; Props = [||] }
+
+    GameplayState.presentZone shared &state atriumPlace (Some template)
+
+    Assert.True(state.Zones.ContainsKey atriumPlace)
+    Assert.Equal(activeBefore, state.ActiveZone) // an add prepares; it does not enter
+    Assert.Equal(cameraBefore, state.Camera)
+    let zone = state.Zones.[atriumPlace]
+    Assert.Equal(Some "room", zone.Environment |> Option.map (fun environment -> environment.AssetId))
+    // The new zone is inactive, so its body was built and then detached: it must not simulate.
+    let mutable added = false
+    zone.Environment.Value.Parts.IteriAlive (fun _ _ p ->
+        match p.Physics with
+        | Some physics -> added <- added || Physics.isAdded shared.Physics physics.Body
+        | None -> ())
+    Assert.False added
+
+    // Presenting a place already present is a bug (the cue guards it).
+    let mutable raised = false
+    try GameplayState.presentZone shared &state atriumPlace None with _ -> raised <- true
+    Assert.True raised
+
+[<Fact>]
 let ``switchZone is a no-op for the active place and raises for an absent one`` () =
     let shared = sharedState (propAssets ())
     let mutable state = newState ()
