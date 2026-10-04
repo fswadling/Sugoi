@@ -55,6 +55,17 @@ let rec private describe (cue: Cue) : string =
     | PreloadZone z -> sprintf "PreloadZone(%s)" (Place.placeName z)
     | SetActor (p, c, l, w) -> sprintf "SetActor(%s,%s,%s,%s)" (Place.placeName p) (Roster.characterName c) (Casting.lookName l) w
     | RemoveActor c -> sprintf "RemoveActor(%s)" (Roster.characterName c)
+    | Animate (c, clip, _, d) -> sprintf "Animate(%s,%s,%g)" (Roster.characterName c) clip d
+    | CrossFade (c, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%g)" (Roster.characterName c) f t d
+    | Morph (c, m, _, d) -> sprintf "Morph(%s,%s,%g)" (Roster.characterName c) m d
+    | CrossMorph (c, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%g)" (Roster.characterName c) f t d
+    | BlendState (c, morph, f, t, _, _, _, _, _) -> sprintf "Blend(%s,%b,%s,%s)" (Roster.characterName c) morph f t
+    | MoveActor (c, p, _, mv, idl) -> sprintf "MoveActor(%s,%s,%s,%s)" (Roster.characterName c) p mv idl
+    | MoveActorState (c, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" (Roster.characterName c)
+    | RotateActor (c, w, d) -> sprintf "RotateActor(%s,%s,%g)" (Roster.characterName c) w d
+    | RotateActorState (c, _, _, _, _) -> sprintf "RotateActor(%s)" (Roster.characterName c)
+    | EnablePlayer c -> sprintf "EnablePlayer(%s)" (Roster.characterName c)
+    | DisablePlayer c -> sprintf "DisablePlayer(%s)" (Roster.characterName c)
     | SetCamera w -> sprintf "Camera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "Fly(%s)" p
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
@@ -647,6 +658,8 @@ let ``the inline trigger editor resets when the selected trigger changes`` () =
     Assert.Equal<int list option>(None, state.Editor.TriggerCueSelection)
     Assert.Equal<int list option>(None, state.Editor.TriggerCueTextPath)
     Assert.False state.Editor.TriggerCueEditing
+    Assert.Equal<int list option>(None, state.Editor.TriggerCueTextPath2)
+    Assert.False state.Editor.TriggerCueTextEditing2
 
 [<Fact>]
 let ``the trigger inline editor keeps its own selection and text buffer`` () =
@@ -657,3 +670,33 @@ let ``the trigger inline editor keeps its own selection and text buffer`` () =
     state.Editor <- { state.Editor with CueSelection = Some [ 0 ]; TriggerCueSelection = Some [ 1 ] }
     Assert.Equal<int list option>(Some [ 0 ], state.Editor.CueSelection)
     Assert.Equal<int list option>(Some [ 1 ], state.Editor.TriggerCueSelection)
+
+[<Fact>]
+let ``the blend, motion and player ops render, and their writes replace their fields`` () =
+    let labelOf (cue: Cue) : string = (List.head (rows cue)).Label
+    Assert.Equal("Animate: Jog", labelOf (Animate(Roster.Aiko, "Jog", 1.0f, 1.0)))
+    Assert.Equal("Cross fade: Idle -> Jog", labelOf (CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal("Morph: Smile", labelOf (Morph(Roster.Aiko, "Smile", 1.0f, 1.0)))
+    Assert.Equal("Cross morph: A -> B", labelOf (CrossMorph(Roster.Aiko, "A", "B", 1.0f, 1.0)))
+    Assert.Equal("Move actor: Aiko", labelOf (MoveActor(Roster.Aiko, "route", 3.5, "Jog", "Idle")))
+    Assert.Equal("Rotate actor: Aiko", labelOf (RotateActor(Roster.Aiko, "door", 1.0)))
+    Assert.Equal("Enable player: Aiko", labelOf (EnablePlayer Roster.Aiko))
+    Assert.Equal("Disable player: Aiko", labelOf (DisablePlayer Roster.Aiko))
+
+    // the character chooser writes the character, keeping every other field
+    Assert.Equal("Animate(Akane,Jog,1)", describe (withCharacter Roster.Akane (Animate(Roster.Aiko, "Jog", 1.0f, 1.0))))
+    Assert.Equal("DisablePlayer(Akane)", describe (withCharacter Roster.Akane (DisablePlayer Roster.Aiko)))
+    // two-field ops: the first text field and the second write independently
+    Assert.Equal("CrossFade(Aiko,Walk,Jog,1)", describe (withText (CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 1.0)) "Walk"))
+    Assert.Equal("CrossFade(Aiko,Idle,Walk,1)", describe (withText2 (CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 1.0)) "Walk"))
+    Assert.Equal(ValueSome "Idle", textOf (CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal(ValueSome "Jog", textOf2 (CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 1.0)))
+    // the move's path is the waypoint writer's, and its two clips are the two text fields
+    Assert.Equal("MoveActor(Aiko,atrium,Jog,Idle)", describe (withWaypoint "atrium" (MoveActor(Roster.Aiko, "route", 3.5, "Jog", "Idle"))))
+    Assert.Equal(ValueSome "Jog", textOf (MoveActor(Roster.Aiko, "route", 3.5, "Jog", "Idle")))
+    Assert.Equal(ValueSome "Idle", textOf2 (MoveActor(Roster.Aiko, "route", 3.5, "Jog", "Idle")))
+    Assert.Equal("MoveActor(Aiko,route,Walk,Idle)", describe (withText (MoveActor(Roster.Aiko, "route", 3.5, "Jog", "Idle")) "Walk"))
+    // the rotate op names a waypoint, not a text field
+    Assert.Equal(ValueNone, textOf (RotateActor(Roster.Aiko, "door", 1.0)))
+    Assert.Equal(ValueNone, textOf2 (RotateActor(Roster.Aiko, "door", 1.0)))
+    Assert.Equal("RotateActor(Aiko,atrium,1)", describe (withWaypoint "atrium" (RotateActor(Roster.Aiko, "door", 1.0))))

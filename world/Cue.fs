@@ -5,9 +5,11 @@ module Cue
 // down to `Fin` — what is left when a cue finishes, and where it then rolls.
 //
 // The ops with no progress of their own (`Exposit`, `SetZone`, `AddZone`, `RemoveZone`, `PreloadZone`,
-// `SetActor`, `RemoveActor`, `SetCamera`, `AddAdvent`, `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
-// (`WaitState`'s deadline, `FlyCameraState`'s resolved path, the fade states' captured level). So a case suffixed `State` appears exactly
-// where the run form holds something the authored form does not — the convention the reference lineage
+// `SetActor`, `RemoveActor`, `EnablePlayer`, `DisablePlayer`, `SetCamera`, `AddAdvent`,
+// `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
+// (`WaitState`'s deadline, `FlyCameraState`'s resolved path, the fade states' captured level, `BlendState`'s
+// captured weights, `MoveActorState`'s spline, `RotateActorState`'s turn). So a case suffixed `State` appears
+// exactly where the run form holds something the authored form does not — the convention the reference lineage
 // uses (`wait` / `waitstate`), and FR-017's "a leaf op and its own state case". (`AwaitState` is the one
 // exception: it carries the same `Advent`, existing only to mark a blocking op as begun — spec 056.)
 //
@@ -66,6 +68,29 @@ type Cue =
     // cannot act on, so a cue re-runs safely.
     | SetActor of place: Place * character: Roster.Character * look: Casting.Look * waypoint: string
     | RemoveActor of character: Roster.Character
+    // The actor's animation/morph blends (spec 066): drive a slot's weight over a duration. `Animate`/`Morph`
+    // move one slot from its current weight to the target; `CrossFade`/`CrossMorph` take one out while another
+    // comes in. They resolve the actor through the index and act in her own zone, active or not — slot weights
+    // are renderer state, not part of the simulation. `BlendState` is the in-flight form, holding the captured
+    // start weights so a blend that begins part-way is correct.
+    | Animate of character: Roster.Character * clip: string * weight: float32 * duration: float
+    | CrossFade of character: Roster.Character * fromClip: string * toClip: string * weight: float32 * duration: float
+    | Morph of character: Roster.Character * morph: string * weight: float32 * duration: float
+    | CrossMorph of character: Roster.Character * fromMorph: string * toMorph: string * weight: float32 * duration: float
+    | BlendState of character: Roster.Character * morph: bool * fromName: string * toName: string * initialFrom: float32 * initialTo: float32 * target: float32 * duration: float * endsAt: float
+    // The actor's movement (spec 066): drive her body along a waypoint chain (`MoveActor`, turning to face the
+    // path and blending a moving clip to an idle clip as she arrives), or turn her in place to face a waypoint
+    // (`RotateActor`). Both are **physics-driven** and act only while her zone is the **active** one, so an
+    // obstructed move stops where the collision leaves it. Each `…State` is the in-flight form.
+    | MoveActor of character: Roster.Character * path: string * speed: float * movingClip: string * idleClip: string
+    | MoveActorState of character: Roster.Character * points: Vector3[] * speed: float * duration: float * endsAt: float * initialRotation: Quaternion * finalRotation: Quaternion * blend: float * movingClip: string * idleClip: string
+    | RotateActor of character: Roster.Character * waypoint: string * duration: float
+    | RotateActorState of character: Roster.Character * initialRotation: Quaternion * targetRotation: Quaternion * duration: float * endsAt: float
+    // The player toggle (spec 066): bind her as the zone's player — the runtime counterpart of the editor's
+    // "Set as Player", so the play-mode input drives her and the camera follows — or clear it when she is the
+    // player. No progress of their own, and a no-op on state they cannot act on.
+    | EnablePlayer of character: Roster.Character
+    | DisablePlayer of character: Roster.Character
     | SetCamera of waypoint: string
     | FlyCamera of path: string * speed: float
     | FlyCameraState of path: string * points: Vector3[] * rotations: Quaternion[] * duration: float * endsAt: float

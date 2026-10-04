@@ -142,6 +142,38 @@ let removeMorph (r: byref<ActorRender>) (name: string) : unit =
     | Some i -> do Actor.removeMorph r.MorphSlots i
     | None -> failwithf "actor asset '%s' has no morph '%s'" r.Asset.Id name
 
+// The named clip's current weight, or `None` when the asset does not define it. A clip the asset defines but
+// the instance does not yet hold reads 0 — so a blend captures where it is and can begin a clip it is not
+// already playing. This is the guard a cue's blend uses to no-op on a name the asset lacks, rather than
+// reaching the setter's raise.
+let tryClipWeight (r: byref<ActorRender>) (name: string) : float32 option =
+    let model = r.Asset.Model
+    match Actor.tryFindAnimIndex model name with
+    | None -> None
+    | Some index ->
+    let slots = r.AnimationSlots.Slots
+    let mutable weight = 0.0f
+    for i in 0 .. slots.Length - 1 do
+        let slot = slots.[i]
+        if slot.Alive && slot.Value.AnimIndex = index then weight <- slot.Value.Weight
+    Some weight
+
+// The named morph's current weight, or `None` when the asset carries no such morph (or none at all); a morph
+// the asset carries but the instance does not yet hold reads 0. The morph counterpart of `tryClipWeight`.
+let tryMorphWeight (r: byref<ActorRender>) (name: string) : float32 option =
+    match r.Asset.Morphs with
+    | None -> None
+    | Some morphs ->
+    match Array.tryFindIndex (fun n -> n = name) morphs.Names with
+    | None -> None
+    | Some index ->
+    let slots = r.MorphSlots.Slots
+    let mutable weight = 0.0f
+    for i in 0 .. slots.Length - 1 do
+        let slot = slots.[i]
+        if slot.Alive && slot.Value.MorphIndex = index then weight <- slot.Value.Weight
+    Some weight
+
 // Switch this instance to the named animation clip as a hard switch: bring the clip to
 // full weight and zero every other slot's weight, leaving the other clips held.
 // `Systems.animate` drives the player through this, unchanged; the idle↔walk cross-fade

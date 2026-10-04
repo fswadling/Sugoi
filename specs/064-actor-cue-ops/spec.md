@@ -195,7 +195,7 @@ switch) leaves the expected state.
 - **FR-009**: This feature MUST add **no** zone vocabulary (`specs/062` has it) and MUST NOT touch the
   narrative engine; it reads the runtime cast and the place's waypoints and nothing more.
 - **FR-010**: This feature MUST add **no** movement, locomotion or animation/morph op. `MoveActor`,
-  `RotateActor`, `Enable/DisableActorLocomotion`, `Animate`/`CrossFade`/`Morph`/`CrossMorph` and the
+  `RotateActor`, `Enable/DisablePlayer`, `Animate`/`CrossFade`/`Morph`/`CrossMorph` and the
   camera/interaction/trigger toggles are **deferred** to a later feature.
 - **FR-011**: The ops MUST leave a zone's player designation coherent the way an editor actor delete already
   does (`specs/016`/`045`): a designation pointing at an actor that has left is tolerated as "no player", so no

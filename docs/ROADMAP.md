@@ -306,8 +306,11 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
   which actor in the scene plays which character — landed in `specs/063-cast-index`: `ActorState.Cast`
   records the authored role and `GameplayState` indexes it by character, one character at most across
   all zones, so a cue can name an actor by who it is rather than by a slot. The actor lifecycle cue ops —
-  `SetActor` (spawn-or-move, one op) and `RemoveActor` — landed in `specs/064-actor-cue-ops`; movement,
-  locomotion and animation/morph actor ops remain deferred.
+  `SetActor` (spawn-or-move, one op) and `RemoveActor` — landed in `specs/064-actor-cue-ops`, and the rest of
+  odin's actor family in `specs/066-actor-motion-cue-ops`: the animation/morph blends (`Animate`/`CrossFade`/
+  `Morph`/`CrossMorph`), the movement ops (`MoveActor`/`RotateActor`, physics-driven and active-zone only) and
+  the player toggles (`Enable`/`DisablePlayer`, the runtime form of the editor's "Set as Player").
+  Only odin's non-actor toggles (`Enable`/`DisableCameraFollow`, `Interactions`, `Trigger`) and `Print` remain.
 - Trigger→cue wiring inline in the Inspector: a trigger owns an authored cue, drawn and edited inline, and
   forked into the screen's running cue when the trigger fires on entry (or on the interact key, when
   interactable). *(complete — `specs/058-trigger-cue`)*
@@ -471,4 +474,5 @@ steps on the one undo history (`specs/047`, `specs/049`). Wiring a trigger to a 
 of phase 10 is for, and `CueEngine.forkInto` is what it will call — as is the panel's control, which
 a trigger's cue draws unchanged. The advent cue ops (`AddAdvent`/`RemoveAdvent`/`Await`/`If`) are the
 vocabulary extension that follows, and are also `specs/055`'s deliberate scope boundary. The cast's actor
-lifecycle cue ops (`SetActor`/`RemoveActor`) are `specs/064-actor-cue-ops`. (Phase 9 is complete.)
+lifecycle cue ops (`SetActor`/`RemoveActor`) are `specs/064-actor-cue-ops`, and the rest of odin's actor family
+plus the non-actor toggles' boundary is `specs/066-actor-motion-cue-ops`. (Phase 9 is complete.)

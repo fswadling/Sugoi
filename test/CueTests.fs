@@ -116,6 +116,19 @@ let rec private describe (cue: Cue) : string =
     | PreloadZone z -> sprintf "PreloadZone(%s)" (Place.placeName z)
     | SetActor (p, c, l, w) -> sprintf "SetActor(%s,%s,%s,%s)" (Place.placeName p) (Roster.characterName c) (Casting.lookName l) w
     | RemoveActor c -> sprintf "RemoveActor(%s)" (Roster.characterName c)
+    | Animate (c, clip, _, d) -> sprintf "Animate(%s,%s,%g)" (Roster.characterName c) clip d
+    | CrossFade (c, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%g)" (Roster.characterName c) f t d
+    | Morph (c, m, _, d) -> sprintf "Morph(%s,%s,%g)" (Roster.characterName c) m d
+    | CrossMorph (c, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%g)" (Roster.characterName c) f t d
+    | BlendState (c, morph, f, t, _, _, _, _, _) ->
+        if f = t then sprintf "%s(%s,%s)" (if morph then "Morph" else "Animate") (Roster.characterName c) f
+        else sprintf "%s(%s,%s,%s)" (if morph then "CrossMorph" else "CrossFade") (Roster.characterName c) f t
+    | MoveActor (c, p, _, _, _) -> sprintf "MoveActor(%s,%s)" (Roster.characterName c) p
+    | MoveActorState (c, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" (Roster.characterName c)
+    | RotateActor (c, w, d) -> sprintf "RotateActor(%s,%s,%g)" (Roster.characterName c) w d
+    | RotateActorState (c, _, _, _, _) -> sprintf "RotateActor(%s)" (Roster.characterName c)
+    | EnablePlayer c -> sprintf "EnablePlayer(%s)" (Roster.characterName c)
+    | DisablePlayer c -> sprintf "DisablePlayer(%s)" (Roster.characterName c)
     | SetCamera w -> sprintf "SetCamera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "FlyCamera(%s)" p
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
@@ -849,6 +862,8 @@ let ``the cue resumes rather than restarts across an edit`` () =
 // spawn/remove paths run with no device — the `test/CastIndexTests.fs` shape) and a cast binding for
 // `(Aiko, SchoolUniform)`. Akane is deliberately unbound, and the other look too.
 let private actorShared () : SharedState.SharedState =
+    let anim (name: string) : Iqm.Anim =
+        { Name = name; FirstFrame = 0; NumFrames = 2; FrameRate = 24.0f; Loop = true }
     let model : Iqm.Model =
         { Meshes = [||]
           Positions = [||]
@@ -860,10 +875,12 @@ let private actorShared () : SharedState.SharedState =
           Triangles = [||]
           Joints = [||]
           Poses = [||]
-          Anims = [||]
+          Anims = [| anim "Idle"; anim "Jog" |]
           FrameChannels = [||]
           NumFrameChannels = 0
           PoseChannelOffsets = [||] }
+    let morphs : ActorAsset.ActorMorphs =
+        { Names = [| "Smile" |]; Count = 1; Buffer = Unchecked.defaultof<Gpu.Buffer> }
     let asset : ActorAsset.ActorAsset =
         { Id = "aiko"
           Name = "aiko"
@@ -871,7 +888,7 @@ let private actorShared () : SharedState.SharedState =
           Bounds = { Min = Vector3.Zero; Max = Vector3.One }
           Mesh = Unchecked.defaultof<Mesh.Mesh>
           Model = Actor.createModel model
-          Morphs = None
+          Morphs = Some morphs
           Portraits = None }
     let actors = Dictionary<string, ActorAsset.ActorAsset>()
     actors.["aiko"] <- asset
@@ -899,6 +916,30 @@ let private castRef (state: GameplayState.GameplayState) (character: Roster.Char
     match GameplayState.tryCastActor state character with
     | Some (_, ref) -> ref
     | None -> failwith "expected the character to resolve"
+
+/// Aiko placed at a waypoint in the active zone, so the blend/motion/locomotion tests start from a real actor.
+let private placeAiko (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : EntityRef =
+    let zone = GameplayState.activeZone state
+    do ignore (waypointIn zone "spawn" Vector3.Zero Quaternion.Identity)
+    state.Cue <- SetActor(mainPlace, Roster.Aiko, Casting.Look.SchoolUniform, "spawn")
+    tick shared &state 0.0
+    castRef state Roster.Aiko
+
+/// The named clip's current weight on the actor, or `None` when the asset lacks it (the reader a blend uses).
+let private clipWeight (zone: Zone.Zone) (ref: EntityRef) (name: string) : float32 option =
+    let actor = &zone.Actors.Get(handleOf ref)
+    ActorRender.tryClipWeight &actor.Renderer name
+
+/// The named morph's current weight on the actor, or `None` when the asset lacks it.
+let private morphWeight (zone: Zone.Zone) (ref: EntityRef) (name: string) : float32 option =
+    let actor = &zone.Actors.Get(handleOf ref)
+    ActorRender.tryMorphWeight &actor.Renderer name
+
+let private weightOr (fallback: float32) (weight: float32 option) : float32 =
+    match weight with Some w -> w | None -> fallback
+
+let private bodyOf (zone: Zone.Zone) (ref: EntityRef) : Physics.BodyId =
+    (zone.Actors.Get(handleOf ref)).Physics.Value.Body
 
 [<Fact>]
 let ``a set op brings a member into the named place at its waypoint and indexes her`` () =
@@ -1176,3 +1217,298 @@ let ``a sequence reports the moved-up queue even when its new front is in flight
         Assert.True state.Dialogue.Shown
         Assert.Equal("x", state.Dialogue.Text)
     | ValueNone -> Assert.Fail "expected the moved-up sequence, not nothing to change"
+
+[<Fact>]
+let ``a placed actor's facing reaches its physics body, so it survives the play sync`` () =
+    // The body is the source of truth while playing (`Systems.syncActors` copies body -> entity), so an
+    // authored facing that never reached the body would be lost the moment Play begins.
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    // a waypoint turned so its arrow points +X
+    let arrow = Quaternion.CreateFromAxisAngle(Vector3.UnitY, -MathF.PI / 2.0f)
+    do ignore (waypointIn zone "door" Vector3.Zero arrow)
+    state.Cue <- SetActor(mainPlace, Roster.Aiko, Casting.Look.SchoolUniform, "door")
+    tick shared &state 0.0
+
+    let ref = castRef state Roster.Aiko
+    let body = bodyOf zone ref
+    let entityFacing = Vector3.Transform(Vector3.UnitZ, (zone.Actors.Get(handleOf ref)).State.Base.Transform.Rotation)
+    let (_, bodyRotation) = Physics.getBodyTransform shared.Physics body
+    let bodyFacing = Vector3.Transform(Vector3.UnitZ, bodyRotation)
+    Assert.True(Vector3.Dot(entityFacing, Vector3.UnitX) > 0.999f, sprintf "expected the entity to face the waypoint's arrow, got %A" entityFacing)
+    Assert.True(Vector3.Dot(bodyFacing, Vector3.UnitX) > 0.999f, sprintf "expected the body to face it too, got %A" bodyFacing)
+
+// ══════ Actor blend ops (spec 066) ══════
+
+[<Fact>]
+let ``an animate op moves a clip's weight to the target over its duration and lands exactly`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    let zone = GameplayState.activeZone state
+    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog")) // the asset defines Jog, but she holds it at 0
+
+    state.Cue <- Animate(Roster.Aiko, "Jog", 1.0f, 2.0)
+    tick shared &state 0.0
+    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog")) // begun; the first tick writes nothing yet
+
+    tick shared &state 1.0
+    Assert.Equal(0.5f, weightOr -1.0f (clipWeight zone ref "Jog"))
+
+    tick shared &state 2.0
+    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a cross fade takes one clip out as another comes in, reaching the target at the deadline`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    let zone = GameplayState.activeZone state
+    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Idle")) // created holding Idle at full weight
+
+    state.Cue <- CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 2.0)
+    tick shared &state 0.0
+
+    tick shared &state 1.0
+    Assert.Equal(0.5f, weightOr -1.0f (clipWeight zone ref "Idle"))
+    Assert.Equal(0.5f, weightOr -1.0f (clipWeight zone ref "Jog"))
+
+    tick shared &state 2.0
+    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Idle"))
+    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a morph op blends a morph slot the same way`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    let zone = GameplayState.activeZone state
+    Assert.Equal(0.0f, weightOr -1.0f (morphWeight zone ref "Smile"))
+
+    state.Cue <- Morph(Roster.Aiko, "Smile", 1.0f, 2.0)
+    tick shared &state 0.0
+    tick shared &state 1.0
+    Assert.Equal(0.5f, weightOr -1.0f (morphWeight zone ref "Smile"))
+
+    tick shared &state 2.0
+    Assert.Equal(1.0f, weightOr -1.0f (morphWeight zone ref "Smile"))
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a blend of an unknown clip or morph name, and of a missing actor, performs nothing`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    let zone = GameplayState.activeZone state
+
+    state.Cue <- seqOf [ Animate(Roster.Aiko, "Nope", 1.0f, 1.0); Morph(Roster.Aiko, "Nope", 1.0f, 1.0); CrossFade(Roster.Aiko, "Idle", "Nope", 1.0f, 1.0); Animate(Roster.Akane, "Idle", 1.0f, 1.0) ]
+    tick shared &state 0.0
+
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Idle")) // untouched
+    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
+
+[<Fact>]
+let ``a blend is a runtime effect, not a step on the undo history`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    do ignore (placeAiko shared &state)
+    let undoBefore = List.length state.Editor.Undo.Applied
+
+    state.Cue <- Animate(Roster.Aiko, "Jog", 1.0f, 1.0)
+    tick shared &state 0.0
+    tick shared &state 1.0
+
+    Assert.Equal(undoBefore, List.length state.Editor.Undo.Applied)
+
+// ══════ Actor motion ops (spec 066) — physics-driven, active-zone only ══════
+
+[<Fact>]
+let ``a move op drives the actor along the chain and arrives at the last waypoint when unobstructed`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    let zone = GameplayState.activeZone state
+    let start = waypointIn zone "start" Vector3.Zero Quaternion.Identity
+    let mid = waypointIn zone "mid" (Vector3(2.0f, 0.0f, 0.0f)) Quaternion.Identity
+    let finish = waypointIn zone "finish" (Vector3(4.0f, 0.0f, 0.0f)) Quaternion.Identity
+    do Zone.setWaypointNext zone start (Some mid)
+    do Zone.setWaypointNext zone mid (Some finish)
+    let body = bodyOf zone ref
+
+    state.Cue <- MoveActor(Roster.Aiko, "start", 2.0, "Jog", "Idle")
+    tick shared &state 0.0
+
+    // the moving clip is preset, the idle clip off, and the op is in flight
+    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
+    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Idle"))
+
+    let dt = 0.02f
+    let mutable now = 0.0
+    while not state.Cue.IsFin && now < 5.0 do
+        do Physics.step shared.Physics dt
+        now <- now + float dt
+        tick shared &state now
+
+    Assert.Equal("Fin", describe state.Cue)
+    let (position, _) = Physics.getBodyTransform shared.Physics body
+    Assert.True(abs (position.X - 4.0f) < 0.5f, sprintf "expected the last waypoint, got %A" position)
+    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Idle")) // arrived idle
+    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
+
+[<Fact>]
+let ``a move op walks to a single waypoint and turns to face its arrow`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    let zone = GameplayState.activeZone state
+    let target = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2.0f)
+    do ignore (waypointIn zone "there" (Vector3(4.0f, 0.0f, 0.0f)) target)
+    let body = bodyOf zone ref
+
+    // a single waypoint is a straight walk from where she stands, not a no-op
+    state.Cue <- MoveActor(Roster.Aiko, "there", 2.0, "Jog", "Idle")
+    tick shared &state 0.0
+    Assert.True((match state.Cue with MoveActorState _ -> true | _ -> false), "expected the move to begin")
+
+    let dt = 0.02f
+    let mutable now = 0.0
+    while not state.Cue.IsFin && now < 5.0 do
+        do Physics.step shared.Physics dt
+        now <- now + float dt
+        tick shared &state now
+
+    Assert.Equal("Fin", describe state.Cue)
+    let (position, _) = Physics.getBodyTransform shared.Physics body
+    Assert.True(abs (position.X - 4.0f) < 0.5f, sprintf "expected the waypoint, got %A" position)
+
+[<Fact>]
+let ``a move op keeps a correctly-turned actor facing the path, not a waypoint's arrow`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    let zone = GameplayState.activeZone state
+    // the waypoint is turned to face along the path too, as the author had it
+    do ignore (waypointIn zone "ahead" (Vector3(4.0f, 0.0f, 0.0f)) (Quaternion.CreateFromAxisAngle(Vector3.UnitY, -MathF.PI / 2.0f)))
+    let facingX = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2.0f)
+    let actorAtStart = &zone.Actors.Get(handleOf ref)
+    let turned = { actorAtStart.State.Base.Transform with Rotation = facingX }
+    do Zone.setTransform zone shared.Physics ref turned
+    let body = bodyOf zone ref
+
+    state.Cue <- MoveActor(Roster.Aiko, "ahead", 2.0, "Jog", "Idle")
+    tick shared &state 0.0
+
+    let dt = 0.02f
+    let mutable now = 0.0
+    while not state.Cue.IsFin && now < 5.0 do
+        do Physics.step shared.Physics dt
+        now <- now + float dt
+        tick shared &state now
+        // she faces the path throughout — never the waypoint's default arrow
+        let (_, rotation) = Physics.getBodyTransform shared.Physics body
+        let facing = Vector3.Transform(Vector3.UnitZ, rotation)
+        Assert.True(Vector3.Dot(facing, Vector3.UnitX) > 0.999f, sprintf "expected to face along the path, got %A" facing)
+
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a rotate op turns the actor to face a waypoint over its duration`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    let zone = GameplayState.activeZone state
+    let target = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2.0f)
+    do ignore (waypointIn zone "face" Vector3.Zero target)
+    let body = bodyOf zone ref
+
+    state.Cue <- RotateActor(Roster.Aiko, "face", 1.0)
+    tick shared &state 0.0
+
+    let dt = 0.02f
+    let mutable now = 0.0
+    while now < 1.0 do
+        do Physics.step shared.Physics dt
+        now <- now + float dt
+        tick shared &state now
+
+    Assert.Equal("Fin", describe state.Cue)
+    let (_, rotation) = Physics.getBodyTransform shared.Physics body
+    // the actor's forward (local +Z) must look where the waypoint's arrow (local -Z) points
+    let facing = Vector3.Transform(Vector3.UnitZ, rotation)
+    let arrow = Vector3.Transform(-Vector3.UnitZ, target)
+    Assert.True(Vector3.Dot(facing, arrow) > 0.999f, sprintf "expected to face the waypoint's arrow %A, got %A" arrow facing)
+
+[<Fact>]
+let ``a motion op on state it cannot act on performs nothing`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    let zone = GameplayState.activeZone state
+    do ignore (waypointIn zone "lonely" Vector3.Zero Quaternion.Identity) // a chain of one
+    let before = (zone.Actors.Get(handleOf ref)).State.Base.Transform.Position
+
+    state.Cue <- seqOf [
+        MoveActor(Roster.Aiko, "missing", 1.0, "Jog", "Idle")   // unresolved path
+        MoveActor(Roster.Aiko, "lonely", 1.0, "Jog", "Idle")    // a path with no length (she is already there)
+        MoveActor(Roster.Aiko, "lonely", 0.0, "Jog", "Idle")    // non-positive speed
+        RotateActor(Roster.Aiko, "missing", 1.0)                 // unresolved waypoint
+        MoveActor(Roster.Akane, "lonely", 1.0, "Jog", "Idle") ] // missing actor
+    tick shared &state 0.0
+
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.Equal(before, (zone.Actors.Get(handleOf ref)).State.Base.Transform.Position)
+
+[<Fact>]
+let ``a motion op performs nothing when the actor's zone is not the active one`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    do ignore (placeAiko shared &state)
+
+    // make a second place present (not active) with a chain, and move her into it
+    GameplayState.addZone shared &state atriumPlace
+    GameplayState.switchZone shared &state mainPlace // `addZone` entered it; go back so the atrium is inactive
+    let atrium = state.Zones.[atriumPlace]
+    let a = waypointIn atrium "a" Vector3.Zero Quaternion.Identity
+    let b = waypointIn atrium "b" (Vector3(4.0f, 0.0f, 0.0f)) Quaternion.Identity
+    do Zone.setWaypointNext atrium a (Some b)
+    state.Cue <- SetActor(atriumPlace, Roster.Aiko, Casting.Look.SchoolUniform, "a")
+    tick shared &state 0.0
+    let ref = castRef state Roster.Aiko
+    Assert.Equal(Some (atriumPlace, ref), GameplayState.tryCastActor state Roster.Aiko)
+
+    state.Cue <- seqOf [ MoveActor(Roster.Aiko, "a", 1.0, "Jog", "Idle"); RotateActor(Roster.Aiko, "b", 1.0) ]
+    tick shared &state 0.0
+
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.Equal(Vector3.Zero, (atrium.Actors.Get(handleOf ref)).State.Base.Transform.Position)
+
+// ══════ The player toggle ops (spec 066) ══════
+
+[<Fact>]
+let ``enable player binds the actor as the zone's player and disable clears it`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    let zone = GameplayState.activeZone state
+    Assert.False(Systems.isPlayerLive zone)
+
+    state.Cue <- EnablePlayer Roster.Aiko
+    tick shared &state 0.0
+    Assert.True(Systems.isPlayerLive zone)
+    Assert.Equal(ValueSome (Systems.playerHandleOf ref), zone.Player)
+
+    state.Cue <- DisablePlayer Roster.Aiko
+    tick shared &state 0.0
+    Assert.False(Systems.isPlayerLive zone)
+
+    // a disable when she is not the player, and an op on an actor not in the scene, perform nothing
+    let undoBefore = List.length state.Editor.Undo.Applied
+    state.Cue <- seqOf [ DisablePlayer Roster.Aiko; EnablePlayer Roster.Akane ]
+    tick shared &state 0.0
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.False(Systems.isPlayerLive zone)
+    Assert.Equal(undoBefore, List.length state.Editor.Undo.Applied)

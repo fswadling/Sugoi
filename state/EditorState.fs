@@ -93,6 +93,11 @@ type EditorState =
       CueTextBuffer : byte[]
       CueTextPath : int list option
       CueTextEditing : bool
+      // A second text field for the ops that carry two editable strings (a cross-fade's two clips, a move's two
+      // clips); the buffer/path/editing above are the first field, and they follow the same re-seed rule.
+      CueTextBuffer2 : byte[]
+      CueTextPath2 : int list option
+      CueTextEditing2 : bool
       // The Inspector's inline trigger-cue editor (spec 058): which node of the selected trigger's cue is
       // selected, the trigger those fields belong to, and the reused buffer for the selected node's text. Kept
       // apart from the Cue panel's fields above so the two editors cannot share a selection or a buffer; the
@@ -102,7 +107,10 @@ type EditorState =
       TriggerCueRef : EntityRef option
       TriggerCueTextBuffer : byte[]
       TriggerCueTextPath : int list option
-      TriggerCueEditing : bool }
+      TriggerCueEditing : bool
+      TriggerCueTextBuffer2 : byte[]
+      TriggerCueTextPath2 : int list option
+      TriggerCueTextEditing2 : bool }
 
 let create () : EditorState =
     { Selection = None
@@ -127,8 +135,14 @@ let create () : EditorState =
       CueTextBuffer = Array.zeroCreate cueTextBufferSize
       CueTextPath = None
       CueTextEditing = false
+      CueTextBuffer2 = Array.zeroCreate cueTextBufferSize
+      CueTextPath2 = None
+      CueTextEditing2 = false
       TriggerCueSelection = None
       TriggerCueRef = None
       TriggerCueTextBuffer = Array.zeroCreate cueTextBufferSize
       TriggerCueTextPath = None
-      TriggerCueEditing = false }
+      TriggerCueEditing = false
+      TriggerCueTextBuffer2 = Array.zeroCreate cueTextBufferSize
+      TriggerCueTextPath2 = None
+      TriggerCueTextEditing2 = false }

@@ -52,7 +52,7 @@ renderer) and drop her index entry. When she is not in the scene, the op perform
 - **The narrative engine.** Actor ops read the game's runtime cast, not `narrative/`.
 - **The zone vocabulary.** `specs/062` owns it; this feature adds none.
 - **Movement, locomotion and animation/morph ops.** `MoveActor`, `RotateActor`,
-  `Enable/DisableActorLocomotion`, `Animate`/`CrossFade`/`Morph`/`CrossMorph` and the camera/interaction/trigger
+  `Enable/DisablePlayer`, `Animate`/`CrossFade`/`Morph`/`CrossMorph` and the camera/interaction/trigger
   toggles are deferred (spec FR-010).
 - **The player designation.** Left exactly as an editor actor delete leaves it: a stale handle is "no player"
   (`specs/016`/`045`), so no clear step is added (spec FR-011).

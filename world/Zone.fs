@@ -213,7 +213,14 @@ let capsuleCenter (transform: Transform) (collider: CapsuleCollider) : Vector3 =
     transform.Position + Vector3(0.0f, collider.HalfHeight + collider.Radius, 0.0f)
 
 let private capsuleBody (world: Physics.World) (collider: CapsuleCollider) (transform: Transform) : Physics.BodyId =
-    Physics.createCapsuleBody world (capsuleCenter transform collider) collider.HalfHeight collider.Radius
+    // `createCapsuleBody` builds at identity rotation, so the transform's facing is written onto the body here:
+    // the body is the source of truth while playing (`Systems.syncActors` copies body -> entity each frame), so
+    // without this an editor-authored (or `SetActor`-authored) rotation would be lost the moment Play begins. The
+    // actor capsule's rotation is locked (`Physics.translationOnly`), so setting it directly is what
+    // `Systems.playerInput` does too.
+    let body = Physics.createCapsuleBody world (capsuleCenter transform collider) collider.HalfHeight collider.Radius
+    do Physics.setBodyRotation world body transform.Rotation
+    body
 
 // Attach physics to an entity: derive its collider and build the body in the
 // supplied world; for props, the attachment is None when the part binding is

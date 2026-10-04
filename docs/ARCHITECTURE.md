@@ -102,6 +102,13 @@ run more than once. The cue also drives the **cast** (`specs/064-actor-cue-ops`)
 into a named place at a named waypoint — one op for a first placement and a move, and across zones, keeping
 her art — and `RemoveActor` takes her out, both resolving the member through the runtime cast index
 (`specs/063-cast-index`). Like the zone ops, each is a runtime effect and a no-op on state it cannot act on.
+A third cue family drives an actor's motion and animation (`specs/066-actor-motion-cue-ops`): the blends fade
+a clip or morph slot's weight over a duration (in the actor's own zone, active or not); the movement ops walk
+an actor along a waypoint chain or turn her in place — **physics-driven** (the op writes the body's velocity
+and facing and lets Jolt resolve it), so they act only while her zone is the active one, and an obstructed
+move stops where the collision leaves it; and the player toggles bind or clear her as the zone's player
+(the runtime form of the editor's "Set as Player"). Odin's non-actor toggles (`CameraFollow`, `Interactions`,
+`Trigger`) and `Print` remain the one deferred cue family.
 
 ## Systems
 
