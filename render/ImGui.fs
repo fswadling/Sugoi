@@ -64,6 +64,9 @@ extern void sameLine(float32 offsetFromStartX, float32 spacing)
 [<DllImport("cimgui", EntryPoint = "igText", CallingConvention = CallingConvention.Cdecl)>]
 extern void text(string fmt)
 
+[<DllImport("cimgui", EntryPoint = "igSeparator", CallingConvention = CallingConvention.Cdecl)>]
+extern void separator()
+
 [<DllImport("cimgui", EntryPoint = "igCollapsingHeader_TreeNodeFlags", CallingConvention = CallingConvention.Cdecl)>]
 extern bool collapsingHeader(string label, int flags)
 

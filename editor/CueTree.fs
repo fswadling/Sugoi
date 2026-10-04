@@ -213,11 +213,16 @@ let canAppend (path: int list) (cue: Cue) : bool =
     | Some (Sequence _) -> true
     | _ -> false
 
-/// The kinds a node can be turned into, in the order the dropdown lists them.
-let private kinds = [|
-    "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Fade out"; "Fade in"; "Exposit"; "Set zone";
-    "Add zone"; "Remove zone"; "Preload zone"; "Set camera";
-    "Fly camera"; "Set actor"; "Remove actor"; "Add advent"; "Remove advent"; "Await"; "If"
+/// The kinds a node can be turned into, grouped into categories for the dropdown, in the order it lists
+/// them. A separator divides each group; the group names label the grouping (they are not drawn).
+let private kinds : (string * string list) array = [|
+    "Structure", [ "Fin"; "Sequence"; "Parallel"; "Fork" ]
+    "Timing",    [ "Wait"; "Fade out"; "Fade in" ]
+    "Dialogue",  [ "Exposit" ]
+    "Zones",     [ "Set zone"; "Add zone"; "Remove zone"; "Preload zone" ]
+    "Actors",    [ "Set actor"; "Remove actor" ]
+    "Camera",    [ "Set camera"; "Fly camera" ]
+    "Advent",    [ "Add advent"; "Remove advent"; "Await"; "If" ]
 |]
 
 /// What the dropdown shows for a node: its authored kind. The in-flight `…State` cases show as the op they
@@ -418,9 +423,15 @@ let drawEditor
         // replaced only when the kind actually changes (the Dialogue panel's rule for its own kind combo).
         let current = kindName node
         if ImGui.beginCombo("Kind##" + idBase, current, 0) then
-            for kind in kinds do
-                if selectable kind (kind = current) && kind <> current then
-                    do commit (withAt selection (defaultOfKind kind) cue)
+            // categories: a separator divides each group, since ImGui combos have no submenus and the op
+            // list is long. (The group names in `kinds` label the grouping; only the divider is drawn.)
+            let mutable first = true
+            for (_, groupKinds) in kinds do
+                if not first then do ImGui.separator()
+                first <- false
+                for kind in groupKinds do
+                    if selectable kind (kind = current) && kind <> current then
+                        do commit (withAt selection (defaultOfKind kind) cue)
             do ImGui.endCombo()
 
         // A `…State` case is the in-flight form, so it is normally the op that is running and never reaches
