@@ -199,6 +199,9 @@ current rule set says that history currently implies.
   compile, a misspelled character is not a character, and the cast being fixed is what lets that be
   a type rather than a table to keep in step. It is asset-free — the game binds a member and a look
   to an actor asset in `world/Casting.fs`, and nothing here names a portrait, an asset or an actor.
+  The **runtime** cast (`specs/063-cast-index`) is the game's, not the roster's: an actor records the
+  character it plays (`ActorState.Cast`, authored), and `GameplayState` indexes it by `Character` — one
+  character at most across all zones — so a cue addresses an actor by who it is.
 - `narrative/Vocabulary.fs` — one closed `Event` DU (8 cases), one closed `Fact`
   DU (7 cases), `FactKind` (the constructs as a value, which is what the index and a rule's reads are
   keyed by), and `Trait = Shy | HotHeaded`. The roster is `Roster`'s rather than this module's.

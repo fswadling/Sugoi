@@ -23,6 +23,18 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     | ZoneMove (_, next) -> GameplayState.switchZone shared &state next
     | ZoneAdd (_, name) -> GameplayState.addZone shared &state name
     | ZoneDelete (_, name, _) -> GameplayState.deleteZone shared &state name
+    // An actor's existence change is also a cast-index change (spec 063): the authored `Cast` in the command's
+    // payload is what the index indexes, so the two are updated together here rather than searched for later.
+    | ActorCreate (ref, actor) ->
+        Command.apply (GameplayState.activeZone state) shared.Physics shared.Assets cmd
+        match actor.Cast with
+        | Some character -> GameplayState.addCast &state character state.ActiveZone ref
+        | None -> ()
+    | ActorDelete (_, actor) ->
+        Command.apply (GameplayState.activeZone state) shared.Physics shared.Assets cmd
+        match actor.Cast with
+        | Some character -> GameplayState.removeCast &state character
+        | None -> ()
     // A batch may mix state-level and zone-level steps (spec 061: Instantiate is a presence/active change
     // and a template load as one step), so it is dispatched here, through the state-level runner, rather
     // than delegated whole to `Command.apply` (which refuses state-level steps).
@@ -52,7 +64,23 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
         state.Zones.[name] <- Zone.create ()
         GameplayState.switchZone shared &state name
         Zone.occupyZone state.Zones.[name] shared.Physics shared.Assets contents
+        // The restored actors are back in existence, so the cast index takes them again (spec 063) — it was
+        // emptied of this place by `deleteZone` when the zone was removed.
+        for (ref, actor) in contents.Actors do
+            match actor.Cast with
+            | Some character -> GameplayState.addCast &state character name ref
+            | None -> ()
         if previous <> name then GameplayState.switchZone shared &state previous
+    | ActorCreate (_, actor) ->
+        Command.undo (GameplayState.activeZone state) shared.Physics shared.Assets cmd
+        match actor.Cast with
+        | Some character -> GameplayState.removeCast &state character
+        | None -> ()
+    | ActorDelete (ref, actor) ->
+        Command.undo (GameplayState.activeZone state) shared.Physics shared.Assets cmd
+        match actor.Cast with
+        | Some character -> GameplayState.addCast &state character state.ActiveZone ref
+        | None -> ()
     | SetCue (previous, _) -> state.Cue <- previous
     | Advent (previous, _) -> shared.Advents <- previous
     | Batch commands ->
@@ -61,8 +89,9 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
     | _ -> Command.undo (GameplayState.activeZone state) shared.Physics shared.Assets cmd
 
 /// Apply a command and push it onto the one history, clearing the redo side. The editor's write path for a zone
-/// step. (An entity edit's existing call sites apply and push themselves, onto the same field; routing them
-/// through here too would be churn with no behaviour change.)
+/// step and, since spec 063, for an entity **delete** — an actor delete changes the cast index, so it goes
+/// through the state-level runner where undo/redo do. The other entity edits still apply and push themselves
+/// onto the same field; routing them through here too would be churn with no behaviour change.
 let commit (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
     do apply shared &state cmd
     state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo cmd }

@@ -27,6 +27,9 @@
     <Compile Include="PlayerTests.fs" />
     <Compile Include="SystemsTests.fs" />
     <Compile Include="GameplayStateTests.fs" />
+    <!-- The runtime cast (spec 063): resolution, one-character uniqueness, and the index's exactness across
+         create/delete/undo/redo and zone delete/restore, driven through the real spawn path headlessly. -->
+    <Compile Include="CastIndexTests.fs" />
     <Compile Include="EnvironmentBatchTests.fs" />
 
     <!-- The cel actor shading (spec 040): the pure face-mesh rule and the face-light direction. -->

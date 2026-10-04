@@ -7,6 +7,10 @@ module Casting
 // The binding is **sparse**: it holds an entry only for a member-and-look the game has art for. That
 // entry is also the existence check — nothing declares which looks a member has, so not every member
 // needs every look, and an absent entry means "no model here" rather than an error.
+//
+// This is the **binding** half. The **runtime** half — which actor in the scene plays which character —
+// is `ActorState.Cast` (authored) plus the gameplay state's cast index, keyed by `Character` rather than
+// by a `Slot`, because the scene holds one actor per character, not one per look (spec 063).
 
 open System.Collections.Generic
 open Microsoft.FSharp.Reflection

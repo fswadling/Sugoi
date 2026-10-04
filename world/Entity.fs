@@ -132,7 +132,11 @@ type AssetBinding =
 type ActorState =
     { Base : Entity
       AssetId : string
-      ShowCollider : bool }
+      ShowCollider : bool
+      // The cast member this actor plays (spec 063): the character it is, or `None` for an actor that is not
+      // in the cast (one spawned from the asset browser). Authored, so it rides the actor commands and a
+      // zone's capture/restore; the gameplay state indexes it by character.
+      Cast : Roster.Character option }
 
 // An actor is its authored state plus the resources derived from it. They are different
 // types, so nothing recorded can hold a body or a renderer, and which half a site is

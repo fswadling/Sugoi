@@ -57,6 +57,7 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       Ui = Unchecked.defaultof<Ui.Ui>
       Dialogue = Dialogue.empty
       Zones = zones
+      Cast = Dictionary<Roster.Character, Place * EntityRef>()
       ActiveZone = Place.start
       Editor = EditorState.create ()
       Editing = true

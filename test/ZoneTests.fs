@@ -56,7 +56,8 @@ let private actor (name: string) : Actor =
     { State =
         { Base = entity name
           AssetId = "character"
-          ShowCollider = false }
+          ShowCollider = false
+          Cast = None }
       Physics = None
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 

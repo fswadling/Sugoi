@@ -19,7 +19,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do ImGui.text("Actors")
             for asset in assets.Actors.Values |> Seq.sortBy (fun a -> a.Id) do
                 if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    do Spawning.spawnActor shared &state (Spawning.baseEntity asset.Name) asset.Id
+                    do Spawning.spawnActor shared &state (Spawning.baseEntity asset.Name) asset.Id None
 
         // ── Environments ──
         if assets.Environments.Count > 0 then

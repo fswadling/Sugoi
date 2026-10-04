@@ -71,7 +71,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                 if ImGui.smallButton "Spawn" then
                     match current with
                     | Some assetId ->
-                        do Spawning.spawnActor shared &state (Spawning.baseEntity name) assetId
+                        do Spawning.spawnActor shared &state (Spawning.baseEntity name) assetId (Some character)
                     | None -> ()
 
                 do ImGui.endDisabled()

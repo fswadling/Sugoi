@@ -542,10 +542,10 @@ let removeTrigger (zone: Zone) (ref: EntityRef) : unit =
         do zone.Triggers.Free(handleOf ref)
 
 // Spawn a new actor and return the new ref (renderer + physics attached).
-let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) : EntityRef =
+let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) (cast: Roster.Character option) : EntityRef =
     let renderer = Assets.createActorRender assets assetId
     let attachment = attachActorPhysics world assets assetId entity.Transform
-    let state = { Base = entity; AssetId = assetId; ShowCollider = false }
+    let state = { Base = entity; AssetId = assetId; ShowCollider = false; Cast = cast }
     let handle = zone.Actors.Add({ State = state; Physics = attachment; Renderer = renderer })
     let ref = actorRef handle.Index handle.Generation
     do mapBody zone attachment ref
