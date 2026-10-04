@@ -157,6 +157,33 @@ let private drawWaypointCombo
                     onCommit (CueTree.withAt nodePath (CueTree.withWaypoint name node) cue)
         do ImGui.endCombo()
 
+/// The trigger toggles' trigger name, chosen from the named place's live triggers, so the name the op names
+/// resolves (`Zone.tryTriggerByName`, the resolution the engine uses). The caller reads the zone — the control
+/// names none — and the write is `CueTree.withTrigger`.
+let private drawTriggerCombo
+    (zone: Zone.Zone)
+    (idPrefix: string)
+    (nodePath: int list)
+    (node: Cue)
+    (cue: Cue)
+    (current: string)
+    (onCommit: Cue -> unit)
+    : unit =
+
+    let id = CueTree.rowId idPrefix nodePath
+    let preview = if current = "" then "(none)" else current
+    if ImGui.beginCombo("Trigger##" + id, preview, 0) then
+        let slots = zone.Triggers.Slots
+        for i in 0 .. slots.Length - 1 do
+            let slot = slots.[i]
+            if slot.Alive then
+                let name = slot.Value.State.Base.Name
+                // The slot index keeps two triggers sharing a name apart in ImGui; the *name* is what the op
+                // resolves by, so choosing either writes the same thing, as at run time.
+                if ImGui.selectableBool(name + "##trig" + id + string i, name = current, 0, ImGui.ImVec2(0.0f, 0.0f)) && name <> current then
+                    onCommit (CueTree.withAt nodePath (CueTree.withTrigger name node) cue)
+        do ImGui.endCombo()
+
 // ── the selected node's text or waypoint, whichever it carries ──
 
 /// Draw the editor for `path`'s node after `drawEditor`: the waypoint/path ops choose from the active zone's
@@ -241,6 +268,15 @@ let private drawNodeText
         | None ->
             drawText buffer textPath editing "" idPrefix path node cue current CueTree.withText onCommit, (textPath2, editing2)
     | RemoveActor _ -> (textPath, editing), (textPath2, editing2)
+    | EnableTrigger (place, current) | DisableTrigger (place, current) ->
+        // the trigger is chosen in the place the op names (the cross-zone convention); an absent place falls
+        // back to the typed field, as the set op's waypoint does
+        match zoneOfPlace place with
+        | Some placeZone ->
+            do drawTriggerCombo placeZone idPrefix path node cue current onCommit
+            (textPath, editing), (textPath2, editing2)
+        | None ->
+            drawText buffer textPath editing "" idPrefix path node cue current (fun n name -> CueTree.withTrigger name n) onCommit, (textPath2, editing2)
     | _ -> drawGenericFields ()
 
 // ── the Cue panel ──

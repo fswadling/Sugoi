@@ -4,9 +4,9 @@ module Cue
 // beside it: a cue *is* its own execution state, an immutable value that shrinks as it is stepped
 // down to `Fin` — what is left when a cue finishes, and where it then rolls.
 //
-// The ops with no progress of their own (`Exposit`, `SetZone`, `AddZone`, `RemoveZone`, `PreloadZone`,
-// `SetActor`, `RemoveActor`, `EnablePlayer`, `DisablePlayer`, `SetCamera`, `AddAdvent`,
-// `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
+// The ops with no progress of their own (`Exposit`, `Print`, `SetZone`, `AddZone`, `RemoveZone`, `PreloadZone`,
+// `SetActor`, `RemoveActor`, `EnablePlayer`, `DisablePlayer`, `EnableTrigger`, `DisableTrigger`, `SetCamera`,
+// `AddAdvent`, `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
 // (`WaitState`'s deadline, `FlyCameraState`'s resolved path, the fade states' captured level, `BlendState`'s
 // captured weights, `MoveActorState`'s spline, `RotateActorState`'s turn). So a case suffixed `State` appears
 // exactly where the run form holds something the authored form does not — the convention the reference lineage
@@ -52,6 +52,9 @@ type Cue =
     // expression is unrepresentable and a portrait line always carries both. The view resolves the
     // portrait at draw time (`world/DialogueRender.fs`); the op names a character, not an asset.
     | Exposit of text: string * kind: Dialogue.Kind
+    // Print (spec 067): a developer-facing line written to the console where the walk reaches it — a no-progress
+    // leaf, distinct from `Exposit`'s player-facing dialogue (spec 057).
+    | Print of text: string
     | SetZone of place: Place
     // The rest of the zone vocabulary (spec 062): a cue makes a declared place present (streaming its
     // template in) without entering it, makes a present place absent, and preloads a present zone's
@@ -91,6 +94,12 @@ type Cue =
     // player. No progress of their own, and a no-op on state they cannot act on.
     | EnablePlayer of character: Roster.Character
     | DisablePlayer of character: Roster.Character
+    // The trigger toggles (spec 067): arm or disarm a named trigger in a named place — the cross-zone
+    // convention (the op names a place, resolved at run time), a no-progress leaf, and a no-op on a place that
+    // is not present, a missing trigger, or a redundant toggle. The flag is authored state; the trigger system
+    // recomputes the derived runtime state on the next play tick.
+    | EnableTrigger of place: Place * trigger: string
+    | DisableTrigger of place: Place * trigger: string
     | SetCamera of waypoint: string
     | FlyCamera of path: string * speed: float
     | FlyCameraState of path: string * points: Vector3[] * rotations: Quaternion[] * duration: float * endsAt: float

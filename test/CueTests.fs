@@ -110,6 +110,7 @@ let rec private describe (cue: Cue) : string =
     | FadeOut d | FadeOutState (_, d, _) -> sprintf "FadeOut %g" d
     | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
+    | Print t -> sprintf "Print(%s)" t
     | SetZone z -> sprintf "Zone(%s)" (Place.placeName z)
     | AddZone z -> sprintf "AddZone(%s)" (Place.placeName z)
     | RemoveZone z -> sprintf "RemoveZone(%s)" (Place.placeName z)
@@ -129,6 +130,8 @@ let rec private describe (cue: Cue) : string =
     | RotateActorState (c, _, _, _, _) -> sprintf "RotateActor(%s)" (Roster.characterName c)
     | EnablePlayer c -> sprintf "EnablePlayer(%s)" (Roster.characterName c)
     | DisablePlayer c -> sprintf "DisablePlayer(%s)" (Roster.characterName c)
+    | EnableTrigger (p, t) -> sprintf "EnableTrigger(%s,%s)" (Place.placeName p) t
+    | DisableTrigger (p, t) -> sprintf "DisableTrigger(%s,%s)" (Place.placeName p) t
     | SetCamera w -> sprintf "SetCamera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "FlyCamera(%s)" p
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
@@ -1511,4 +1514,86 @@ let ``enable player binds the actor as the zone's player and disable clears it``
     tick shared &state 0.0
     Assert.Equal("Fin", describe state.Cue)
     Assert.False(Systems.isPlayerLive zone)
+    Assert.Equal(undoBefore, List.length state.Editor.Undo.Applied)
+
+// ── spec 067: the trigger toggles and print ──
+
+let private spawnTrigger (state: GameplayState.GameplayState) (name: string) : EntityRef =
+    let entity : Entity =
+        { Name = name
+          Transform = transformIdentity
+          Enabled = true
+          Visible = true
+          Selectable = true
+          Draggable = true }
+    Zone.spawnTrigger (GameplayState.activeZone state) entity
+
+let private triggerEnabled (state: GameplayState.GameplayState) (ref: EntityRef) : bool =
+    (Zone.tryTriggerAt (GameplayState.activeZone state) ref).Value.State.Base.Enabled
+
+[<Fact>]
+let ``a disable trigger op flips the flag and an enable trigger op restores it`` () =
+    let mutable state = newState ()
+    let ref = spawnTrigger state "area"
+    Assert.True(triggerEnabled state ref)
+
+    state.Cue <- DisableTrigger(mainPlace, "area")
+    tick shared &state 0.0
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.False(triggerEnabled state ref)
+
+    state.Cue <- EnableTrigger(mainPlace, "area")
+    tick shared &state 0.0
+    Assert.True(triggerEnabled state ref)
+
+[<Fact>]
+let ``a redundant toggle, a missing name and an absent place perform nothing`` () =
+    let mutable state = newState ()
+    let ref = spawnTrigger state "area"
+    state.Cue <- DisableTrigger(mainPlace, "area")
+    tick shared &state 0.0
+    Assert.False(triggerEnabled state ref)
+
+    // redundant: already disabled
+    state.Cue <- DisableTrigger(mainPlace, "area")
+    tick shared &state 0.0
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.False(triggerEnabled state ref)
+
+    // a name the place does not hold
+    state.Cue <- EnableTrigger(mainPlace, "ghost")
+    tick shared &state 0.0
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.False(triggerEnabled state ref)
+
+    // a place that is not present
+    state.Cue <- EnableTrigger(atriumPlace, "area")
+    tick shared &state 0.0
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.False(state.Zones.ContainsKey atriumPlace)
+    Assert.False(triggerEnabled state ref)
+
+[<Fact>]
+let ``a trigger op is a runtime effect, not a step on the undo history`` () =
+    let mutable state = newState ()
+    do ignore (spawnTrigger state "area")
+    let undoBefore = List.length state.Editor.Undo.Applied
+    state.Cue <- DisableTrigger(mainPlace, "area")
+    tick shared &state 0.0
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.Equal(undoBefore, List.length state.Editor.Undo.Applied)
+
+[<Fact>]
+let ``a print op is a no-progress leaf that ends the tick it is reached`` () =
+    let mutable state = withCue (seqOf [ Print "hello"; Wait 1.0 ])
+    tick shared &state 0.0
+    Assert.Equal("Seq[Wait 1]", describe state.Cue)
+
+[<Fact>]
+let ``a print op is not a step on the undo history`` () =
+    let mutable state = newState ()
+    let undoBefore = List.length state.Editor.Undo.Applied
+    state.Cue <- Print "hello"
+    tick shared &state 0.0
+    Assert.Equal("Fin", describe state.Cue)
     Assert.Equal(undoBefore, List.length state.Editor.Undo.Applied)

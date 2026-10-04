@@ -117,6 +117,10 @@ let private poseTransform (position: Vector3) (rotation: Quaternion) : Transform
 let private noOp (op: string) (character: Roster.Character) (reason: string) : unit =
     eprintfn "cue: %s(%s) performs nothing: %s" op (Roster.characterName character) reason
 
+/// The non-actor counterpart of `noOp` (spec 067): a trigger toggle names a place and a trigger, not a character.
+let private noOpTrigger (op: string) (place: Place) (trigger: string) (reason: string) : unit =
+    eprintfn "cue: %s(%s/%s) performs nothing: %s" op (Place.placeName place) trigger reason
+
 /// Detach the actor body at `ref` when the member's place is not the active one, so a member built into an
 /// inactive place does not simulate (research D5). Only the body just built is touched: `removeBody` is safe
 /// for an attached body, which is what `spawnActor`/`setTransform` always leave behind.
@@ -173,6 +177,25 @@ let private removeActor (shared: SharedState.SharedState) (state: byref<Gameplay
     | Some (memberPlace, ref) ->
     do Zone.removeActor state.Zones.[memberPlace] shared.Physics ref
     GameplayState.removeCast &state character
+
+/// Arm or disarm a named trigger in a named place (spec 067): resolve the place (absent is a no-op), the
+/// trigger (`Zone.tryTriggerByName`; a miss is a no-op) and read it; a flag that already holds is a no-op,
+/// else it is written. The trigger's derived runtime state is left to the next `Systems.updateTriggers`.
+let private setTriggerEnabled (state: byref<GameplayState.GameplayState>) (place: Place) (trigger: string) (enabled: bool) : unit =
+    let op = if enabled then "EnableTrigger" else "DisableTrigger"
+    if not (state.Zones.ContainsKey place) then
+        do noOpTrigger op place trigger (sprintf "place '%s' is not present" (Place.placeName place))
+    else
+
+    let zone = state.Zones.[place]
+    match Zone.tryTriggerByName zone trigger with
+    | None -> do noOpTrigger op place trigger (sprintf "no trigger named '%s' in '%s'" trigger (Place.placeName place))
+    | Some ref ->
+    let trigger' = Zone.captureTrigger zone ref
+    if trigger'.Base.Enabled = enabled then
+        do noOpTrigger op place trigger (if enabled then "it is already enabled" else "it is already disabled")
+    else
+    do Zone.setTrigger zone ref { trigger' with Base = { trigger'.Base with Enabled = enabled } }
 
 // ── Actor blends and motion (spec 066) ──
 
@@ -417,6 +440,9 @@ let rec advance
     | Exposit (text, kind) ->
         exposit &state text kind
         ValueSome Fin // no progress of its own: performed here and gone
+    | Print text ->
+        printfn "cue: %s" text
+        ValueSome Fin // no progress of its own: performed here and gone
     | SetZone name ->
         // a cue names where to go; a place that is not present is a no-op, not a fault (spec 062 FR-008)
         if state.Zones.ContainsKey name then GameplayState.switchZone shared &state name else ()
@@ -463,6 +489,14 @@ let rec advance
 
     | RemoveActor character ->
         do removeActor shared &state character
+        ValueSome Fin
+
+    | EnableTrigger (place, trigger) ->
+        do setTriggerEnabled &state place trigger true
+        ValueSome Fin
+
+    | DisableTrigger (place, trigger) ->
+        do setTriggerEnabled &state place trigger false
         ValueSome Fin
 
     | Animate (character, clip, weight, duration) ->

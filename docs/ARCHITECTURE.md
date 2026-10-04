@@ -107,8 +107,11 @@ a clip or morph slot's weight over a duration (in the actor's own zone, active o
 an actor along a waypoint chain or turn her in place — **physics-driven** (the op writes the body's velocity
 and facing and lets Jolt resolve it), so they act only while her zone is the active one, and an obstructed
 move stops where the collision leaves it; and the player toggles bind or clear her as the zone's player
-(the runtime form of the editor's "Set as Player"). Odin's non-actor toggles (`CameraFollow`, `Interactions`,
-`Trigger`) and `Print` remain the one deferred cue family.
+(the runtime form of the editor's "Set as Player"). The trigger toggles and `Print`
+(`specs/067-print-trigger-cue-ops`) arm or disarm a named trigger in a named place — the runtime form of the
+Inspector's checkbox, a no-op on an absent place or an already-set flag — and write a developer-facing line to
+the console. Odin's scenario ops (`InlineScenario`/`ForkScenario`/`ClearScenario`) and the camera-follow /
+interactions toggles remain the deferred cue families.
 
 ## Systems
 

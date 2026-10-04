@@ -52,9 +52,9 @@ let rec executing (cue: Cue) : bool =
     | Sequence (current, _) -> executing current
     | Parallel (left, right) -> executing left || executing right
     | Fork inner -> executing inner
-    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _
+    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | Print _ | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _
     | SetActor _ | RemoveActor _ | Animate _ | CrossFade _ | Morph _ | CrossMorph _ | MoveActor _ | RotateActor _
-    | EnablePlayer _ | DisablePlayer _
+    | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
     | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
 
 /// The name a blend shows as: `from = to` is the single-slot op, otherwise the cross-fade, and `morph` picks the
@@ -99,6 +99,9 @@ let private label (cue: Cue) : string =
         "Rotate actor: " + Roster.characterName character
     | EnablePlayer character -> "Enable player: " + Roster.characterName character
     | DisablePlayer character -> "Disable player: " + Roster.characterName character
+    | EnableTrigger (place, trigger) -> sprintf "Enable trigger: %s in %s" trigger (Place.placeName place)
+    | DisableTrigger (place, trigger) -> sprintf "Disable trigger: %s in %s" trigger (Place.placeName place)
+    | Print text -> "Print: " + text
     | SetCamera waypoint -> "Camera: " + waypoint
     | FlyCamera (path, _) | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
     | AddAdvent advent -> "Add: " + Advent.name advent
@@ -120,7 +123,8 @@ let children (cue: Cue) : Cue list =
     | Fin | Wait _ | WaitState _ | FadeOut _ | FadeIn _ | FadeOutState _ | FadeInState _ | Exposit _
     | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _ | SetActor _ | RemoveActor _ | SetCamera _
     | Animate _ | CrossFade _ | Morph _ | CrossMorph _ | BlendState _ | MoveActor _ | MoveActorState _
-    | RotateActor _ | RotateActorState _ | EnablePlayer _ | DisablePlayer _
+    | RotateActor _ | RotateActorState _ | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
+    | Print _
     | FlyCamera _ | FlyCameraState _ | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ -> []
 
 /// Every row of the cue as the panel shows it, in display order: a row per container with its children
@@ -251,6 +255,8 @@ let private kinds : (string * string list) array = [|
     "Animation", [ "Animate"; "Cross fade"; "Morph"; "Cross morph" ]
     "Camera",    [ "Set camera"; "Fly camera" ]
     "Advent",    [ "Add advent"; "Remove advent"; "Await"; "If" ]
+    "Triggers",  [ "Enable trigger"; "Disable trigger" ]
+    "Debug",     [ "Print" ]
 |]
 
 /// What the dropdown shows for a node: its authored kind. The in-flight `…State` cases show as the op they
@@ -265,6 +271,7 @@ let private kindName (cue: Cue) : string =
     | FadeOut _ | FadeOutState _ -> "Fade out"
     | FadeIn _ | FadeInState _ -> "Fade in"
     | Exposit _ -> "Exposit"
+    | Print _ -> "Print"
     | SetZone _ -> "Set zone"
     | AddZone _ -> "Add zone"
     | RemoveZone _ -> "Remove zone"
@@ -280,6 +287,8 @@ let private kindName (cue: Cue) : string =
     | RotateActor _ | RotateActorState _ -> "Rotate actor"
     | EnablePlayer _ -> "Enable player"
     | DisablePlayer _ -> "Disable player"
+    | EnableTrigger _ -> "Enable trigger"
+    | DisableTrigger _ -> "Disable trigger"
     | SetCamera _ -> "Set camera"
     | FlyCamera _ | FlyCameraState _ -> "Fly camera"
     | AddAdvent _ -> "Add advent"
@@ -304,6 +313,7 @@ let private defaultOfKind (kind: string) : Cue =
     | "Fade out" -> FadeOut 1.0
     | "Fade in" -> FadeIn 1.0
     | "Exposit" -> Exposit("", Dialogue.Kind.Dialogue)
+    | "Print" -> Print ""
     | "Set zone" -> SetZone Place.start
     | "Add zone" -> AddZone Place.start
     | "Remove zone" -> RemoveZone Place.start
@@ -314,6 +324,8 @@ let private defaultOfKind (kind: string) : Cue =
     | "Rotate actor" -> RotateActor(List.head Roster.characters, "", 1.0)
     | "Enable player" -> EnablePlayer(List.head Roster.characters)
     | "Disable player" -> DisablePlayer(List.head Roster.characters)
+    | "Enable trigger" -> EnableTrigger(Place.start, "")
+    | "Disable trigger" -> DisableTrigger(Place.start, "")
     | "Animate" -> Animate(List.head Roster.characters, "Idle", 1.0f, 1.0)
     | "Cross fade" -> CrossFade(List.head Roster.characters, "Idle", "Jog", 1.0f, 1.0)
     | "Morph" -> Morph(List.head Roster.characters, "", 1.0f, 1.0)
@@ -335,6 +347,7 @@ let private defaultOfKind (kind: string) : Cue =
 let textOf (cue: Cue) : string voption =
     match cue with
     | Exposit (text, _) -> ValueSome text
+    | Print text -> ValueSome text
     | SetActor (_, _, _, waypoint) -> ValueSome waypoint
     | Animate (_, clip, _, _) -> ValueSome clip
     | CrossFade (_, fromClip, _, _, _) -> ValueSome fromClip
@@ -358,6 +371,7 @@ let textOf2 (cue: Cue) : string voption =
 let withText (cue: Cue) (text: string) : Cue =
     match cue with
     | Exposit (_, kind) -> Exposit(text, kind)
+    | Print _ -> Print text
     | SetActor (place, character, look, _) -> SetActor(place, character, look, text)
     | Animate (character, _, weight, duration) -> Animate(character, text, weight, duration)
     | CrossFade (character, _, toClip, weight, duration) -> CrossFade(character, text, toClip, weight, duration)
@@ -387,6 +401,14 @@ let withWaypoint (name: string) (cue: Cue) : Cue =
     | RotateActor (character, _, duration) -> RotateActor(character, name, duration)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no waypoint" (label cue))
 
+/// The node with its trigger name replaced — the write the trigger chooser commits. Only the trigger toggles
+/// carry one.
+let withTrigger (name: string) (cue: Cue) : Cue =
+    match cue with
+    | EnableTrigger (place, _) -> EnableTrigger(place, name)
+    | DisableTrigger (place, _) -> DisableTrigger(place, name)
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no trigger" (label cue))
+
 /// The node with its presentation replaced — the write the choosers commit. Only an exposit carries one, and a
 /// caller that reaches for it on anything else is a bug (`Principle II`), as `withText` is.
 let withExpositKind (kind: Dialogue.Kind) (cue: Cue) : Cue =
@@ -413,6 +435,8 @@ let withPlace (place: Place) (cue: Cue) : Cue =
     | RemoveZone _ -> RemoveZone place
     | PreloadZone _ -> PreloadZone place
     | SetActor (_, character, look, waypoint) -> SetActor(place, character, look, waypoint)
+    | EnableTrigger (_, trigger) -> EnableTrigger(place, trigger)
+    | DisableTrigger (_, trigger) -> DisableTrigger(place, trigger)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no place" (label cue))
 
 /// The node with its character replaced — the write the character chooser commits. Both actor ops carry one;
@@ -668,9 +692,17 @@ let drawEditor
             // only the character; the op is otherwise fixed
             do characterCombo character node
 
-        | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | FlyCameraState _ | BlendState _ | MoveActorState _ | RotateActorState _ ->
-            // no numbers of their own. `SetCamera` carries text (the caller's field edits it) and a `FlyCamera`
-            // carries its path and speed above; a zone op's place is chosen above.
+        | EnableTrigger (place, _) | DisableTrigger (place, _) ->
+            // the place, chosen from the closed set; the trigger name is the caller's field (`CueEditor`)
+            if ImGui.beginCombo("Place##" + idBase, Place.placeName place, 0) then
+                for candidate in Place.all do
+                    if selectable (Place.placeName candidate) (candidate = place) && candidate <> place then
+                        do commit (withAt selection (withPlace candidate node) cue)
+                do ImGui.endCombo()
+
+        | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | Print _ | FlyCameraState _ | BlendState _ | MoveActorState _ | RotateActorState _ ->
+            // no numbers of their own. `SetCamera` and `Print` carry text (the caller's field edits it) and a
+            // `FlyCamera` carries its path and speed above; a zone op's place is chosen above.
             ()
 
     // ── Add Child: the one container that takes one, whether or not it is running ──

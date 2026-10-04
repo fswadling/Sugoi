@@ -49,6 +49,7 @@ let rec private describe (cue: Cue) : string =
     | FadeOut d | FadeOutState (_, d, _) -> sprintf "FadeOut %g" d
     | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
+    | Print t -> sprintf "Print(%s)" t
     | SetZone z -> sprintf "Zone(%s)" (Place.placeName z)
     | AddZone z -> sprintf "AddZone(%s)" (Place.placeName z)
     | RemoveZone z -> sprintf "RemoveZone(%s)" (Place.placeName z)
@@ -66,6 +67,8 @@ let rec private describe (cue: Cue) : string =
     | RotateActorState (c, _, _, _, _) -> sprintf "RotateActor(%s)" (Roster.characterName c)
     | EnablePlayer c -> sprintf "EnablePlayer(%s)" (Roster.characterName c)
     | DisablePlayer c -> sprintf "DisablePlayer(%s)" (Roster.characterName c)
+    | EnableTrigger (p, t) -> sprintf "EnableTrigger(%s,%s)" (Place.placeName p) t
+    | DisableTrigger (p, t) -> sprintf "DisableTrigger(%s,%s)" (Place.placeName p) t
     | SetCamera w -> sprintf "Camera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "Fly(%s)" p
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
@@ -700,3 +703,25 @@ let ``the blend, motion and player ops render, and their writes replace their fi
     Assert.Equal(ValueNone, textOf (RotateActor(Roster.Aiko, "door", 1.0)))
     Assert.Equal(ValueNone, textOf2 (RotateActor(Roster.Aiko, "door", 1.0)))
     Assert.Equal("RotateActor(Aiko,atrium,1)", describe (withWaypoint "atrium" (RotateActor(Roster.Aiko, "door", 1.0))))
+
+[<Fact>]
+let ``the trigger toggles and print render, and their writes replace their fields`` () =
+    let labelOf (cue: Cue) : string = (List.head (rows cue)).Label
+    let enable = EnableTrigger(Place.Island, "door")
+    Assert.Equal("Enable trigger: door in Island", labelOf enable)
+    Assert.Equal("Disable trigger: gate in Island", labelOf (DisableTrigger(Place.Island, "gate")))
+    Assert.Equal("Print: chapter 1", labelOf (Print "chapter 1"))
+
+    // the place chooser and the trigger-name chooser are separate writes; each keeps the rest
+    Assert.Equal(sprintf "EnableTrigger(%s,door)" (Place.placeName Place.start), describe (withPlace Place.start enable))
+    Assert.Equal("EnableTrigger(Island,atrium)", describe (withTrigger "atrium" enable))
+    Assert.Equal(sprintf "DisableTrigger(%s,gate)" (Place.placeName Place.start), describe (withPlace Place.start (DisableTrigger(Place.Island, "gate"))))
+    Assert.Equal("DisableTrigger(Island,hall)", describe (withTrigger "hall" (DisableTrigger(Place.Island, "gate"))))
+    // the toggle carries no text field: its name is the trigger chooser's
+    Assert.Equal(ValueNone, textOf enable)
+    Assert.True(raises (fun () -> withTrigger "x" (Wait 1.0) |> ignore))
+    Assert.True(raises (fun () -> withPlace Place.start (Print "x") |> ignore))
+
+    // print is a plain text field, and its kind round-trips
+    Assert.Equal(ValueSome "chapter 1", textOf (Print "chapter 1"))
+    Assert.Equal("Print(intro)", describe (withText (Print "chapter 1") "intro"))

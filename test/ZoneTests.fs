@@ -451,6 +451,21 @@ let ``a spawned trigger resolves with the default shape and no binding`` () =
     Assert.False(trigger.Triggered)
 
 [<Fact>]
+let ``tryTriggerByName finds the first live trigger with a matching name`` () =
+    let zone = Zone.create ()
+    let first = Zone.spawnTrigger zone (entity "area")
+    let second = Zone.spawnTrigger zone (entity "area")
+    let other = Zone.spawnTrigger zone (entity "hall")
+
+    Assert.Equal<EntityRef option>(Some first, Zone.tryTriggerByName zone "area") // first match wins
+    Assert.Equal<EntityRef option>(Some other, Zone.tryTriggerByName zone "hall")
+    Assert.Equal<EntityRef option>(None, Zone.tryTriggerByName zone "ghost")
+
+    // a removed trigger is no longer found; the next with that name is
+    Zone.removeTrigger zone first
+    Assert.Equal<EntityRef option>(Some second, Zone.tryTriggerByName zone "area")
+
+[<Fact>]
 let ``setTrigger, setName and setTransform all work on a trigger`` () =
     let zone = Zone.create ()
     let world = Physics.create ()

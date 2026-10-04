@@ -680,6 +680,19 @@ let setTrigger (zone: Zone) (ref: EntityRef) (state: TriggerState) : unit =
     let slot = &zone.Triggers.Get(handleOf ref)
     slot <- { slot with State = state }
 
+// The first live trigger named `name`, in slot order, or None. Names are not required to be unique: the
+// first match wins, deterministically. Used by the cue's trigger ops to resolve the trigger an author names
+// (`world/CueEngine.fs`).
+let tryTriggerByName (zone: Zone) (name: string) : EntityRef option =
+    let slots = zone.Triggers.Slots
+    let mutable found = None
+    for i in 0 .. slots.Length - 1 do
+        if found.IsNone then
+            let slot = &slots.[i]
+            if slot.Alive && slot.Value.State.Base.Name = name then
+                found <- Some (triggerRef (uint32 i) slot.Generation)
+    found
+
 // ── Environment parts ──
 //
 // A swap tears down the outgoing parts' bodies/renderers and rebuilds the incoming
