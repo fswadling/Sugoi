@@ -95,6 +95,80 @@ let private stepFade (state: byref<GameplayState.GameplayState>) (initial: float
         state.Fade <- initial + float32 t * (target - initial)
         false
 
+// ── Actor ops (spec 064) ──
+
+/// A waypoint's pose — position and rotation — or `None` when the name does not resolve in the zone. A set
+/// op is a no-op without a waypoint to place the actor at (spec 064 FR-006).
+let private waypointPose (zone: Zone.Zone) (name: string) : (Vector3 * Quaternion) option =
+    match Zone.tryWaypointByName zone name with
+    | Some ref ->
+        match Zone.tryEntityAt zone ref with
+        | Some e -> Some (e.Transform.Position, e.Transform.Rotation)
+        | None -> None
+    | None -> None
+
+/// A placement transform from a waypoint's pose: position and facing, scale untouched.
+let private poseTransform (position: Vector3) (rotation: Quaternion) : Transform =
+    { transformIdentity with Position = position; Rotation = rotation }
+
+/// Detach the actor body at `ref` when the member's place is not the active one, so a member built into an
+/// inactive place does not simulate (research D5). Only the body just built is touched: `removeBody` is safe
+/// for an attached body, which is what `spawnActor`/`setTransform` always leave behind.
+let private detachIfInactive (world: Physics.World) (place: Place) (active: Place) (zone: Zone.Zone) (ref: EntityRef) : unit =
+    if place <> active && zone.Actors.IsAlive(handleOf ref) then
+        let actor = &zone.Actors.Get(handleOf ref)
+        match actor.Physics with
+        | Some ph when Physics.isAdded world ph.Body -> do Physics.removeBody world ph.Body
+        | _ -> ()
+
+/// Bring `character` into `place` and place her at `transform`: the unified set (spec 064 FR-002, research
+/// D3). A member already in the place is moved; one elsewhere is moved across zones keeping her own art; one
+/// nowhere is spawned from the cast binding for `look`.
+let private setActor
+    (shared: SharedState.SharedState)
+    (state: byref<GameplayState.GameplayState>)
+    (place: Place)
+    (character: Roster.Character)
+    (look: Casting.Look)
+    (transform: Transform) : unit =
+    let zone = state.Zones.[place]
+    match GameplayState.tryCastActor state character with
+    | Some (oldPlace, oldRef) when oldPlace <> place ->
+        // Move her across zones: her art is her own, so the op's look is not consulted (spec 064 FR-004).
+        let oldZone = state.Zones.[oldPlace]
+        let actor = Zone.captureActor oldZone oldRef
+        do Zone.removeActor oldZone shared.Physics oldRef
+        GameplayState.removeCast &state character
+        let entity = { actor.Base with Transform = transform }
+        let ref = Zone.spawnActor zone shared.Physics shared.Assets entity actor.AssetId (Some character)
+        do Zone.setShowCollider zone ref actor.ShowCollider
+        do detachIfInactive shared.Physics place state.ActiveZone zone ref
+        GameplayState.addCast &state character place ref
+    | Some (_, ref) ->
+        // Already in this place: the same actor, placed (spec 064 FR-002).
+        do Zone.setTransform zone shared.Physics ref transform
+        do detachIfInactive shared.Physics place state.ActiveZone zone ref
+    | None ->
+        let slot : Casting.Slot = { Character = character; Look = look }
+        match Casting.tryAsset slot shared.Cast with
+        | None -> () // no art for the look: nothing (spec 064 FR-004)
+        | Some assetId ->
+        let entity = baseEntity (Roster.characterName character) transform
+        let ref = Zone.spawnActor zone shared.Physics shared.Assets entity assetId (Some character)
+        do detachIfInactive shared.Physics place state.ActiveZone zone ref
+        GameplayState.addCast &state character place ref
+
+/// Take `character` out of the scene, wherever the cast index says she is (spec 064 FR-003). A character not
+/// in the scene is untouched. No place is named: the index is global and one character is at most one actor,
+/// so the place is already known.
+let private removeActor (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (character: Roster.Character) : unit =
+    match GameplayState.tryCastActor state character with
+    | None -> ()
+    | Some (memberPlace, ref) ->
+    do Zone.removeActor state.Zones.[memberPlace] shared.Physics ref
+    GameplayState.removeCast &state character
+
+
 // ── The engine — a cue in, the cue as it now stands out ──
 
 /// Advance a cue one tick, performing each op's effect where the walk reaches it.
@@ -146,6 +220,20 @@ let rec advance
             | Some template -> GameplayState.populateZone shared &state name template
             | None -> ()
         ValueSome Fin
+
+    | SetActor (place, character, look, waypoint) ->
+        // a place that is not present, or a waypoint the place does not hold, is a no-op (spec 064 FR-006)
+        if state.Zones.ContainsKey place then
+            let zone = state.Zones.[place]
+            match waypointPose zone waypoint with
+            | Some (position, rotation) -> do setActor shared &state place character look (poseTransform position rotation)
+            | None -> ()
+        ValueSome Fin
+
+    | RemoveActor character ->
+        do removeActor shared &state character
+        ValueSome Fin
+
     | Wait seconds -> ValueSome(beginWait now seconds)
     | WaitState (_, endsAt) ->
         if now >= endsAt then ValueSome Fin else ValueNone // not due yet: nothing to change
@@ -185,18 +273,19 @@ let rec advance
             do setCamera &state points.[points.Length - 1] rotations.[rotations.Length - 1]
             ValueSome Fin
         else
-            do setCamera &state points.[0] rotations.[0] // cut to the path's start as the flight begins
-            ValueSome(FlyCameraState(path, points, rotations, duration, now + duration))
+
+        do setCamera &state points.[0] rotations.[0] // cut to the path's start as the flight begins
+        ValueSome(FlyCameraState(path, points, rotations, duration, now + duration))
 
     | FlyCameraState (_, points, rotations, duration, endsAt) ->
         if now >= endsAt then
             do setCamera &state points.[points.Length - 1] rotations.[rotations.Length - 1]
             ValueSome Fin
         else
-            // only the camera moves while the flight runs: no new cue to hand back, and no allocation
-            let t = (now - (endsAt - duration)) / duration
-            do setCamera &state (evalSpline points t) (evalRotation rotations t)
-            ValueNone
+        // only the camera moves while the flight runs: no new cue to hand back, and no allocation
+        let t = (now - (endsAt - duration)) / duration
+        do setCamera &state (evalSpline points t) (evalRotation rotations t)
+        ValueNone
 
     | AddAdvent advent ->
         shared.Advents <- Set.add advent shared.Advents

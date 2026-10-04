@@ -86,6 +86,17 @@ type Entity =
       Selectable : bool
       Draggable : bool }
 
+// The base entity every spawned entity starts from: a name, a transform, and the four editor flags the
+// panels author. `Spawning.baseEntity`, `Outliner.newEntity` and the cue's actor ops all build from here,
+// so the literal exists once (spec 064).
+let baseEntity (name: string) (transform: Transform) : Entity =
+    { Name = name
+      Transform = transform
+      Enabled = true
+      Visible = true
+      Selectable = true
+      Draggable = true }
+
 // Collider shape data kept on an entity so a transform change can rebuild the
 // body without re-reading the asset. Props/environment parts always collide as
 // mesh geometry and actors always as a capsule, so each entity stores only its

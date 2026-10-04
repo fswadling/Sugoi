@@ -98,7 +98,10 @@ as an entity edit. A cue drives the same world from its zone ops (`specs/062-zon
 declared place present — streaming its registered template in without entering it — makes a present place
 absent, and preloads a present zone's environment so the later switch is instant. A cue zone change is a
 runtime effect (not an undo step), and each op is a no-op on a place it cannot act on, so a cue is safe to
-run more than once.
+run more than once. The cue also drives the **cast** (`specs/064-actor-cue-ops`): `SetActor` brings a member
+into a named place at a named waypoint — one op for a first placement and a move, and across zones, keeping
+her art — and `RemoveActor` takes her out, both resolving the member through the runtime cast index
+(`specs/063-cast-index`). Like the zone ops, each is a runtime effect and a no-op on state it cannot act on.
 
 ## Systems
 

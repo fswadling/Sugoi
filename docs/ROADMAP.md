@@ -305,7 +305,9 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
   asset binding are `world/Casting.fs`, and the panel is `editor/CastPanel.fs`. The **runtime** half —
   which actor in the scene plays which character — landed in `specs/063-cast-index`: `ActorState.Cast`
   records the authored role and `GameplayState` indexes it by character, one character at most across
-  all zones, so a cue can name an actor by who it is rather than by a slot.
+  all zones, so a cue can name an actor by who it is rather than by a slot. The actor lifecycle cue ops —
+  `SetActor` (spawn-or-move, one op) and `RemoveActor` — landed in `specs/064-actor-cue-ops`; movement,
+  locomotion and animation/morph actor ops remain deferred.
 - Trigger→cue wiring inline in the Inspector: a trigger owns an authored cue, drawn and edited inline, and
   forked into the screen's running cue when the trigger fires on entry (or on the interact key, when
   interactable). *(complete — `specs/058-trigger-cue`)*
@@ -468,5 +470,5 @@ vocabulary and the run, shrinking to `Fin`) and `world/CueEngine.fs` (`advance` 
 steps on the one undo history (`specs/047`, `specs/049`). Wiring a trigger to a cue is what the rest
 of phase 10 is for, and `CueEngine.forkInto` is what it will call — as is the panel's control, which
 a trigger's cue draws unchanged. The advent cue ops (`AddAdvent`/`RemoveAdvent`/`Await`/`If`) are the
-vocabulary extension that follows, and are also `specs/055`'s deliberate scope boundary. (Phase 9 is
-complete.)
+vocabulary extension that follows, and are also `specs/055`'s deliberate scope boundary. The cast's actor
+lifecycle cue ops (`SetActor`/`RemoveActor`) are `specs/064-actor-cue-ops`. (Phase 9 is complete.)

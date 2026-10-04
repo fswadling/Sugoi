@@ -52,7 +52,7 @@ let rec executing (cue: Cue) : bool =
     | Sequence (current, _) -> executing current
     | Parallel (left, right) -> executing left || executing right
     | Fork inner -> executing inner
-    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _ | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
+    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _ | SetActor _ | RemoveActor _ | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
 
 /// What a row says. A leaf in flight is shown as the op it came from — a `WaitState` as its `Wait` — because
 /// the view is what is left to run, never an internal state's name (`FR-004`).
@@ -71,6 +71,9 @@ let private label (cue: Cue) : string =
     | AddZone place -> "Add zone: " + Place.placeName place
     | RemoveZone place -> "Remove zone: " + Place.placeName place
     | PreloadZone place -> "Preload zone: " + Place.placeName place
+    | SetActor (place, character, look, waypoint) ->
+        sprintf "Set actor: %s/%s in %s @ %s" (Roster.characterName character) (Casting.lookName look) (Place.placeName place) waypoint
+    | RemoveActor character -> sprintf "Remove actor: %s" (Roster.characterName character)
     | SetCamera waypoint -> "Camera: " + waypoint
     | FlyCamera (path, _) | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
     | AddAdvent advent -> "Add: " + Advent.name advent
@@ -90,8 +93,8 @@ let children (cue: Cue) : Cue list =
     | Fork inner -> [ inner ]
     | If (_, thenCue, elseCue) -> [ thenCue; elseCue ]
     | Fin | Wait _ | WaitState _ | FadeOut _ | FadeIn _ | FadeOutState _ | FadeInState _ | Exposit _
-    | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _ | SetCamera _ | FlyCamera _ | FlyCameraState _
-    | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ -> []
+    | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _ | SetActor _ | RemoveActor _ | SetCamera _
+    | FlyCamera _ | FlyCameraState _ | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ -> []
 
 /// Every row of the cue as the panel shows it, in display order: a row per container with its children
 /// indented beneath it, the queue behind a running op in its own order, and `Fin` its own row. An `If`'s two
@@ -214,7 +217,7 @@ let canAppend (path: int list) (cue: Cue) : bool =
 let private kinds = [|
     "Fin"; "Sequence"; "Parallel"; "Fork"; "Wait"; "Fade out"; "Fade in"; "Exposit"; "Set zone";
     "Add zone"; "Remove zone"; "Preload zone"; "Set camera";
-    "Fly camera"; "Add advent"; "Remove advent"; "Await"; "If"
+    "Fly camera"; "Set actor"; "Remove actor"; "Add advent"; "Remove advent"; "Await"; "If"
 |]
 
 /// What the dropdown shows for a node: its authored kind. The in-flight `…State` cases show as the op they
@@ -233,6 +236,8 @@ let private kindName (cue: Cue) : string =
     | AddZone _ -> "Add zone"
     | RemoveZone _ -> "Remove zone"
     | PreloadZone _ -> "Preload zone"
+    | SetActor _ -> "Set actor"
+    | RemoveActor _ -> "Remove actor"
     | SetCamera _ -> "Set camera"
     | FlyCamera _ | FlyCameraState _ -> "Fly camera"
     | AddAdvent _ -> "Add advent"
@@ -261,6 +266,8 @@ let private defaultOfKind (kind: string) : Cue =
     | "Add zone" -> AddZone Place.start
     | "Remove zone" -> RemoveZone Place.start
     | "Preload zone" -> PreloadZone Place.start
+    | "Set actor" -> SetActor(Place.start, List.head Roster.characters, List.head Casting.allLooks, "")
+    | "Remove actor" -> RemoveActor(List.head Roster.characters)
     | "Set camera" -> SetCamera ""
     | "Add advent" -> AddAdvent defaultAdvent
     | "Remove advent" -> RemoveAdvent defaultAdvent
@@ -278,6 +285,7 @@ let private defaultOfKind (kind: string) : Cue =
 let textOf (cue: Cue) : string voption =
     match cue with
     | Exposit (text, _) -> ValueSome text
+    | SetActor (_, _, _, waypoint) -> ValueSome waypoint
     | SetCamera waypoint -> ValueSome waypoint
     | FlyCamera (path, _) -> ValueSome path
     | _ -> ValueNone
@@ -286,6 +294,7 @@ let textOf (cue: Cue) : string voption =
 let withText (cue: Cue) (text: string) : Cue =
     match cue with
     | Exposit (_, kind) -> Exposit(text, kind)
+    | SetActor (place, character, look, _) -> SetActor(place, character, look, text)
     | SetCamera _ -> SetCamera text
     | FlyCamera (_, speed) -> FlyCamera(text, speed)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no text" (label cue))
@@ -315,7 +324,22 @@ let withPlace (place: Place) (cue: Cue) : Cue =
     | AddZone _ -> AddZone place
     | RemoveZone _ -> RemoveZone place
     | PreloadZone _ -> PreloadZone place
+    | SetActor (_, character, look, waypoint) -> SetActor(place, character, look, waypoint)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no place" (label cue))
+
+/// The node with its character replaced — the write the character chooser commits. Both actor ops carry one;
+/// the set op's look is kept.
+let withCharacter (character: Roster.Character) (cue: Cue) : Cue =
+    match cue with
+    | SetActor (place, _, look, waypoint) -> SetActor(place, character, look, waypoint)
+    | RemoveActor _ -> RemoveActor character
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no character" (label cue))
+
+/// The node with its look replaced — the write the look chooser commits. Only the set op carries one.
+let withLook (look: Casting.Look) (cue: Cue) : Cue =
+    match cue with
+    | SetActor (place, character, _, waypoint) -> SetActor(place, character, look, waypoint)
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no look" (label cue))
 
 // ── the drawing ──
 
@@ -471,6 +495,33 @@ let drawEditor
                 for candidate in Place.all do
                     if selectable (Place.placeName candidate) (candidate = place) && candidate <> place then
                         do commit (withAt selection (withPlace candidate node) cue)
+                do ImGui.endCombo()
+
+        | SetActor (place, character, look, _) ->
+            // the place, the character and the look are all closed sets, so the control offers them with no
+            // zone or asset read (FR-006); the waypoint it names is edited by the caller's field (`CueEditor`).
+            if ImGui.beginCombo("Place##" + idBase, Place.placeName place, 0) then
+                for candidate in Place.all do
+                    if selectable (Place.placeName candidate) (candidate = place) && candidate <> place then
+                        do commit (withAt selection (withPlace candidate node) cue)
+                do ImGui.endCombo()
+            if ImGui.beginCombo("Character##" + idBase, Roster.characterName character, 0) then
+                for candidate in Roster.characters do
+                    if selectable (Roster.characterName candidate) (candidate = character) && candidate <> character then
+                        do commit (withAt selection (withCharacter candidate node) cue)
+                do ImGui.endCombo()
+            if ImGui.beginCombo("Look##" + idBase, Casting.lookName look, 0) then
+                for candidate in Casting.allLooks do
+                    if selectable (Casting.lookName candidate) (candidate = look) && candidate <> look then
+                        do commit (withAt selection (withLook candidate node) cue)
+                do ImGui.endCombo()
+
+        | RemoveActor character ->
+            // no place: the runtime cast index knows where she is, so removal names the character alone.
+            if ImGui.beginCombo("Character##" + idBase, Roster.characterName character, 0) then
+                for candidate in Roster.characters do
+                    if selectable (Roster.characterName candidate) (candidate = character) && candidate <> character then
+                        do commit (withAt selection (withCharacter candidate node) cue)
                 do ImGui.endCombo()
 
         | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | FlyCameraState _ ->

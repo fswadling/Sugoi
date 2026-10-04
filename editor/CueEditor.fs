@@ -121,6 +121,7 @@ let private drawWaypointCombo
 /// executing — only the two in-flight leaves are — so this needs no lock check (`CueTree.textOf` says so).
 let private drawNodeText
     (zone: Zone.Zone)
+    (zoneOfPlace: Place.Place -> Zone.Zone option)
     (buffer: byte[])
     (textPath: int list option)
     (editing: bool)
@@ -135,6 +136,18 @@ let private drawNodeText
     | SetCamera current | FlyCamera (current, _) ->
         do drawWaypointCombo zone idPrefix path node cue current onCommit
         textPath, editing
+    | SetActor (place, _, _, current) ->
+        // The set op names a waypoint in its **own** place, which may not be the active zone, so the combo is
+        // offered from that place's zone when it is present; an absent place falls back to the typed field.
+        match zoneOfPlace place with
+        | Some placeZone ->
+            do drawWaypointCombo placeZone idPrefix path node cue current onCommit
+            textPath, editing
+        | None ->
+            match CueTree.textOf node with
+            | ValueSome text -> drawText buffer textPath editing idPrefix path node cue text onCommit
+            | ValueNone -> textPath, editing
+    | RemoveActor _ -> textPath, editing
     | _ ->
         match CueTree.textOf node with
         | ValueSome current -> drawText buffer textPath editing idPrefix path node cue current onCommit
@@ -150,6 +163,12 @@ let draw (state: byref<GameplayState.GameplayState>) : unit =
     let cue = state.Cue
     let idPrefix = "cue"
     let zone = GameplayState.activeZone state
+    // The set op reads its *own* place's zone for the waypoint chooser; the dict is captured, not the byref.
+    let zones = state.Zones
+    let zoneOfPlace (place: Place.Place) : Zone.Zone option =
+        match zones.TryGetValue place with
+        | true, z -> Some z
+        | false, _ -> None
 
     // ── the tree, then the selected node's editor ──
     // An edit accepted here shows in the tree next frame; the tree above the click does not move, so the lag
@@ -177,7 +196,7 @@ let draw (state: byref<GameplayState.GameplayState>) : unit =
             | Some node ->
                 let mutable textPending : Cue option = None
                 let (path'', editing) =
-                    drawNodeText zone state.Editor.CueTextBuffer state.Editor.CueTextPath state.Editor.CueTextEditing idPrefix path' node state.Cue (fun next -> textPending <- Some next)
+                    drawNodeText zone zoneOfPlace state.Editor.CueTextBuffer state.Editor.CueTextPath state.Editor.CueTextEditing idPrefix path' node state.Cue (fun next -> textPending <- Some next)
                 state.Editor <- { state.Editor with CueTextPath = path''; CueTextEditing = editing }
                 match textPending with
                 | Some next -> do commit &state next
@@ -210,6 +229,11 @@ let resetTriggerEditor (state: byref<GameplayState.GameplayState>) (ref: EntityR
 /// is never applied to another. An authored cue is never executing, so the control offers every edit.
 let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) : unit =
     let zone = GameplayState.activeZone state
+    let zones = state.Zones
+    let zoneOfPlace (place: Place.Place) : Zone.Zone option =
+        match zones.TryGetValue place with
+        | true, z -> Some z
+        | false, _ -> None
     match Zone.tryTriggerAt zone ref with
     | ValueNone -> ()
     | ValueSome trigger ->
@@ -239,7 +263,7 @@ let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.Ga
             | Some node ->
                 let mutable textPending : Cue option = None
                 let (path'', editing) =
-                    drawNodeText zone state.Editor.TriggerCueTextBuffer state.Editor.TriggerCueTextPath state.Editor.TriggerCueEditing idPrefix path' node cue (fun next -> textPending <- Some next)
+                    drawNodeText zone zoneOfPlace state.Editor.TriggerCueTextBuffer state.Editor.TriggerCueTextPath state.Editor.TriggerCueEditing idPrefix path' node cue (fun next -> textPending <- Some next)
                 state.Editor <- { state.Editor with TriggerCueTextPath = path''; TriggerCueEditing = editing }
                 match textPending with
                 | Some next -> do Selection.updateTriggerRef shared &state ref (fun t -> { t with Cue = next })

@@ -53,6 +53,8 @@ let rec private describe (cue: Cue) : string =
     | AddZone z -> sprintf "AddZone(%s)" (Place.placeName z)
     | RemoveZone z -> sprintf "RemoveZone(%s)" (Place.placeName z)
     | PreloadZone z -> sprintf "PreloadZone(%s)" (Place.placeName z)
+    | SetActor (p, c, l, w) -> sprintf "SetActor(%s,%s,%s,%s)" (Place.placeName p) (Roster.characterName c) (Casting.lookName l) w
+    | RemoveActor c -> sprintf "RemoveActor(%s)" (Roster.characterName c)
     | SetCamera w -> sprintf "Camera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "Fly(%s)" p
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
@@ -355,6 +357,24 @@ let ``only the text-bearing kinds carry text, and writing it replaces exactly th
     Assert.Equal("Camera(atrium)", describe (withText (SetCamera "balcony") "atrium"))
     Assert.Equal("Fly(route)", describe (withText (FlyCamera("lo", 2.0)) "route"))
     Assert.True(raises (fun () -> withText (Wait 1.0) "x" |> ignore))
+
+[<Fact>]
+let ``the actor ops render, and their chooser writes replace the place, the character, the look and the waypoint`` () =
+    let labelOf (cue: Cue) : string = (List.head (rows cue)).Label
+    let set = SetActor(Place.Island, Roster.Aiko, Casting.Look.SchoolUniform, "door")
+    Assert.Equal("Set actor: Aiko/SchoolUniform in Island @ door", labelOf set)
+    Assert.Equal("Remove actor: Akane", labelOf (RemoveActor Roster.Akane))
+
+    // the place, the character and the look are separate writes; each preserves the rest
+    Assert.Equal("SetActor(Island,Akane,Casual,door)", describe (withLook Casting.Look.Casual (withCharacter Roster.Akane (withPlace Place.Island set))))
+    Assert.Equal("SetActor(Island,Aiko,SchoolUniform,atrium)", describe (withText set "atrium"))
+    // the set op's waypoint is the text a caller's field edits
+    Assert.Equal(ValueSome "door", textOf set)
+
+    // the remove op carries only a character, so a place write or a look write on it is a bug
+    Assert.Equal("RemoveActor(Akane)", describe (withCharacter Roster.Akane (RemoveActor Roster.Aiko)))
+    Assert.True(raises (fun () -> withPlace Place.Island (RemoveActor Roster.Aiko) |> ignore))
+    Assert.True(raises (fun () -> withLook Casting.Look.Casual (RemoveActor Roster.Aiko) |> ignore))
 
 [<Fact>]
 let ``an exposit's text and presentation are written independently`` () =

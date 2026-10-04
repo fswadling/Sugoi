@@ -5,7 +5,7 @@ module Cue
 // down to `Fin` — what is left when a cue finishes, and where it then rolls.
 //
 // The ops with no progress of their own (`Exposit`, `SetZone`, `AddZone`, `RemoveZone`, `PreloadZone`,
-// `SetCamera`, `AddAdvent`, `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
+// `SetActor`, `RemoveActor`, `SetCamera`, `AddAdvent`, `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
 // (`WaitState`'s deadline, `FlyCameraState`'s resolved path, the fade states' captured level). So a case suffixed `State` appears exactly
 // where the run form holds something the authored form does not — the convention the reference lineage
 // uses (`wait` / `waitstate`), and FR-017's "a leaf op and its own state case". (`AwaitState` is the one
@@ -58,6 +58,14 @@ type Cue =
     | AddZone of place: Place
     | RemoveZone of place: Place
     | PreloadZone of place: Place
+    // The actor lifecycle (spec 064): a cue brings a member into a named place and places her at a waypoint
+    // there (`SetActor` — one op for a first placement and a move, unifying odin's add and warp), or takes her
+    // out (`RemoveActor`). Placement names a place and a character; removal names the character alone, because
+    // the runtime cast index (`specs/063`) already knows where she is and she is unique across all zones. Only
+    // the waypoint is a name in the place's zone. Each is a no-progress leaf, and each is a no-op on state it
+    // cannot act on, so a cue re-runs safely.
+    | SetActor of place: Place * character: Roster.Character * look: Casting.Look * waypoint: string
+    | RemoveActor of character: Roster.Character
     | SetCamera of waypoint: string
     | FlyCamera of path: string * speed: float
     | FlyCameraState of path: string * points: Vector3[] * rotations: Quaternion[] * duration: float * endsAt: float

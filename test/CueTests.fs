@@ -114,6 +114,8 @@ let rec private describe (cue: Cue) : string =
     | AddZone z -> sprintf "AddZone(%s)" (Place.placeName z)
     | RemoveZone z -> sprintf "RemoveZone(%s)" (Place.placeName z)
     | PreloadZone z -> sprintf "PreloadZone(%s)" (Place.placeName z)
+    | SetActor (p, c, l, w) -> sprintf "SetActor(%s,%s,%s,%s)" (Place.placeName p) (Roster.characterName c) (Casting.lookName l) w
+    | RemoveActor c -> sprintf "RemoveActor(%s)" (Roster.characterName c)
     | SetCamera w -> sprintf "SetCamera(%s)" w
     | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "FlyCamera(%s)" p
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
@@ -840,6 +842,233 @@ let ``the cue resumes rather than restarts across an edit`` () =
     Assert.Equal("Wait 10", describe state.Cue)
     tick shared &state 10.0
     Assert.Equal("Fin", describe state.Cue)
+
+// ══════ Actor cue ops (spec 064) — the lifecycle pair ══════
+
+// A shared state whose manager holds one fabricated actor asset (its GPU handles defaulted, so the real
+// spawn/remove paths run with no device — the `test/CastIndexTests.fs` shape) and a cast binding for
+// `(Aiko, SchoolUniform)`. Akane is deliberately unbound, and the other look too.
+let private actorShared () : SharedState.SharedState =
+    let model : Iqm.Model =
+        { Meshes = [||]
+          Positions = [||]
+          Normals = None
+          Uvs = None
+          Tangents = None
+          BlendIndices = None
+          BlendWeights = None
+          Triangles = [||]
+          Joints = [||]
+          Poses = [||]
+          Anims = [||]
+          FrameChannels = [||]
+          NumFrameChannels = 0
+          PoseChannelOffsets = [||] }
+    let asset : ActorAsset.ActorAsset =
+        { Id = "aiko"
+          Name = "aiko"
+          ModelPath = ""
+          Bounds = { Min = Vector3.Zero; Max = Vector3.One }
+          Mesh = Unchecked.defaultof<Mesh.Mesh>
+          Model = Actor.createModel model
+          Morphs = None
+          Portraits = None }
+    let actors = Dictionary<string, ActorAsset.ActorAsset>()
+    actors.["aiko"] <- asset
+    let bindings = Dictionary<Casting.Slot, string>()
+    bindings.[{ Character = Roster.Aiko; Look = Casting.Look.SchoolUniform }] <- "aiko"
+    { Gpu = Unchecked.defaultof<Gpu.Gpu>
+      Assets = TestSupport.manager IntPtr.Zero actors (Dictionary()) (Dictionary())
+      Cast = { Casting.Bindings = bindings }
+      ZoneRegistry = ZoneRegistry.create ()
+      Advents = Set.empty
+      Physics = Physics.create () }
+
+/// A waypoint named `name` at `position`, facing `rotation`, in `zone`.
+let private waypointIn (zone: Zone.Zone) (name: string) (position: Vector3) (rotation: Quaternion) : EntityRef =
+    let entity : Entity =
+        { Name = name
+          Transform = { transformIdentity with Position = position; Rotation = rotation }
+          Enabled = true
+          Visible = true
+          Selectable = true
+          Draggable = true }
+    Zone.spawnWaypoint zone entity
+
+let private castRef (state: GameplayState.GameplayState) (character: Roster.Character) : EntityRef =
+    match GameplayState.tryCastActor state character with
+    | Some (_, ref) -> ref
+    | None -> failwith "expected the character to resolve"
+
+[<Fact>]
+let ``a set op brings a member into the named place at its waypoint and indexes her`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    do ignore (waypointIn zone "door" (Vector3(1.0f, 0.0f, 2.0f)) Quaternion.Identity)
+    state.Cue <- SetActor(mainPlace, Roster.Aiko, Casting.Look.SchoolUniform, "door")
+
+    tick shared &state 0.0
+
+    Assert.Equal("Fin", describe state.Cue)
+    let ref = castRef state Roster.Aiko
+    Assert.Equal(Some (mainPlace, ref), GameplayState.tryCastActor state Roster.Aiko)
+    let actor = zone.Actors.Get(handleOf ref)
+    Assert.Equal(Vector3(1.0f, 0.0f, 2.0f), actor.State.Base.Transform.Position)
+    Assert.Equal(Some Roster.Aiko, actor.State.Cast)
+
+[<Fact>]
+let ``a set in the same place moves the same actor; a set elsewhere moves her across zones keeping her art`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let main = GameplayState.activeZone state
+    do ignore (waypointIn main "a" Vector3.Zero Quaternion.Identity)
+    do ignore (waypointIn main "b" (Vector3(5.0f, 0.0f, 0.0f)) Quaternion.Identity)
+    state.Cue <- SetActor(mainPlace, Roster.Aiko, Casting.Look.SchoolUniform, "a")
+    tick shared &state 0.0
+    let ref = castRef state Roster.Aiko
+    let count = main.Actors.Count
+
+    // same place: the same actor moves, and a different look is ignored (a set never re-skins her)
+    state.Cue <- SetActor(mainPlace, Roster.Aiko, Casting.Look.Casual, "b")
+    tick shared &state 0.0
+    Assert.Equal(count, main.Actors.Count)
+    Assert.Equal(Some (mainPlace, ref), GameplayState.tryCastActor state Roster.Aiko)
+    Assert.Equal(Vector3(5.0f, 0.0f, 0.0f), (main.Actors.Get(handleOf ref)).State.Base.Transform.Position)
+
+    // another present place: she moves across zones, keeping her existing art
+    GameplayState.addZone shared &state atriumPlace
+    GameplayState.switchZone shared &state mainPlace
+    let atrium = state.Zones.[atriumPlace]
+    do ignore (waypointIn atrium "far" (Vector3(0.0f, 0.0f, 9.0f)) Quaternion.Identity)
+    let assetBefore = (main.Actors.Get(handleOf ref)).State.AssetId
+
+    state.Cue <- SetActor(atriumPlace, Roster.Aiko, Casting.Look.Casual, "far")
+    tick shared &state 0.0
+
+    Assert.Equal(0u, main.Actors.Count) // she left the old place
+    match GameplayState.tryCastActor state Roster.Aiko with
+    | Some (place, ref2) ->
+        Assert.Equal(atriumPlace, place)
+        let moved = atrium.Actors.Get(handleOf ref2)
+        Assert.Equal(assetBefore, moved.State.AssetId) // art kept, the op's look not consulted
+        Assert.Equal(Some Roster.Aiko, moved.State.Cast)
+        Assert.Equal(Vector3(0.0f, 0.0f, 9.0f), moved.State.Base.Transform.Position)
+    | None -> Assert.Fail "expected Aiko to resolve in the atrium"
+
+[<Fact>]
+let ``an actor op is a runtime effect, not a step on the undo history`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    do ignore (waypointIn zone "door" Vector3.Zero Quaternion.Identity)
+    let undoBefore = List.length state.Editor.Undo.Applied
+
+    state.Cue <- seqOf [ SetActor(mainPlace, Roster.Aiko, Casting.Look.SchoolUniform, "door"); RemoveActor Roster.Aiko ]
+    tick shared &state 0.0
+
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.Equal(undoBefore, List.length state.Editor.Undo.Applied) // no step recorded
+    Assert.Equal(None, GameplayState.tryCastActor state Roster.Aiko) // and the scene reflects it
+
+[<Fact>]
+let ``a remove takes the member out of the named place and drops her index entry`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    do ignore (waypointIn zone "door" Vector3.Zero Quaternion.Identity)
+    state.Cue <- SetActor(mainPlace, Roster.Aiko, Casting.Look.SchoolUniform, "door")
+    tick shared &state 0.0
+    Assert.Equal(1u, zone.Actors.Count)
+
+    state.Cue <- RemoveActor Roster.Aiko
+    tick shared &state 0.0
+
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.Equal(None, GameplayState.tryCastActor state Roster.Aiko)
+    Assert.Equal(0u, zone.Actors.Count)
+
+    // a second remove, and a remove of a character never in the scene, perform nothing
+    state.Cue <- seqOf [ RemoveActor Roster.Aiko; RemoveActor Roster.Akane ]
+    tick shared &state 0.0
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a remove of the zone's player leaves a designation that no longer resolves`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    do ignore (waypointIn zone "door" Vector3.Zero Quaternion.Identity)
+    state.Cue <- SetActor(mainPlace, Roster.Aiko, Casting.Look.SchoolUniform, "door")
+    tick shared &state 0.0
+    let ref = castRef state Roster.Aiko
+    zone.Player <- ValueSome (Systems.playerHandleOf ref)
+    Assert.True(Systems.isPlayerLive zone)
+
+    state.Cue <- RemoveActor Roster.Aiko
+    tick shared &state 0.0
+
+    // no clear step is added: the stale handle simply reads as "no player", as an editor delete leaves it
+    Assert.False(Systems.isPlayerLive zone)
+
+[<Fact>]
+let ``a same-place set on a player actor leaves the designation intact`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    do ignore (waypointIn zone "a" Vector3.Zero Quaternion.Identity)
+    do ignore (waypointIn zone "b" (Vector3(3.0f, 0.0f, 0.0f)) Quaternion.Identity)
+    state.Cue <- SetActor(mainPlace, Roster.Aiko, Casting.Look.SchoolUniform, "a")
+    tick shared &state 0.0
+    let ref = castRef state Roster.Aiko
+    zone.Player <- ValueSome (Systems.playerHandleOf ref)
+
+    state.Cue <- SetActor(mainPlace, Roster.Aiko, Casting.Look.SchoolUniform, "b")
+    tick shared &state 0.0
+
+    Assert.Equal(ValueSome (Systems.playerHandleOf ref), zone.Player)
+    Assert.True(Systems.isPlayerLive zone)
+
+[<Fact>]
+let ``every actor op on state it cannot act on performs nothing and the cue still finishes`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    do ignore (waypointIn zone "door" Vector3.Zero Quaternion.Identity)
+    GameplayState.addZone shared &state atriumPlace
+    GameplayState.switchZone shared &state mainPlace
+
+    state.Cue <- seqOf
+        [ SetActor(classroomPlace, Roster.Akane, Casting.Look.SchoolUniform, "door") // place not present
+          SetActor(mainPlace, Roster.Akane, Casting.Look.Casual, "door")            // no art for the look
+          SetActor(mainPlace, Roster.Akane, Casting.Look.SchoolUniform, "ghost")   // unknown waypoint
+          RemoveActor Roster.Akane ]                                                  // not in the scene
+    tick shared &state 0.0
+
+    Assert.Equal("Fin", describe state.Cue) // the cue ran to the end; nothing raised
+    Assert.Equal(None, GameplayState.tryCastActor state Roster.Akane)
+    Assert.Equal(0u, (state.Zones.[atriumPlace]).Actors.Count)
+
+[<Fact>]
+let ``a set into an inactive place then a switch composes, and set then remove empties the index`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    GameplayState.addZone shared &state atriumPlace
+    do ignore (waypointIn (state.Zones.[atriumPlace]) "far" (Vector3(0.0f, 0.0f, 9.0f)) Quaternion.Identity)
+    GameplayState.switchZone shared &state mainPlace
+
+    state.Cue <- seqOf [ SetActor(atriumPlace, Roster.Aiko, Casting.Look.SchoolUniform, "far"); SetZone atriumPlace ]
+    tick shared &state 0.0
+
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.Equal(atriumPlace, state.ActiveZone)
+    match GameplayState.tryCastActor state Roster.Aiko with
+    | Some (place, _) -> Assert.Equal(atriumPlace, place)
+    | None -> Assert.Fail "expected Aiko in the atrium"
+
+    state.Cue <- RemoveActor Roster.Aiko
+    tick shared &state 0.0
+    Assert.Equal(None, GameplayState.tryCastActor state Roster.Aiko)
 
 // ══════ FR-011 — bounded footprint ══════
 

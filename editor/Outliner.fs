@@ -8,22 +8,11 @@ open System.Numerics
 open Entity
 open Command
 
-// The base entity a freshly-added waypoint or trigger is created from: the given name
-// and transform, with the default editor flags. The name is what the Outliner shows and
-// what the Inspector edits.
-let private newEntity (name: string) (transform: Transform) : Entity =
-    { Name = name
-      Transform = transform
-      Enabled = true
-      Visible = true
-      Selectable = true
-      Draggable = true }
-
 // A waypoint at the camera, facing the way the camera looks: `CreateWorld` yields the
 // rotation taking -Z (the project's camera-forward convention) onto the view direction.
 let private newWaypointAtCamera (camera: Camera.Camera) : Entity =
     let rotation = Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(camera.Position, Camera.forward camera, camera.Up))
-    newEntity "Waypoint" { transformIdentity with Position = camera.Position; Rotation = rotation }
+    Entity.baseEntity "Waypoint" { transformIdentity with Position = camera.Position; Rotation = rotation }
 
 let private entityRow (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (name: string) (id: string) (ref: EntityRef) : unit =
     if ImGui.button(sprintf "%s##%s" name id, ImGui.ImVec2(0.0f, 0.0f)) then
@@ -141,7 +130,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
     if ImGui.collapsingHeader("Triggers", 0) then
         if ImGui.button("Add Trigger", ImGui.ImVec2(0.0f, 0.0f)) then
-            Spawning.spawnTrigger &state (newEntity "Trigger" transformIdentity)
+            Spawning.spawnTrigger &state (Entity.baseEntity "Trigger" transformIdentity)
 
         if zone.Triggers.Count = 0u then
             do ImGui.text("(none)")
@@ -161,7 +150,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             | _ -> None
 
         if ImGui.button("Add Waypoint", ImGui.ImVec2(0.0f, 0.0f)) then
-            Spawning.spawnWaypoint &state (newEntity "Waypoint" transformIdentity)
+            Spawning.spawnWaypoint &state (Entity.baseEntity "Waypoint" transformIdentity)
 
         do ImGui.sameLine(0.0f, -1.0f)
 
