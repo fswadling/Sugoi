@@ -51,7 +51,10 @@ the **left** panel (alongside the Outliner) and are shown by default:
 - **Cast** — the cast as a tree: each member a collapsible node, and under her one row per
   look with the actor asset bound to that slot (D-022).
 - **Advent** — the story milestones as a checklist (a typed union; spec 055), docked on the **right**.
-- **Scenario** — scenario list; selecting one shows its Cue/Scene tabs in the Inspector.
+- **Scenario** — the game's scenarios, one row each: **Register** files the current scene (its zones, the
+  active place and the cue) under the scenario and **Clear** empties it, each one step on the one history
+  (spec 070). The capture is the same value the Zone Registry keeps, and running a scenario is a later
+  increment.
 - **Zone Registry** — the game's places as a tree: a zone per node and one row per variant it
   declares, each row registering the active zone's environment against that place or instantiating
   one into the active zone (D-023).
@@ -80,11 +83,11 @@ rather than a selection.
 
 The **Inspector** is the single editing surface (one selection → one Inspector):
 list panels navigate/select/add/delete, and the Inspector shows the selected
-item's settings. A trigger's cue is edited inline in the Inspector; a scenario's
-cue/scene are Inspector tabs. Cast and the Zone Registry are the two surfaces that
-edit in place rather than through the Inspector (D-022, D-023), because what they
-edit — a slot, a place — is not a selectable item: there is one for every look of
-every member, and one for every variant of every zone.
+item's settings. A trigger's cue is edited inline in the Inspector.
+Cast, the Zone Registry and the Scenario panel are the three surfaces that
+edit in place rather than through the Inspector (D-022, D-023, spec 070), because what they
+edit — a slot, a place, a scenario — is not a selectable item: there is one for every look of
+every member, one for every variant of every zone, and one for every declared scenario.
 
 ## Interaction model
 

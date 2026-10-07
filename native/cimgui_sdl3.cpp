@@ -142,6 +142,8 @@ void cimgui_setup_dock_layout(ImGuiID dockspace_id)
     ImGui::DockBuilderDockWindow("Cast", left);
     // So is the Zone Registry, which the same table places here (spec 034).
     ImGui::DockBuilderDockWindow("Zone Registry", left);
+    // And the Scenario panel (spec 070), the third in-place surface the table puts in the left column.
+    ImGui::DockBuilderDockWindow("Scenario", left);
     // NOTE: the tab order *within* a node follows the order its windows are submitted each frame
     // (editor/Editor.fs) — DockBuilderDockWindow clears DockOrder, so this call order is not the tab order.
     // This list is kept in the same order as those submissions (Inspector, Cue, Advent) for reference only.

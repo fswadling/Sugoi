@@ -11,6 +11,10 @@ module ZoneTemplate
 //
 // Listed before `world/Zone.fs` in the compile list, because the loader there takes one as its
 // argument.
+//
+// `ZoneTemplate` is the ref-free half of a zone's authored state (a *recipe*), where `ZoneContents` in
+// `world/Zone.fs` is the identity-preserving snapshot; `docs/ZONE_MODEL_DECISION.md` records the relationship and
+// recommends not growing this toward the snapshot without deciding the direction first.
 
 open System.Numerics
 open Entity

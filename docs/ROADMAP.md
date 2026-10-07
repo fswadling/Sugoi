@@ -325,11 +325,17 @@ the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`.)*
 **Goal**: assemble scenarios from zones + cast + cues.
 
 **Deliverables**
-- `world/Scenario.fs` — scenario library; a scenario = zones + cast + `cue_root`
-  (immutable at runtime).
-- `editor/ScenarioEditor.fs` — library + cue/scene Inspector tabs.
+- `world/Scenario.fs` — the scenarios, a closed union; `world/ScenarioZone.fs` — a zone as a scenario holds it
+  (ref-free: arrays of authored states, waypoint chains and the player by index); `world/ScenarioRegistry.fs` — the
+  contents captured under each: a scenario = every present zone (each a `ScenarioZone`) + the active place + the
+  cue (immutable at runtime). *(the library and its panel are `specs/070-scenario-library`)*
+- `editor/ScenarioPanel.fs` — the scenarios, one row each, with **Register** (file the current scene) and
+  **Clear**, both steps on the one undo history. *(complete — `specs/070-scenario-library`)*
 
-**Done when**: you can assemble and run a scenario.
+**Done when**: you can assemble and run a scenario. *(Assembling is in — the library, the panel and
+registration (`specs/070-scenario-library`). **Running** one — forking a registered scenario into the running
+cue via `CueEngine.forkInto`, with odin's scenario cue ops
+(`InlineScenario`/`ForkScenario`/`ClearScenario`) and the camera-follow/interaction toggles — is the remainder.)*
 
 ### 12 · Zone registry + editor ✅
 
@@ -347,7 +353,9 @@ the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`.)*
 **Done when**: you can author zone templates/settings in the editor. *(complete —
 `specs/034-zone-registry`, and an entry's placed props are `specs/035-zone-template-props`. The places
 vocabulary was hoisted to `world/Place.fs` by `specs/061-zones-as-places`. Waypoints,
-triggers and splat maps are the deferred siblings of an entry's parts; persisting the registry is
+triggers and splat maps are the deferred siblings of an entry's parts — read
+[`ZONE_MODEL_DECISION.md`](./ZONE_MODEL_DECISION.md) before growing the entry, since it decides how the
+entry's shape relates to a zone's snapshot; persisting the registry is
 phase 15.)*
 
 ### 13 · Systems + fixed timestep + immutable cue (refactor)
@@ -466,15 +474,10 @@ PBR → physics → walk around). After that, the content-authoring path is
 
 ## Next step
 
-**Phase 10 — story primitives**: waypoints, triggers, the adventure flags and cast are in as dockable
-surfaces (the flags and their **Advent** panel are `specs/055-advent-flags`); what remains is
-**trigger → cue wiring inline in the Inspector**. The cue is complete — `world/Cue.fs` (one type: the
-vocabulary and the run, shrinking to `Fin`) and `world/CueEngine.fs` (`advance` / `tick` /
-`forkInto`) running in the play chain on play time (`specs/046`), and the Cue panel whose edits are
-steps on the one undo history (`specs/047`, `specs/049`). Wiring a trigger to a cue is what the rest
-of phase 10 is for, and `CueEngine.forkInto` is what it will call — as is the panel's control, which
-a trigger's cue draws unchanged. The advent cue ops (`AddAdvent`/`RemoveAdvent`/`Await`/`If`) are the
-vocabulary extension that follows, and are also `specs/055`'s deliberate scope boundary. The cast's actor
-lifecycle cue ops (`SetActor`/`RemoveActor`) are `specs/064-actor-cue-ops`, the rest of odin's actor family is
-`specs/066-actor-motion-cue-ops`, and the trigger toggles and `Print` are `specs/067-print-trigger-cue-ops`.
-(Phase 9 is complete.)
+**Phase 11 — scenarios, running one**: the scenario library is in — the closed union (`world/Scenario.fs`),
+its captured contents (`world/ScenarioRegistry.fs`) and the **Scenario** panel that files the current scene
+under one and clears it, both steps on the one undo history (`specs/070-scenario-library`). What remains is
+**running** a scenario: forking a registered scenario into the screen's running cue via `CueEngine.forkInto`
+(the mechanism triggers already use, `specs/058-trigger-cue`), together with odin's scenario cue ops
+(`InlineScenario`/`ForkScenario`/`ClearScenario`) and the camera-follow / interaction toggles — the last
+deferred cue families. (Phase 10 is complete.)

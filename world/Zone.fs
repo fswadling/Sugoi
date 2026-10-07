@@ -850,6 +850,10 @@ let reconcileEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.Ass
 // every other command payload is defined where the thing it describes is (`ActorState`, `PropState`, `Environment`
 // in `Entity.fs`; `LightSettings` in `Texture.fs`), and `ZoneTemplate` — the same kind of composite, recorded for
 // a different purpose — is in `world/` too.
+//
+// `ZoneContents` is a snapshot *with identity* — it keeps each entity's ref and the live environment, so a restore
+// lands in the same slots — which is why it overlaps both `Zone` and `ZoneTemplate`. `docs/ZONE_MODEL_DECISION.md`
+// records how the three zone-shaped values relate and recommends when to converge them.
 
 /// The authored contents of one zone: what a delete keeps so the zone can be put back, and nothing a body, a
 /// renderer or a batch holds. Each entity is its ref paired with the same authored value a `*Create` carries, so a

@@ -140,6 +140,9 @@ fsharp-game/
 │   ├── Zone.fs                 #   zone + an Environment owning its parts map; owns its batch; the authored
 │   │                           #     contents a delete carries, `ZoneContents` (spec 048)
 │   ├── ZoneRegistry.fs         #   the game's places, and the zone registered at each
+│   ├── Scenario.fs             #   the game's scenarios, a closed union (spec 070)
+│   ├── ScenarioZone.fs         #   a zone as a scenario holds it: ref-free, arrays, indices (spec 070)
+│   ├── ScenarioRegistry.fs     #   the contents captured under each scenario (spec 070)
 │   ├── Assets.fs               #   asset manager + manifests
 │   ├── Actor.fs                #   IQM model + morphs
 │   ├── ActorAsset.fs           #   actor asset record
@@ -153,7 +156,7 @@ fsharp-game/
 │   ├── PromptRender.fs         #   the interact prompt view + its layout (pure)
 │   ├── Cue.fs                  #   the cue: one type, the vocabulary, its run and forkInto (spec 046/058)
 │   ├── CueEngine.fs            #   advance / tick (spec 046; compiled after state/)
-│   ├── Scenario.fs             #   scenario library (planned)
+│   ├── Scenario.fs             #   the game's scenarios, a closed union (spec 070)
 │   ├── Systems.fs              #   named play-mode systems
 │   └── Project.fs              #   DTO persistence (project.json) (planned)
 ├── state/                      # app/screen + editor-command state
@@ -180,12 +183,12 @@ fsharp-game/
 │   ├── AssetBrowser.fs
 │   ├── CastPanel.fs            #   the cast tree: a look per row, an asset per slot
 │   ├── ZoneRegistryPanel.fs    #   the places tree: register a zone against one, instantiate one
+│   ├── ScenarioPanel.fs        #   the scenarios: register the current scene under one, clear it (spec 070)
 │   ├── DialoguePanel.fs        #   the dialogue authoring surface (direct write)
 │   ├── AdventPanel.fs          #   the milestone checklist (spec 055), docked right; a toggle is an Advent step
 │   ├── MiscPanel.fs            #   the Miscellaneous panel (spec 059), docked right: game-wide runtime tuning (the fade level)
 │   ├── CueEditor.fs            #   the cue panel (spec 047) + the inline trigger-cue editor (spec 058); a SetCue/TriggerSet step on the one history
-│   ├── CueTree.fs              #   shared recursive cue-tree control (spec 047)
-│   └── ScenarioEditor.fs       #   (planned)
+│   └── CueTree.fs              #   shared recursive cue-tree control (spec 047)
 ├── native/                     # native libs (ImGui + cimgui + backends)
 ├── test/                       # one <Module>Tests.fs per module (flat)
 ├── assets/                     # data: glTF, IQM, textures, manifests

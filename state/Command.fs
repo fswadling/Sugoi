@@ -27,6 +27,7 @@ open SlotMap
 open Advent
 open Casting
 open Place
+open Scenario
 
 type Command =
     // An edit of the properties every kind shares.
@@ -86,6 +87,11 @@ type Command =
     // runner. The payload is the two set values: the set is immutable, so a snapshot is the set itself, and a before/after
     // pair makes undo total (an add and a remove are the same shape).
     | Advent of Previous : Set<Advent> * Next : Set<Advent>
+    // The scenario library was edited (spec 070): a registration, a re-registration or a clear, as a before/after
+    // pair of the entry (`ScenarioContents option`). Like `SetCue` and `Advent`, it is not a zone's — a scenario
+    // spans zones — so it is a state-level step carried by `History` and never by the zone-level runner. The payload
+    // is a `ScenarioContents`, whose zones are an immutable `Map`, so a snapshot is a value the step can hold.
+    | SetScenario of Name : Scenario * Previous : ScenarioRegistry.ScenarioContents option * Next : ScenarioRegistry.ScenarioContents option
 
 // ── apply / undo a single command ──
 
@@ -135,7 +141,8 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
     | ZoneAdd _
     | ZoneDelete _
     | SetCue _
-    | Advent _ ->
+    | Advent _
+    | SetScenario _ ->
         invalidOp "Command.apply: a state-level step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         for cmd in commands do apply zone physics assets cmd
@@ -183,7 +190,8 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
     | ZoneAdd _
     | ZoneDelete _
     | SetCue _
-    | Advent _ ->
+    | Advent _
+    | SetScenario _ ->
         invalidOp "Command.undo: a state-level step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         // Backwards, so the reversal of a mutation happens before the reversal of what it depended on.

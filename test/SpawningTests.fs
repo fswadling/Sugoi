@@ -58,6 +58,7 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       Dialogue = Dialogue.empty
       Zones = zones
       ZoneRegistry = ZoneRegistry.create ()
+      Scenarios = ScenarioRegistry.create ()
       Physics = Physics.create ()
       Cast = Dictionary<Roster.Character, Place * EntityRef>()
       ActiveZone = Place.start

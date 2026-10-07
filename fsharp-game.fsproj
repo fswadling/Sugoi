@@ -84,6 +84,11 @@
     <!-- The interact prompt's view (spec 039): the 2D layer's second consumer. Needs only `Ui`,
          so it sits beside the dialogue view. -->
     <Compile Include="world/PromptRender.fs" />
+    <!-- The game's scenarios (spec 070): the authored narrative units — a set of zones and the cue to run — as a
+         closed union. The **vocabulary**, kept apart from the store (`world/ScenarioRegistry.fs`) as `Place` sits
+         apart from `ZoneRegistry`, so a future cue op may name a scenario without depending on the store. Listed
+         before `world/Cue.fs` for that reason. -->
+    <Compile Include="world/Scenario.fs" />
     <!-- The cue — and therefore the run (spec 046): one type, the vocabulary and its execution
          state, shrinking to `Fin`. Needs `Prime`, `System.Numerics`, `Advent` and `Dialogue` only, and names no
          zone, screen, asset or device. Listed before `Entity.fs`, which names it (a trigger owns a cue, spec 058). -->
@@ -94,9 +99,18 @@
          takes one as its argument. -->
     <Compile Include="world/ZoneTemplate.fs" />
     <Compile Include="world/Zone.fs" />
+    <!-- A zone as a scenario holds it (spec 070): the ref-free authored record — its environment as authored and
+         arrays of authored states, with waypoint chains and the player by index. Listed after `world/Zone.fs`
+         (its `capture` reads a live zone) and before `world/ScenarioRegistry.fs`, which files one under a scenario.
+         Its own type, not `ZoneContents`, so no zone-scoped identity is pushed onto scenarios
+         (`docs/ZONE_MODEL_DECISION.md`). -->
+    <Compile Include="world/ScenarioZone.fs" />
     <!-- The game's places and the zone registered at each (spec 034). Listed after `Zone.fs`, and it
          needs neither that module nor any editor one: it records environments, not zones. -->
     <Compile Include="world/ZoneRegistry.fs" />
+    <!-- The scenario library (spec 070): the contents captured under each scenario. Listed after `world/Zone.fs`
+         (a capture is a `ZoneContents`) and `world/Cue.fs` (it carries a cue), beside the zone registry it mirrors. -->
+    <Compile Include="world/ScenarioRegistry.fs" />
     <Compile Include="world/Systems.fs" />
     <Compile Include="state/Screen.fs" />
     <Compile Include="state/SharedState.fs" />
@@ -133,6 +147,9 @@
          starting with the screen fade level. It writes the state in place (no step on the one history). -->
     <Compile Include="editor/MiscPanel.fs" />
     <Compile Include="editor/ZoneRegistryPanel.fs" />
+    <!-- The scenario panel (spec 070): the game's scenarios, with a Register control that files the current scene
+         under one and a Clear control that empties it — each a `SetScenario` step on the one history. -->
+    <Compile Include="editor/ScenarioPanel.fs" />
     <!-- The dialogue authoring surface (spec 038): a panel of its own, because the dialogue
          state is not a selection and so cannot live in the Inspector. -->
     <Compile Include="editor/DialoguePanel.fs" />

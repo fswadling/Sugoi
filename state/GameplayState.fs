@@ -34,6 +34,9 @@ type GameplayState =
       // `populateZone` instantiate a place from. Here rather than on `SharedState` because only the
       // gameplay screen and its editor read it.
       ZoneRegistry : ZoneRegistry.Registry
+      // The scenario library (spec 070): the contents captured under each scenario. Here beside the zone registry
+      // for the same reason — only the gameplay screen and its editor read it.
+      Scenarios : ScenarioRegistry.Registry
       // The physics world: one Jolt world shared by every zone (a zone keeps only its body→entity
       // map), owned here beside the zones because only the gameplay screen simulates. A zone never
       // holds it — `Zone.*` receives it as a parameter, so there is one world for the whole game.
@@ -73,6 +76,7 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui
       Dialogue = Dialogue.empty
       Zones = zones
       ZoneRegistry = ZoneRegistry.create ()
+      Scenarios = ScenarioRegistry.create ()
       Physics = Physics.create ()
       Cast = cast
       ActiveZone = Place.start

@@ -136,7 +136,8 @@ archetypes.
 - `Screen_Manager` owns `Shared_State` plus one stateful struct per screen,
   with init/activate/deactivate/update/draw per screen.
 - `Gameplay_Screen` owns the gameplay world and that world's configuration — the `zones`, the
-  `zone_registry` (the recipe table those zones are instantiated from) and the physics world their
+  `zone_registry` (the recipe table those zones are instantiated from), the `scenarios` library the
+  editor files a scene under and the physics world their
   bodies attach to — beside its own runtime state: the `camera` and render buffers (view), the
   `cue` run, `dialogue`/exposition, `interactable_trigger`, `editor` and `fade`, plus the
   locomotion/`camera_follow` hot paths and `clock`. Hot/cold fields are grouped.
@@ -159,7 +160,14 @@ parsed from s-syntax manifests, keyed by `id`.
 ## Scenario & Cue (the cue *is* its run)
 
 - `Scenario_Library` → `Scenario` = fixed zones of authoring data plus a
-  `cue_root`. Scenarios are immutable at runtime (heap maps, off hot path).
+  `cue_root`. Scenarios are immutable at runtime (heap maps, off hot path). It lives on the
+  **gameplay screen** (`specs/070-scenario-library`): the vocabulary is a closed union
+  (`world/Scenario.fs`), and the captured contents are keyed by it in `world/ScenarioRegistry.fs`.
+  A scenario holds every present zone as a ref-free `ScenarioZone` (`world/ScenarioZone.fs` — arrays of authored
+  states, with waypoint chains and the player by index; deliberately **not** the `ZoneContents` a delete carries,
+  which keeps zone-scoped refs), the
+  active place, and the cue; registering or clearing one is a step on the one undo history.
+  **Running** a scenario — forking it into the cue — is a later increment, so no cue op names one yet.
 - `Cue` (`world/Cue.fs`) is **one type that is both the vocabulary and the run** —
   the control flow (`Sequence`/`Parallel`/`Fork`), the leaves, and the terminal
   `Fin`. It is an immutable value, and advancing it returns the next value, so the
@@ -182,12 +190,12 @@ graph TD
     SM[Screen_Manager] --> SS[Shared_State]
     SM --> GS[Gameplay_Screen]
     SS --> AM[Asset_Manager]
-    SS --> SL[Scenario_Library]
-    SS --> ZR[Zone_Registry]
     SS --> ADV[Advent_Set]
     SS --> CAST[Cast_Members]
 
     GS --> ZONES["zones: Dictionary(Place, Zone)"]
+    GS --> ZR[Zone_Registry]
+    GS --> SL[Scenario_Library]
     GS --> ACTIVE["active place"]
     GS --> C["cue: Cue"]
     ZONES --> Z[Zone]

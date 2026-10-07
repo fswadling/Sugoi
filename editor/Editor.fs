@@ -17,7 +17,7 @@ open Command
 
 // The docked panels in focus order. The viewport is a passthru node, not an
 // ImGui window, so it is intentionally absent from this list.
-let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Cast"; "Advent"; "Miscellaneous"; "Zone Registry"; "Dialogue"; "Cue" |]
+let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Cast"; "Advent"; "Miscellaneous"; "Zone Registry"; "Scenario"; "Dialogue"; "Cue" |]
 
 // Compute the index the focus should move to (forward/backward, wrapping).
 let private nextPanelIndex (forward: bool) : int =
@@ -441,6 +441,9 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     // the screen fade level is its first control. Submitted after Advent so it is the rightmost tab there.
     do MiscPanel.draw &state
     do ZoneRegistryPanel.draw shared &state
+    // The scenario panel (spec 070): the game's scenarios, with a Register control that files the current scene
+    // under one and a Clear control that empties it — each a `SetScenario` step on the one history.
+    do ScenarioPanel.draw shared &state
     do DialoguePanel.draw shared &state
 
     transition

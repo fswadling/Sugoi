@@ -46,6 +46,10 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     // The adventure flags are not a zone's either: the step writes `SharedState.Advents`, so the state-level
     // runner carries it as it carries `SetCue` (spec 055 FR-007).
     | Advent (_, next) -> shared.Advents <- next
+    // The scenario library is not a zone's either: the step files or removes one entry (spec 070), so the
+    // state-level runner carries it as it carries the adventure flags. The library lives on the gameplay state,
+    // beside the zones.
+    | SetScenario (name, _, next) -> ScenarioRegistry.setContents name next state.Scenarios
     | _ -> Command.apply (GameplayState.activeZone state) state.Physics shared.Assets cmd
 
 /// The inverse of `apply`.
@@ -83,6 +87,7 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
         | None -> ()
     | SetCue (previous, _) -> state.Cue <- previous
     | Advent (previous, _) -> shared.Advents <- previous
+    | SetScenario (name, previous, _) -> ScenarioRegistry.setContents name previous state.Scenarios
     | Batch commands ->
         // Backwards, through the state-level runner, so a mixed batch reverses in dependency order.
         for cmd in List.rev commands do undo shared &state cmd

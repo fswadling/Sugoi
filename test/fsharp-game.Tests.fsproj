@@ -82,6 +82,10 @@
     <!-- The adventure flags (spec 055): the milestone union and its `Set`, the panel's write path, and
          the flag edit on the one history — all headless. -->
     <Compile Include="AdventTests.fs" />
+
+    <!-- The scenario library (spec 070): the capture (pure, device-free) and the registration step on
+         the one history, both headless. -->
+    <Compile Include="ScenarioTests.fs" />
   </ItemGroup>
 
   <!-- Serialize test collections: `Physics.create` calls Jolt's process-global
