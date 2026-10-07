@@ -11,7 +11,7 @@
 ## Origin
 
 The scripted half of the story model is the cue (`world/Cue.fs`) plus the things a cue acts on — the
-zones, their actors, props, waypoints and triggers. A **scenario** is the unit that bundles those into one
+zones, their actors, waypoints and triggers. A **scenario** is the unit that bundles those into one
 authored narrative: a set of zones, each as the author left it, together with the cue to run. `docs/ARCHITECTURE.md`
 names it (`Scenario_Library` → `Scenario` = fixed zones of authoring data plus a `cue_root`), and
 `docs/ROADMAP.md` phase 11 is where it lands.
@@ -55,7 +55,7 @@ scope here.
 
 ### User Story 1 - Register the current game state as a scenario (Priority: P1)
 
-An author builds a scene in the editor — places zones, drops in actors, props, waypoints and triggers, and
+An author builds a scene in the editor — places zones, drops in actors, waypoints and triggers, and
 authors the cue — then opens the Scenario panel and presses **Register** on a scenario. The scene as it stands
 is filed under that scenario, and the row shows it has contents. The author can re-register at any time to
 update a scenario to the current state.
@@ -65,7 +65,7 @@ narrative unit without it, and everything later (forking, persistence) depends o
 
 **Independent Test**: author a scene with more than one zone and a non-empty cue, register it, and assert the
 scenario now reports contents and that its contents are exactly the scene that was present (every zone, every
-actor/prop/waypoint/trigger, the environment and light, the active place, and the cue); re-register and assert
+actor/waypoint/trigger, the environment and light, the active place, and the cue); re-register and assert
 the contents are the newer scene; clear it and assert it reports no contents.
 
 **Acceptance Scenarios**:
@@ -77,7 +77,7 @@ the contents are the newer scene; clear it and assert it reports no contents.
    zone is captured, each keyed by the place it sits at.
 3. **Given** a scenario already registered, **When** the author presses Register again after editing the scene,
    **Then** the stored contents are replaced by the current scene.
-4. **Given** a scene in which a part or prop was deleted or duplicated, **When** the author registers it,
+4. **Given** a scene in which a part was deleted or duplicated, **When** the author registers it,
    **Then** the capture matches the scene exactly — the deleted one is absent, the duplicate appears twice.
 5. **Given** a registered scenario, **When** the author presses Clear, **Then** the scenario holds no contents
    and the row shows it is unregistered; undoing the Clear restores exactly the contents it held.
@@ -132,8 +132,8 @@ contents rather than clearing them.
 - **FR-001**: The editor MUST present a **Scenario** panel that lists the game's scenarios and, for each, a
   Register control (and, for a scenario that holds contents, a Clear control).
 - **FR-002**: Registering a scenario MUST capture the current game state under it: **every present zone** as the
-  author left it (its environment and light, its parts, its placed props, its actors, its waypoints and its
-  triggers), **the active place** (the place the author was in when registering), and **the screen's authored
+  author left it (its environment and light, its parts, its actors, its waypoints and its triggers), **the active
+  place** (the place the author was in when registering), and **the screen's authored
   cue**.
 - **FR-012**: A captured zone MUST be recorded free of the origin zone's identity — no entity reference, no
   live environment (and so no epoch), and with waypoint chains and the player designation expressed by index —
@@ -165,7 +165,7 @@ contents rather than clearing them.
 
 - **Scenario**: one authored unit of narrative, identified by a value from a closed, declared set; not a string.
 - **Scenario zone**: the ref-free authored record of one zone — its environment as authored, its light, and its
-  actors, placed props, waypoints and triggers as arrays of authored states. Its waypoint chains and its player
+  actors, waypoints and triggers as arrays of authored states. Its waypoint chains and its player
   designation are recorded by index, not by entity reference, so nothing names the origin zone's slots.
 - **Scenario contents**: the captured material filed under a scenario — the set of scenario zones, each keyed by
   the place it sits at, the active place, and the cue.
@@ -179,8 +179,8 @@ contents rather than clearing them.
   reports that the scenario holds contents.
 - **SC-002**: Registering, undoing and redoing round-trips exactly: after undo the scenario holds precisely what
   it held before, and after redo precisely what was registered.
-- **SC-003**: A capture taken from a multi-zone scene with actors, props, waypoints, triggers and a cue records
-  every one of them (part for part and prop for prop), together with the active place.
+- **SC-003**: A capture taken from a multi-zone scene with actors, waypoints, triggers and a cue records
+  every one of them (part for part), together with the active place.
 - **SC-004**: The capture can be exercised and asserted with no window opened, and the project builds with no
   warnings and a green suite.
 - **SC-005**: Registering never changes the running cue, the active zone, the camera or the selection.
@@ -197,6 +197,10 @@ contents rather than clearing them.
   scene.
 - **The runtime cast is derived, not captured.** Which actor plays which character is already recorded on each
   actor, so a scenario need not store it separately.
+- **Scenarios omit placed props.** A placed prop is environment decoration (a tree, a crate) rather than narrative,
+  so it is not captured — the place/environment owns it. Whether scenarios should carry a kind of prop of their
+  own (a scenario-prop separation) is deliberately a later question, not opened here. The environment itself
+  (with its parts) is still captured, since it is part of the zone as the author left it.
 - **A scenario zone is its own type.** A captured zone is recorded as a ref-free authored record
   (`world/ScenarioZone.fs`), **not** the `ZoneContents` a delete carries. The delete needs the origin zone's
   entity refs and live environment to reverse exactly (`specs/048` FR-009); a scenario wants neither, because a

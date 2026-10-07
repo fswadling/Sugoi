@@ -165,6 +165,24 @@ cast — derived from the stored contents, not the live scene (FR-013).
 
 ---
 
+## Phase 8: Scenarios omit placed props (change)
+
+**Purpose**: a placed prop is environment decoration (a tree, a crate) rather than narrative, so a scenario must
+not carry one; the environment itself (with its parts) stays. A scenario-prop separation is a later question.
+
+- [X] T028 `world/ScenarioZone.fs`: drop `Props` from `ScenarioZone` and the props capture; note the omission in
+  the header and the type doc.
+- [X] T029 `test/ScenarioTests.fs`: remove the prop-capture test and its fixture; drop `Props` from the test
+  `ScenarioZone` builder.
+- [X] T030 Docs: `spec.md` (FR-002, US1, SC-003, the Key Entity, a new assumption), `plan.md`, `data-model.md`,
+  `contracts/`, `research.md` (D8), `quickstart.md`, and `docs/ZONE_MODEL_DECISION.md` (the `ScenarioZone` block,
+  its breadth row and its superset claim).
+- [X] T031 Checkpoint: `dotnet build` warning-free and `dotnet test` green.
+
+**Checkpoint**: a scenario carries no placed props.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

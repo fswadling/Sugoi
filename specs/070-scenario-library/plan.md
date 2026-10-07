@@ -9,7 +9,7 @@
 Give the editor a **Scenario panel** that files the current scene under a named scenario. A scenario is a
 declared value of a closed union (`Scenario`, starting with one case, `Intro`) and the store keyed by it holds
 the captured **scenario contents**: every present zone as a **ref-free *scenario zone*** (`world/ScenarioZone.fs`
-— its environment as authored, and arrays of authored actor/prop/waypoint/trigger states, with waypoint links and
+— its environment as authored, and arrays of authored actor/waypoint/trigger states, with waypoint links and
 the player designation by index), the active place, and the screen's authored cue. The panel offers **Register**
 (capture the current state under the scenario) and **Clear** (empty it); both are single steps on the one undo
 history, because the capture is immutable data and the step carries a before/after pair. Registering only

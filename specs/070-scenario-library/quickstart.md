@@ -24,8 +24,8 @@ dotnet test test/fsharp-game.Tests.fsproj
    present zone (keyed by place), that each entry equals `ScenarioZone.capture` of the source, that `Active` is the
    active place, and that `Cue` is the cue passed. Then assert the stored zone is **ref-free**: a waypoint chain is
    captured as `Next : int option`, the player as an actor index, and nothing names a live slot.
-2. **Capture is exact** (US1 #4). Delete/duplicate a part or prop in a zone first, then assert the capture matches
-   part for part and prop for prop.
+2. **Capture is exact** (US1 #4). Delete/duplicate a part in a zone first, then assert the capture matches
+   part for part. (Placed props are not captured — see `spec.md`'s "Scenarios omit placed props" assumption.)
 3. **Register / undo / redo** (US2). Through `History.commit` + `History.undoHistory` + `History.redoHistory`
    over a headless `GameplayState`: register an unregistered scenario → holds contents; undo → unregistered; redo
    → contents back.
@@ -46,7 +46,7 @@ dotnet run
 1. Launch, Play, then open the editor (backtick if needed) and find the **Scenario** panel — it is docked in the
    **left** column as a tab beside **Outliner**, **Cast** and **Zone Registry**.
 2. The single declared scenario, **Intro**, is listed with **Register** and no contents shown.
-3. Author a scene: add a second zone (Zone Registry → Instantiate), drop in actors/props, lay a waypoint, place a
+3. Author a scene: add a second zone (Zone Registry → Instantiate), drop in actors, lay a waypoint, place a
    trigger, and put something in the Cue panel.
 4. Press **Register** on **Intro**. The row now reports the scenario holds contents (its zone count).
 5. Press **Ctrl+Z**. The row returns to no contents; the scene is unchanged. **Ctrl+Shift+Z** brings the

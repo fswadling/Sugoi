@@ -106,8 +106,9 @@ ambiguous.
 ## D8 · A scenario zone is its own type, not `ZoneContents`
 
 **Decision**: `world/ScenarioZone.fs` — a ref-free authored zone: `ScenarioEnvironment` (asset, base, orientation,
-a parts array), `ScenarioWaypoint` (`Base` with `Next : int option`), and `ScenarioZone` (arrays of `ActorState`,
-`PropState` and `TriggerState`, the light, and `Player : int option`).
+a parts array), `ScenarioWaypoint` (`Base` with `Next : int option`), and `ScenarioZone` (arrays of `ActorState`
+and `TriggerState`, the light, and `Player : int option`). Placed props are deliberately omitted — they are
+environment decoration, not narrative, and a scenario-prop separation is a later question.
 
 **Rationale**: Spec FR-012. `ZoneContents` has one purpose — reverse a zone *delete* exactly — so it keeps the
 origin zone's `EntityRef`s and its live `Environment`. A scenario needs neither: it is authored state a fork

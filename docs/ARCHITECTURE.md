@@ -164,8 +164,8 @@ parsed from s-syntax manifests, keyed by `id`.
   **gameplay screen** (`specs/070-scenario-library`): the vocabulary is a closed union
   (`world/Scenario.fs`), and the captured contents are keyed by it in `world/ScenarioRegistry.fs`.
   A scenario holds every present zone as a ref-free `ScenarioZone` (`world/ScenarioZone.fs` — arrays of authored
-  states, with waypoint chains and the player by index; deliberately **not** the `ZoneContents` a delete carries,
-  which keeps zone-scoped refs), the
+  states, with waypoint chains and the player by index, and **no placed props**; deliberately **not** the
+  `ZoneContents` a delete carries, which keeps zone-scoped refs), the
   active place, and the cue; registering or clearing one is a step on the one undo history.
   **Running** a scenario — forking it into the cue — is a later increment, so no cue op names one yet.
 - `Cue` (`world/Cue.fs`) is **one type that is both the vocabulary and the run** —

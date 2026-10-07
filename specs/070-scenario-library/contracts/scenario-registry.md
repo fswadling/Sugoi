@@ -41,7 +41,6 @@ type ScenarioZone =
     { Environment : ScenarioEnvironment option
       Light : Texture.LightSettings
       Actors : ActorState array
-      Props : PropState array
       Waypoints : ScenarioWaypoint array
       Triggers : TriggerState array
       Player : int option }
@@ -54,6 +53,8 @@ val capture : Zone.Zone -> ScenarioZone
 - **Ref-free:** no `EntityRef`, no live `Environment` (and so no epoch), no slot handle survives a capture —
   waypoint links and the player designation are indices (FR-012). This is the whole point of a separate type:
   `ZoneContents` keeps those, and a scenario must not.
+- **No placed props:** a scenario zone omits them — they are environment decoration, not narrative
+  (`spec.md` assumption "Scenarios omit placed props").
 - `capture` is pure and device-free, so it is asserted headlessly. It de-refs in two passes for waypoint chains
   (collect, then resolve `Next` to an index).
 - There is no `occupy` yet: loading a scenario into fresh zones (the fork) is the later increment.

@@ -31,7 +31,6 @@ scenario can use. `ScenarioZone` is the de-ref'd authored record, arrays through
 | `Environment` | `ScenarioEnvironment option` | The environment as authored — asset, base, orientation, parts — not the live `Environment` (no epoch, no parts slot map). |
 | `Light` | `Texture.LightSettings` | The zone's light, valid with or without an environment. |
 | `Actors` | `ActorState array` | Authored actor states, in slot order. |
-| `Props` | `PropState array` | Placed props (authored). |
 | `Waypoints` | `ScenarioWaypoint array` | Chains link by **index into this array**, not by `EntityRef`. |
 | `Triggers` | `TriggerState array` | Authored trigger states (the cue is an immutable value). |
 | `Player` | `int option` | The designated actor as an **index into `Actors`**, not a slot handle. |
@@ -68,8 +67,8 @@ the renderer/physics paths a headless test cannot exercise.
 | `Cue` | `Cue.Cue` | The screen's authored cue. A cue is an immutable value, so this is a reference. |
 
 **Validation**: `Zones` is non-empty in any capture (the active place is always present). Each `ScenarioZone`
-carries its environment/light, parts, props, actors, waypoints and triggers, and its player designation — all
-ref-free.
+carries its environment/light, parts, actors, waypoints and triggers, and its player designation — all
+ref-free; placed props are deliberately not captured (`spec.md` assumption "Scenarios omit placed props").
 
 **No identity is stored**: nothing in a `ScenarioZone` names a slot in the zone it was captured from, so the
 deferred fork can materialise it in a fresh zone without discarding anything (`spec.md` FR-012, assumption

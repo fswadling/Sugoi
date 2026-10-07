@@ -8,6 +8,10 @@ module ScenarioZone
 // zone-scoped identity and its `(ref, state)` list shape onto scenarios. `docs/ZONE_MODEL_DECISION.md` records
 // the reasoning.
 //
+// Placed props are deliberately **not** captured: they are environment decoration (a tree, a crate) rather than
+// narrative, so they belong to the place/environment and not to a scenario. Whether scenarios should carry a kind
+// of prop of their own is a later question, deliberately not opened here.
+//
 // Listed after `world/Zone.fs`, whose live zone is what `capture` reads, and before `world/ScenarioRegistry.fs`,
 // which files one under a scenario. Loading a scenario back (`occupy`, the fork) is a later increment.
 
@@ -32,12 +36,12 @@ type ScenarioWaypoint =
       Next : int option }
 
 /// One zone as a scenario holds it. Every collection is an array of authored states (the shape a bulk load
-/// walks), and the two places a live zone carries identity — a waypoint's link and the player — are indices.
+/// walks), and the two places a live zone carries identity — a waypoint's link and the player — are indices. Its
+/// placed props are not captured: they are environment decoration, not narrative.
 type ScenarioZone =
     { Environment : ScenarioEnvironment option
       Light : Texture.LightSettings
       Actors : ActorState array
-      Props : PropState array
       Waypoints : ScenarioWaypoint array
       Triggers : TriggerState array
       Player : int option }
@@ -90,14 +94,11 @@ let private captureWaypoints (zone: Zone) : ScenarioWaypoint array =
         { Base = waypoint.Base; Next = next })
     |> Seq.toArray
 
-/// Take a zone as a scenario holds it: the environment as authored, the light, and the actors, placed props,
-/// waypoints and triggers as arrays. Pure and device-free — it reads the live zone and nothing else — so it can
-/// be asserted with no window. De-refs every entity, and resolves the waypoint chains and the player to indices.
+/// Take a zone as a scenario holds it: the environment as authored, the light, and the actors, waypoints and
+/// triggers as arrays. Pure and device-free — it reads the live zone and nothing else — so it can be asserted
+/// with no window. De-refs every entity, and resolves the waypoint chains and the player to indices.
 let capture (zone: Zone) : ScenarioZone =
     let actors, player = captureActors zone
-
-    let props = ResizeArray<PropState>(int zone.Props.Count)
-    zone.Props.IteriAlive (fun _ _ prop -> props.Add prop.State)
 
     let triggers = ResizeArray<TriggerState>(int zone.Triggers.Count)
     zone.Triggers.IteriAlive (fun _ _ trigger -> triggers.Add trigger.State)
@@ -113,7 +114,6 @@ let capture (zone: Zone) : ScenarioZone =
     { Environment = environment
       Light = zone.Light
       Actors = actors
-      Props = props.ToArray()
       Waypoints = captureWaypoints zone
       Triggers = triggers.ToArray()
       Player = player }

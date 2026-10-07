@@ -9,7 +9,6 @@ open System
 open System.Collections.Generic
 open Command
 open Entity
-open EnvironmentAsset
 open Place
 open Scenario
 open ScenarioRegistry
@@ -41,13 +40,6 @@ let private sharedState () : SharedState.SharedState =
       Cast = { Casting.Bindings = Dictionary() }
       Advents = Set.empty }
 
-/// A device-free manager carrying one whole-model prop asset (`crate`), for the prop capture.
-let private propAssets () : Assets.AssetManager =
-    let submeshes = [| TestSupport.loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
-    let props = Dictionary<string, EnvironmentAsset>()
-    props.["crate"] <- TestSupport.residentAsset "crate" submeshes [||]
-    TestSupport.manager IntPtr.Zero (Dictionary()) props (Dictionary())
-
 /// Register the current scene under `Intro`, the way the panel's Register control does.
 let private register (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
     do ScenarioPanel.commit shared &state Intro (Some (capture state.Zones state.ActiveZone state.Cue))
@@ -71,7 +63,6 @@ let private scenarioZone (actors: ActorState array) : ScenarioZone.ScenarioZone 
     { Environment = None
       Light = Texture.defaultLight
       Actors = actors
-      Props = [||]
       Waypoints = [||]
       Triggers = [||]
       Player = None }
@@ -129,32 +120,6 @@ let ``a captured zone is ref-free: waypoint chains and the player become indices
     // Nothing names a live slot: the record's own values are the authored ones.
     Assert.Equal("a", captured.Waypoints.[0].Base.Name)
     Assert.Equal("pupil", captured.Actors.[0].Base.Name)
-
-[<Fact>]
-let ``the capture reflects a prop removed and a prop added, exactly`` () =
-    let shared = { sharedState () with Assets = propAssets () }
-    let mutable state = newState ()
-    let zone = GameplayState.activeZone state
-    let capturedProps (s: GameplayState.GameplayState) : int =
-        match tryContents Intro s.Scenarios with
-        | Some contents -> Array.length (Map.find Place.start contents.Zones).Props
-        | None -> -1
-
-    let first = Zone.spawnProp zone state.Physics shared.Assets (entity "crate-a") "crate"
-    do register shared &state
-    Assert.Equal(1, capturedProps state)
-
-    // A second prop of the same asset: the capture shows two.
-    do ignore (Zone.spawnProp zone state.Physics shared.Assets (entity "crate-b") "crate")
-    do register shared &state
-    Assert.Equal(2, capturedProps state)
-
-    // Delete the first: the capture shows the one that is left.
-    do Zone.removeProp zone state.Physics first
-    do register shared &state
-    Assert.Equal(1, capturedProps state)
-
-// ══════ the registration (US1) ══════
 
 [<Fact>]
 let ``register files the scene and clear empties it`` () =

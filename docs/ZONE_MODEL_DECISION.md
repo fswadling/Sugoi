@@ -90,7 +90,6 @@ type ScenarioZone =
     { Environment : ScenarioEnvironment option   // { AssetId; Base; Orientation; Parts : PropState[] }
       Light : Texture.LightSettings
       Actors : ActorState array
-      Props : PropState array
       Waypoints : ScenarioWaypoint array          // { Base : Entity; Next : int option }
       Triggers : TriggerState array
       Player : int option }
@@ -101,7 +100,7 @@ type ScenarioZone =
 | **Role** | live container | undo/redo snapshot | place recipe | scenario zone (a recipe, with breadth) |
 | **Refs** | live handles | **kept** (exact restore) | **dropped** | **dropped** |
 | **Environment** | live `Environment` (epoch, parts map, `PartsSource`) | the live `Environment` value | `AssetId` + `Base` + `Orientation` + `Parts[]` | `ScenarioEnvironment` (the same authored shape) |
-| **Breadth** | everything + physics/render | actors/props/waypoints/triggers/env/light/player | env/parts/props/light only | env/parts/props/light + actors/waypoints/triggers |
+| **Breadth** | everything + physics/render | actors/props/waypoints/triggers/env/light/player | env/parts/props/light only | env/parts/light + actors/waypoints/triggers (**no props**) |
 | **Compiled** | in `world/Zone.fs` | in `world/Zone.fs` | before `world/Zone.fs` | after `world/Zone.fs` (reads a live `Zone`) |
 | **Consumer** | the play loop | `ZoneDelete` undo, `occupyZone` | `ZoneRegistry` instantiate | the scenario registry's capture |
 
@@ -113,10 +112,12 @@ another, which is harmless:
 - `ZoneTemplate` ≈ `ZoneContents` projected onto (environment, parts, props, light), with refs dropped and the
   environment flattened. A place registry entry could be derived from a `ZoneContents`; today it is derived
   from a live `Zone` (`Zone.captureTemplate`).
-- `ScenarioZone` is a **superset** of `ZoneTemplate`: the same authored environment, parts, props and light, plus
-  actors, waypoints and triggers (and the player). So a place-registry entry is, in shape, a `ScenarioZone` whose
-  environment is present and whose entity lists are empty — which makes the convergence (option 3) concrete rather
-  than speculative.
+- `ScenarioZone` matches `ZoneTemplate` on the environment, parts and light, and adds actors, waypoints and
+  triggers (and the player) — but it **deliberately omits placed props** (environment decoration, not narrative).
+  So a place-registry entry is, in shape, a `ScenarioZone` with an environment and no entity lists **plus the
+  placed props a scenario does not carry**. The two are close but not identical, which makes the convergence
+  (option 3) concrete — and adds a question it must settle: whether placed props belong in the shared recipe at
+  all, or only in a place's.
 - The `PropState`-array vs `(ref, PropState) list` difference is only the refs.
 - The environment difference is the **substantive** one: `ZoneContents` carries the live `Environment`
   (an `Epoch`, a `Parts : SlotMap<Prop>`, and a `PartsSource`), where `ZoneTemplate` carries an authored
