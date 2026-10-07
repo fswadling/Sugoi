@@ -29,15 +29,14 @@ let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
       Cast = { Casting.Bindings = Dictionary() }
-      ZoneRegistry = ZoneRegistry.create ()
-      Advents = Set.empty
-      Physics = Physics.create () }
+      Advents = Set.empty }
 
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
 
-// One physics world for the file: the zones these tests build are empty, so a switch only walks an empty
-// body map and nothing leaks between tests. The test runner serializes collections anyway.
+// Shared assets and flags for the file: the zones these tests build are empty, so a switch only walks an
+// empty body map and nothing leaks between tests. The physics world is each state's own. The test runner
+// serializes collections anyway.
 let private shared = sharedState ()
 
 let private withCue (cue: Cue) : GameplayState.GameplayState =
@@ -74,13 +73,11 @@ let private residentShared () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) environments
       Cast = { Casting.Bindings = Dictionary() }
-      ZoneRegistry = ZoneRegistry.create ()
-      Advents = Set.empty
-      Physics = Physics.create () }
+      Advents = Set.empty }
 
 // Register a template for `place`: the `"room"` environment, no light change and no parts or props —
 // enough that a cue's add op streams something and `Zone.Environment` is present.
-let private registerTemplate (shared: SharedState.SharedState) (place: Place) : unit =
+let private registerTemplate (state: GameplayState.GameplayState) (place: Place) : unit =
     let baseEntity : Entity =
         { Name = "room"
           Transform = transformIdentity
@@ -88,7 +85,7 @@ let private registerTemplate (shared: SharedState.SharedState) (place: Place) : 
           Visible = true
           Selectable = true
           Draggable = true }
-    shared.ZoneRegistry.Templates.[place] <-
+    state.ZoneRegistry.Templates.[place] <-
         { AssetId = "room"
           Base = baseEntity
           Orientation = Quaternion.Identity
@@ -732,8 +729,8 @@ let ``a switch to an absent place performs nothing`` () =
 [<Fact>]
 let ``an add op makes an absent place present with its registered template, without entering it`` () =
     let shared = residentShared ()
-    registerTemplate shared atriumPlace
     let mutable state = withCue (seqOf [ AddZone atriumPlace ])
+    registerTemplate state atriumPlace
     let activeBefore = state.ActiveZone
 
     tick shared &state 0.0
@@ -771,12 +768,12 @@ let ``a remove op makes a present inactive place absent, and is a no-op for the 
 [<Fact>]
 let ``a preload op requests a present zone's environment and leaves the active zone's alone`` () =
     let shared = residentShared ()
-    registerTemplate shared atriumPlace
     let mutable state = newState ()
+    registerTemplate state atriumPlace
     // the active zone already has the shared environment resident, so "untouched" is a real claim
-    do ignore (Zone.loadEnvironment (GameplayState.activeZone state) shared.Physics shared.Assets "room")
+    do ignore (Zone.loadEnvironment (GameplayState.activeZone state) state.Physics shared.Assets "room")
     Assert.True(Assets.isEnvironmentResident shared.Assets "room")
-    GameplayState.presentZone shared &state atriumPlace (ZoneRegistry.tryTemplate atriumPlace shared.ZoneRegistry)
+    GameplayState.presentZone shared &state atriumPlace (ZoneRegistry.tryTemplate atriumPlace state.ZoneRegistry)
 
     state.Cue <- PreloadZone atriumPlace
     let activeBefore = state.ActiveZone
@@ -795,8 +792,8 @@ let ``a preload op requests a present zone's environment and leaves the active z
 [<Fact>]
 let ``a preload op brings a present but empty registered place its content`` () =
     let shared = residentShared ()
-    registerTemplate shared atriumPlace
     let mutable state = newState ()
+    registerTemplate state atriumPlace
     GameplayState.addZone shared &state atriumPlace // the editor's add: present but with no environment
     GameplayState.switchZone shared &state mainPlace
     Assert.True(Option.isNone state.Zones.[atriumPlace].Environment)
@@ -810,6 +807,7 @@ let ``a preload op brings a present but empty registered place its content`` () 
 
     // and it works while the place is the active one too
     let mutable active = newState ()
+    registerTemplate active atriumPlace
     GameplayState.addZone shared &active atriumPlace
     Assert.True(Option.isNone active.Zones.[atriumPlace].Environment)
     active.Cue <- PreloadZone atriumPlace
@@ -834,8 +832,8 @@ let ``every zone op on a place it cannot act on performs nothing and the cue sti
 [<Fact>]
 let ``preload, set and remove compose into a prepared transition`` () =
     let shared = residentShared ()
-    registerTemplate shared atriumPlace
     let mutable state = newState ()
+    registerTemplate state atriumPlace
     GameplayState.addZone shared &state classroomPlace // present and active
     GameplayState.switchZone shared &state mainPlace
     state.Cue <- seqOf [ AddZone atriumPlace; PreloadZone atriumPlace; SetZone atriumPlace; RemoveZone classroomPlace ]
@@ -900,9 +898,7 @@ let private actorShared () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero actors (Dictionary()) (Dictionary())
       Cast = { Casting.Bindings = bindings }
-      ZoneRegistry = ZoneRegistry.create ()
-      Advents = Set.empty
-      Physics = Physics.create () }
+      Advents = Set.empty }
 
 /// A waypoint named `name` at `position`, facing `rotation`, in `zone`.
 let private waypointIn (zone: Zone.Zone) (name: string) (position: Vector3) (rotation: Quaternion) : EntityRef =
@@ -1237,7 +1233,7 @@ let ``a placed actor's facing reaches its physics body, so it survives the play 
     let ref = castRef state Roster.Aiko
     let body = bodyOf zone ref
     let entityFacing = Vector3.Transform(Vector3.UnitZ, (zone.Actors.Get(handleOf ref)).State.Base.Transform.Rotation)
-    let (_, bodyRotation) = Physics.getBodyTransform shared.Physics body
+    let (_, bodyRotation) = Physics.getBodyTransform state.Physics body
     let bodyFacing = Vector3.Transform(Vector3.UnitZ, bodyRotation)
     Assert.True(Vector3.Dot(entityFacing, Vector3.UnitX) > 0.999f, sprintf "expected the entity to face the waypoint's arrow, got %A" entityFacing)
     Assert.True(Vector3.Dot(bodyFacing, Vector3.UnitX) > 0.999f, sprintf "expected the body to face it too, got %A" bodyFacing)
@@ -1352,12 +1348,12 @@ let ``a move op drives the actor along the chain and arrives at the last waypoin
     let dt = 0.02f
     let mutable now = 0.0
     while not state.Cue.IsFin && now < 5.0 do
-        do Physics.step shared.Physics dt
+        do Physics.step state.Physics dt
         now <- now + float dt
         tick shared &state now
 
     Assert.Equal("Fin", describe state.Cue)
-    let (position, _) = Physics.getBodyTransform shared.Physics body
+    let (position, _) = Physics.getBodyTransform state.Physics body
     Assert.True(abs (position.X - 4.0f) < 0.5f, sprintf "expected the last waypoint, got %A" position)
     Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Idle")) // arrived idle
     Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
@@ -1380,12 +1376,12 @@ let ``a move op walks to a single waypoint and turns to face its arrow`` () =
     let dt = 0.02f
     let mutable now = 0.0
     while not state.Cue.IsFin && now < 5.0 do
-        do Physics.step shared.Physics dt
+        do Physics.step state.Physics dt
         now <- now + float dt
         tick shared &state now
 
     Assert.Equal("Fin", describe state.Cue)
-    let (position, _) = Physics.getBodyTransform shared.Physics body
+    let (position, _) = Physics.getBodyTransform state.Physics body
     Assert.True(abs (position.X - 4.0f) < 0.5f, sprintf "expected the waypoint, got %A" position)
 
 [<Fact>]
@@ -1399,7 +1395,7 @@ let ``a move op keeps a correctly-turned actor facing the path, not a waypoint's
     let facingX = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2.0f)
     let actorAtStart = &zone.Actors.Get(handleOf ref)
     let turned = { actorAtStart.State.Base.Transform with Rotation = facingX }
-    do Zone.setTransform zone shared.Physics ref turned
+    do Zone.setTransform zone state.Physics ref turned
     let body = bodyOf zone ref
 
     state.Cue <- MoveActor(Roster.Aiko, "ahead", 2.0, "Jog", "Idle")
@@ -1408,11 +1404,11 @@ let ``a move op keeps a correctly-turned actor facing the path, not a waypoint's
     let dt = 0.02f
     let mutable now = 0.0
     while not state.Cue.IsFin && now < 5.0 do
-        do Physics.step shared.Physics dt
+        do Physics.step state.Physics dt
         now <- now + float dt
         tick shared &state now
         // she faces the path throughout — never the waypoint's default arrow
-        let (_, rotation) = Physics.getBodyTransform shared.Physics body
+        let (_, rotation) = Physics.getBodyTransform state.Physics body
         let facing = Vector3.Transform(Vector3.UnitZ, rotation)
         Assert.True(Vector3.Dot(facing, Vector3.UnitX) > 0.999f, sprintf "expected to face along the path, got %A" facing)
 
@@ -1434,12 +1430,12 @@ let ``a rotate op turns the actor to face a waypoint over its duration`` () =
     let dt = 0.02f
     let mutable now = 0.0
     while now < 1.0 do
-        do Physics.step shared.Physics dt
+        do Physics.step state.Physics dt
         now <- now + float dt
         tick shared &state now
 
     Assert.Equal("Fin", describe state.Cue)
-    let (_, rotation) = Physics.getBodyTransform shared.Physics body
+    let (_, rotation) = Physics.getBodyTransform state.Physics body
     // the actor's forward (local +Z) must look where the waypoint's arrow (local -Z) points
     let facing = Vector3.Transform(Vector3.UnitZ, rotation)
     let arrow = Vector3.Transform(-Vector3.UnitZ, target)

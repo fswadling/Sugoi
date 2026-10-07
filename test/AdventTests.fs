@@ -16,15 +16,13 @@ open Advent
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
 
-/// A headless `SharedState`: a real physics world (the zone switch uses it) and a device-free, empty
-/// asset manager. Nothing here spawns an entity, so no resource is touched.
+/// A headless `SharedState`: a device-free, empty asset manager and an empty flag set. Nothing here
+/// spawns an entity, so no resource is touched; the physics world is the gameplay state's own.
 let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
       Cast = { Casting.Bindings = Dictionary() }
-      ZoneRegistry = ZoneRegistry.create ()
-      Advents = Set.empty
-      Physics = Physics.create () }
+      Advents = Set.empty }
 
 /// The set milestones as their names, in declaration order — the set as a person reads it.
 let private setNames (flags: Set<Advent>) : string list =
@@ -139,5 +137,5 @@ let ``the zone-level runner refuses a flag step, which is state-level`` () =
     let mutable state = newState ()
     let zone = GameplayState.activeZone state
     let step = Command.Advent (Set.empty, Set.add OpeningComplete Set.empty)
-    Assert.True(raises (fun () -> Command.apply zone shared.Physics shared.Assets step))
-    Assert.True(raises (fun () -> Command.undo zone shared.Physics shared.Assets step))
+    Assert.True(raises (fun () -> Command.apply zone state.Physics shared.Assets step))
+    Assert.True(raises (fun () -> Command.undo zone state.Physics shared.Assets step))

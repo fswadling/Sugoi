@@ -43,7 +43,7 @@ let private propAssets () : Assets.AssetManager =
     TestSupport.manager IntPtr.Zero (Dictionary()) props (Dictionary())
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; ZoneRegistry = ZoneRegistry.create (); Advents = Set.empty; Physics = Physics.create () }
+    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; Advents = Set.empty }
 
 // A gameplay state seeded with the single `main` zone, as the app starts.
 let private newState () : GameplayState.GameplayState =
@@ -110,7 +110,7 @@ let ``presentZone makes an absent place present with its template and leaves the
     let mutable added = false
     zone.Environment.Value.Parts.IteriAlive (fun _ _ p ->
         match p.Physics with
-        | Some physics -> added <- added || Physics.isAdded shared.Physics physics.Body
+        | Some physics -> added <- added || Physics.isAdded state.Physics physics.Body
         | None -> ())
     Assert.False added
 
@@ -164,17 +164,17 @@ let ``a switch detaches the outgoing zone's bodies and re-attaches them on retur
     let shared = sharedState assets
     let mutable state = newState ()
     let main = GameplayState.activeZone state
-    let ref = Zone.spawnProp main shared.Physics assets (entity "crate") "crate"
+    let ref = Zone.spawnProp main state.Physics assets (entity "crate") "crate"
     let body = bodyOf main ref
-    Assert.True(Physics.isAdded shared.Physics body)
+    Assert.True(Physics.isAdded state.Physics body)
 
     GameplayState.addZone shared &state classroomPlace
-    Assert.False(Physics.isAdded shared.Physics body)
+    Assert.False(Physics.isAdded state.Physics body)
     // The entity and its body survive the detach.
     Assert.True(Zone.isAlive main ref)
 
     GameplayState.switchZone shared &state mainPlace
-    Assert.True(Physics.isAdded shared.Physics body)
+    Assert.True(Physics.isAdded state.Physics body)
 
 [<Fact>]
 let ``loading an environment changes only the active zone`` () =
@@ -184,7 +184,7 @@ let ``loading an environment changes only the active zone`` () =
     GameplayState.addZone shared &state classroomPlace
 
     let classroom = GameplayState.activeZone state
-    let environment = Zone.loadEnvironment classroom shared.Physics assets "room"
+    let environment = Zone.loadEnvironment classroom state.Physics assets "room"
     Assert.True(Option.isSome classroom.Environment)
     Assert.Equal(environment.Epoch, classroom.Environment.Value.Epoch)
 
@@ -211,11 +211,11 @@ let ``deleting an inactive zone releases it and leaves the active zone alone`` (
     let mutable state = newState ()
     GameplayState.addZone shared &state classroomPlace
     let classroom = GameplayState.activeZone state
-    let ref = Zone.spawnProp classroom shared.Physics assets (entity "crate") "crate"
+    let ref = Zone.spawnProp classroom state.Physics assets (entity "crate") "crate"
     let body = bodyOf classroom ref
 
     GameplayState.switchZone shared &state mainPlace
-    Assert.False(Physics.isAdded shared.Physics body)
+    Assert.False(Physics.isAdded state.Physics body)
 
     GameplayState.deleteZone shared &state classroomPlace
     Assert.False(state.Zones.ContainsKey classroomPlace)
@@ -473,9 +473,9 @@ let ``deleting a zone and undoing restores its entities, environment and light``
 
     GameplayState.addZone shared &state classroomPlace
     let classroom = GameplayState.activeZone state
-    let environment = Zone.loadEnvironment classroom shared.Physics shared.Assets "room"
+    let environment = Zone.loadEnvironment classroom state.Physics shared.Assets "room"
     let partRef' = partRef environment.Epoch 0u 0u
-    let propRef' = Zone.spawnProp classroom shared.Physics shared.Assets (entity "crate") "crate"
+    let propRef' = Zone.spawnProp classroom state.Physics shared.Assets (entity "crate") "crate"
     let waypointRef' = Zone.spawnWaypoint classroom (entity "path")
     let triggerRef' = Zone.spawnTrigger classroom (entity "area")
     let light = { classroom.Light with Pitch = 33.0f }
@@ -549,7 +549,7 @@ let ``a zone's contents carry its actors and its player designation`` () =
 
     // And `occupyZone` puts the designation back — a field of its own, which needs no actor to restore.
     let target = Zone.create ()
-    do Zone.occupyZone target shared.Physics shared.Assets { contents with Actors = [] }
+    do Zone.occupyZone target state.Physics shared.Assets { contents with Actors = [] }
     Assert.Equal(ValueSome handle, target.Player)
 
 [<Fact>]

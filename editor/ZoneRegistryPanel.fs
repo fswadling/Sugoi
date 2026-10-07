@@ -34,7 +34,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                 // names are on the stack.
                 do ImGui.pushId entry.Name
 
-                let registered = ZoneRegistry.tryTemplate entry.Place shared.ZoneRegistry
+                let registered = ZoneRegistry.tryTemplate entry.Place state.ZoneRegistry
 
                 // An id that names no loaded asset raises rather than being skipped: only discovered
                 // assets can be registered, so it is a bug rather than a state to render.
@@ -55,7 +55,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
                 if ImGui.smallButton "Register" then
                     match Zone.captureTemplate (GameplayState.activeZone state) with
-                    | Some template -> shared.ZoneRegistry.Templates.[entry.Place] <- template
+                    | Some template -> state.ZoneRegistry.Templates.[entry.Place] <- template
                     | None -> failwith "the register control is disabled while no environment is loaded"
 
                 do ImGui.endDisabled()

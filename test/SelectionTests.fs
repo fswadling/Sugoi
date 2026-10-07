@@ -27,9 +27,7 @@ let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
       Cast = { Casting.Bindings = Dictionary() }
-      ZoneRegistry = ZoneRegistry.create ()
-      Advents = Set.empty
-      Physics = Physics.create () }
+      Advents = Set.empty }
 
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
     let zones = Dictionary<Place, Zone.Zone>()
@@ -40,6 +38,8 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       Ui = Unchecked.defaultof<Ui.Ui>
       Dialogue = Dialogue.empty
       Zones = zones
+      ZoneRegistry = ZoneRegistry.create ()
+      Physics = Physics.create ()
       Cast = Dictionary<Roster.Character, Place * EntityRef>()
       ActiveZone = Place.start
       Editor = EditorState.create ()
@@ -70,11 +70,11 @@ let ``renaming records one Rename step and undo and redo swap the names`` () =
         Assert.Equal("entrance", after)
     | other -> Assert.Fail(sprintf "expected exactly one Rename command, got %A" other)
 
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
     Assert.Equal("start", (Zone.tryEntityAt zone ref).Value.Name)
 
-    let redo = UndoStack.redo state.Editor.Undo zone shared.Physics shared.Assets
+    let redo = UndoStack.redo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = redo }
     Assert.Equal("entrance", (Zone.tryEntityAt zone ref).Value.Name)
 
@@ -211,7 +211,7 @@ let ``linking pushes one Link step carrying both sides, and undo restores the pr
     Selection.linkRef shared &state a (Some c)
     Assert.Equal(Some c, Zone.waypointNext zone a)
 
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
     Assert.Equal(Some b, Zone.waypointNext zone a)
 
@@ -249,7 +249,7 @@ let ``deleting a mid-chain waypoint and undoing restores the whole chain`` () =
     Assert.Equal(2u, zone.Waypoints.Count)
     Assert.True(Option.isNone (Zone.waypointNext zone a))
 
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
 
     // Both links resolve again: the restored waypoint re-occupied its slot with the
@@ -274,7 +274,7 @@ let ``deleting a waypoint and undoing restores every authored field`` () =
     Selection.deleteRef shared &state ref
     Assert.False(Zone.isAlive zone ref)
 
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
 
     // Name, transform, and the link are all back; none of them was reset to a default.
@@ -297,7 +297,7 @@ let ``deleting a trigger and undoing restores its shape but not its runtime flag
 
     Selection.deleteRef shared &state ref
 
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
 
     let restored = (Zone.tryTriggerAt zone ref).Value
@@ -318,9 +318,9 @@ let ``repeating delete, undo, and redo leaves the entity identical`` () =
     for _ in 1 .. 50 do
         Selection.deleteRef shared &state ref
         Assert.False(Zone.isAlive zone ref)
-        let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
-        let redo = UndoStack.redo undo zone shared.Physics shared.Assets
-        let undone = UndoStack.undo redo zone shared.Physics shared.Assets
+        let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
+        let redo = UndoStack.redo undo zone state.Physics shared.Assets
+        let undone = UndoStack.undo redo zone state.Physics shared.Assets
         state.Editor <- { state.Editor with Undo = undone }
 
     // Fifty cycles leave exactly the entity the first one did, with no drift.
@@ -415,11 +415,11 @@ let ``setting the player records one SetPlayer step and undo puts the previous d
 
     // Re-designating carries the previous actor, so the first undo is the *previous actor*, not no player.
     Selection.setPlayer shared &state rival
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
     Assert.Equal(hero.Index, zone.Player.Value.Index)
 
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
     Assert.True(ValueOption.isNone zone.Player)
 

@@ -83,7 +83,7 @@ let renameRef (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     if name = e.Name then () else
 
     let cmd = Rename (ref, e.Name, name)
-    apply zone shared.Physics shared.Assets cmd
+    apply zone state.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
 
@@ -96,7 +96,7 @@ let linkRef (shared: SharedState.SharedState) (state: byref<GameplayState.Gamepl
     if before = next then () else
 
     let cmd = Link (ref, before, next)
-    apply zone shared.Physics shared.Assets cmd
+    apply zone state.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
 
@@ -114,7 +114,7 @@ let updateTriggerRef (shared: SharedState.SharedState) (state: byref<GameplaySta
     if after = before then () else
 
     let cmd = TriggerSet (ref, before, after)
-    apply zone shared.Physics shared.Assets cmd
+    apply zone state.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
 
@@ -129,7 +129,7 @@ let setLight (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
     if after = before then () else
 
     let cmd = SetLight (before, after)
-    apply zone shared.Physics shared.Assets cmd
+    apply zone state.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
 
@@ -143,7 +143,7 @@ let setPlayer (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     if after = before then () else
 
     let cmd = SetPlayer (before, after)
-    apply zone shared.Physics shared.Assets cmd
+    apply zone state.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
 

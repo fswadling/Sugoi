@@ -181,10 +181,11 @@ undo stack. Commands store **values** (not closures):
 - Continuous edits (gizmo/slider drag) coalesce into a single undo step by
   merging consecutive commands with the same key.
 
-`Command.apply`/`undo` take one zone plus `SharedState` (which hosts the cast,
-scenario library, zone registry, and advent flags), so `Command` depends on
-`SharedState` rather than `GameplayState` — avoiding a `Command → GameplayState →
-EditorState → Command` module cycle. The **history** is one, on the gameplay state:
+`Command.apply`/`undo` take one zone plus the physics world and the asset manager as **values**, so
+`Command` depends on neither state container — avoiding a `Command → GameplayState → EditorState →
+Command` module cycle. (The cast binding and the advent flags live on `SharedState`; the zone registry
+and the physics world live on `GameplayState`; `Command` reads none of them directly.) The
+**history** is one, on the gameplay state:
 `state/History.fs`, compiled after `GameplayState`, carries the state-level runners and the steppers,
 because a step may be a zone move, an add, a delete or a cue edit, which only the state can carry out
 (`specs/048-unified-undo-stack`, `specs/049-cue-on-one-history`). The `Command` *type* stays where it is — moving it would be that cyclic

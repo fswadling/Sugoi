@@ -42,7 +42,7 @@ let spawnActor (shared: SharedState.SharedState) (state: byref<GameplayState.Gam
     | None ->
 
     let zone = GameplayState.activeZone state
-    let ref = Zone.spawnActor zone shared.Physics shared.Assets entity assetId cast
+    let ref = Zone.spawnActor zone state.Physics shared.Assets entity assetId cast
     match cast with
     | Some character -> GameplayState.addCast &state character state.ActiveZone ref
     | None -> ()
@@ -50,7 +50,7 @@ let spawnActor (shared: SharedState.SharedState) (state: byref<GameplayState.Gam
 
 let spawnProp (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) : unit =
     let zone = GameplayState.activeZone state
-    let ref = Zone.spawnProp zone shared.Physics shared.Assets entity assetId
+    let ref = Zone.spawnProp zone state.Physics shared.Assets entity assetId
     do commit &state (PropCreate (ref, Zone.captureProp zone ref)) ref
 
 // Spawn a waypoint into the active zone. It carries no asset, so no shared state is
@@ -88,19 +88,19 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     match source.Kind with
     | EntityKind.Actor ->
         let original = Zone.captureActor zone source
-        let ref = Zone.spawnActor zone shared.Physics shared.Assets entity original.AssetId None
+        let ref = Zone.spawnActor zone state.Physics shared.Assets entity original.AssetId None
         // `spawnActor` opens with the overlay off; the copy takes the original's value.
         do Zone.setShowCollider zone ref original.ShowCollider
         do commit &state (ActorCreate (ref, Zone.captureActor zone ref)) ref
     | EntityKind.Prop ->
         let original = Zone.captureProp zone source
         let binding = { AssetId = original.AssetId; SubmeshIndex = original.SubmeshIndex; SubmeshCount = original.SubmeshCount }
-        let ref = Zone.spawnPropBinding zone shared.Physics shared.Assets entity binding
+        let ref = Zone.spawnPropBinding zone state.Physics shared.Assets entity binding
         do commit &state (PropCreate (ref, Zone.captureProp zone ref)) ref
     | EntityKind.Part ->
         let original = Zone.capturePart zone source
         let binding = { AssetId = original.AssetId; SubmeshIndex = original.SubmeshIndex; SubmeshCount = original.SubmeshCount }
-        let ref = Zone.spawnPartBinding zone shared.Physics shared.Assets entity binding
+        let ref = Zone.spawnPartBinding zone state.Physics shared.Assets entity binding
         do commit &state (PartCreate (ref, Zone.capturePart zone ref)) ref
     | EntityKind.Waypoint ->
         // The captured value carries the original's link, so the copy links to the same
@@ -133,9 +133,9 @@ let instantiateZone (shared: SharedState.SharedState) (state: byref<GameplayStat
     // and its reversal are one piece of code rather than two that have to agree.
     let replaced = Zone.captureProps zone
     for (ref, prop) in replaced do
-        apply zone shared.Physics shared.Assets (PropDelete (ref, prop))
+        apply zone state.Physics shared.Assets (PropDelete (ref, prop))
 
-    let next = Zone.loadEnvironmentFrom zone shared.Physics shared.Assets template
+    let next = Zone.loadEnvironmentFrom zone state.Physics shared.Assets template
 
     // The light, like the environment, is put in place directly: the step below records it for
     // reversal, as the `SetEnvironment` arm records the swap `loadEnvironmentFrom` already made.
@@ -143,6 +143,7 @@ let instantiateZone (shared: SharedState.SharedState) (state: byref<GameplayStat
 
     // The entry's props, each at a fresh slot. A recorded prop that names no asset is shaped like a
     // part, and would be built as a piece of the environment rather than as the prop it is.
+    let physics = state.Physics
     let placed =
         template.Props
         |> Array.map (fun (prop: PropState) ->
@@ -152,7 +153,7 @@ let instantiateZone (shared: SharedState.SharedState) (state: byref<GameplayStat
                 | None -> failwith "instantiateZone: a recorded prop must name an asset"
 
             let binding = { AssetId = Some assetId; SubmeshIndex = prop.SubmeshIndex; SubmeshCount = prop.SubmeshCount }
-            (Zone.spawnPropBinding zone shared.Physics shared.Assets prop.Base binding, prop))
+            (Zone.spawnPropBinding zone physics shared.Assets prop.Base binding, prop))
 
     // The deletes, the light, the swap and the creates, in the order they happened: undo runs the batch
     // backwards, which frees the slots the placed props took before restoring the replaced ones at their

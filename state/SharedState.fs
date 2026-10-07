@@ -1,33 +1,38 @@
 module SharedState
 
-// Cross-screen state owned by ScreenManager: the GPU context (the device and its
-// derived render resources — pipelines, formats, depth target), the asset manager,
-// and the physics world. One physics world is shared by every zone (zones keep only
-// their body→entity map), so there is a single Jolt PhysicsSystem + job system for
-// the whole game. The GPU context is the single owner of the device-derived render
-// resources; screens read them from here rather than holding copies. A reference
-// type so screens can write shared values back (e.g. loaded assets) instead of
-// threading struct copies.
+// Shared state owned by ScreenManager: what the engine itself, or more than one screen, may read.
+// The test is readership, not authorship — a member lives here only when something other than the
+// gameplay screen and its editor reads it.
+//
+//   - the GPU context — the device and its derived render resources (pipelines, formats, depth
+//     target) — which the engine's own render loop reads;
+//   - the asset manager, which any presenting screen may read (a journal resolves portraits through
+//     it);
+//   - the cast binding and the named adventure flags, which a journal or inventory screen may
+//     present.
+//
+// The gameplay world and its configuration — the zones, the zone registry and the physics world —
+// are the gameplay screen's and live on `GameplayState`, beside the screen's own runtime state.
+//
+// The GPU context is the single owner of the device-derived render resources; screens read them
+// from here rather than holding copies. A reference type so screens can write shared values back
+// (e.g. loaded assets) instead of threading struct copies.
 
 open Advent
 
 type SharedState =
     { mutable Gpu : Gpu.Gpu
       Assets : Assets.AssetManager
+      // The slot → actor-asset binding (spec 032): shared because a screen other than the world (a
+      // journal or inventory) may present a character's look — not because it outlives a zone.
       Cast : Casting.Cast
-      // Project state that belongs to no zone, like the cast binding: the undo stacks are per zone, so
-      // anything that must outlive every zone lives here (spec 034).
-      ZoneRegistry : ZoneRegistry.Registry
-      // The named adventure flags (spec 055): story milestones, also project state that outlives every
-      // zone and likewise not a zone's. Mutable because the one undo history writes it in place — a
-      // flag edit is a state-level step, as the cue's `SetCue` is (specs/048, specs/049).
-      mutable Advents : Set<Advent>
-      Physics : Physics.World }
+      // The named adventure flags (spec 055): story milestones a screen other than the world may
+      // present or gate on, for the same reason. Mutable because the one undo history writes it in
+      // place — a flag edit is a state-level step, as the cue's `SetCue` is (specs/048, specs/049).
+      mutable Advents : Set<Advent> }
 
 let create (gpu: Gpu.Gpu) : SharedState =
     { Gpu = gpu
       Assets = Assets.scan "assets" gpu.Device
       Cast = { Casting.Bindings = System.Collections.Generic.Dictionary() }
-      ZoneRegistry = ZoneRegistry.create ()
-      Advents = Set.empty
-      Physics = Physics.create () }
+      Advents = Set.empty }

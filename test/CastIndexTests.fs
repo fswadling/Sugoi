@@ -60,9 +60,7 @@ let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState 
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = assets
       Cast = { Casting.Bindings = Dictionary() }
-      ZoneRegistry = ZoneRegistry.create ()
-      Advents = Set.empty
-      Physics = Physics.create () }
+      Advents = Set.empty }
 
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)

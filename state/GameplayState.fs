@@ -1,10 +1,13 @@
 module GameplayState
 
-// Per-screen gameplay state. A struct; owns the screen's zones (a name-keyed map
-// with exactly one active zone), its view (camera + per-screen render buffers), and
-// its editor/play state. Device-level render resources (pipelines, formats, depth
-// target) live on `SharedState`, not here. A zone's name is its identity and its key;
-// `activeZone` is one dictionary lookup, done once per frame by the hot paths.
+// Per-screen gameplay state. A struct; owns the gameplay world and that world's configuration —
+// the zones (a place-keyed map with exactly one active zone), the zone registry (the recipe table
+// those zones are instantiated from), and the physics world their bodies attach to — beside the
+// screen's own runtime state (camera + render buffers, dialogue, the cue run, editor/play state).
+// The test for what belongs here is readership: a member is the gameplay screen's (and its editor
+// layer's) when nothing else reads it. Device-level render resources (pipelines, formats, depth
+// target) live on `SharedState`, not here. A zone's name is its identity and its key; `activeZone`
+// is one dictionary lookup, done once per frame by the hot paths.
 
 open System.Collections.Generic
 open System.Numerics
@@ -27,6 +30,14 @@ type GameplayState =
       // The gameplay state's zones, keyed by the place they are (spec 061). A place is either present
       // (it has a zone here) or absent; the active place is always present.
       Zones : Dictionary<Place, Zone.Zone>
+      // The zone registry (spec 034): the recipe table for those zones — the config `presentZone`/
+      // `populateZone` instantiate a place from. Here rather than on `SharedState` because only the
+      // gameplay screen and its editor read it.
+      ZoneRegistry : ZoneRegistry.Registry
+      // The physics world: one Jolt world shared by every zone (a zone keeps only its body→entity
+      // map), owned here beside the zones because only the gameplay screen simulates. A zone never
+      // holds it — `Zone.*` receives it as a parameter, so there is one world for the whole game.
+      Physics : Physics.World
       // The runtime cast (spec 063): which actor plays each character. Keyed by the closed roster, one
       // character at most across every zone; the value carries the zone because `EntityRef` is zone-scoped.
       // It is a lookup the actor-existence points maintain from `ActorState.Cast`, not a second source of truth.
@@ -61,6 +72,8 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui
       Ui = ui
       Dialogue = Dialogue.empty
       Zones = zones
+      ZoneRegistry = ZoneRegistry.create ()
+      Physics = Physics.create ()
       Cast = cast
       ActiveZone = Place.start
       Editor = EditorState.create ()
@@ -126,9 +139,9 @@ let private swapZone (shared: SharedState.SharedState) (state: byref<GameplaySta
     match state.Zones.[next].Environment with
     | Some environment -> do Assets.requestEnvironment shared.Assets environment.AssetId
     | None -> ()
-    do Zone.deactivatePhysics state.Zones.[outgoing] shared.Physics
+    do Zone.deactivatePhysics state.Zones.[outgoing] state.Physics
     state.ActiveZone <- next
-    do Zone.activatePhysics state.Zones.[next] shared.Physics
+    do Zone.activatePhysics state.Zones.[next] state.Physics
     enterZone &state
 
 // Make a present place active. A no-op when it already is; an absent place is a bug.
@@ -161,8 +174,8 @@ let addZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (nam
 // bodies detached at once — the same "alive but detached" state a switch away leaves it in.
 let populateZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) (template: ZoneTemplate) : unit =
     let zone = state.Zones.[name]
-    do Zone.loadTemplate zone shared.Physics shared.Assets template
-    if name <> state.ActiveZone then Zone.deactivatePhysics zone shared.Physics
+    do Zone.loadTemplate zone state.Physics shared.Assets template
+    if name <> state.ActiveZone then Zone.deactivatePhysics zone state.Physics
 
 // Make an absent declared place present, populated from its registered template when it has one, and leave
 // the active place, the camera and the selection untouched (spec 062): a cue *prepares* a zone here, and
@@ -182,7 +195,7 @@ let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (
     if name = state.ActiveZone then invalidOp (sprintf "deleteZone: '%s' is the active place — switch away first" (Place.placeName name)) else
 
     let zone = state.Zones.[name]
-    do Zone.release zone shared.Physics shared.Gpu.Device
+    do Zone.release zone state.Physics shared.Gpu.Device
     do removeCastZone &state name
     state.Zones.Remove name |> ignore
 

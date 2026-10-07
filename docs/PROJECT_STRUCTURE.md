@@ -158,10 +158,10 @@ fsharp-game/
 │   └── Project.fs              #   DTO persistence (project.json) (planned)
 ├── state/                      # app/screen + editor-command state
 │   ├── Screen.fs               #   kind/transition/input types
-│   ├── SharedState.fs          #   cross-screen: GPU context, assets, physics
+│   ├── SharedState.fs          #   engine/any-screen state: GPU context, assets, cast binding, advents
 │   ├── Command.fs              #   undoable editor commands
 │   ├── EditorState.fs          #   selection + transient UI state
-│   ├── GameplayState.fs        #   name-keyed zones + active zone, view, and render buffers
+│   ├── GameplayState.fs        #   the gameplay world: zones + zone registry + physics, and the screen's view
 │   └── History.fs              #   the one undo history: apply/undo/commit + the steppers (spec 048)
 ├── screen/                     # screens (composed last; consume editor)
 │   ├── ScreenManager.fs

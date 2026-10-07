@@ -44,7 +44,7 @@ let private headlessAssets () : Assets.AssetManager =
     TestSupport.manager IntPtr.Zero (Dictionary()) props environments
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; ZoneRegistry = ZoneRegistry.create (); Advents = Set.empty; Physics = Physics.create () }
+    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; Advents = Set.empty }
 
 // A minimal gameplay state: the fake draws are never touched on these paths. The
 // zone is installed under a name with exactly one active zone.
@@ -57,6 +57,8 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       Ui = Unchecked.defaultof<Ui.Ui>
       Dialogue = Dialogue.empty
       Zones = zones
+      ZoneRegistry = ZoneRegistry.create ()
+      Physics = Physics.create ()
       Cast = Dictionary<Roster.Character, Place * EntityRef>()
       ActiveZone = Place.start
       Editor = EditorState.create ()
@@ -90,10 +92,10 @@ let ``a create carries the authored value it was given, and redo rebuilds the re
     Assert.True(Option.isSome (zone.Props.Get(handleOf ref)).Physics)
 
     // Undo destroys the entity and its body, redo rebuilds both from the recorded value.
-    let undone = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undone = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     Assert.False(Zone.isAlive zone ref)
 
-    let redone = UndoStack.redo undone zone shared.Physics shared.Assets
+    let redone = UndoStack.redo undone zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = redone }
 
     Assert.True(Zone.isAlive zone ref)
@@ -106,10 +108,10 @@ let ``a create carries the authored value it was given, and redo rebuilds the re
 let ``duplicating a part spawns a copy, selects it, and pushes the reversing command`` () =
     let assets = headlessAssets ()
     let shared = sharedState assets
-    let zone = Zone.create ()
-    let environment = Zone.loadEnvironment zone shared.Physics assets "room"
+    let mutable state = gameplayState (Zone.create ())
+    let zone = GameplayState.activeZone state
+    let environment = Zone.loadEnvironment zone state.Physics assets "room"
     let source = partRef environment.Epoch 0u 0u
-    let mutable state = gameplayState zone
 
     Spawning.duplicate shared &state source (entity "wall-copy")
 
@@ -174,10 +176,10 @@ let ``a duplicate records the copy's own authored value, so redo restores the co
         Assert.Equal("start-copy", recorded.Base.Name)
     | other -> Assert.Fail(sprintf "expected exactly one WaypointCreate command, got %A" other)
 
-    let undone = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undone = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     Assert.False(Zone.isAlive zone copy)
 
-    let redone = UndoStack.redo undone zone shared.Physics shared.Assets
+    let redone = UndoStack.redo undone zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = redone }
 
     Assert.True(Zone.isAlive zone copy)
@@ -199,7 +201,7 @@ let ``deleting a waypoint and undoing restores its transform at the recorded slo
     Assert.False(Zone.isAlive zone ref)
 
     // Undo re-occupies the recorded slot with the entity the delete captured.
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
 
     Assert.True(Zone.isAlive zone ref)
@@ -230,13 +232,13 @@ let ``adding a next waypoint links it and undoes as one step`` () =
     | other -> Assert.Fail(sprintf "expected exactly one LinkSpawn command, got %A" other)
 
     // One undo removes the new waypoint and restores the chain end it extended.
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
     Assert.Equal(1u, zone.Waypoints.Count)
     Assert.True(Option.isNone (Zone.waypointNext zone a))
 
     // Redo reapplies both halves at the recorded ref.
-    let redo = UndoStack.redo state.Editor.Undo zone shared.Physics shared.Assets
+    let redo = UndoStack.redo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = redo }
     Assert.Equal(2u, zone.Waypoints.Count)
     Assert.Equal(Some b, Zone.waypointNext zone a)
@@ -258,7 +260,7 @@ let ``extending a waypoint that already has a next restores the previous one on 
     Assert.Equal(Some b, Zone.waypointNext zone a)
 
     // Undo puts the previous next back, not none.
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
     Assert.Equal(Some original, Zone.waypointNext zone a)
     Assert.True(Option.isNone (Zone.tryEntityAt zone b))
@@ -337,7 +339,7 @@ let ``deleting a trigger and undoing restores its authored shape`` () =
     | [ TriggerDelete (_, recorded) ] -> Assert.Equal(5.0f, recorded.Radius)
     | other -> Assert.Fail(sprintf "expected exactly one TriggerDelete command, got %A" other)
 
-    let undo = UndoStack.undo state.Editor.Undo zone shared.Physics shared.Assets
+    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
     state.Editor <- { state.Editor with Undo = undo }
 
     let restored = (Zone.tryTriggerAt zone ref).Value
@@ -367,16 +369,16 @@ let ``duplicating a kind with no entity fails loudly`` () =
 [<Fact>]
 let ``restoring onto an occupied slot reports the reused slot instead of clobbering it`` () =
     let assets = headlessAssets ()
-    let shared = sharedState assets
     let zone = Zone.create ()
-    let environment = Zone.loadEnvironment zone shared.Physics assets "room"
+    let world = Physics.create ()
+    let environment = Zone.loadEnvironment zone world assets "room"
     // The part's slot is live, so restoring a recorded ref that names it is a bug.
     let ref = partRef environment.Epoch 0u 0u
     let record = Zone.capturePart zone ref
 
     let mutable message = ""
     try
-        Zone.occupyPart zone shared.Physics assets ref record
+        Zone.occupyPart zone world assets ref record
     with ex ->
         message <- ex.Message
 
@@ -398,19 +400,19 @@ let ``instantiate replaces the zone's props with the entry's, and one undo puts 
     let mutable state = gameplayState zone
 
     // A zone as an author leaves it: an environment loaded, and two props standing in it, one moved.
-    do Zone.loadEnvironment zone shared.Physics assets "room" |> ignore
-    let lectern = Zone.spawnProp zone shared.Physics assets (entity "lectern") "crate"
-    let books = Zone.spawnProp zone shared.Physics assets (entity "books") "crate"
-    do Zone.setTransform zone shared.Physics lectern { transformIdentity with Position = Vector3(1.0f, 0.0f, 0.0f) }
+    do Zone.loadEnvironment zone state.Physics assets "room" |> ignore
+    let lectern = Zone.spawnProp zone state.Physics assets (entity "lectern") "crate"
+    let books = Zone.spawnProp zone state.Physics assets (entity "books") "crate"
+    do Zone.setTransform zone state.Physics lectern { transformIdentity with Position = Vector3(1.0f, 0.0f, 0.0f) }
     let registered = (Zone.captureTemplate zone).Value
     let previousEnvironment = zone.Environment.Value
     Assert.Equal(2, registered.Props.Length)
 
     // The zone moves on: both props gone, one of its own in their place, and a waypoint and a trigger
     // standing there that an instantiation must leave alone.
-    do Zone.removeProp zone shared.Physics lectern
-    do Zone.removeProp zone shared.Physics books
-    let desk = Zone.spawnProp zone shared.Physics assets (entity "desk") "crate"
+    do Zone.removeProp zone state.Physics lectern
+    do Zone.removeProp zone state.Physics books
+    let desk = Zone.spawnProp zone state.Physics assets (entity "desk") "crate"
     let marker = Zone.spawnWaypoint zone (entity "marker")
     let door = Zone.spawnTrigger zone (entity "door")
     Assert.Equal(1u, zone.Props.Count)
@@ -446,7 +448,7 @@ let ``instantiate replaces the zone's props with the entry's, and one undo puts 
     // which is the half a values-only comparison would not notice. (`lectern` and `books` are not this
     // assertion's business: the setup removed them by hand, outside any command, so nothing could
     // bring them back and nothing should.)
-    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone shared.Physics assets }
+    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone state.Physics assets }
     Assert.Equal(previousEnvironment, zone.Environment.Value)
     Assert.Equal(1u, zone.Props.Count)
     Assert.True(Zone.isAlive zone desk)
@@ -461,17 +463,17 @@ let ``an entry that records no props clears the zone's, and one undo brings them
 
     // Registered from a zone with nothing placed in it: an entry with no props is a complete entry, not
     // a partial one — and it is the state every entry registered before props were recorded is in.
-    do Zone.loadEnvironment zone shared.Physics assets "room" |> ignore
+    do Zone.loadEnvironment zone state.Physics assets "room" |> ignore
     let registered = (Zone.captureTemplate zone).Value
     Assert.Empty(registered.Props)
 
     // The zone is set out afterwards, then instantiated from the bare entry: the entry is the whole of
     // what the zone's props become, so they are cleared rather than left standing.
-    let lectern = Zone.spawnProp zone shared.Physics assets (entity "lectern") "crate"
+    let lectern = Zone.spawnProp zone state.Physics assets (entity "lectern") "crate"
     do Spawning.instantiateZone shared &state registered
     Assert.Equal(0u, zone.Props.Count)
 
-    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone shared.Physics assets }
+    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone state.Physics assets }
     Assert.Equal(1u, zone.Props.Count)
     Assert.True(Zone.isAlive zone lectern)
 
@@ -485,7 +487,7 @@ let ``instantiate restores the entry's light, and one undo puts the previous lig
     // An authored light, recorded with the zone (spec 043 FR-007).
     let authored = { Texture.defaultLight with Pitch = 20.0f; Yaw = 200.0f; Ambient = 0.9f }
     zone.Light <- authored
-    do Zone.loadEnvironment zone shared.Physics assets "room" |> ignore
+    do Zone.loadEnvironment zone state.Physics assets "room" |> ignore
     let registered = (Zone.captureTemplate zone).Value
     Assert.Equal(authored, registered.Light)
 
@@ -497,5 +499,5 @@ let ``instantiate restores the entry's light, and one undo puts the previous lig
     Assert.Equal(authored, zone.Light)
 
     // One gesture: undoing the instantiation restores the light it replaced along with the rest.
-    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone shared.Physics assets }
+    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone state.Physics assets }
     Assert.Equal(moved, zone.Light)

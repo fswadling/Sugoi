@@ -377,9 +377,9 @@ let update (shared: SharedState.SharedState) (frame: Screen.Frame) (state: byref
     let transition = handleShortcuts shared frame.Input &state
 
     // keyboard nudge (editor mode only)
-    do updateNudge shared.Physics frame.Input &state
+    do updateNudge state.Physics frame.Input &state
     // viewport selection + gizmo drag (editor mode only)
-    do interact shared.Physics frame.Input frame.WindowW frame.WindowH &state
+    do interact state.Physics frame.Input frame.WindowW frame.WindowH &state
     do updateCamera frame.Input frame.Dt &state
 
     transition

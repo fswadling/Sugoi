@@ -5,7 +5,7 @@ module Zone
 // batch that renders its props and parts. Heap-allocated; its entity collections are
 // fixed-size generational slot maps, mutated in place.
 //
-// The zone does not own the physics world — it is shared via `SharedState` and
+// The zone does not own the physics world — it is the gameplay state's and
 // passed in per call; the zone keeps only the body→entity map. Bodies are
 // created/destroyed on spawn/remove and recreated on transform change, so
 // colliders never drift from the rendered geometry.

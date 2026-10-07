@@ -255,7 +255,7 @@ let run () : int =
     do DebugDraw.release gizmoDraw
     do DebugDraw.release debugDraw
     for zone in manager.Gameplay.Zones.Values do
-        Zone.release zone manager.Shared.Physics manager.Shared.Gpu.Device
+        Zone.release zone manager.Gameplay.Physics manager.Shared.Gpu.Device
     do Gpu.destroy manager.Shared.Gpu
     do ImGuiSdl3.shutdown()
     do ImGui.destroyContext(IntPtr.Zero)

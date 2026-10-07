@@ -26,12 +26,12 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     // An actor's existence change is also a cast-index change (spec 063): the authored `Cast` in the command's
     // payload is what the index indexes, so the two are updated together here rather than searched for later.
     | ActorCreate (ref, actor) ->
-        Command.apply (GameplayState.activeZone state) shared.Physics shared.Assets cmd
+        Command.apply (GameplayState.activeZone state) state.Physics shared.Assets cmd
         match actor.Cast with
         | Some character -> GameplayState.addCast &state character state.ActiveZone ref
         | None -> ()
     | ActorDelete (_, actor) ->
-        Command.apply (GameplayState.activeZone state) shared.Physics shared.Assets cmd
+        Command.apply (GameplayState.activeZone state) state.Physics shared.Assets cmd
         match actor.Cast with
         | Some character -> GameplayState.removeCast &state character
         | None -> ()
@@ -40,13 +40,13 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     // than delegated whole to `Command.apply` (which refuses state-level steps).
     | Batch commands -> for cmd in commands do apply shared &state cmd
     // The cue is not a zone's, so a cue step is a write of the value and nothing else — no zone, no camera, no
-    // selection (research D5). The cue is the screen's own value, so it needs neither `shared.Physics` nor
+    // selection (research D5). The cue is the screen's own value, so it needs neither `state.Physics` nor
     // `shared.Assets`.
     | SetCue (_, next) -> state.Cue <- next
     // The adventure flags are not a zone's either: the step writes `SharedState.Advents`, so the state-level
     // runner carries it as it carries `SetCue` (spec 055 FR-007).
     | Advent (_, next) -> shared.Advents <- next
-    | _ -> Command.apply (GameplayState.activeZone state) shared.Physics shared.Assets cmd
+    | _ -> Command.apply (GameplayState.activeZone state) state.Physics shared.Assets cmd
 
 /// The inverse of `apply`.
 let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
@@ -63,7 +63,7 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
         // then switched away from if it should not stay (research D4).
         state.Zones.[name] <- Zone.create ()
         GameplayState.switchZone shared &state name
-        Zone.occupyZone state.Zones.[name] shared.Physics shared.Assets contents
+        Zone.occupyZone state.Zones.[name] state.Physics shared.Assets contents
         // The restored actors are back in existence, so the cast index takes them again (spec 063) — it was
         // emptied of this place by `deleteZone` when the zone was removed.
         for (ref, actor) in contents.Actors do
@@ -72,12 +72,12 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
             | None -> ()
         if previous <> name then GameplayState.switchZone shared &state previous
     | ActorCreate (_, actor) ->
-        Command.undo (GameplayState.activeZone state) shared.Physics shared.Assets cmd
+        Command.undo (GameplayState.activeZone state) state.Physics shared.Assets cmd
         match actor.Cast with
         | Some character -> GameplayState.removeCast &state character
         | None -> ()
     | ActorDelete (ref, actor) ->
-        Command.undo (GameplayState.activeZone state) shared.Physics shared.Assets cmd
+        Command.undo (GameplayState.activeZone state) state.Physics shared.Assets cmd
         match actor.Cast with
         | Some character -> GameplayState.addCast &state character state.ActiveZone ref
         | None -> ()
@@ -86,7 +86,7 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
     | Batch commands ->
         // Backwards, through the state-level runner, so a mixed batch reverses in dependency order.
         for cmd in List.rev commands do undo shared &state cmd
-    | _ -> Command.undo (GameplayState.activeZone state) shared.Physics shared.Assets cmd
+    | _ -> Command.undo (GameplayState.activeZone state) state.Physics shared.Assets cmd
 
 /// Apply a command and push it onto the one history, clearing the redo side. The editor's write path for a zone
 /// step and, since spec 063, for an entity **delete** — an actor delete changes the cast index, so it goes

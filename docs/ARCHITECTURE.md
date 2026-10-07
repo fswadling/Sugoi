@@ -128,13 +128,18 @@ archetypes.
 
 ## State management
 
-- `Shared_State` holds cross-screen singletons: `assets`, `scenario_library`,
-  `selected_scenario_index`, `advents`, `cast_members`, `zone_registry`.
+- `Shared_State` holds state the engine itself, or more than one screen, may read: the GPU
+  context, the asset manager, the cast binding (`cast_members`) and the named `advents`. The test is
+  **readership** — a member is here because something outside the gameplay screen needs it (the
+  engine reads the GPU context; a journal or inventory screen may present the cast and the flags),
+  not because it is authored or persisted.
 - `Screen_Manager` owns `Shared_State` plus one stateful struct per screen,
   with init/activate/deactivate/update/draw per screen.
-- `Gameplay_Screen` holds per-gameplay hot state (`zones`, `player_locomotion`,
-  `camera_follow`, `mode`, `clock`, `camera`, `interactable_trigger`, `cue`,
-  `fade`) and cold state (`exposition`, `editor`). Hot/cold fields are grouped.
+- `Gameplay_Screen` owns the gameplay world and that world's configuration — the `zones`, the
+  `zone_registry` (the recipe table those zones are instantiated from) and the physics world their
+  bodies attach to — beside its own runtime state: the `camera` and render buffers (view), the
+  `cue` run, `dialogue`/exposition, `interactable_trigger`, `editor` and `fade`, plus the
+  locomotion/`camera_follow` hot paths and `clock`. Hot/cold fields are grouped.
 
 ## Persistence
 

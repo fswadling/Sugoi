@@ -29,7 +29,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                 if ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f)) then
                     let zone = GameplayState.activeZone state
                     let previous = zone.Environment
-                    let next = Zone.loadEnvironment zone shared.Physics assets asset.Id
+                    let next = Zone.loadEnvironment zone state.Physics assets asset.Id
                     // A carried-over part selection no longer resolves; drop it.
                     do Selection.dropStalePartSelection &state
                     let undo = UndoStack.push state.Editor.Undo (SetEnvironment (previous, Some next))

@@ -53,7 +53,7 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
         | Zone.NoEnvironment -> []
     do Assets.setPinned shared.Assets pinned
     do Assets.pump shared.Assets Assets.UploadBudgetMs
-    do Zone.reconcileEnvironment (GameplayState.activeZone state) shared.Physics shared.Assets
+    do Zone.reconcileEnvironment (GameplayState.activeZone state) state.Physics shared.Assets
 
     if not state.Editing then
         // The animation clock advances only while playing, so an actor stands still while it is being
@@ -63,9 +63,9 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
         // The dialogue dismiss: while playing only, so the editor's SPACE is its own. Gated on a text
         // field having focus too, because the editor's fields take the same keys (FR-008).
         do Systems.dismissDialogue (Input.isPressed Input.Key.Space frame.Input) (ImGui.wantTextInput()) &state.Dialogue
-        do Systems.playerInput shared.Physics zone frame.Input frame.Dt
-        do Physics.step shared.Physics frame.Dt
-        do Systems.syncActors shared.Physics zone
+        do Systems.playerInput state.Physics zone frame.Input frame.Dt
+        do Physics.step state.Physics frame.Dt
+        do Systems.syncActors state.Physics zone
         do Systems.updateTriggers zone &state.InteractableTrigger &state.Cue
         // Interaction (spec 058): the tracked interactable trigger's authored cue runs on the press edge of the
         // interact key — not on entry, and not once per frame while held.

@@ -8,7 +8,7 @@ module CueEngine
 // Compiled *after* `state/GameplayState.fs` — the project's one deliberate ordering inversion — because
 // each op performs its effect on the gameplay state where the walk reaches it: an `Exposit` writes the
 // screen's dialogue, a `SetZone` reuses `GameplayState.switchZone` (which is why the walk carries
-// `shared` for the physics swap), the camera ops write the camera from a named waypoint, and the advent ops
+// `shared` for the switch's asset request), the camera ops write the camera from a named waypoint, and the advent ops
 // read and write `SharedState.Advents` (research D3).
 
 open System.Numerics
@@ -147,35 +147,35 @@ let private setActor
         // Move her across zones: her art is her own, so the op's look is not consulted (spec 064 FR-004).
         let oldZone = state.Zones.[oldPlace]
         let actor = Zone.captureActor oldZone oldRef
-        do Zone.removeActor oldZone shared.Physics oldRef
+        do Zone.removeActor oldZone state.Physics oldRef
         GameplayState.removeCast &state character
         let entity = { actor.Base with Transform = transform }
-        let ref = Zone.spawnActor zone shared.Physics shared.Assets entity actor.AssetId (Some character)
+        let ref = Zone.spawnActor zone state.Physics shared.Assets entity actor.AssetId (Some character)
         do Zone.setShowCollider zone ref actor.ShowCollider
-        do detachIfInactive shared.Physics place state.ActiveZone zone ref
+        do detachIfInactive state.Physics place state.ActiveZone zone ref
         GameplayState.addCast &state character place ref
     | Some (_, ref) ->
         // Already in this place: the same actor, placed (spec 064 FR-002).
-        do Zone.setTransform zone shared.Physics ref transform
-        do detachIfInactive shared.Physics place state.ActiveZone zone ref
+        do Zone.setTransform zone state.Physics ref transform
+        do detachIfInactive state.Physics place state.ActiveZone zone ref
     | None ->
         let slot : Casting.Slot = { Character = character; Look = look }
         match Casting.tryAsset slot shared.Cast with
         | None -> do noOp "SetActor" character (sprintf "her look '%s' has no actor asset" (Casting.lookName look)) // no art for the look: nothing (spec 064 FR-004)
         | Some assetId ->
         let entity = baseEntity (Roster.characterName character) transform
-        let ref = Zone.spawnActor zone shared.Physics shared.Assets entity assetId (Some character)
-        do detachIfInactive shared.Physics place state.ActiveZone zone ref
+        let ref = Zone.spawnActor zone state.Physics shared.Assets entity assetId (Some character)
+        do detachIfInactive state.Physics place state.ActiveZone zone ref
         GameplayState.addCast &state character place ref
 
 /// Take `character` out of the scene, wherever the cast index says she is (spec 064 FR-003). A character not
 /// in the scene is untouched. No place is named: the index is global and one character is at most one actor,
 /// so the place is already known.
-let private removeActor (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (character: Roster.Character) : unit =
+let private removeActor (state: byref<GameplayState.GameplayState>) (character: Roster.Character) : unit =
     match GameplayState.tryCastActor state character with
     | None -> do noOp "RemoveActor" character "she is not in the scene"
     | Some (memberPlace, ref) ->
-    do Zone.removeActor state.Zones.[memberPlace] shared.Physics ref
+    do Zone.removeActor state.Zones.[memberPlace] state.Physics ref
     GameplayState.removeCast &state character
 
 /// Arm or disarm a named trigger in a named place (spec 067): resolve the place (absent is a no-op), the
@@ -339,7 +339,7 @@ let private beginMove (state: byref<GameplayState.GameplayState>) (character: Ro
 /// and blend the moving clip down to idle over the final `blend` seconds. Answers whether it is over; at the
 /// deadline she stops where she is — the last waypoint when unobstructed. An actor that has left the scene, or
 /// whose zone is no longer active, ends it.
-let private stepMove (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (points: Vector3[]) (speed: float) (duration: float) (endsAt: float) (initialRotation: Quaternion) (finalRotation: Quaternion) (blend: float) (movingClip: string) (idleClip: string) (now: float) : bool =
+let private stepMove (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (points: Vector3[]) (speed: float) (duration: float) (endsAt: float) (initialRotation: Quaternion) (finalRotation: Quaternion) (blend: float) (movingClip: string) (idleClip: string) (now: float) : bool =
     match tryResolveActor &state character with
     | None -> true
     | Some (place, zone, ref) ->
@@ -349,25 +349,25 @@ let private stepMove (shared: SharedState.SharedState) (state: byref<GameplaySta
     | None -> true
     | Some attachment ->
     let body = attachment.Body
-    let vertical = (Physics.getBodyVelocity shared.Physics body).Y
+    let vertical = (Physics.getBodyVelocity state.Physics body).Y
     let offset = Vector3(0.0f, attachment.Collider.HalfHeight + attachment.Collider.Radius, 0.0f)
     if now >= endsAt then
-        do Physics.setBodyVelocity shared.Physics body (Vector3(0.0f, vertical, 0.0f))
-        do Physics.setBodyRotation shared.Physics body finalRotation
+        do Physics.setBodyVelocity state.Physics body (Vector3(0.0f, vertical, 0.0f))
+        do Physics.setBodyRotation state.Physics body finalRotation
         do ActorRender.setClipWeight &actor.Renderer movingClip 0.0f
         do ActorRender.setClipWeight &actor.Renderer idleClip 1.0f
         true
     else
         let t = (now - (endsAt - duration)) / duration
-        let (bodyPosition, _) = Physics.getBodyTransform shared.Physics body
+        let (bodyPosition, _) = Physics.getBodyTransform state.Physics body
         let target = evalSpline points t + offset
         let toward = Vector3(target.X - bodyPosition.X, 0.0f, target.Z - bodyPosition.Z)
         let velocity =
             if toward.LengthSquared() < 1e-6f then Vector3(0.0f, vertical, 0.0f) else
             let v = Vector3.Normalize toward * float32 speed
             Vector3(v.X, vertical, v.Z)
-        do Physics.setBodyVelocity shared.Physics body velocity
-        do Physics.setBodyRotation shared.Physics body (Quaternion.Slerp(initialRotation, finalRotation, float32 t))
+        do Physics.setBodyVelocity state.Physics body velocity
+        do Physics.setBodyRotation state.Physics body (Quaternion.Slerp(initialRotation, finalRotation, float32 t))
         let remaining = endsAt - now
         let arrival = if blend <= 0.0 then 0.0f else float32 (max 0.0 (1.0 - remaining / blend))
         do ActorRender.setClipWeight &actor.Renderer movingClip (1.0f - arrival)
@@ -376,7 +376,7 @@ let private stepMove (shared: SharedState.SharedState) (state: byref<GameplaySta
 
 /// Begin an in-place turn: resolve the actor (her zone must be active) and the named waypoint, capture her
 /// current facing and the waypoint's, and hold a `RotateActorState`. Anything unresolved is `Fin`.
-let private beginRotate (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (waypoint: string) (duration: float) (now: float) : Cue =
+let private beginRotate (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (waypoint: string) (duration: float) (now: float) : Cue =
     let no reason =
         do noOp "RotateActor" character reason
         Fin
@@ -395,14 +395,14 @@ let private beginRotate (shared: SharedState.SharedState) (state: byref<Gameplay
     let initialRotation = actor.State.Base.Transform.Rotation
     let endsAt = now + duration
     if now >= endsAt then
-        do Physics.setBodyRotation shared.Physics attachment.Body target
+        do Physics.setBodyRotation state.Physics attachment.Body target
         Fin
     else RotateActorState(character, initialRotation, target, duration, endsAt)
 
 /// Step an in-place turn at `now`, writing the body's rotation and answering whether it is over (exactly on the
 /// waypoint's facing at the deadline). An actor that has left the scene, or whose zone is no longer active, ends
 /// it.
-let private stepRotate (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (initialRotation: Quaternion) (targetRotation: Quaternion) (duration: float) (endsAt: float) (now: float) : bool =
+let private stepRotate (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (initialRotation: Quaternion) (targetRotation: Quaternion) (duration: float) (endsAt: float) (now: float) : bool =
     match tryResolveActor &state character with
     | None -> true
     | Some (place, zone, ref) ->
@@ -412,11 +412,11 @@ let private stepRotate (shared: SharedState.SharedState) (state: byref<GameplayS
     | None -> true
     | Some attachment ->
     if now >= endsAt then
-        do Physics.setBodyRotation shared.Physics attachment.Body targetRotation
+        do Physics.setBodyRotation state.Physics attachment.Body targetRotation
         true
     else
     let t = float32 ((now - (endsAt - duration)) / duration)
-    do Physics.setBodyRotation shared.Physics attachment.Body (Quaternion.Slerp(initialRotation, targetRotation, t))
+    do Physics.setBodyRotation state.Physics attachment.Body (Quaternion.Slerp(initialRotation, targetRotation, t))
     false
 
 
@@ -452,7 +452,7 @@ let rec advance
         // make a declared place present and stream its registered template in, without entering it (spec 062
         // FR-002): the active place is unchanged, so add/preload/set compose into a prepared transition.
         if not (state.Zones.ContainsKey name) then
-            GameplayState.presentZone shared &state name (ZoneRegistry.tryTemplate name shared.ZoneRegistry)
+            GameplayState.presentZone shared &state name (ZoneRegistry.tryTemplate name state.ZoneRegistry)
         ValueSome Fin
 
     | RemoveZone name ->
@@ -470,7 +470,7 @@ let rec advance
             match zone.Environment with
             | Some environment -> do Assets.requestEnvironment shared.Assets environment.AssetId
             | None ->
-            match ZoneRegistry.tryTemplate name shared.ZoneRegistry with
+            match ZoneRegistry.tryTemplate name state.ZoneRegistry with
             | Some template -> GameplayState.populateZone shared &state name template
             | None -> ()
         ValueSome Fin
@@ -488,7 +488,7 @@ let rec advance
         ValueSome Fin
 
     | RemoveActor character ->
-        do removeActor shared &state character
+        do removeActor &state character
         ValueSome Fin
 
     | EnableTrigger (place, trigger) ->
@@ -520,15 +520,15 @@ let rec advance
         ValueSome(beginMove &state character path speed movingClip idleClip now)
 
     | MoveActorState (character, points, speed, duration, endsAt, initialRotation, finalRotation, blend, movingClip, idleClip) ->
-        if stepMove shared &state character points speed duration endsAt initialRotation finalRotation blend movingClip idleClip now
+        if stepMove &state character points speed duration endsAt initialRotation finalRotation blend movingClip idleClip now
         then ValueSome Fin
         else ValueNone
 
     | RotateActor (character, waypoint, duration) ->
-        ValueSome(beginRotate shared &state character waypoint duration now)
+        ValueSome(beginRotate &state character waypoint duration now)
 
     | RotateActorState (character, initialRotation, targetRotation, duration, endsAt) ->
-        if stepRotate shared &state character initialRotation targetRotation duration endsAt now
+        if stepRotate &state character initialRotation targetRotation duration endsAt now
         then ValueSome Fin
         else ValueNone
 
