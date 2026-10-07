@@ -297,7 +297,12 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     // An edit accepted here shows in the tree next frame; the tree above the click does not move, so the lag
     // is invisible.
     let mutable selection = state.Editor.CueSelection
-    match CueTree.drawTree idPrefix selection cue with
+    // A structural edit last frame (Add Child / Remove) asked for focus on the newly selected row: re-show the
+    // nav cursor and focus that row, so Tab resumes from it instead of restarting at the top of the panel.
+    let refocus = state.Editor.CueRefocus
+    let mutable structural = false
+    if refocus then do ImGui.setNavCursorVisible(true)
+    match CueTree.drawTree idPrefix selection (if refocus then selection else None) cue with
     | Some clicked -> selection <- Some clicked
     | None -> ()
 
@@ -309,6 +314,9 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         // place, as one step.
         let mutable pending : Cue option = None
         selection <- CueTree.drawEditor idPrefix state.Editor.ComboFilter cue path (fun next -> pending <- Some next)
+        // Add Child (a new selection) and Remove (no selection) are the structural edits; record one so the next
+        // frame re-focuses the tree.
+        structural <- selection <> Some path
         match pending with
         | Some next -> do commit &state next
         | None -> ()
@@ -329,7 +337,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
     | None -> ()
 
-    state.Editor <- { state.Editor with CueSelection = selection }
+    state.Editor <- { state.Editor with CueSelection = selection; CueRefocus = structural }
     do ImGui.endWindow()
 
 // ── the Inspector's inline trigger-cue editor ──
@@ -372,7 +380,7 @@ let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.Ga
     let cue = trigger.State.Cue
 
     let mutable selection = state.Editor.TriggerCueSelection
-    match CueTree.drawTree idPrefix selection cue with
+    match CueTree.drawTree idPrefix selection None cue with
     | Some clicked -> selection <- Some clicked
     | None -> ()
 

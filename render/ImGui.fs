@@ -140,6 +140,12 @@ extern bool isWindowAppearing()
 [<DllImport("cimgui", EntryPoint = "igSetKeyboardFocusHere", CallingConvention = CallingConvention.Cdecl)>]
 extern void setKeyboardFocusHere(int offset)
 
+// Show the keyboard-nav cursor (cimgui's igSetNavCursorVisible). A mouse click hides it and clears the active
+// item, which sends the next Tab back to the first widget; a structural edit re-shows it so Tab resumes from the
+// restored focus rather than restarting at the top.
+[<DllImport("cimgui", EntryPoint = "igSetNavCursorVisible", CallingConvention = CallingConvention.Cdecl)>]
+extern void setNavCursorVisible(bool visible)
+
 // A draggable float field over a caller-owned value (cimgui's igDragFloat). Returns true
 // while the value is being dragged; a caller wanting one commit per drag reads
 // `isItemDeactivatedAfterEdit` straight after it.

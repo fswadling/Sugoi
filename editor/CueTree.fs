@@ -474,7 +474,7 @@ let private selectable (label: string) (selected: bool) : bool =
 /// reading, so the author can still open a running op and see what it is. An `If`'s branch label row is drawn
 /// as plain text above its branch: it is shown (so the author reads which branch is which) but not selectable,
 /// because no node is behind it.
-let drawTree (idPrefix: string) (selection: int list option) (cue: Cue) : int list option =
+let drawTree (idPrefix: string) (selection: int list option) (focusPath: int list option) (cue: Cue) : int list option =
     let mutable clicked = None
     for row in rows cue do
         // Spaces indent the label because the binding has no `indent`.
@@ -482,6 +482,9 @@ let drawTree (idPrefix: string) (selection: int list option) (cue: Cue) : int li
         if row.Branch <> "" then
             do ImGui.text (indent + row.Branch)
         else
+            // A structural edit re-focuses the newly selected node's row, so Tab resumes from it rather than
+            // restarting at the top of the panel (the caller asks for this the frame after an Add Child / Remove).
+            if focusPath = Some row.Path then do ImGui.setKeyboardFocusHere(0)
             // `##` separates what is shown from the widget's id, which is what keeps two co-visible cues apart
             // (the reference's own row idiom).
             let text = indent + row.Label + "##" + rowId idPrefix row.Path
