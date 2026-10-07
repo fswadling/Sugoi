@@ -725,3 +725,11 @@ let ``the trigger toggles and print render, and their writes replace their field
     // print is a plain text field, and its kind round-trips
     Assert.Equal(ValueSome "chapter 1", textOf (Print "chapter 1"))
     Assert.Equal("Print(intro)", describe (withText (Print "chapter 1") "intro"))
+
+[<Fact>]
+let ``the combo filter matches case-insensitive substrings, and an empty filter offers all`` () =
+    Assert.True(matches "" "Jog")      // no filter: every option
+    Assert.True(matches "jo" "Jog")     // substring
+    Assert.True(matches "OG" "Jog")     // case-insensitive
+    Assert.True(matches "Jog" "Jog")    // the whole name
+    Assert.False(matches "xyz" "Jog")   // no match

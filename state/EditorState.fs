@@ -98,6 +98,9 @@ type EditorState =
       CueTextBuffer2 : byte[]
       CueTextPath2 : int list option
       CueTextEditing2 : bool
+      // The open cue dropdown's filter text (spec 068): one reused buffer, since only one popup is open at a
+      // time; it is cleared when a dropdown appears, so a newly opened combo starts unfiltered.
+      ComboFilter : byte[]
       // The Inspector's inline trigger-cue editor (spec 058): which node of the selected trigger's cue is
       // selected, the trigger those fields belong to, and the reused buffer for the selected node's text. Kept
       // apart from the Cue panel's fields above so the two editors cannot share a selection or a buffer; the
@@ -138,6 +141,7 @@ let create () : EditorState =
       CueTextBuffer2 = Array.zeroCreate cueTextBufferSize
       CueTextPath2 = None
       CueTextEditing2 = false
+      ComboFilter = Array.zeroCreate cueTextBufferSize
       TriggerCueSelection = None
       TriggerCueRef = None
       TriggerCueTextBuffer = Array.zeroCreate cueTextBufferSize

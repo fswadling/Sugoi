@@ -495,6 +495,39 @@ let private dragNumber (idBase: string) (label: string) (value: float32) (onComm
     do ImGui.dragFloat(label + "##" + idBase, &edited, 0.05f, -10000.0f, 10000.0f, "%.2f", 0) |> ignore
     if ImGui.isItemDeactivatedAfterEdit() && edited <> value then onCommit edited
 
+/// Whether `name` is offered for `filter`: a case-insensitive substring match. An empty filter offers every
+/// name, which is what an unfiltered dropdown shows. Pure, so it is asserted headlessly (spec 068).
+let matches (filter: string) (name: string) : bool =
+    filter = "" || name.Contains(filter, StringComparison.OrdinalIgnoreCase)
+
+/// The filter text a combo's buffer holds, read up to its NUL.
+let private comboFilterText (buffer: byte[]) : string =
+    let zero = Array.IndexOf(buffer, 0uy)
+    let length = if zero < 0 then buffer.Length else zero
+    if length = 0 then "" else System.Text.Encoding.UTF8.GetString(buffer, 0, length)
+
+/// A combo with a filter field (spec 068): type to narrow `items` by the name `nameOf` gives (case-insensitive
+/// substring); Enter takes the top match and closes the dropdown; a click picks as today. `buffer` belongs to the
+/// caller and is cleared when the dropdown appears, so a newly opened combo starts unfiltered.
+let filteredCombo (buffer: byte[]) (label: string) (preview: string) (items: 'a list) (nameOf: 'a -> string) (current: 'a) (onPick: 'a -> unit) : unit =
+    if ImGui.beginCombo(label, preview, 0) then
+        if ImGui.isWindowAppearing() then
+            do Array.Clear(buffer, 0, buffer.Length)
+            do ImGui.setKeyboardFocusHere(0)
+        let submitted = ImGui.inputText("##filter" + label, buffer, unativeint buffer.Length, ImGui.enterReturnsTrue, IntPtr.Zero, IntPtr.Zero)
+        let query = comboFilterText buffer
+        let visible = items |> List.filter (fun item -> matches query (nameOf item))
+        for item in visible do
+            let name = nameOf item
+            if selectable (name + "##" + label + name) (item = current) && item <> current then
+                do onPick item
+        match visible with
+        | top :: _ when submitted ->
+            do onPick top
+            do ImGui.closeCurrentPopup()
+        | _ -> ()
+        do ImGui.endCombo()
+
 /// Draw the property editor for the node at `selection`, committing each accepted change through `commit`,
 /// which is handed the **next cue** outright — the control owns the rebuild (replacing a node, appending to
 /// a queue, dropping one), so removing a node is as expressible as editing one.
@@ -508,6 +541,7 @@ let private dragNumber (idBase: string) (label: string) (value: float32) (onComm
 /// because a queue's tail is ahead of the running op, so appending to it cannot disturb it.
 let drawEditor
     (idPrefix: string)
+    (filter: byte[])
     (cue: Cue)
     (selection: int list)
     (commit: Cue -> unit)
@@ -534,11 +568,8 @@ let drawEditor
     // The character chooser every actor op shares: the roster is a closed set, so the control offers it with no
     // zone or asset read (`FR-006`).
     let characterCombo (character: Roster.Character) (node: Cue) : unit =
-        if ImGui.beginCombo("Character##" + idBase, Roster.characterName character, 0) then
-            for candidate in Roster.characters do
-                if selectable (Roster.characterName candidate) (candidate = character) && candidate <> character then
-                    do commit (withAt selection (withCharacter candidate node) cue)
-            do ImGui.endCombo()
+        filteredCombo filter ("Character##" + idBase) (Roster.characterName character) Roster.characters Roster.characterName character (fun candidate ->
+            do commit (withAt selection (withCharacter candidate node) cue))
 
     // ── the kind and the numbers: what is executing is never retuned or replaced ──
     if not locked then
@@ -547,15 +578,35 @@ let drawEditor
         // replaced only when the kind actually changes (the Dialogue panel's rule for its own kind combo).
         let current = kindName node
         if ImGui.beginCombo("Kind##" + idBase, current, 0) then
-            // categories: a separator divides each group, since ImGui combos have no submenus and the op
-            // list is long. (The group names in `kinds` label the grouping; only the divider is drawn.)
-            let mutable first = true
-            for (_, groupKinds) in kinds do
-                if not first then do ImGui.separator()
-                first <- false
-                for kind in groupKinds do
-                    if selectable kind (kind = current) && kind <> current then
-                        do commit (withAt selection (defaultOfKind kind) cue)
+            if ImGui.isWindowAppearing() then
+                do Array.Clear(filter, 0, filter.Length)
+                do ImGui.setKeyboardFocusHere(0)
+            let submitted = ImGui.inputText("##filterKind##" + idBase, filter, unativeint filter.Length, ImGui.enterReturnsTrue, IntPtr.Zero, IntPtr.Zero)
+            let query = comboFilterText filter
+            let offered =
+                if query = "" then
+                    // categories: a separator divides each group, since ImGui combos have no submenus and the op
+                    // list is long. (The group names in `kinds` label the grouping; only the divider is drawn.)
+                    let mutable first = true
+                    for (_, groupKinds) in kinds do
+                        if not first then do ImGui.separator()
+                        first <- false
+                        for kind in groupKinds do
+                            if selectable kind (kind = current) && kind <> current then
+                                do commit (withAt selection (defaultOfKind kind) cue)
+                    []
+                else
+                    // flat while filtering
+                    let visible = kinds |> Array.toList |> List.collect snd |> List.filter (matches query)
+                    for kind in visible do
+                        if selectable kind (kind = current) && kind <> current then
+                            do commit (withAt selection (defaultOfKind kind) cue)
+                    visible
+            match offered with
+            | top :: _ when submitted ->
+                do commit (withAt selection (defaultOfKind top) cue)
+                do ImGui.closeCurrentPopup()
+            | _ -> ()
             do ImGui.endCombo()
 
         // A `…State` case is the in-flight form, so it is normally the op that is running and never reaches
@@ -580,11 +631,8 @@ let drawEditor
         | AddAdvent advent | RemoveAdvent advent | Await advent | AwaitState advent | If (advent, _, _) ->
             // the milestone, chosen from the closed list — a milestone needs no zone or registry, so the
             // control can offer it where it could not offer a zone or waypoint name (FR-006).
-            if ImGui.beginCombo("Advent##" + idBase, Advent.name advent, 0) then
-                for candidate in Advent.all do
-                    if selectable (Advent.name candidate) (candidate = advent) && candidate <> advent then
-                        do commit (withAt selection (withAdvent candidate node) cue)
-                do ImGui.endCombo()
+            filteredCombo filter ("Advent##" + idBase) (Advent.name advent) Advent.all Advent.name advent (fun candidate ->
+                do commit (withAt selection (withAdvent candidate node) cue))
 
         | Exposit (_, kind) ->
             // the presentation, chosen from the closed vocabularies: a character and an emotion need no zone or
@@ -596,68 +644,44 @@ let drawEditor
                 | Dialogue.Kind.PortraitDialogue _ -> "Portrait"
                 | Dialogue.Kind.Dialogue -> "Dialogue"
                 | Dialogue.Kind.Thought -> "Thought"
-            if ImGui.beginCombo("Presentation##" + idBase, presentation, 0) then
-                let alreadyPortrait = match kind with Dialogue.Kind.PortraitDialogue _ -> true | _ -> false
-                if selectable "Dialogue" (kind = Dialogue.Kind.Dialogue) && kind <> Dialogue.Kind.Dialogue then
-                    do commit (withAt selection (withExpositKind Dialogue.Kind.Dialogue node) cue)
-                if selectable "Thought" (kind = Dialogue.Kind.Thought) && kind <> Dialogue.Kind.Thought then
-                    do commit (withAt selection (withExpositKind Dialogue.Kind.Thought node) cue)
-                if selectable "Portrait" alreadyPortrait && not alreadyPortrait then
-                    let defaultPortrait = Dialogue.Kind.PortraitDialogue(List.head Roster.characters, Dialogue.Emotion.Neutral)
-                    do commit (withAt selection (withExpositKind defaultPortrait node) cue)
-                do ImGui.endCombo()
+            filteredCombo filter ("Presentation##" + idBase) presentation [ "Dialogue"; "Thought"; "Portrait" ] id presentation (fun choice ->
+                let next =
+                    match choice with
+                    | "Dialogue" -> Dialogue.Kind.Dialogue
+                    | "Thought" -> Dialogue.Kind.Thought
+                    | _ -> Dialogue.Kind.PortraitDialogue(List.head Roster.characters, Dialogue.Emotion.Neutral)
+                do commit (withAt selection (withExpositKind next node) cue))
 
             // the speaker and the expression are meaningful only for a portrait line, so they are offered only
             // for that kind: a plain line or a thought has neither.
             match kind with
             | Dialogue.Kind.PortraitDialogue (character, emotion) ->
-                if ImGui.beginCombo("Speaker##" + idBase, Roster.characterName character, 0) then
-                    for candidate in Roster.characters do
-                        if selectable (Roster.characterName candidate) (candidate = character) && candidate <> character then
-                            do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(candidate, emotion)) node) cue)
-                    do ImGui.endCombo()
-                if ImGui.beginCombo("Expression##" + idBase, Dialogue.emotionName emotion, 0) then
-                    for candidate in Dialogue.emotions do
-                        if selectable (Dialogue.emotionName candidate) (candidate = emotion) && candidate <> emotion then
-                            do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(character, candidate)) node) cue)
-                    do ImGui.endCombo()
+                filteredCombo filter ("Speaker##" + idBase) (Roster.characterName character) Roster.characters Roster.characterName character (fun candidate ->
+                    do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(candidate, emotion)) node) cue))
+                filteredCombo filter ("Expression##" + idBase) (Dialogue.emotionName emotion) Dialogue.emotions Dialogue.emotionName emotion (fun candidate ->
+                    do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(character, candidate)) node) cue))
             | _ -> ()
 
         | SetZone place | AddZone place | RemoveZone place | PreloadZone place ->
             // the place, chosen from the closed set — a place needs no zone or registry read, so the control can
             // offer it where it could not offer a zone name (spec 061 FR-005); the four zone ops share it.
-            if ImGui.beginCombo("Place##" + idBase, Place.placeName place, 0) then
-                for candidate in Place.all do
-                    if selectable (Place.placeName candidate) (candidate = place) && candidate <> place then
-                        do commit (withAt selection (withPlace candidate node) cue)
-                do ImGui.endCombo()
+            filteredCombo filter ("Place##" + idBase) (Place.placeName place) Place.all Place.placeName place (fun candidate ->
+                do commit (withAt selection (withPlace candidate node) cue))
 
         | SetActor (place, character, look, _) ->
             // the place, the character and the look are all closed sets, so the control offers them with no
             // zone or asset read (FR-006); the waypoint it names is edited by the caller's field (`CueEditor`).
-            if ImGui.beginCombo("Place##" + idBase, Place.placeName place, 0) then
-                for candidate in Place.all do
-                    if selectable (Place.placeName candidate) (candidate = place) && candidate <> place then
-                        do commit (withAt selection (withPlace candidate node) cue)
-                do ImGui.endCombo()
-            if ImGui.beginCombo("Character##" + idBase, Roster.characterName character, 0) then
-                for candidate in Roster.characters do
-                    if selectable (Roster.characterName candidate) (candidate = character) && candidate <> character then
-                        do commit (withAt selection (withCharacter candidate node) cue)
-                do ImGui.endCombo()
-            if ImGui.beginCombo("Look##" + idBase, Casting.lookName look, 0) then
-                for candidate in Casting.allLooks do
-                    if selectable (Casting.lookName candidate) (candidate = look) && candidate <> look then
-                        do commit (withAt selection (withLook candidate node) cue)
-                do ImGui.endCombo()
+            filteredCombo filter ("Place##" + idBase) (Place.placeName place) Place.all Place.placeName place (fun candidate ->
+                do commit (withAt selection (withPlace candidate node) cue))
+            filteredCombo filter ("Character##" + idBase) (Roster.characterName character) Roster.characters Roster.characterName character (fun candidate ->
+                do commit (withAt selection (withCharacter candidate node) cue))
+            filteredCombo filter ("Look##" + idBase) (Casting.lookName look) Casting.allLooks Casting.lookName look (fun candidate ->
+                do commit (withAt selection (withLook candidate node) cue))
 
         | RemoveActor character ->
             // no place: the runtime cast index knows where she is, so removal names the character alone.
-            if ImGui.beginCombo("Character##" + idBase, Roster.characterName character, 0) then
-                for candidate in Roster.characters do
-                    if selectable (Roster.characterName candidate) (candidate = character) && candidate <> character then
-                        do commit (withAt selection (withCharacter candidate node) cue)
-                do ImGui.endCombo()
+            filteredCombo filter ("Character##" + idBase) (Roster.characterName character) Roster.characters Roster.characterName character (fun candidate ->
+                do commit (withAt selection (withCharacter candidate node) cue))
 
         | Animate (character, clip, weight, duration) ->
             do characterCombo character node
@@ -694,11 +718,8 @@ let drawEditor
 
         | EnableTrigger (place, _) | DisableTrigger (place, _) ->
             // the place, chosen from the closed set; the trigger name is the caller's field (`CueEditor`)
-            if ImGui.beginCombo("Place##" + idBase, Place.placeName place, 0) then
-                for candidate in Place.all do
-                    if selectable (Place.placeName candidate) (candidate = place) && candidate <> place then
-                        do commit (withAt selection (withPlace candidate node) cue)
-                do ImGui.endCombo()
+            filteredCombo filter ("Place##" + idBase) (Place.placeName place) Place.all Place.placeName place (fun candidate ->
+                do commit (withAt selection (withPlace candidate node) cue))
 
         | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | Print _ | FlyCameraState _ | BlendState _ | MoveActorState _ | RotateActorState _ ->
             // no numbers of their own. `SetCamera` and `Print` carry text (the caller's field edits it) and a

@@ -130,6 +130,16 @@ extern bool isItemDeactivatedAfterEdit()
 [<DllImport("cimgui", EntryPoint = "igIsItemActive", CallingConvention = CallingConvention.Cdecl)>]
 extern bool isItemActive()
 
+// True for the frame a popup (or child) window first appears (cimgui's igIsWindowAppearing): a filtered combo
+// uses it to clear its filter and focus the filter field each time the dropdown opens.
+[<DllImport("cimgui", EntryPoint = "igIsWindowAppearing", CallingConvention = CallingConvention.Cdecl)>]
+extern bool isWindowAppearing()
+
+// Focus the *next* widget drawn (cimgui's igSetKeyboardFocusHere), so an opened combo's filter field takes
+// typing without a click.
+[<DllImport("cimgui", EntryPoint = "igSetKeyboardFocusHere", CallingConvention = CallingConvention.Cdecl)>]
+extern void setKeyboardFocusHere(int offset)
+
 // A draggable float field over a caller-owned value (cimgui's igDragFloat). Returns true
 // while the value is being dragged; a caller wanting one commit per drag reads
 // `isItemDeactivatedAfterEdit` straight after it.
@@ -172,6 +182,11 @@ extern bool beginCombo(string label, string previewValue, int flags)
 
 [<DllImport("cimgui", EntryPoint = "igEndCombo", CallingConvention = CallingConvention.Cdecl)>]
 extern void endCombo()
+
+// Close the popup the current window is in (cimgui's igCloseCurrentPopup): a filtered combo uses it when Enter
+// takes the top match, so the dropdown dismisses like a click would.
+[<DllImport("cimgui", EntryPoint = "igCloseCurrentPopup", CallingConvention = CallingConvention.Cdecl)>]
+extern void closeCurrentPopup()
 
 // A selectable row (cimgui's igSelectable_Bool), returning true when it is clicked. `selected`
 // marks the row as the current value; `size` of (0, 0) spans the available width.

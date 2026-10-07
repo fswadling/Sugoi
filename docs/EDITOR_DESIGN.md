@@ -226,6 +226,13 @@ always takes a child on its queue, since a queue's tail lies ahead of the runnin
 **Reorder is not in that cut**: the reference names it, and it is the obvious
 addition to make next.
 
+Every dropdown in the cue editor — the op **kind**, the character, place, advent, waypoint, trigger and
+clip/morph choosers — is **filterable** (`specs/068-autocomplete-cue-combos`): open it and type, and the list
+narrows to names containing the text (case-insensitively); **Enter** takes the top match and dismisses the
+dropdown. The grouped kind list shows **flat** while a filter is entered and its groups when it is cleared. A
+pick is the same edit as before — one step on the one history — so this changes how an option is *found*, not
+what choosing it writes.
+
 ## Cast panel (D-022)
 
 The cast panel is a tree that assigns **in place**: each member is a collapsible node, and
