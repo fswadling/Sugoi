@@ -148,23 +148,39 @@ let addZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (nam
     state.Zones.[name] <- Zone.create ()
     swapZone shared &state outgoing name
 
-// Populate a present zone from a registered template: its environment, light and placed props (spec 062).
-// `Physics.createBody` joins the simulation as it runs, so a zone that is not the active one has its built
-// bodies detached at once — the same "alive but detached" state a switch away leaves it in.
-let populateZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) (template: ZoneTemplate) : unit =
+// Apply a zone's staging (spec 079): free its placed props, set its environment (loading the recipe's when it has
+// one, clearing it when not), its light and its placed props. `Physics.createBody` joins the simulation as it
+// runs, so a zone that is not the active one has what it built detached at once.
+let private applyStaging (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) (staging: ZoneStaging) : unit =
     let zone = state.Zones.[name]
-    do Zone.loadTemplate zone state.Physics shared.Assets template
-    if name <> state.ActiveZone then Zone.deactivatePhysics zone state.Physics
+    let physics = state.Physics
 
-// Make an absent declared place present, populated from its registered template when it has one, and leave
-// the active place, the camera and the selection untouched (spec 062): a cue *prepares* a zone here, and
-// `switchZone` is what enters it. A place already present is a bug — the cue guards it — so this raises.
-let presentZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) (template: ZoneTemplate option) : unit =
-    if state.Zones.ContainsKey name then invalidOp (sprintf "presentZone: '%s' is already present" (name)) else
+    for (ref, prop) in Zone.captureProps zone do
+        do Command.apply zone physics shared.Assets (Command.PropDelete (name, ref, prop))
+
+    match staging.Environment with
+    | Some template -> do ignore (Zone.loadEnvironmentFrom zone physics shared.Assets template)
+    | None -> do Zone.setEnvironment zone physics shared.Assets None
+
+    zone.Light <- staging.Light
+
+    for prop in staging.Props do
+        let assetId =
+            match prop.AssetId with
+            | Some assetId -> assetId
+            | None -> failwith "applyStaging: a recorded prop must name an asset"
+        let binding = { AssetId = Some assetId; SubmeshIndex = prop.SubmeshIndex; SubmeshCount = prop.SubmeshCount }
+        do ignore (Zone.spawnPropBinding zone physics shared.Assets prop.Base binding)
+
+    if name <> state.ActiveZone then Zone.deactivatePhysics zone physics
+
+// Make an absent zone present, staged from `staging`, and leave the active zone, the camera and the selection
+// untouched (spec 062, 079): a cue *prepares* a zone here, and `switchZone` is what enters it. A zone already
+// present is a bug — the cue, or a fork, guards it — so this raises.
+let presentZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) (staging: ZoneStaging) : unit =
+    if state.Zones.ContainsKey name then invalidOp (sprintf "presentZone: '%s' is already present" name) else
     state.Zones.[name] <- Zone.create ()
-    match template with
-    | Some template -> do populateZone shared &state name template
-    | None -> ()
+    do applyStaging shared &state name staging
 
 // Make a present place absent and release everything it owns, including its environment from the GPU
 // unless another present place still uses that environment (spec 061 FR-010). The active place cannot be
@@ -183,24 +199,8 @@ let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (
         do Assets.releaseEnvironment shared.Assets environment.AssetId
     | _ -> ()
 
-// Replace a present zone's staging (spec 079): with a `ZoneTemplate` (`Some`) load its environment, light and
-// placed props; with `None` clear them. The one restager — a fork into an existing zone and the `ZoneStage`
-// command both come through here. The zone's own props are freed first (a template's props replace them
-// wholesale). A zone that is not active has the bodies it built detached at once, so it does not simulate.
-// `Zone.Player` is not staging and is left alone.
-let stageZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) (staging: ZoneTemplate option) : unit =
+// Replace a present zone's staging (spec 079). The one restager — a fork into an existing zone and the
+// `ZoneStage` command both come through here. `Zone.Player` is not staging and is left alone.
+let stageZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) (staging: ZoneStaging) : unit =
     if not (state.Zones.ContainsKey name) then invalidOp (sprintf "stageZone: '%s' is not present" name) else
-
-    let zone = state.Zones.[name]
-    let physics = state.Physics
-
-    for (ref, prop) in Zone.captureProps zone do
-        do Command.apply zone physics shared.Assets (Command.PropDelete (name, ref, prop))
-
-    match staging with
-    | Some template -> do Zone.loadTemplate zone physics shared.Assets template
-    | None ->
-        do Zone.setEnvironment zone physics shared.Assets None
-        zone.Light <- Texture.defaultLight
-
-    if name <> state.ActiveZone then Zone.deactivatePhysics zone physics
+    do applyStaging shared &state name staging

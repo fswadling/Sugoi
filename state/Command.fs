@@ -80,11 +80,11 @@ type Command =
     // redo needs no store. `ZoneAdd` makes a place present *and active*, but a fork must not switch the layout. It
     // carries no `Previous` — it never changes the active place. Apply makes the place present and stages it from
     // `Staging`; undo removes the place.
-    | ZonePresent of Name : string * Staging : ZoneTemplate option
+    | ZonePresent of Name : string * Staging : ZoneStaging
     // A present zone's staging was replaced (spec 079): a fork into a zone the scene already holds. State-level
     // like `ZonePresent`, because only the state-level runner knows the active place and can detach an inactive
     // zone's built bodies. Apply stages to `Next`; undo stages back to `Previous`.
-    | ZoneStage of Name : string * Previous : ZoneTemplate option * Next : ZoneTemplate option
+    | ZoneStage of Name : string * Previous : ZoneStaging * Next : ZoneStaging
     // The screen's cue was edited (spec 049). It is not a zone's — a cue spans zones (spec 046 FR-013) — so, like
     // a zone step, it is carried out against the gameplay state and not by the zone-level runner. The payload is
     // the two cue values: a cue is immutable, so a snapshot is a reference, and that is exactly what the cue's

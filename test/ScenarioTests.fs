@@ -199,7 +199,7 @@ let ``registering disturbs nothing in the scene`` () =
     Assert.Equal(selection, state.Editor.Selection)
 
 [<Fact>]
-let ``a registration is unaffected by the zone's light and player`` () =
+let ``a registration carries the zone's light but not its player`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let zone = GameplayState.activeZone state
@@ -208,14 +208,17 @@ let ``a registration is unaffected by the zone's light and player`` () =
     do register shared &state
     let first = tryContents Intro state.Scenarios
 
-    // Change only staging: the light, and which actor is the player. Neither is part of a scenario (FR-009).
-    zone.Light <- { zone.Light with Pitch = 90.0f }
+    // The player designation is not staging: changing it alone leaves the capture as it was (spec 079).
     zone.Player <- ValueSome handle
-
     do register shared &state
-    let second = tryContents Intro state.Scenarios
+    let afterPlayer = tryContents Intro state.Scenarios
+    Assert.Equal<ScenarioContents option>(first, afterPlayer)
 
-    Assert.Equal<ScenarioContents option>(first, second)
+    // The light IS staging now (spec 079): changing it changes the capture.
+    zone.Light <- { zone.Light with Pitch = 90.0f }
+    do register shared &state
+    let afterLight = tryContents Intro state.Scenarios
+    Assert.NotEqual<ScenarioContents option>(afterPlayer, afterLight)
 
 [<Fact>]
 let ``the zone-level runner refuses a scenario step, which is state-level`` () =

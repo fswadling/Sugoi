@@ -13,7 +13,7 @@ staging). Nothing is persisted.
 graph TD
     SF["ScenarioFork.materialise<br/>(shared, &state, contents) : Command list option"]
     SF -->|reads| SC["ScenarioRegistry.ScenarioContents<br/>{ Zones : Map<string, ScenarioZone>; Cue }"]
-    SC -->|per zone| SZ["ScenarioZone<br/>{ Staging : ZoneTemplate option; Actors; Waypoints; Triggers }"]
+    SC -->|per zone| SZ["ScenarioZone<br/>{ Staging : ZoneStaging; Actors; Waypoints; Triggers }"]
     SZ -->|Staging| ZT["ZoneTemplate<br/>env asset+placement+parts, light, props"]
     SF -->|absent zone| P["GameplayState.presentZone (create+stage)"]
     SF -->|present zone| STG["GameplayState.stageZone (replace staging)"]
@@ -46,16 +46,28 @@ A zone the code does not declare can now exist; a typo is a name that resolves t
 ### 2. `ScenarioZone` gains staging *(reverts `specs/076`)*
 
 ```fsharp
+// world/ZoneTemplate.fs — a zone's authored staging: an optional environment plus an always-present light and
+// placed props, so an environment-less zone round-trips (spec 079).
+type ZoneStaging =
+    { Environment : ZoneTemplate option
+      Light : Texture.LightSettings
+      Props : PropState array }
+
 // world/ScenarioZone.fs
 type ScenarioZone =
-    { Staging : ZoneTemplate option   // environment asset+placement+parts, light, placed props — None = no environment
+    { Staging : ZoneStaging
       Actors : ActorState array
       Waypoints : ScenarioWaypoint array     // chains by index
       Triggers : TriggerState array }
 
 // capture: staging + narrative entities, ref-free
+let captureStaging (zone: Zone) : ZoneStaging =
+    { Environment = Zone.captureTemplate zone
+      Light = zone.Light
+      Props = Zone.captureProps zone |> Array.map snd }
+
 let capture (zone: Zone) : ScenarioZone =
-    { Staging = Zone.captureTemplate zone   // None when the zone has no environment
+    { Staging = captureStaging zone
       Actors = captureActors zone
       Waypoints = captureWaypoints zone
       Triggers = captureTriggers zone }
@@ -68,10 +80,10 @@ Props : PropState array }`. `ScenarioContents.Zones` is keyed by `string`.
 
 ```fsharp
 // a place was made present; staging rides the command so redo needs no store
-| ZonePresent of Name : string * Staging : ZoneTemplate option
+| ZonePresent of Name : string * Staging : ZoneStaging
 
 // a present zone's staging was replaced (a fork into an existing zone)
-| ZoneStage of Name : string * Previous : ZoneTemplate option * Next : ZoneTemplate option
+| ZoneStage of Name : string * Previous : ZoneStaging * Next : ZoneStaging
 ```
 
 | Command | `placeOf` | `History.apply` | `History.undo` |
@@ -86,7 +98,7 @@ Both are **state-level**: `Command.apply`/`Command.undo` (the zone-level runner)
 ```fsharp
 /// Replace a zone's staging: release/load the environment, replace its placed props, set the light; detach the
 /// bodies it built when the zone is not the active one, so an inactive zone does not simulate.
-val stageZone : SharedState -> byref<GameplayState> -> name:string -> ZoneTemplate option -> unit
+val stageZone : SharedState -> byref<GameplayState> -> name:string -> ZoneStaging -> unit
 ```
 
 - `Some template` → release the current environment, `Zone.loadTemplate` the new one, replace props, set the light.

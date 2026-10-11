@@ -24,12 +24,6 @@ let private detachActor (world: Physics.World) (zone: Zone.Zone) (ref: EntityRef
     | Some ph when Physics.isAdded world ph.Body -> do Physics.removeBody world ph.Body
     | _ -> ()
 
-/// The props a staging would place: none for an environment-less zone.
-let private propsOf (staging: ZoneTemplate option) : int =
-    match staging with
-    | Some template -> Array.length template.Props
-    | None -> 0
-
 /// Load a scenario into the live scene: **ensure** each recorded zone by name (create and stage an absent one;
 /// restage a present one whose staging differs), **append** its narrative entities into it, and leave the cue to
 /// the caller. Returns, in apply order, the commands that reverse the scene work — or `None` when the capacity
@@ -54,7 +48,7 @@ let materialise
             let needActors = Array.length scenarioZone.Actors
             let needWaypoints = Array.length scenarioZone.Waypoints
             let needTriggers = Array.length scenarioZone.Triggers
-            let needProps = propsOf scenarioZone.Staging
+            let needProps = Array.length scenarioZone.Staging.Props
             let ok =
                 match state.Zones.TryGetValue name with
                 | true, zone ->
@@ -84,7 +78,7 @@ let materialise
             do GameplayState.presentZone shared &state name scenarioZone.Staging
             commands.Add(ZonePresent (name, scenarioZone.Staging))
         else
-            let previous = Zone.captureTemplate state.Zones.[name]
+            let previous = ScenarioZone.captureStaging state.Zones.[name]
             if previous <> scenarioZone.Staging then
                 do GameplayState.stageZone shared &state name scenarioZone.Staging
                 commands.Add(ZoneStage (name, previous, scenarioZone.Staging))

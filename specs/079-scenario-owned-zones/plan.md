@@ -96,12 +96,12 @@ world/ZoneRegistry.fs       # RETIRED (the staging store)
 editor/ZoneRegistryPanel.fs # RETIRED (its panel)
 
 world/ZoneTemplate.fs       # KEPT: it *is* a zone's staging (env asset + placement + parts + light + placed props)
-world/ScenarioZone.fs       # CHANGED: + `Staging : ZoneTemplate option`; `capture` gathers staging too
+world/ScenarioZone.fs       # CHANGED: + `Staging : ZoneStaging`; `capture` gathers staging too
 world/ScenarioRegistry.fs   # CHANGED: zones keyed by `string`; capture fills staging via `Zone.captureTemplate`
 world/ScenarioFork.fs       # CHANGED: ensure-by-name, restage from the scenario, append; `ZonePresent` carries staging
 world/Cue.fs                # CHANGED: retire `AddZone`/`PreloadZone`; zone ops take `string`; keep `SetZone`/`RemoveZone`
 world/CueEngine.fs          # CHANGED: drop the retired arms; the rest take `string`
-state/Command.fs            # CHANGED: zone ids are `string`; `ZonePresent of Name : string * Staging : ZoneTemplate option`
+state/Command.fs            # CHANGED: zone ids are `string`; `ZonePresent of Name : string * Staging : ZoneStaging`
 state/GameplayState.fs      # CHANGED: `Zones : Dictionary<string, Zone>`, `ActiveZone : string`; a `startZone` const
 state/History.fs            # CHANGED: the string-keyed arms; `ZonePresent` applies present-from-staging; `ZoneStage`
 editor/Spawning.fs          # CHANGED: `instantiateZone` retired (its sole caller, the registry panel, is gone)
@@ -121,11 +121,11 @@ docs/ZONE_MODEL_DECISION.md # the registry↔scenario convergence taken; ZoneTem
 docs/ROADMAP.md             # phase 12 (Zone Registry) retired; phase 11 folds staging into the scenario
 ```
 
-**Structure Decision**: The scenario zone grows staging (`Staging : ZoneTemplate option`), and the materialiser
+**Structure Decision**: The scenario zone grows staging (`Staging : ZoneStaging`), and the materialiser
 (`world/ScenarioFork.fs`) becomes the **one** place a zone's staging is replaced — absorbing `Spawning.instantiateZone`
 (whose only caller, the Zone Registry panel, retires). `world/Place.fs` and `world/ZoneRegistry.fs` are removed from the
 compile list; a zone id is a `string` throughout, exactly as an actor name is. The `Command` type stays above
-`GameplayState`; `ZonePresent` (a `state/Command.fs` case) carries its `ZoneTemplate option` so a created zone is
+`GameplayState`; `ZonePresent` (a `state/Command.fs` case) carries its `ZoneStaging` so a created zone is
 reversible and replayable without a registry.
 
 ## Complexity Tracking

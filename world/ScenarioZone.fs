@@ -26,11 +26,10 @@ type ScenarioWaypoint =
     { Base : Entity
       Next : int option }
 
-/// One zone as a scenario holds it: its staging (the environment/light/props recipe, `None` for an
-/// environment-less zone) and its narrative entities as arrays of authored states. A waypoint's link is an index
-/// into `Waypoints`, so nothing names a live slot.
+/// One zone as a scenario holds it: its staging (environment, light and placed props) and its narrative entities
+/// as arrays of authored states. A waypoint's link is an index into `Waypoints`, so nothing names a live slot.
 type ScenarioZone =
-    { Staging : ZoneTemplate option
+    { Staging : ZoneStaging
       Actors : ActorState array
       Waypoints : ScenarioWaypoint array
       Triggers : TriggerState array }
@@ -65,14 +64,21 @@ let private captureWaypoints (zone: Zone) : ScenarioWaypoint array =
         { Base = waypoint.Base; Next = next })
     |> Seq.toArray
 
-/// Take a zone as a scenario holds it: its actors, waypoints and triggers as arrays. Pure and device-free — it
-/// reads the live zone and nothing else — so it can be asserted with no window. De-refs every entity, and resolves
-/// the waypoint chains to indices. The zone's staging (environment, light, player, placed props) is not captured.
+/// The staging a zone would be captured as (spec 079): its environment (`None` when it has none), its light and
+/// its placed props. `capture` files one, and a fork compares a live zone's staging with a scenario's.
+let captureStaging (zone: Zone) : ZoneStaging =
+    { Environment = Zone.captureTemplate zone
+      Light = zone.Light
+      Props = Zone.captureProps zone |> Array.map snd }
+
+/// Take a zone as a scenario holds it: its staging (environment, light, placed props) and its actors, waypoints
+/// and triggers as arrays. Pure and device-free — it reads the live zone and nothing else — so it can be asserted
+/// with no window. De-refs every entity, and resolves the waypoint chains to indices.
 let capture (zone: Zone) : ScenarioZone =
     let triggers = ResizeArray<TriggerState>(int zone.Triggers.Count)
     zone.Triggers.IteriAlive (fun _ _ trigger -> triggers.Add trigger.State)
 
-    { Staging = Zone.captureTemplate zone
+    { Staging = captureStaging zone
       Actors = captureActors zone
       Waypoints = captureWaypoints zone
       Triggers = triggers.ToArray() }

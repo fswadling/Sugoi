@@ -96,7 +96,7 @@ let ``presentZone makes an absent place present with its template and leaves the
         { AssetId = "room"; Base = entity "room"; Orientation = Quaternion.Identity
           Light = Texture.defaultLight; Parts = [| part |]; Props = [||] }
 
-    GameplayState.presentZone shared &state atriumPlace (Some template)
+    GameplayState.presentZone shared &state atriumPlace (ZoneTemplate.ofTemplate template)
 
     Assert.True(state.Zones.ContainsKey atriumPlace)
     Assert.Equal(activeBefore, state.ActiveZone) // an add prepares; it does not enter
@@ -113,7 +113,7 @@ let ``presentZone makes an absent place present with its template and leaves the
 
     // Presenting a place already present is a bug (the cue guards it).
     let mutable raised = false
-    try GameplayState.presentZone shared &state atriumPlace None with _ -> raised <- true
+    try GameplayState.presentZone shared &state atriumPlace ZoneTemplate.empty with _ -> raised <- true
     Assert.True raised
 
 [<Fact>]

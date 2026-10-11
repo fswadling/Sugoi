@@ -75,7 +75,7 @@ let private triggerState (name: string) : TriggerState =
 
 /// A scenario zone with an actor, a chained waypoint pair and a trigger.
 let private fullZone () : ScenarioZone =
-    { Staging = None
+    { Staging = ZoneTemplate.empty
       Actors = [| { Base = entity "pupil"; AssetId = "aiko"; ShowCollider = false } |]
       Waypoints =
         [| { Base = entity "wp-a"; Next = Some 1 }
@@ -83,7 +83,7 @@ let private fullZone () : ScenarioZone =
       Triggers = [| triggerState "area" |] }
 
 let private emptyZone : ScenarioZone =
-    { Staging = None; Actors = [||]; Waypoints = [||]; Triggers = [||] }
+    { Staging = ZoneTemplate.empty; Actors = [||]; Waypoints = [||]; Triggers = [||] }
 
 let private contents (zones: (string * ScenarioZone) list) (cue: Cue.Cue) : ScenarioContents =
     { Zones = Map.ofList zones; Cue = cue }
@@ -253,13 +253,13 @@ let ``ZonePresent makes a zone present from its staging, and undo removes it`` (
     let shared = sharedState ()
     let mutable state = newState ()
 
-    do History.apply shared &state (ZonePresent ("Island", Some (template ())))
+    do History.apply shared &state (ZonePresent ("Island", ZoneTemplate.ofTemplate (template ())))
     Assert.True(state.Zones.ContainsKey "Island")
     Assert.True(state.Zones.["Island"].Environment.IsSome) // its staging's environment streamed in
     Assert.Equal(light, state.Zones.["Island"].Light) // and its light
     Assert.NotEqual<string>("Island", state.ActiveZone) // presence, not entry
 
-    do History.undo shared &state (ZonePresent ("Island", Some (template ())))
+    do History.undo shared &state (ZonePresent ("Island", ZoneTemplate.ofTemplate (template ())))
     Assert.False(state.Zones.ContainsKey "Island")
 
 [<Fact>]
@@ -267,8 +267,8 @@ let ``the zone-level runner refuses a presence step, which is state-level`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let zone = GameplayState.activeZone state
-    Assert.Throws<InvalidOperationException>(fun () -> Command.apply zone state.Physics shared.Assets (ZonePresent ("Island", None))) |> ignore
-    Assert.Throws<InvalidOperationException>(fun () -> Command.undo zone state.Physics shared.Assets (ZonePresent ("Island", None))) |> ignore
+    Assert.Throws<InvalidOperationException>(fun () -> Command.apply zone state.Physics shared.Assets (ZonePresent ("Island", ZoneTemplate.empty))) |> ignore
+    Assert.Throws<InvalidOperationException>(fun () -> Command.undo zone state.Physics shared.Assets (ZonePresent ("Island", ZoneTemplate.empty))) |> ignore
 
 [<Fact>]
 let ``pruneCueSteps drops a fork's cue step but keeps its entity commands`` () =
@@ -291,7 +291,7 @@ let ``pruneCueSteps drops a fork's cue step but keeps its entity commands`` () =
 let ``an absent zone is created from the scenario's staging, or empty when it carries none`` () =
     let shared = sharedState ()
     let mutable state = newState ()
-    do register shared &state (contents [ "Island", { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
+    do register shared &state (contents [ "Island", { emptyZone with Staging = ZoneTemplate.ofTemplate (template ()) } ] Cue.Fin)
 
     do ScenarioPanel.fork shared &state Intro
     Assert.True(state.Zones.ContainsKey "Island")
@@ -314,7 +314,7 @@ let ``a fork restages a present zone and leaves its player alone`` () =
     let player = ValueSome (start.Actors.Add({ State = { Base = entity "hero"; AssetId = "aiko"; ShowCollider = false }; Physics = None; Renderer = Unchecked.defaultof<ActorRender.ActorRender> }))
     start.Player <- player
 
-    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
+    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = ZoneTemplate.ofTemplate (template ()) } ] Cue.Fin)
     do ScenarioPanel.fork shared &state Intro
 
     Assert.Equal(light, start.Light) // the scenario's staging replaced the zone's look
@@ -363,7 +363,7 @@ let ``a full target zone refuses the whole fork and creates no place`` () =
 let ``a fork brings a created zone up with its environment and light from the scenario`` () =
     let shared = sharedState ()
     let mutable state = newState ()
-    do register shared &state (contents [ "Moon", { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
+    do register shared &state (contents [ "Moon", { emptyZone with Staging = ZoneTemplate.ofTemplate (template ()) } ] Cue.Fin)
 
     do ScenarioPanel.fork shared &state Intro
 
@@ -378,7 +378,7 @@ let ``a fork reuses a present zone and replaces its staging, without duplicating
     let start = GameplayState.activeZone state
     start.Light <- { start.Light with Pitch = 90.0f } // a look the scenario will replace
     let zonesBefore = state.Zones.Count
-    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
+    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = ZoneTemplate.ofTemplate (template ()) } ] Cue.Fin)
 
     do ScenarioPanel.fork shared &state Intro
 
@@ -391,7 +391,7 @@ let ``a restage is skipped when the zone's staging already matches`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let start = GameplayState.activeZone state
-    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
+    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = ZoneTemplate.ofTemplate (template ()) } ] Cue.Fin)
 
     do ScenarioPanel.fork shared &state Intro
     let epoch = start.Environment.Value.Epoch // the environment the first fork loaded
@@ -405,12 +405,11 @@ let ``the editor fork's one step round-trips a restage`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let start = GameplayState.activeZone state
-    // A full staging to round-trip: an environment and an authored light. (An environment-less zone keeps its
-    // light only as `defaultLight` — `ZoneTemplate option` cannot encode "no environment but a light".)
-    do ignore (Zone.loadEnvironment start state.Physics shared.Assets "island-env")
+    // An **environment-less** zone with an authored light: staging carries the light with no environment (spec 079),
+    // so the round-trip restores it exactly rather than resetting it to the default.
     start.Light <- { start.Light with Pitch = 90.0f }
     let lightBefore = start.Light
-    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
+    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = ZoneTemplate.ofTemplate (template ()) } ] Cue.Fin)
 
     do ScenarioPanel.fork shared &state Intro
     Assert.Equal(light, start.Light) // restaged to the scenario's
@@ -429,8 +428,8 @@ let ``ZoneStage apply and undo round-trip a restage, detaching an inactive zone'
     do ignore (Zone.spawnActor state.Zones.["Hall"] state.Physics shared.Assets (entity "npc") "aiko")
     do GameplayState.switchZone shared &state GameplayState.startZone // Hall is now inactive
 
-    let previous = Zone.captureTemplate state.Zones.["Hall"]
-    do History.apply shared &state (ZoneStage ("Hall", previous, Some (template ())))
+    let previous = ScenarioZone.captureStaging state.Zones.["Hall"]
+    do History.apply shared &state (ZoneStage ("Hall", previous, ZoneTemplate.ofTemplate (template ())))
 
     let hall = state.Zones.["Hall"]
     Assert.Equal(light, hall.Light)
@@ -442,7 +441,7 @@ let ``ZoneStage apply and undo round-trip a restage, detaching an inactive zone'
         | None -> Assert.Fail "expected a body"
     | None -> Assert.Fail "expected the actor"
 
-    do History.undo shared &state (ZoneStage ("Hall", previous, Some (template ())))
+    do History.undo shared &state (ZoneStage ("Hall", previous, ZoneTemplate.ofTemplate (template ())))
     Assert.Equal(Texture.defaultLight, hall.Light)
 
 [<Fact>]
@@ -450,8 +449,8 @@ let ``the zone-level runner refuses a restage step, which is state-level`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let zone = GameplayState.activeZone state
-    Assert.Throws<InvalidOperationException>(fun () -> Command.apply zone state.Physics shared.Assets (ZoneStage ("Hall", None, None))) |> ignore
-    Assert.Throws<InvalidOperationException>(fun () -> Command.undo zone state.Physics shared.Assets (ZoneStage ("Hall", None, None))) |> ignore
+    Assert.Throws<InvalidOperationException>(fun () -> Command.apply zone state.Physics shared.Assets (ZoneStage ("Hall", ZoneTemplate.empty, ZoneTemplate.empty))) |> ignore
+    Assert.Throws<InvalidOperationException>(fun () -> Command.undo zone state.Physics shared.Assets (ZoneStage ("Hall", ZoneTemplate.empty, ZoneTemplate.empty))) |> ignore
 
 [<Fact>]
 let ``a fork refuses a target whose props the scenario's staging would not fit`` () =
@@ -461,7 +460,7 @@ let ``a fork refuses a target whose props the scenario's staging would not fit``
     let bigProps =
         Array.init (int start.Props.Capacity + 1) (fun i ->
             { Base = entity (sprintf "p%d" i); AssetId = Some "crate"; SubmeshIndex = 0; SubmeshCount = 1 })
-    let c = contents [ GameplayState.startZone, { emptyZone with Staging = Some ({ (template ()) with Props = bigProps }) } ] Cue.Fin
+    let c = contents [ GameplayState.startZone, { emptyZone with Staging = ZoneTemplate.ofTemplate ({ (template ()) with Props = bigProps }) } ] Cue.Fin
     do register shared &state c
 
     Assert.True((ScenarioFork.materialise shared &state c).IsNone) // the props do not fit

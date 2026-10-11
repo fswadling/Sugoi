@@ -29,7 +29,7 @@ present/undo invariant is unchanged from `specs/077`).
 ```fsharp
 // world/ScenarioZone.fs
 type ScenarioZone =
-    { Staging : ZoneTemplate option
+    { Staging : ZoneStaging
       Actors : ActorState array
       Waypoints : ScenarioWaypoint array
       Triggers : TriggerState array }
@@ -44,8 +44,8 @@ loaded environment. `ScenarioContents.Zones : Map<string, ScenarioZone>`.
 
 ```fsharp
 // state/Command.fs
-| ZonePresent of Name : string * Staging : ZoneTemplate option
-| ZoneStage   of Name : string * Previous : ZoneTemplate option * Next : ZoneTemplate option
+| ZonePresent of Name : string * Staging : ZoneStaging
+| ZoneStage   of Name : string * Previous : ZoneStaging * Next : ZoneStaging
 ```
 
 | Command | `placeOf` | apply | undo |
@@ -65,7 +65,7 @@ val stageZone :
     shared: SharedState.SharedState
     -> state: byref<GameplayState>
     -> name: string
-    -> staging: ZoneTemplate option
+    -> staging: ZoneStaging
     -> unit
 ```
 

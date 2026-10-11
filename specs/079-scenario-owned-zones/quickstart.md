@@ -21,7 +21,7 @@ dotnet build fsharp-game.fsproj
 Expected: **0 warnings, 0 errors**. `world/Place.fs`, `world/ZoneRegistry.fs` and `editor/ZoneRegistryPanel.fs` must
 be **removed** from `fsharp-game.fsproj`; the remaining files keep their order. `GameplayState.stageZone` lives in
 `state/GameplayState.fs` (after `world/Zone.fs`/`ZoneTemplate.fs`); `Command.ZoneStage`/`ZonePresent` carry a
-`ZoneTemplate option`, so `world/ZoneTemplate.fs` stays above `state/Command.fs`.
+`ZoneStaging`, so `world/ZoneTemplate.fs` stays above `state/Command.fs`.
 
 ## Test (the suite must be green)
 

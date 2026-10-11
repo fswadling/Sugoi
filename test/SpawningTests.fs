@@ -419,7 +419,7 @@ let ``stageZone replaces the zone's props with the template's`` () =
     do Zone.setName zone desk "desk of my own"
 
     // One gesture: stage the zone from the template.
-    do GameplayState.stageZone shared &state GameplayState.startZone (Some registered)
+    do GameplayState.stageZone shared &state GameplayState.startZone (ZoneTemplate.ofTemplate registered)
 
     // The zone's props are the entry's and nothing else: same count, same names, same placement — and
     // the desk it held is gone rather than left standing beside them.
@@ -457,7 +457,7 @@ let ``a template that records no props clears the zone's`` () =
     // The zone is set out afterwards, then staged from the bare template: the template is the whole of what
     // the zone's props become, so they are cleared rather than left standing.
     let lectern = Zone.spawnProp zone state.Physics assets (entity "lectern") "crate"
-    do GameplayState.stageZone shared &state GameplayState.startZone (Some registered)
+    do GameplayState.stageZone shared &state GameplayState.startZone (ZoneTemplate.ofTemplate registered)
     Assert.Equal(0u, zone.Props.Count)
     ignore lectern
 
@@ -478,5 +478,5 @@ let ``stageZone restores the template's light`` () =
     // The zone moves on: a different light, then staged back from the template.
     let moved = { authored with Pitch = 80.0f; Yaw = 10.0f }
     zone.Light <- moved
-    do GameplayState.stageZone shared &state GameplayState.startZone (Some registered)
+    do GameplayState.stageZone shared &state GameplayState.startZone (ZoneTemplate.ofTemplate registered)
     Assert.Equal(authored, zone.Light)

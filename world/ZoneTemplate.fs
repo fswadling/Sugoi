@@ -39,6 +39,25 @@ type ZoneTemplate =
       Parts : PropState array
       Props : PropState array }
 
+/// A zone's authored **staging** (spec 079): its environment — as a `ZoneTemplate`, when it has one — together
+/// with the light and placed props it always has. `ZoneTemplate` requires an environment (its `AssetId` is not
+/// optional), so a zone with no environment but with a light or props could not be captured by one; staging
+/// carries the light and props explicitly, so an environment-less zone round-trips through register and fork too.
+/// When `Environment` is `Some`, its light and props equal these by construction (both are captured from the same
+/// zone).
+type ZoneStaging =
+    { Environment : ZoneTemplate option
+      Light : Texture.LightSettings
+      Props : PropState array }
+
+/// The staging of a zone with no environment: no environment, the default light, no props.
+let empty : ZoneStaging =
+    { Environment = None; Light = Texture.defaultLight; Props = [||] }
+
+/// The staging of a zone built around a template's environment (its light and props ride with it).
+let ofTemplate (template: ZoneTemplate) : ZoneStaging =
+    { Environment = Some template; Light = template.Light; Props = template.Props }
+
 /// The record of a loaded environment together with the props standing in the zone that holds it, part
 /// for part and prop for prop, in the order each map holds them. Reading the live maps is what makes a
 /// registration the zone as the author left it: a part or prop she deleted is absent from the array,

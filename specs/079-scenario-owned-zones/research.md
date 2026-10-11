@@ -26,7 +26,7 @@ layer this feature removes. A `string` id is exactly the trade 072 accepted for 
 ## Decision: `ZoneTemplate` **is** a zone's staging; the scenario zone carries it
 
 **Decision.** `ZoneTemplate` (environment asset + base + orientation + parts, light, placed props) is kept and is the
-one authored-zone staging value. `ScenarioZone` gains a field, `Staging : ZoneTemplate option` (`None` = the zone has
+one authored-zone staging value. `ScenarioZone` gains a field, `Staging : ZoneStaging` (`None` = the zone has
 no environment — an empty zone with the default light and no props). `ScenarioZone.capture` becomes
 `{ Staging = Zone.captureTemplate zone; Actors; Waypoints; Triggers }`.
 
@@ -67,7 +67,7 @@ reloading an identical environment on a re-fork.
 
 ## Decision: a new state-level command, `ZoneStage`
 
-**Decision.** Add `ZoneStage of Name : string * Previous : ZoneTemplate option * Next : ZoneTemplate option` to
+**Decision.** Add `ZoneStage of Name : string * Previous : ZoneStaging * Next : ZoneStaging` to
 `state/Command.fs`. It is **state-level** (`placeOf` answers `None`). `History.apply` → `GameplayState.stageZone …
 Next`; `History.undo` → `… Previous`.
 
@@ -85,7 +85,7 @@ replay with no detach — a correctness bug for an inactive zone. One command, s
 
 ## Decision: `ZonePresent` carries its staging
 
-**Decision.** `ZonePresent of Name : string * Staging : ZoneTemplate option`. `apply` → `GameplayState.presentZone …
+**Decision.** `ZonePresent of Name : string * Staging : ZoneStaging`. `apply` → `GameplayState.presentZone …
 Staging`; `undo` → `GameplayState.deleteZone`.
 
 **Rationale.** `specs/078` introduced `ZonePresent` resolving its staging from the registry. With the registry gone,
@@ -102,7 +102,7 @@ recorded for it (the template load places its props).
 
 **Decision.** `editor/Spawning.fs`'s `instantiateZone` is deleted (its only caller, the Zone Registry panel, retires).
 Its body — release/load the environment, replace the props, set the light, record the reversal — becomes
-`GameplayState.stageZone (shared) (&state) (name) (staging: ZoneTemplate option)`, detaching physics when the zone is
+`GameplayState.stageZone (shared) (&state) (name) (staging: ZoneStaging)`, detaching physics when the zone is
 not active.
 
 **Rationale.** One place replaces a zone's staging, used by the fork and by `History`'s `ZoneStage`. Deleting its

@@ -172,3 +172,9 @@ entities were appended.
   (`SetEnvironment`) and its light in the Inspector.
 - Build warning-free, suite green, no device opened (`SC-006`).
 - Commit as `Implement 079: scenarios own their zones`.
+
+---
+
+## Phase 7: Convergence
+
+- [X] T017 Let a zone's staging carry its light (and placed props) **without** an environment, so registering and forking an environment-less zone round-trips its light, per FR-001/FR-004 (partial): change `ScenarioZone.Staging` (`world/ScenarioZone.fs`) from `ZoneTemplate option` to a shape that encodes an optional environment with an always-present light and props (or make `ZoneTemplate`'s environment optional), thread it through `ScenarioZone.capture`, `Command.ZonePresent`/`ZoneStage`, `GameplayState.stageZone` and `ScenarioFork.materialise`, drop the "an environment-less zone's light is `defaultLight`" caveat, and add a register-then-fork round-trip test for a light-only zone.
