@@ -76,6 +76,11 @@ type Command =
     // place is never the active one (spec 061 FR-011), so `Previous` is the active place and is unchanged by
     // the delete; its undo rebuilds the zone in place without switching (spec 077 FR-014).
     | ZoneDelete of Previous : Place * Name : Place * Contents : ZoneContents
+    // A place was made present **without** entering it (spec 078). The one new step the editor's scenario fork
+    // needs: `ZoneAdd` makes a place present *and active*, but a fork must not switch the layout. It carries no
+    // `Previous` because it never changes the active place — the active place is always present, so this only
+    // ever names an absent one. Apply streams the registry template in; undo removes the place.
+    | ZonePresent of Name : Place
     // The screen's cue was edited (spec 049). It is not a zone's — a cue spans zones (spec 046 FR-013) — so, like
     // a zone step, it is carried out against the gameplay state and not by the zone-level runner. The payload is
     // the two cue values: a cue is immutable, so a snapshot is a reference, and that is exactly what the cue's
@@ -124,6 +129,7 @@ let placeOf (cmd: Command) : Place option =
     | ZoneMove _
     | ZoneAdd _
     | ZoneDelete _
+    | ZonePresent _
     | SetCue _
     | Advent _
     | SetScenario _ ->
@@ -176,6 +182,7 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
     | ZoneMove _
     | ZoneAdd _
     | ZoneDelete _
+    | ZonePresent _
     | SetCue _
     | Advent _
     | SetScenario _ ->
@@ -225,6 +232,7 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
     | ZoneMove _
     | ZoneAdd _
     | ZoneDelete _
+    | ZonePresent _
     | SetCue _
     | Advent _
     | SetScenario _ ->

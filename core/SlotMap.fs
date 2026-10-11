@@ -47,6 +47,10 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
 
     member _.Count : uint32 = activeCount
 
+    // The fixed capacity the map was built with. Free room is exactly `Capacity - Count`,
+    // because every non-alive slot is on the free list — what a fork's capacity pre-check reads.
+    member _.Capacity : uint32 = uint32 slotCount
+
     member _.Add(value: 'T) : Handle =
         if freeHead = noneIndex then
             invalidOp "slot map is full"

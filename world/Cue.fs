@@ -24,6 +24,7 @@ open System.Numerics
 open Prime
 open Advent
 open Place
+open Scenario
 open SlotMap
 
 // ── The cue — and therefore the run ──
@@ -117,6 +118,11 @@ type Cue =
     | Await of advent: Advent
     | AwaitState of advent: Advent
     | If of advent: Advent * thenCue: Cue * elseCue: Cue
+    // Fork a registered scenario into the scene (spec 078): materialise its entities and run its cue **beside** the
+    // rest, which is `Fork`'s construct. It names a scenario from the closed vocabulary — the store that resolves
+    // it (`world/ScenarioRegistry.fs`) is compiled after this file, exactly as `SetZone` names a place before
+    // `ZoneRegistry` exists — and it is a runtime effect, like every cue op.
+    | ForkScenario of scenario: Scenario
 
 // ── Forking ──
 

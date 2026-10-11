@@ -114,6 +114,12 @@
     <Compile Include="state/Command.fs" />
     <Compile Include="state/EditorState.fs" />
     <Compile Include="state/GameplayState.fs" />
+    <!-- The scenario fork (spec 078): the one materialiser both entry points call — a cue's `ForkScenario` op and
+         the Scenario panel's Fork control. It appends a registered scenario's entities into the live scene
+         (creating absent places first) and returns the commands that reverse it, so the editor gets one undoable
+         step and the cue op a runtime effect with no history. Listed after `state/GameplayState.fs` (it mutates
+         that state) and before `world/CueEngine.fs` (which calls it). -->
+    <Compile Include="world/ScenarioFork.fs" />
     <!-- The cue engine (spec 046). Listed AFTER the gameplay state — a deliberate inversion, the
          only `world/` file below `state/` — because the ops perform their effects on that state
          where the walk reaches them: a zone switch, an exposition, a camera flight (research D3).

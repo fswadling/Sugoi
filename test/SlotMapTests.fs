@@ -53,6 +53,17 @@ let ``add to a full map raises`` () =
     Assert.True(raised)
 
 [<Fact>]
+let ``capacity is the fixed size, and free room is capacity minus count`` () =
+    let map = SlotMap<TestPayload>(3u)
+    Assert.Equal(3u, map.Capacity)
+    let h = map.Add({ Value = 1 })
+    map.Add({ Value = 2 }) |> ignore
+    Assert.Equal(3u, map.Capacity)
+    Assert.Equal(1u, map.Capacity - map.Count)
+    map.Free(h)
+    Assert.Equal(2u, map.Capacity - map.Count)
+
+[<Fact>]
 let ``get on an out-of-range handle raises`` () =
     let map = SlotMap<TestPayload>(1u)
     map.Add({ Value = 1 }) |> ignore

@@ -26,6 +26,11 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     | ZoneMove (_, next) -> GameplayState.switchZone shared &state next
     | ZoneAdd (_, name) -> GameplayState.addZone shared &state name
     | ZoneDelete (_, name, _) -> GameplayState.deleteZone shared &state name
+    // Make an absent place present **without** entering it (spec 078): the registry's template streams in when one
+    // is registered, exactly as the cue's `AddZone` does. The active place is unchanged — the command only ever
+    // names an absent place.
+    | ZonePresent name ->
+        GameplayState.presentZone shared &state name (ZoneRegistry.tryTemplate name state.ZoneRegistry)
     // A batch may mix state-level and zone-level steps (spec 061: Instantiate is a presence/active change
     // and a template load as one step), so it is dispatched here, through the state-level runner, rather
     // than delegated whole to `Command.apply` (which refuses state-level steps).
@@ -70,6 +75,9 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
         state.Zones.[name] <- Zone.create ()
         Zone.occupyZone state.Zones.[name] state.Physics shared.Assets contents
         Zone.deactivatePhysics state.Zones.[name] state.Physics
+    // Undo a presence step by removing the place (spec 078). It is not the active one: a fork's created place is
+    // never active, and a later switch onto it was undone first (LIFO) — the same invariant `ZoneDelete` relies on.
+    | ZonePresent name -> GameplayState.deleteZone shared &state name
     | SetCue (previous, _) -> state.Cue <- previous
     | Advent (previous, _) -> shared.Advents <- previous
     | SetScenario (name, previous, _) -> ScenarioRegistry.setContents name previous state.Scenarios
@@ -100,17 +108,25 @@ let commit (shared: SharedState.SharedState) (state: byref<GameplayState.Gamepla
 /// (spec 049 FR-005). Called when Play begins: the cue advances while playing, so a recorded cue could no longer
 /// be applied cleanly, while a zone step is unaffected and must stay undoable. It takes no `SharedState`,
 /// because a cue step touches no zone and no resource.
+///
+/// A scenario fork is one `Batch` holding a `SetCue` beside the entity commands (spec 078), so the prune reaches
+/// **into** a batch: it drops the nested `SetCue` and keeps the rest, leaving the fork's entities undoable on the
+/// way into play. A batch emptied by the drop is itself dropped.
 let pruneCueSteps (state: byref<GameplayState.GameplayState>) : unit =
-    let keep cmd =
+    let rec keep (cmd: Command) : Command option =
         match cmd with
-        | SetCue _ -> false
-        | _ -> true
+        | SetCue _ -> None
+        | Batch commands ->
+            match List.choose keep commands with
+            | [] -> None
+            | survivors -> Some (Batch survivors)
+        | _ -> Some cmd
 
     state.Editor <-
         { state.Editor with
             Undo =
-                { Applied = List.filter keep state.Editor.Undo.Applied
-                  Redo = List.filter keep state.Editor.Undo.Redo } }
+                { Applied = List.choose keep state.Editor.Undo.Applied
+                  Redo = List.choose keep state.Editor.Undo.Redo } }
 
 // ── Stepping the history ──
 

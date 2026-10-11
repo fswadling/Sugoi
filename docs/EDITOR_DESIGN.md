@@ -50,9 +50,10 @@ the **left** panel (alongside the Outliner) and are shown by default:
 
 - **Advent** — the story milestones as a checklist (a typed union; spec 055), docked on the **right**.
 - **Scenario** — the game's scenarios, one row each: **Register** files the current scene's narrative entities
-  (each present zone's actors, waypoints and triggers) and the cue under the scenario, and **Clear** empties it —
-  each one step on the one history (spec 070). A zone's staging (environment, light, player) and the active place
-  are not captured (`specs/076-scenario-narrative-only`); running a scenario is a later increment.
+  (each present zone's actors, waypoints and triggers) and the cue under the scenario, **Clear** empties it, and
+  **Fork** runs it — appends the scenario's entities into the scene and forks its cue into the screen's cue, as one
+  step on the one history (specs 070, 078). A zone's staging (environment, light, player) and the active place are
+  not captured (`specs/076-scenario-narrative-only`).
 - **Zone Registry** — the game's places as a tree: a zone per node and one row per variant it
   declares, each row registering the active zone's environment against that place or instantiating
   one into the active zone (D-023).

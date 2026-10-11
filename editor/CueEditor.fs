@@ -21,6 +21,7 @@ open System.Text
 open Entity
 open Cue
 open Command
+open Scenario
 
 // ── the text field's NUL-terminated buffer ──
 
@@ -321,6 +322,12 @@ let private drawNodeText
             drawText buffer textPath editing "" idPrefix path node cue current (fun n name -> CueTree.withTrigger name n) onCommit, (textPath2, editing2)
     | EnablePlayer (_, actor) | DisablePlayer (_, actor) ->
         do drawActorField actor
+        (textPath, editing), (textPath2, editing2)
+    | ForkScenario scenario ->
+        // the scenario is chosen from the closed declared set (spec 078 FR-011); a scenario needs no zone or
+        // registry read, so the control can offer it where it could not offer a zone name.
+        CueTree.filteredCombo filter ("Scenario##" + CueTree.rowId idPrefix path) (Scenario.scenarioName scenario) Scenario.all Scenario.scenarioName scenario (fun candidate ->
+            onCommit (CueTree.withAt path (CueTree.withScenario candidate node) cue))
         (textPath, editing), (textPath2, editing2)
     | _ -> drawGenericFields ()
 

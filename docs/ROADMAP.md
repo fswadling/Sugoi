@@ -336,13 +336,18 @@ the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`. The ca
   index); `world/ScenarioRegistry.fs` — the contents captured under each: a scenario = every present zone (each a
   `ScenarioZone`) + the cue (immutable at runtime). *(the library and its panel are `specs/070-scenario-library`;
   the zone's staging and the active place are not captured, `specs/076-scenario-narrative-only`)*
-- `editor/ScenarioPanel.fs` — the scenarios, one row each, with **Register** (file the current scene) and
-  **Clear**, both steps on the one undo history. *(complete — `specs/070-scenario-library`)*
+- `editor/ScenarioPanel.fs` — the scenarios, one row each, with **Register** (file the current scene), **Clear**
+  and **Fork** (run it), all steps on the one undo history. *(complete — `specs/070-scenario-library`,
+  `specs/078-fork-scenario`)*
+- `world/ScenarioFork.fs` — the materialiser both entry points call (the `ForkScenario` cue op and the panel's Fork
+  control): it appends a registered scenario's entities into their places, creating absent ones from the Zone
+  Registry's template, and returns the commands that reverse it. *(`specs/078-fork-scenario`)*
 
-**Done when**: you can assemble and run a scenario. *(Assembling is in — the library, the panel and
-registration (`specs/070-scenario-library`). **Running** one — forking a registered scenario into the running
-cue via `CueEngine.forkInto`, with odin's scenario cue ops
-(`InlineScenario`/`ForkScenario`/`ClearScenario`) and the camera-follow/interaction toggles — is the remainder.)*
+**Done when**: you can assemble and run a scenario. *(Both are in: assembling is the library, the panel and
+registration (`specs/070-scenario-library`); **running** one is the Fork control and the `ForkScenario` cue op,
+which materialise the scenario and fork its cue beside the running one (`specs/078-fork-scenario`). Odin's other
+scenario cue ops `InlineScenario`/`ClearScenario` and the camera-follow/interaction toggles remain the deferred cue
+families.)*
 
 ### 12 · Zone registry + editor ✅
 
@@ -483,8 +488,8 @@ PBR → physics → walk around). After that, the content-authoring path is
 
 **Phase 11 — scenarios, running one**: the scenario library is in — the closed union (`world/Scenario.fs`),
 its captured contents (`world/ScenarioRegistry.fs`) and the **Scenario** panel that files the current scene
-under one and clears it, both steps on the one undo history (`specs/070-scenario-library`). What remains is
-**running** a scenario: forking a registered scenario into the screen's running cue via `CueEngine.forkInto`
-(the mechanism triggers already use, `specs/058-trigger-cue`), together with odin's scenario cue ops
-(`InlineScenario`/`ForkScenario`/`ClearScenario`) and the camera-follow / interaction toggles — the last
-deferred cue families. (Phase 10 is complete.)
+under one, clears it and **forks** it, each a step on the one undo history (`specs/070-scenario-library`,
+`specs/078-fork-scenario`). Running a scenario is forking it into the scene: `world/ScenarioFork.fs` appends its
+entities and the `ForkScenario` cue op forks its cue beside the running one. What remains of the deferred cue
+families is odin's other scenario ops (`InlineScenario`/`ClearScenario`) and the camera-follow / interaction
+toggles. (Phase 10 is complete.)

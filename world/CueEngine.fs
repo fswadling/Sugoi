@@ -471,6 +471,19 @@ let rec advance
             | None -> ()
         ValueSome Fin
 
+    | ForkScenario scenario ->
+        // materialise a registered scenario into the scene and run its cue beside the rest (spec 078). It is a
+        // runtime effect, not a history step: the reversal `materialise` returns is discarded. An unregistered
+        // scenario, or one whose target zone lacks room, performs nothing and reports why.
+        match ScenarioRegistry.tryContents scenario state.Scenarios with
+        | None ->
+            do noOp "ForkScenario" (Scenario.scenarioName scenario) "it is not registered"
+            ValueSome Fin
+        | Some contents ->
+        match ScenarioFork.materialise shared &state contents with
+        | None -> ValueSome Fin // no capacity in a target zone: logged already, nothing forked (FR-010)
+        | Some _ -> ValueSome (Fork contents.Cue)
+
     | AddActor (place, actor, asset, waypoint) ->
         // a place that is not present, or a waypoint the place does not hold, is a no-op (spec 073 FR-003)
         if not (state.Zones.ContainsKey place) then

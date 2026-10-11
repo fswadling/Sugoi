@@ -22,6 +22,30 @@ let commit (shared: SharedState.SharedState) (state: byref<GameplayState.Gamepla
     let before = tryContents scenario state.Scenarios
     do History.commit shared &state (SetScenario (scenario, before, next))
 
+/// Fork a registered scenario into the scene as **one** step on the one history (spec 078): the commands that
+/// reverse the materialised entities, plus — when the scenario's cue is not `Fin` — the cue forked into the
+/// screen's cue. The scene work is already done by `materialise`, so the step is pushed without re-applying (the
+/// `Spawning.instantiateZone` pattern). The active place, camera and selection are untouched (FR-004). Public so
+/// it is drivable headlessly, like `commit`.
+let fork (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (scenario: Scenario) : unit =
+    match tryContents scenario state.Scenarios with
+    | None -> () // the control is disabled when unregistered (FR-008); the write path does nothing
+    | Some contents ->
+    match ScenarioFork.materialise shared &state contents with
+    | None -> () // a target zone lacks room: the materialiser logged it and changed nothing (FR-010)
+    | Some commands ->
+
+    // An empty cue (`Fin`) forks nothing, so the running cue is genuinely untouched (US1 #4).
+    let before = state.Cue
+    let cueSteps =
+        if contents.Cue.IsFin then []
+        else
+            let next = Cue.forkInto contents.Cue before
+            state.Cue <- next
+            [ SetCue (before, next) ]
+
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Batch (commands @ cueSteps)) }
+
 // ── the panel ──
 
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
@@ -57,6 +81,14 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         do ImGui.beginDisabled (Option.isNone registered)
         if ImGui.smallButton "Clear" then
             do commit shared &state scenario None
+        do ImGui.endDisabled()
+
+        // Fork adds the scenario's entities to the scene and forks its cue, as one undoable step (spec 078).
+        // Offered only when there is something to fork, like Clear (FR-008).
+        do ImGui.sameLine(0.0f, 8.0f)
+        do ImGui.beginDisabled (Option.isNone registered)
+        if ImGui.smallButton "Fork" then
+            do fork shared &state scenario
         do ImGui.endDisabled()
 
         do ImGui.popId()

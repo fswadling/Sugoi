@@ -123,8 +123,10 @@ move stops where the collision leaves it; and the player toggles bind or clear h
 (the runtime form of the editor's "Set as Player"). The trigger toggles and `Print`
 (`specs/067-print-trigger-cue-ops`) arm or disarm a named trigger in a named place — the runtime form of the
 Inspector's checkbox, a no-op on an absent place or an already-set flag — and write a developer-facing line to
-the console. Odin's scenario ops (`InlineScenario`/`ForkScenario`/`ClearScenario`) and the camera-follow /
-interactions toggles remain the deferred cue families.
+the console. `ForkScenario` (`specs/078-fork-scenario`) materialises a registered scenario into the scene — appending
+its entities into their places (creating absent ones from the Zone Registry's template, without entering them) and
+forking its cue beside the rest — as a runtime effect. Odin's other scenario ops (`InlineScenario`/`ClearScenario`)
+and the camera-follow / interactions toggles remain the deferred cue families.
 
 ## Systems
 
@@ -181,8 +183,12 @@ parsed from s-syntax manifests, keyed by `id`.
   **not** the `ZoneContents` a delete carries, which keeps zone-scoped refs) and the cue. Its zones carry no
   **staging** — no environment, light, player designation or placed props (`specs/076-scenario-narrative-only`), and
   the contents carry no active place: those are the place's (the Zone Registry's template) or the runtime state's.
-  Registering or clearing one is a step on the one undo history. **Running** a scenario — forking it into the cue —
-  is a later increment, so no cue op names one yet.
+  Registering or clearing one is a step on the one undo history. **Running** one is **forking** it into the scene
+  (`specs/078-fork-scenario`): `world/ScenarioFork.fs` appends the scenario's entities into its places (creating
+  absent ones from the Zone Registry's template, without entering them) and returns the commands that reverse them,
+  so the **Scenario** panel's **Fork** control is one undoable step while the `ForkScenario` cue op is a runtime
+  effect that forks the scenario's cue beside the running one. A fork is deliberately non-idempotent — duplicates
+  are the author's to avoid — and refuses, with a log and no change at all, when a target zone lacks room.
 - `Cue` (`world/Cue.fs`) is **one type that is both the vocabulary and the run** —
   the control flow (`Sequence`/`Parallel`/`Fork`), the leaves, and the terminal
   `Fin`. It is an immutable value, and advancing it returns the next value, so the

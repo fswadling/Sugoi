@@ -86,6 +86,10 @@
     <!-- The scenario library (spec 070): the capture (pure, device-free) and the registration step on
          the one history, both headless. -->
     <Compile Include="ScenarioTests.fs" />
+
+    <!-- The scenario fork (spec 078): the materialiser, the cue op, the editor step and its undo/redo, the
+         footprint rules, non-idempotence, the capacity no-op and the unregistered no-op — all headless. -->
+    <Compile Include="ScenarioForkTests.fs" />
   </ItemGroup>
 
   <!-- Serialize test collections: `Physics.create` calls Jolt's process-global

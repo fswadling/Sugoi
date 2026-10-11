@@ -19,6 +19,7 @@ open Prime
 open Cue
 open Advent
 open Place
+open Scenario
 
 // ── what the cue looks like ──
 
@@ -55,7 +56,7 @@ let rec executing (cue: Cue) : bool =
     | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | Print _ | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _
     | AddActor _ | RemoveActor _ | Animate _ | CrossFade _ | Morph _ | CrossMorph _ | MoveActor _ | RotateActor _
     | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
-    | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ -> false
+    | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ | ForkScenario _ -> false
 
 /// The name a blend shows as: `from = to` is the single-slot op, otherwise the cross-fade, and `morph` picks the
 /// morph family. One rule, so an op and its in-flight `BlendState` read the same.
@@ -85,6 +86,7 @@ let private label (cue: Cue) : string =
     | AddZone place -> "Add zone: " + Place.placeName place
     | RemoveZone place -> "Remove zone: " + Place.placeName place
     | PreloadZone place -> "Preload zone: " + Place.placeName place
+    | ForkScenario scenario -> "Fork scenario: " + Scenario.scenarioName scenario
     | AddActor (place, actor, asset, waypoint) ->
         sprintf "Add actor: %s/%s in %s @ %s" actor asset (Place.placeName place) waypoint
     | RemoveActor (place, actor) -> sprintf "Remove actor: %s in %s" actor (Place.placeName place)
@@ -126,7 +128,7 @@ let children (cue: Cue) : Cue list =
     | Animate _ | CrossFade _ | Morph _ | CrossMorph _ | BlendState _ | MoveActor _ | MoveActorState _
     | RotateActor _ | RotateActorState _ | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
     | Print _
-    | FlyCamera _ | FlyCameraState _ | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ -> []
+    | FlyCamera _ | FlyCameraState _ | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ | ForkScenario _ -> []
 
 /// Every row of the cue as the panel shows it, in display order: a row per container with its children
 /// indented beneath it, the queue behind a running op in its own order, and `Fin` its own row. An `If`'s two
@@ -257,6 +259,7 @@ let private kinds : (string * string list) array = [|
     "Camera",    [ "Set camera"; "Fly camera" ]
     "Advent",    [ "Add advent"; "Remove advent"; "Await"; "If" ]
     "Triggers",  [ "Enable trigger"; "Disable trigger" ]
+    "Scenarios", [ "Fork scenario" ]
     "Debug",     [ "Print" ]
 |]
 
@@ -296,6 +299,7 @@ let private kindName (cue: Cue) : string =
     | RemoveAdvent _ -> "Remove advent"
     | Await _ | AwaitState _ -> "Await"
     | If _ -> "If"
+    | ForkScenario _ -> "Fork scenario"
 
 /// What choosing a kind replaces the node with. Every op is reachable without an editor per op.
 ///
@@ -336,6 +340,7 @@ let defaultOfKind (place: Place) (kind: string) : Cue =
     | "Remove advent" -> RemoveAdvent defaultAdvent
     | "Await" -> Await defaultAdvent
     | "If" -> If(defaultAdvent, Fin, Fin)
+    | "Fork scenario" -> ForkScenario (List.head Scenario.all)
     | _ -> FlyCamera(place, "", 1.0)
 
 /// The node's editable text, or `ValueNone` when it has none. The field that edits it belongs to the caller
@@ -451,6 +456,12 @@ let withPlace (place: Place) (cue: Cue) : Cue =
     | SetCamera (_, waypoint) -> SetCamera(place, waypoint)
     | FlyCamera (_, path, speed) -> FlyCamera(place, path, speed)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no place" (label cue))
+
+/// The node with its scenario replaced — the write the scenario chooser commits. Only `ForkScenario` carries one.
+let withScenario (scenario: Scenario) (cue: Cue) : Cue =
+    match cue with
+    | ForkScenario _ -> ForkScenario scenario
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no scenario" (label cue))
 
 /// The node with its actor replaced — the write the actor chooser commits. Every actor op carries one.
 let withActor (actor: string) (cue: Cue) : Cue =
@@ -752,9 +763,10 @@ let drawEditor
             // the place is drawn above; the trigger name is the caller's field (`CueEditor`)
             ()
 
-        | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | Print _ | FlyCameraState _ | BlendState _ | MoveActorState _ | RotateActorState _ ->
+        | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | Print _ | FlyCameraState _ | BlendState _ | MoveActorState _ | RotateActorState _ | ForkScenario _ ->
             // no numbers of their own. `SetCamera` and `Print` carry text (the caller's field edits it) and a
-            // `FlyCamera` carries its path and speed above; a place-carrying op's place is chosen above.
+            // `FlyCamera` carries its path and speed above; a place-carrying op's place is chosen above; a
+            // `ForkScenario`'s scenario is chosen by the caller's combo (`CueEditor`).
             ()
 
     // ── Add Child: the one container that takes one, whether or not it is running ──
