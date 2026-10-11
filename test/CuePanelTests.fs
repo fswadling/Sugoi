@@ -473,7 +473,7 @@ let ``a cue edit and a scene edit are undone in the reverse of the order they we
     let ref' = actorRef handle.Index handle.Generation
     let before = transformIdentity
     let after = { transformIdentity with Position = Vector3.One }
-    do History.commit shared &state (Command.Transform (ref', before, after))
+    do History.commit shared &state (Command.Transform (state.ActiveZone, ref', before, after))
     Assert.Equal(after, (zone.Actors.Get handle).State.Base.Transform)
 
     // Undo twice: the transform first, the cue second.
@@ -518,7 +518,7 @@ let ``undo through the whole history returns the cue to where it started`` () =
     do CueEditor.commit &state (seqOf [ Wait 1.0; Exposit("a", Dialogue.Kind.Dialogue) ])
     let zone = GameplayState.activeZone state
     let handle = zone.Actors.Add(placedActor "player")
-    do History.commit shared &state (Command.Transform (actorRef handle.Index handle.Generation, transformIdentity, { transformIdentity with Position = Vector3.One }))
+    do History.commit shared &state (Command.Transform (state.ActiveZone, actorRef handle.Index handle.Generation, transformIdentity, { transformIdentity with Position = Vector3.One }))
 
     while not (List.isEmpty state.Editor.Undo.Applied) do
         do History.undoHistory shared &state
@@ -625,7 +625,7 @@ let ``a trigger cue edit is one TriggerSet step and undo restores the before-cue
 
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
     match state.Editor.Undo.Applied with
-    | [ TriggerSet (r, before, after) ] ->
+    | [ TriggerSet (_, r, before, after) ] ->
         Assert.Equal<EntityRef>(ref, r)
         Assert.Equal(Cue.Fin, before.Cue)
         Assert.Equal("Seq[Wait 1, Exposit(a)]", describe after.Cue)

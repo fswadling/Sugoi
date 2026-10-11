@@ -20,11 +20,11 @@ let deleteRef (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     // back to, so an unhandled kind cannot slip through quietly.
     let cmd =
         match ref.Kind with
-        | EntityKind.Actor -> ActorDelete (ref, Zone.captureActor zone ref)
-        | EntityKind.Prop -> PropDelete (ref, Zone.captureProp zone ref)
-        | EntityKind.Part -> PartDelete (ref, Zone.capturePart zone ref)
-        | EntityKind.Waypoint -> WaypointDelete (ref, Zone.captureWaypoint zone ref)
-        | EntityKind.Trigger -> TriggerDelete (ref, Zone.captureTrigger zone ref)
+        | EntityKind.Actor -> ActorDelete (state.ActiveZone, ref, Zone.captureActor zone ref)
+        | EntityKind.Prop -> PropDelete (state.ActiveZone, ref, Zone.captureProp zone ref)
+        | EntityKind.Part -> PartDelete (state.ActiveZone, ref, Zone.capturePart zone ref)
+        | EntityKind.Waypoint -> WaypointDelete (state.ActiveZone, ref, Zone.captureWaypoint zone ref)
+        | EntityKind.Trigger -> TriggerDelete (state.ActiveZone, ref, Zone.captureTrigger zone ref)
         | EntityKind.Environment -> invalidOp "deleteRef: the environment is not an addressable entity"
     // Through the state-level runner so undo/redo reverse it in one place.
     do History.commit shared &state cmd
@@ -81,7 +81,7 @@ let renameRef (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     | Some e ->
     if name = e.Name then () else
 
-    let cmd = Rename (ref, e.Name, name)
+    let cmd = Rename (state.ActiveZone, ref, e.Name, name)
     apply zone state.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
@@ -94,7 +94,7 @@ let linkRef (shared: SharedState.SharedState) (state: byref<GameplayState.Gamepl
     let before = Zone.waypointNext zone ref
     if before = next then () else
 
-    let cmd = Link (ref, before, next)
+    let cmd = Link (state.ActiveZone, ref, before, next)
     apply zone state.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
@@ -112,7 +112,7 @@ let updateTriggerRef (shared: SharedState.SharedState) (state: byref<GameplaySta
     let after = change before
     if after = before then () else
 
-    let cmd = TriggerSet (ref, before, after)
+    let cmd = TriggerSet (state.ActiveZone, ref, before, after)
     apply zone state.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
@@ -127,7 +127,7 @@ let setLight (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
     let after = change before
     if after = before then () else
 
-    let cmd = SetLight (before, after)
+    let cmd = SetLight (state.ActiveZone, before, after)
     apply zone state.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
@@ -141,7 +141,7 @@ let setPlayer (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     let after = ValueSome (Systems.playerHandleOf ref)
     if after = before then () else
 
-    let cmd = SetPlayer (before, after)
+    let cmd = SetPlayer (state.ActiveZone, before, after)
     apply zone state.Physics shared.Assets cmd
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }

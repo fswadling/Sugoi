@@ -1,9 +1,10 @@
 module Command
 
-// Undoable editor commands. Each stores the data needed to apply and undo a
-// mutation over the active zone, plus the affected `EntityRef` (kind, index,
-// generation, and — for a part — its environment epoch). The generation and epoch
-// are what let a restored entity be told apart from one that reused its slot.
+// Undoable editor commands. Each content command names the **place** it acts on and stores the data
+// needed to apply and undo a mutation there, plus the affected `EntityRef` (kind, index, generation, and
+// — for a part — its environment epoch). The generation and epoch are what let a restored entity be told
+// apart from one that reused its slot; the place is what lets a step act on its own zone rather than
+// whichever place is active, so a `Batch` may span places (spec 077).
 //
 // A create and a delete exist per entity kind, each carrying that kind's own authored
 // value — what `Zone.capture*` reads off a live entity. There is no kind-agnostic payload:
@@ -29,43 +30,43 @@ open Place
 open Scenario
 
 type Command =
-    // An edit of the properties every kind shares.
-    | Transform of Ref : EntityRef * Before : Transform * After : Transform
-    | Rename of Ref : EntityRef * Before : string * After : string
+    // An edit of the properties every kind shares. The `Place` names the zone the command acts on.
+    | Transform of Place : Place * Ref : EntityRef * Before : Transform * After : Transform
+    | Rename of Place : Place * Ref : EntityRef * Before : string * After : string
     // One create and one delete per kind, carrying the kind's own authored value.
-    | ActorCreate of Ref : EntityRef * Actor : ActorState
-    | ActorDelete of Ref : EntityRef * Actor : ActorState
-    | PropCreate of Ref : EntityRef * Prop : PropState
-    | PropDelete of Ref : EntityRef * Prop : PropState
-    | PartCreate of Ref : EntityRef * Part : PropState
-    | PartDelete of Ref : EntityRef * Part : PropState
-    | WaypointCreate of Ref : EntityRef * Waypoint : Waypoint
-    | WaypointDelete of Ref : EntityRef * Waypoint : Waypoint
-    | TriggerCreate of Ref : EntityRef * Trigger : TriggerState
-    | TriggerDelete of Ref : EntityRef * Trigger : TriggerState
+    | ActorCreate of Place : Place * Ref : EntityRef * Actor : ActorState
+    | ActorDelete of Place : Place * Ref : EntityRef * Actor : ActorState
+    | PropCreate of Place : Place * Ref : EntityRef * Prop : PropState
+    | PropDelete of Place : Place * Ref : EntityRef * Prop : PropState
+    | PartCreate of Place : Place * Ref : EntityRef * Part : PropState
+    | PartDelete of Place : Place * Ref : EntityRef * Part : PropState
+    | WaypointCreate of Place : Place * Ref : EntityRef * Waypoint : Waypoint
+    | WaypointDelete of Place : Place * Ref : EntityRef * Waypoint : Waypoint
+    | TriggerCreate of Place : Place * Ref : EntityRef * Trigger : TriggerState
+    | TriggerDelete of Place : Place * Ref : EntityRef * Trigger : TriggerState
     // A property edit that belongs to one kind: a waypoint's link, a trigger's shape.
-    | Link of Ref : EntityRef * Before : EntityRef option * After : EntityRef option
-    | TriggerSet of Ref : EntityRef * Before : TriggerState * After : TriggerState
+    | Link of Place : Place * Ref : EntityRef * Before : EntityRef option * After : EntityRef option
+    | TriggerSet of Place : Place * Ref : EntityRef * Before : TriggerState * After : TriggerState
     // The extend gesture as one step: create `Ref` from `Waypoint` and point `From` at it.
-    | LinkSpawn of From : EntityRef * Before : EntityRef option * Ref : EntityRef * Waypoint : Waypoint
+    | LinkSpawn of Place : Place * From : EntityRef * Before : EntityRef option * Ref : EntityRef * Waypoint : Waypoint
     // Zone-level rather than an entity: swapping the loaded environment.
-    | SetEnvironment of Previous : Environment option * Next : Environment option
+    | SetEnvironment of Place : Place * Previous : Environment option * Next : Environment option
     // Zone-level rather than an entity: the authored light (spec 043). Pushed by the Inspector's
     // committed edits and carried by an instantiate, so a light change is reversible like any other.
-    | SetLight of Previous : LightSettings * Next : LightSettings
+    | SetLight of Place : Place * Previous : LightSettings * Next : LightSettings
     // Zone-level rather than an entity: the player designation (spec 045) — which of the zone's actors is
     // the avatar. The payload is the value `Player` already holds, so no fourth spelling of it is
     // introduced, and `Previous` is what makes undoing a re-designation restore the *previous actor*
     // rather than no player at all.
-    | SetPlayer of Previous : Handle voption * Next : Handle voption
+    | SetPlayer of Place : Place * Previous : Handle voption * Next : Handle voption
     // Several mutations that were one gesture: applied forwards, reversed backwards, so a create and
     // the delete that preceded it cannot come apart. One entry on the stack, like any other command,
-    // and a step that puts a zone back exactly is what needs it (spec 035 FR-005).
+    // and a step that puts a zone back exactly is what needs it (spec 035 FR-005). Not itself a place's:
+    // each sub-command names its own, so a batch may span places.
     | Batch of Commands : Command list
-    // The active place moved (spec 048). The one case that is not a zone edit: recording the moves is what
-    // keeps the active place the one the step being undone belongs to, so every other command may go on naming
-    // no zone and acting on whatever place is active, and the history may be one timeline rather than one per
-    // zone.
+    // The active place moved (spec 048, spec 077). A content command now names its own place, so this is no
+    // longer load-bearing for undo's correctness; it stays because switching the active place is itself an
+    // edit the author can undo.
     | ZoneMove of Previous : Place * Next : Place
     // A place was made present, and made active (spec 048, 061). `Previous` is the place active before the
     // add, which its undo restores: an add and the active change it causes are **one** step, so one click is
@@ -73,7 +74,7 @@ type Command =
     | ZoneAdd of Previous : Place * Name : Place
     // A place was made absent (spec 048, 061), carrying everything needed to put its zone back. The removed
     // place is never the active one (spec 061 FR-011), so `Previous` is the active place and is unchanged by
-    // the delete; it is kept so the undo's temporary re-activation can be reversed.
+    // the delete; its undo rebuilds the zone in place without switching (spec 077 FR-014).
     | ZoneDelete of Previous : Place * Name : Place * Contents : ZoneContents
     // The screen's cue was edited (spec 049). It is not a zone's — a cue spans zones (spec 046 FR-013) — so, like
     // a zone step, it is carried out against the gameplay state and not by the zone-level runner. The payload is
@@ -92,46 +93,82 @@ type Command =
     // is a `ScenarioContents`, whose zones are an immutable `Map`, so a snapshot is a value the step can hold.
     | SetScenario of Name : Scenario * Previous : ScenarioRegistry.ScenarioContents option * Next : ScenarioRegistry.ScenarioContents option
 
+// ── the place a command acts on ──
+
+/// The place a content command acts on, or `None` for a state-level step and for a `Batch` (whose sub-commands
+/// each name their own place). The state-level runner resolves `Some place` to its zone before handing the
+/// command to the zone-level runner, so a step acts on its own place, not the active one. Total: a case either
+/// names its place or is one of the state-level steps listed below.
+let placeOf (cmd: Command) : Place option =
+    match cmd with
+    | Transform (place, _, _, _)
+    | Rename (place, _, _, _)
+    | ActorCreate (place, _, _)
+    | ActorDelete (place, _, _)
+    | PropCreate (place, _, _)
+    | PropDelete (place, _, _)
+    | PartCreate (place, _, _)
+    | PartDelete (place, _, _)
+    | WaypointCreate (place, _, _)
+    | WaypointDelete (place, _, _)
+    | TriggerCreate (place, _, _)
+    | TriggerDelete (place, _, _)
+    | Link (place, _, _, _)
+    | TriggerSet (place, _, _, _)
+    | LinkSpawn (place, _, _, _, _)
+    | SetEnvironment (place, _, _)
+    | SetLight (place, _, _)
+    | SetPlayer (place, _, _) ->
+        Some place
+    | Batch _
+    | ZoneMove _
+    | ZoneAdd _
+    | ZoneDelete _
+    | SetCue _
+    | Advent _
+    | SetScenario _ ->
+        None
+
 // ── apply / undo a single command ──
 
 let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
-    | Transform (r, _, after) ->
+    | Transform (_, r, _, after) ->
         setTransform zone physics r after
-    | Rename (r, _, after) ->
+    | Rename (_, r, _, after) ->
         setName zone r after
-    | ActorCreate (r, actor) ->
+    | ActorCreate (_, r, actor) ->
         occupyActor zone physics assets r actor
-    | ActorDelete (r, _) ->
+    | ActorDelete (_, r, _) ->
         removeActor zone physics r
-    | PropCreate (r, prop) ->
+    | PropCreate (_, r, prop) ->
         occupyProp zone physics assets r prop
-    | PropDelete (r, _) ->
+    | PropDelete (_, r, _) ->
         removeProp zone physics r
-    | PartCreate (r, part) ->
+    | PartCreate (_, r, part) ->
         occupyPart zone physics assets r part
-    | PartDelete (r, _) ->
+    | PartDelete (_, r, _) ->
         removePart zone physics r
-    | WaypointCreate (r, waypoint) ->
+    | WaypointCreate (_, r, waypoint) ->
         occupyWaypoint zone r waypoint
-    | WaypointDelete (r, _) ->
+    | WaypointDelete (_, r, _) ->
         removeWaypoint zone r
-    | TriggerCreate (r, trigger) ->
+    | TriggerCreate (_, r, trigger) ->
         occupyTrigger zone r trigger
-    | TriggerDelete (r, _) ->
+    | TriggerDelete (_, r, _) ->
         removeTrigger zone r
-    | Link (r, _, after) ->
+    | Link (_, r, _, after) ->
         setWaypointNext zone r after
-    | TriggerSet (r, _, after) ->
+    | TriggerSet (_, r, _, after) ->
         setTrigger zone r after
-    | LinkSpawn (from, _, r, waypoint) ->
+    | LinkSpawn (_, from, _, r, waypoint) ->
         occupyWaypoint zone r waypoint
         setWaypointNext zone from (Some r)
-    | SetEnvironment (_, next) ->
+    | SetEnvironment (_, _, next) ->
         setEnvironment zone physics assets next
-    | SetLight (_, next) ->
+    | SetLight (_, _, next) ->
         zone.Light <- next
-    | SetPlayer (_, next) ->
+    | SetPlayer (_, _, next) ->
         zone.Player <- next
     // A zone move is not an edit to one zone, so the zone-level runner cannot carry it out: `History.apply`
     // does, against the state (spec 048). The cue is the same kind of step (spec 049) — it is not a zone's
@@ -148,42 +185,42 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
 
 let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
-    | Transform (r, before, _) ->
+    | Transform (_, r, before, _) ->
         setTransform zone physics r before
-    | Rename (r, before, _) ->
+    | Rename (_, r, before, _) ->
         setName zone r before
-    | ActorCreate (r, _) ->
+    | ActorCreate (_, r, _) ->
         removeActor zone physics r
-    | ActorDelete (r, actor) ->
+    | ActorDelete (_, r, actor) ->
         occupyActor zone physics assets r actor
-    | PropCreate (r, _) ->
+    | PropCreate (_, r, _) ->
         removeProp zone physics r
-    | PropDelete (r, prop) ->
+    | PropDelete (_, r, prop) ->
         occupyProp zone physics assets r prop
-    | PartCreate (r, _) ->
+    | PartCreate (_, r, _) ->
         removePart zone physics r
-    | PartDelete (r, part) ->
+    | PartDelete (_, r, part) ->
         occupyPart zone physics assets r part
-    | WaypointCreate (r, _) ->
+    | WaypointCreate (_, r, _) ->
         removeWaypoint zone r
-    | WaypointDelete (r, waypoint) ->
+    | WaypointDelete (_, r, waypoint) ->
         occupyWaypoint zone r waypoint
-    | TriggerCreate (r, _) ->
+    | TriggerCreate (_, r, _) ->
         removeTrigger zone r
-    | TriggerDelete (r, trigger) ->
+    | TriggerDelete (_, r, trigger) ->
         occupyTrigger zone r trigger
-    | Link (r, before, _) ->
+    | Link (_, r, before, _) ->
         setWaypointNext zone r before
-    | TriggerSet (r, before, _) ->
+    | TriggerSet (_, r, before, _) ->
         setTrigger zone r before
-    | LinkSpawn (from, before, r, _) ->
+    | LinkSpawn (_, from, before, r, _) ->
         setWaypointNext zone from before
         removeWaypoint zone r
-    | SetEnvironment (previous, _) ->
+    | SetEnvironment (_, previous, _) ->
         setEnvironment zone physics assets previous
-    | SetLight (previous, _) ->
+    | SetLight (_, previous, _) ->
         zone.Light <- previous
-    | SetPlayer (previous, _) ->
+    | SetPlayer (_, previous, _) ->
         zone.Player <- previous
     | ZoneMove _
     | ZoneAdd _
@@ -218,15 +255,15 @@ module UndoStack =
         | [] -> { Applied = [ cmd ]; Redo = [] }
         | prev :: rest ->
 
-        // Coalesce consecutive transforms to the same ref into one step so a
-        // continuous gizmo drag / held nudge undoes as a single action. Only a
-        // non-merge push clears the redo stack (a merged step extends the same
-        // in-progress gesture).
+        // Coalesce consecutive transforms to the same entity into one step so a continuous gizmo drag / held
+        // nudge undoes as a single action. `Place` is part of the key: an `EntityRef` index is per-zone, so two
+        // places can hold the same index and must not merge (spec 077). Only a non-merge push clears the redo
+        // stack (a merged step extends the same in-progress gesture).
         let merge (prev: Command) (newCmd: Command) : Command option =
             match prev, newCmd with
-            | Transform (a, before, _), Transform (b, _, after) ->
-                if a = b then
-                    Some (Transform (a, before, after))
+            | Transform (pa, a, before, _), Transform (pb, b, _, after) ->
+                if a = b && pa = pb then
+                    Some (Transform (pa, a, before, after))
                 else None
             | _ -> None
 
@@ -236,7 +273,8 @@ module UndoStack =
 
     // Stepping a stack against **one** zone. The editor does not use these: a step on the gameplay state's one
     // history may be a zone move, an add or a delete, which only `History` can carry out (spec 048). These stay
-    // because they need no gameplay state at all, which is what the zone-level suite drives them with.
+    // because they need no gameplay state at all, which is what the zone-level suite drives them with; a stack
+    // whose commands name different places must be stepped through `History` instead (spec 077).
     let undo (t: UndoStack) (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) : UndoStack =
         match t.Applied with
         | [] -> t

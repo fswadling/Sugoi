@@ -249,7 +249,7 @@ let ``switching zones leaves the one undo history alone`` () =
     let mutable state = newState ()
     GameplayState.addZone shared &state classroomPlace
 
-    let cmd = Command.Transform (actorRef 0u 0u, transformIdentity, { transformIdentity with Position = Vector3.One })
+    let cmd = Command.Transform (state.ActiveZone, actorRef 0u 0u, transformIdentity, { transformIdentity with Position = Vector3.One })
     state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo cmd }
     Assert.False(List.isEmpty state.Editor.Undo.Applied)
 
@@ -272,7 +272,7 @@ let ``a play prunes the cue's steps and leaves a zone step undoable`` () =
     let lightAfter = { lightBefore with Pitch = 20.0f }
 
     do History.commit shared &state (SetCue (Cue.Fin, Cue.Wait 1.0))
-    do History.commit shared &state (SetLight (lightBefore, lightAfter))
+    do History.commit shared &state (SetLight (state.ActiveZone, lightBefore, lightAfter))
     Assert.Equal(2, List.length state.Editor.Undo.Applied)
     Assert.Equal(lightAfter, zone.Light)
 
@@ -316,7 +316,7 @@ let ``a play with no cue edits leaves the history exactly as it was`` () =
     let zone = GameplayState.activeZone state
     let light = zone.Light
 
-    do History.commit shared &state (SetLight (light, { light with Pitch = 10.0f }))
+    do History.commit shared &state (SetLight (state.ActiveZone, light, { light with Pitch = 10.0f }))
     GameplayState.addZone shared &state classroomPlace // direct here; the editor records a `ZoneAdd`
     do History.commit shared &state (ZoneMove (classroomPlace, mainPlace))
     do History.undoHistory shared &state // so the redo side is non-empty too
@@ -359,7 +359,7 @@ let ``an edit in one zone is undone after a move, in the order the edits were ma
     // An edit in `main`.
     let main = GameplayState.activeZone state
     let mainActor = main.Actors.Add(actor "player")
-    do History.commit shared &state (SetPlayer (ValueNone, ValueSome mainActor))
+    do History.commit shared &state (SetPlayer (state.ActiveZone, ValueNone, ValueSome mainActor))
     Assert.Equal(ValueSome mainActor, main.Player)
 
     // A move to `classroom`, itself a step.
@@ -369,7 +369,7 @@ let ``an edit in one zone is undone after a move, in the order the edits were ma
 
     // An edit in `classroom`.
     let before = classroom.Light
-    do History.commit shared &state (SetLight (before, { before with Pitch = 20.0f }))
+    do History.commit shared &state (SetLight (state.ActiveZone, before, { before with Pitch = 20.0f }))
     Assert.NotEqual(before, classroom.Light)
 
     // The first undo takes back classroom's edit, with classroom still on screen.
@@ -575,7 +575,7 @@ let ``undoing through the whole history returns the project to where it started`
     // A session that touches every kind of step: add a zone, move between zones, edit one, delete the added one.
     do History.commit shared &state (ZoneAdd (mainPlace, atriumPlace))
     do History.commit shared &state (ZoneMove (atriumPlace, mainPlace))
-    do History.commit shared &state (SetLight (lightAtStart, { lightAtStart with Pitch = 10.0f }))
+    do History.commit shared &state (SetLight (state.ActiveZone, lightAtStart, { lightAtStart with Pitch = 10.0f }))
     do History.commit shared &state (ZoneDelete (mainPlace, atriumPlace, Zone.captureZone state.Zones.[atriumPlace]))
     Assert.False(state.Zones.ContainsKey atriumPlace)
 
@@ -587,7 +587,7 @@ let ``undoing through the whole history returns the project to where it started`
     Assert.True(List.isEmpty state.Editor.Undo.Applied)
 
     // A new edit after the undos clears the redo side.
-    do History.commit shared &state (SetLight (lightAtStart, { lightAtStart with Pitch = 5.0f }))
+    do History.commit shared &state (SetLight (state.ActiveZone, lightAtStart, { lightAtStart with Pitch = 5.0f }))
     Assert.True(List.isEmpty state.Editor.Undo.Redo)
 
 [<Fact>]
@@ -610,3 +610,88 @@ let ``switching re-frames the camera on the incoming zone`` () =
     GameplayState.switchZone shared &state classroomPlace
 
     Assert.Equal(Vector3(8.0f, state.Follow.Height, 8.0f), state.Camera.Target)
+
+// ── Commands carry the zone they act on (spec 077) ──
+
+[<Fact>]
+let ``a content step acts on its named place while another is active`` () =
+    // US1. The step is recorded against `main` and is the top of the stack; `classroom` is made active
+    // directly (no `ZoneMove` step), so undoing reaches the content step while a different place is active.
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    let main = GameplayState.activeZone state
+    let lightBefore = main.Light
+
+    do History.commit shared &state (SetLight (mainPlace, lightBefore, { lightBefore with Pitch = 42.0f }))
+    GameplayState.addZone shared &state classroomPlace
+    Assert.Equal(classroomPlace, state.ActiveZone)
+
+    let cameraBefore = state.Camera
+    let selectionBefore = state.Editor.Selection
+
+    do History.undoHistory shared &state
+    Assert.Equal(lightBefore, main.Light)                 // reversed in the place it names
+    Assert.Equal(classroomPlace, state.ActiveZone)        // not disturbed
+    Assert.Equal(cameraBefore, state.Camera)
+    Assert.Equal(selectionBefore, state.Editor.Selection)
+
+    do History.redoHistory shared &state
+    Assert.Equal({ lightBefore with Pitch = 42.0f }, main.Light)
+    Assert.Equal(classroomPlace, state.ActiveZone)
+
+[<Fact>]
+let ``undoing a zone delete rebuilds the zone in place without switching`` () =
+    // FR-014, SC-006. The zone is restored at its own place; a temporary switch would re-frame the camera
+    // and clear the selection, so both are asserted unchanged.
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    GameplayState.addZone shared &state classroomPlace
+    GameplayState.switchZone shared &state mainPlace
+    let classroom = state.Zones.[classroomPlace]
+    let classroomLight = { classroom.Light with Pitch = 33.0f }
+    classroom.Light <- classroomLight
+    let marker = Zone.spawnWaypoint (GameplayState.activeZone state) (entity "marker")
+    state.Editor <- { state.Editor with Selection = Some marker }
+
+    do History.commit shared &state (ZoneDelete (mainPlace, classroomPlace, Zone.captureZone classroom))
+    Assert.False(state.Zones.ContainsKey classroomPlace)
+
+    let cameraBefore = state.Camera
+    do History.undoHistory shared &state
+
+    Assert.True(state.Zones.ContainsKey classroomPlace)
+    Assert.Equal(mainPlace, state.ActiveZone)
+    Assert.Equal(cameraBefore, state.Camera)
+    Assert.Equal(Some marker, state.Editor.Selection)          // a temporary switch would have cleared it
+    Assert.Equal(classroomLight, state.Zones.[classroomPlace].Light)
+
+[<Fact>]
+let ``a batch may span places, applied and reversed as one step`` () =
+    // US2, SC-002. The batch's second command acts on a place that is not active.
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    GameplayState.addZone shared &state classroomPlace
+    GameplayState.switchZone shared &state mainPlace
+    let main = state.Zones.[mainPlace]
+    let classroom = state.Zones.[classroomPlace]
+    let mainLight = main.Light
+    let classroomLight = classroom.Light
+    let mainAfter = { mainLight with Pitch = 11.0f }
+    let classroomAfter = { classroomLight with Pitch = 22.0f }
+
+    do History.commit shared &state (Batch [ SetLight (mainPlace, mainLight, mainAfter); SetLight (classroomPlace, classroomLight, classroomAfter) ])
+    Assert.Equal(mainAfter, main.Light)
+    Assert.Equal(classroomAfter, classroom.Light)
+    Assert.Equal(1, List.length state.Editor.Undo.Applied)
+
+    let cameraBefore = state.Camera
+    do History.undoHistory shared &state
+    Assert.Equal(mainLight, main.Light)
+    Assert.Equal(classroomLight, classroom.Light)
+    Assert.Equal(mainPlace, state.ActiveZone)
+    Assert.Equal(cameraBefore, state.Camera)
+
+    do History.redoHistory shared &state
+    Assert.Equal(mainAfter, main.Light)
+    Assert.Equal(classroomAfter, classroom.Light)
+    Assert.Equal(mainPlace, state.ActiveZone)

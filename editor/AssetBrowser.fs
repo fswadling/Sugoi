@@ -32,7 +32,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                     let next = Zone.loadEnvironment zone state.Physics assets asset.Id
                     // A carried-over part selection no longer resolves; drop it.
                     do Selection.dropStalePartSelection &state
-                    let undo = UndoStack.push state.Editor.Undo (SetEnvironment (previous, Some next))
+                    let undo = UndoStack.push state.Editor.Undo (SetEnvironment (state.ActiveZone, previous, Some next))
                     state.Editor <- { state.Editor with Undo = undo }
 
         // ── Props ──

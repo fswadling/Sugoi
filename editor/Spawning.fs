@@ -29,26 +29,26 @@ let private commit (state: byref<GameplayState.GameplayState>) (cmd: Command) (r
 let spawnActor (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) : unit =
     let zone = GameplayState.activeZone state
     let ref = Zone.spawnActor zone state.Physics shared.Assets entity assetId
-    do commit &state (ActorCreate (ref, Zone.captureActor zone ref)) ref
+    do commit &state (ActorCreate (state.ActiveZone, ref, Zone.captureActor zone ref)) ref
 
 let spawnProp (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) : unit =
     let zone = GameplayState.activeZone state
     let ref = Zone.spawnProp zone state.Physics shared.Assets entity assetId
-    do commit &state (PropCreate (ref, Zone.captureProp zone ref)) ref
+    do commit &state (PropCreate (state.ActiveZone, ref, Zone.captureProp zone ref)) ref
 
 // Spawn a waypoint into the active zone. It carries no asset, so no shared state is
 // needed.
 let spawnWaypoint (state: byref<GameplayState.GameplayState>) (entity: Entity) : unit =
     let zone = GameplayState.activeZone state
     let ref = Zone.spawnWaypoint zone entity
-    do commit &state (WaypointCreate (ref, Zone.captureWaypoint zone ref)) ref
+    do commit &state (WaypointCreate (state.ActiveZone, ref, Zone.captureWaypoint zone ref)) ref
 
 // Spawn a trigger into the active zone. It carries no asset and no body, so no shared
 // state is needed.
 let spawnTrigger (state: byref<GameplayState.GameplayState>) (entity: Entity) : unit =
     let zone = GameplayState.activeZone state
     let ref = Zone.spawnTrigger zone entity
-    do commit &state (TriggerCreate (ref, Zone.captureTrigger zone ref)) ref
+    do commit &state (TriggerCreate (state.ActiveZone, ref, Zone.captureTrigger zone ref)) ref
 
 // Create a waypoint in the active zone, link `from` to it, and select the new one. The
 // spawn and the link are one command (`LinkSpawn`), so one undo removes the waypoint and
@@ -58,7 +58,7 @@ let spawnLinkedWaypoint (state: byref<GameplayState.GameplayState>) (from: Entit
     let before = Zone.waypointNext zone from
     let ref = Zone.spawnWaypoint zone entity
     do Zone.setWaypointNext zone from (Some ref)
-    do commit &state (LinkSpawn (from, before, ref, Zone.captureWaypoint zone ref)) ref
+    do commit &state (LinkSpawn (state.ActiveZone, from, before, ref, Zone.captureWaypoint zone ref)) ref
 
 // Copy an existing entity into a new slot, recording the create that reverses it. The
 // copy carries every authored property of the original — a waypoint's link included —
@@ -74,17 +74,17 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
         let ref = Zone.spawnActor zone state.Physics shared.Assets entity original.AssetId
         // `spawnActor` opens with the overlay off; the copy takes the original's value.
         do Zone.setShowCollider zone ref original.ShowCollider
-        do commit &state (ActorCreate (ref, Zone.captureActor zone ref)) ref
+        do commit &state (ActorCreate (state.ActiveZone, ref, Zone.captureActor zone ref)) ref
     | EntityKind.Prop ->
         let original = Zone.captureProp zone source
         let binding = { AssetId = original.AssetId; SubmeshIndex = original.SubmeshIndex; SubmeshCount = original.SubmeshCount }
         let ref = Zone.spawnPropBinding zone state.Physics shared.Assets entity binding
-        do commit &state (PropCreate (ref, Zone.captureProp zone ref)) ref
+        do commit &state (PropCreate (state.ActiveZone, ref, Zone.captureProp zone ref)) ref
     | EntityKind.Part ->
         let original = Zone.capturePart zone source
         let binding = { AssetId = original.AssetId; SubmeshIndex = original.SubmeshIndex; SubmeshCount = original.SubmeshCount }
         let ref = Zone.spawnPartBinding zone state.Physics shared.Assets entity binding
-        do commit &state (PartCreate (ref, Zone.capturePart zone ref)) ref
+        do commit &state (PartCreate (state.ActiveZone, ref, Zone.capturePart zone ref)) ref
     | EntityKind.Waypoint ->
         // The captured value carries the original's link, so the copy links to the same
         // successor (FR-013). `spawnWaypoint` starts a chain of its own, so the link is
@@ -92,14 +92,14 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
         let original = Zone.captureWaypoint zone source
         let ref = Zone.spawnWaypoint zone entity
         do Zone.setWaypointNext zone ref original.Next
-        do commit &state (WaypointCreate (ref, Zone.captureWaypoint zone ref)) ref
+        do commit &state (WaypointCreate (state.ActiveZone, ref, Zone.captureWaypoint zone ref)) ref
     | EntityKind.Trigger ->
         // The copy carries the authored shape but not the runtime flag, so write the
         // original's value over the shape the spawn created.
         let original = Zone.captureTrigger zone source
         let ref = Zone.spawnTrigger zone entity
         do Zone.setTrigger zone ref original
-        do commit &state (TriggerCreate (ref, Zone.captureTrigger zone ref)) ref
+        do commit &state (TriggerCreate (state.ActiveZone, ref, Zone.captureTrigger zone ref)) ref
     | EntityKind.Environment -> invalidOp "duplicate: the environment is not an addressable entity"
 
 // Instantiate a registered zone into the active zone: the environment it records, its parts, its
@@ -111,12 +111,13 @@ let instantiateZone (shared: SharedState.SharedState) (state: byref<GameplayStat
     let zone = GameplayState.activeZone state
     let previous = zone.Environment
     let previousLight = zone.Light
+    let place = state.ActiveZone
 
     // The props being replaced are removed through the very commands the step records, so the mutation
     // and its reversal are one piece of code rather than two that have to agree.
     let replaced = Zone.captureProps zone
     for (ref, prop) in replaced do
-        apply zone state.Physics shared.Assets (PropDelete (ref, prop))
+        apply zone state.Physics shared.Assets (PropDelete (place, ref, prop))
 
     let next = Zone.loadEnvironmentFrom zone state.Physics shared.Assets template
 
@@ -142,10 +143,10 @@ let instantiateZone (shared: SharedState.SharedState) (state: byref<GameplayStat
     // backwards, which frees the slots the placed props took before restoring the replaced ones at their
     // own refs.
     let step =
-        Batch ([ for (ref, prop) in replaced -> PropDelete (ref, prop) ]
-               @ [ SetLight (previousLight, template.Light) ]
-               @ [ SetEnvironment (previous, Some next) ]
-               @ [ for (ref, prop) in placed -> PropCreate (ref, prop) ])
+        Batch ([ for (ref, prop) in replaced -> PropDelete (place, ref, prop) ]
+               @ [ SetLight (place, previousLight, template.Light) ]
+               @ [ SetEnvironment (place, previous, Some next) ]
+               @ [ for (ref, prop) in placed -> PropCreate (place, ref, prop) ])
 
     // Nothing is selected: an instantiation may place none, one or twenty props, so there is nothing to
     // select that would not be arbitrary. A selection naming a replaced prop goes stale and resolves

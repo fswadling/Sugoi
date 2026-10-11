@@ -94,7 +94,8 @@ Deleting a zone destroys its bodies and releases its GPU resources, unloading it
 the asset manager unless another present place still uses that environment. The player
 designation is held per zone; the **undo history is one**, on the gameplay screen
 (`specs/048-unified-undo-stack`), because a zone move, an add and a delete are steps on the same timeline
-as an entity edit. A cue drives the same world from its zone ops (`specs/062-zone-cue-ops`): it makes a
+as an entity edit — and a command names the **place** it acts on (`specs/077-commands-carry-zone`), so a step
+acts on its own zone rather than the active one and a batch may span places. A cue drives the same world from its zone ops (`specs/062-zone-cue-ops`): it makes a
 declared place present — streaming its registered template in without entering it — makes a present place
 absent, and preloads a present zone's environment so the later switch is instant. A cue zone change is a
 runtime effect (not an undo step), and each op is a no-op on a place it cannot act on, so a cue is safe to

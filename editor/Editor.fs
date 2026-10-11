@@ -125,7 +125,7 @@ let private finishDrag (state: byref<GameplayState.GameplayState>) : unit =
         | Some ref, Some d ->
             let entity = Zone.tryEntityAt (GameplayState.activeZone state) ref
             match entity with
-            | Some e -> UndoStack.push state.Editor.Undo (Transform (ref, d.Start, e.Transform))
+            | Some e -> UndoStack.push state.Editor.Undo (Transform (state.ActiveZone, ref, d.Start, e.Transform))
             | None -> state.Editor.Undo
         | _ -> state.Editor.Undo
     state.Editor <- { state.Editor with Drag = None; Undo = undo }
@@ -236,7 +236,7 @@ let updateNudge (physics: Physics.World) (input: Input.Input) (state: byref<Game
 
             let entity = Zone.tryEntityAt (GameplayState.activeZone state) ref
             match entity with
-            | Some e -> UndoStack.push state.Editor.Undo (Transform (ref, before, e.Transform))
+            | Some e -> UndoStack.push state.Editor.Undo (Transform (state.ActiveZone, ref, before, e.Transform))
             | None -> state.Editor.Undo
 
         state.Editor <- { state.Editor with NudgeBefore = None; Undo = undo }

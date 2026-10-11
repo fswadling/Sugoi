@@ -2,9 +2,12 @@ module History
 
 // The one undo history (spec 048). A scene edit, a zone move, a zone add, a zone delete, a cue edit and an
 // adventure-flag edit are all steps on `EditorState.Undo`; there is no history per zone, and none of its own for the
-// cue (spec 049) or the flags (spec 055). The
-// reason is order: last-in-first-out means that when undo reaches a step, the active zone is the zone that step
-// was recorded in, so no command has to name a zone.
+// cue (spec 049) or the flags (spec 055).
+//
+// A content command names the **place** it acts on (spec 077), so the state-level runner resolves that place and the
+// step acts on its own zone rather than whichever place is active — a `Batch` may span places, and undoing a step
+// never changes the active place. `ZoneMove` stays a step because switching the active place is itself an edit the
+// author can undo, not because undo depends on it.
 //
 // Compiled *after* `state/GameplayState.fs` — the project's second deliberate ordering inversion, after
 // `world/CueEngine.fs` — because a state-level step adds, removes or switches a zone, or writes the screen's
@@ -15,9 +18,9 @@ open Command
 
 // ── The runner — a command in, carried out on the state ──
 
-/// Apply one command to the gameplay state. An entity or zone-value command goes to **the active zone**: no
-/// command carries a zone, because recording the moves is what keeps the active zone the one the step belongs
-/// to (research D2).
+/// Apply one command to the gameplay state. A content command names its place (spec 077), so it is carried out on
+/// **that place's zone**, not the active one — a `Batch` may therefore span places. A state-level step (a zone
+/// move/add/delete, the cue, the flags, the scenario library) is carried out here.
 let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
     match cmd with
     | ZoneMove (_, next) -> GameplayState.switchZone shared &state next
@@ -38,7 +41,17 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     // state-level runner carries it as it carries the adventure flags. The library lives on the gameplay state,
     // beside the zones.
     | SetScenario (name, _, next) -> ScenarioRegistry.setContents name next state.Scenarios
-    | _ -> Command.apply (GameplayState.activeZone state) state.Physics shared.Assets cmd
+    // A content command names its own place: resolve it to its zone so the step acts on its own place rather
+    // than the active one (spec 077). A step that names no place cannot reach here; an absent place is a broken
+    // invariant, because LIFO reaches a step while its place is still present.
+    | _ ->
+        let place =
+            match Command.placeOf cmd with
+            | Some place -> place
+            | None -> failwith "History.apply: a step that names no place reached the zone-level runner"
+        match state.Zones.TryGetValue place with
+        | true, zone -> Command.apply zone state.Physics shared.Assets cmd
+        | false, _ -> failwithf "History.apply: the step names an absent place '%s'" (Place.placeName place)
 
 /// The inverse of `apply`.
 let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
@@ -49,21 +62,29 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
         // it away. It is empty by now: every edit made to it came later on the history and has been undone first.
         GameplayState.switchZone shared &state previous
         GameplayState.deleteZone shared &state name
-    | ZoneDelete (previous, name, contents) ->
-        // `Zone.occupy*` creates each body and the body joins the simulation as it is created, so only the active
-        // zone's bodies may be built: the zone is brought back and made active, its contents put in, and it is
-        // then switched away from if it should not stay (research D4).
+    | ZoneDelete (_, name, contents) ->
+        // Rebuild the zone **in place**, without switching (spec 077 FR-014). `Zone.occupy*` builds bodies that
+        // join the simulation as they are created, so a zone that is not active has them detached right after —
+        // the same build-then-detach `populateZone` uses for a place that is not active. The active place, the
+        // camera and the selection are undisturbed.
         state.Zones.[name] <- Zone.create ()
-        GameplayState.switchZone shared &state name
         Zone.occupyZone state.Zones.[name] state.Physics shared.Assets contents
-        if previous <> name then GameplayState.switchZone shared &state previous
+        Zone.deactivatePhysics state.Zones.[name] state.Physics
     | SetCue (previous, _) -> state.Cue <- previous
     | Advent (previous, _) -> shared.Advents <- previous
     | SetScenario (name, previous, _) -> ScenarioRegistry.setContents name previous state.Scenarios
     | Batch commands ->
         // Backwards, through the state-level runner, so a mixed batch reverses in dependency order.
         for cmd in List.rev commands do undo shared &state cmd
-    | _ -> Command.undo (GameplayState.activeZone state) state.Physics shared.Assets cmd
+    // A content command names its own place: resolve it to its zone (spec 077), exactly as `apply` does.
+    | _ ->
+        let place =
+            match Command.placeOf cmd with
+            | Some place -> place
+            | None -> failwith "History.undo: a step that names no place reached the zone-level runner"
+        match state.Zones.TryGetValue place with
+        | true, zone -> Command.undo zone state.Physics shared.Assets cmd
+        | false, _ -> failwithf "History.undo: the step names an absent place '%s'" (Place.placeName place)
 
 /// Apply a command and push it onto the one history, clearing the redo side. The editor's write path for a zone
 /// step and for an entity **delete** — a delete routes through the state-level runner where undo/redo do, so the

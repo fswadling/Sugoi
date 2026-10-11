@@ -63,7 +63,7 @@ let ``renaming records one Rename step and undo and redo swap the names`` () =
     Assert.Equal("entrance", (Zone.tryEntityAt zone ref).Value.Name)
     // Exactly one step, carrying both sides of the change.
     match state.Editor.Undo.Applied with
-    | [ Rename (r, before, after) ] ->
+    | [ Rename (_, r, before, after) ] ->
         Assert.Equal<EntityRef>(ref, r)
         Assert.Equal("start", before)
         Assert.Equal("entrance", after)
@@ -92,7 +92,7 @@ let ``consecutive renames are separate undo steps and leave the selection alone`
 
     // Most recent first, and not folded into one another (only transforms merge).
     match state.Editor.Undo.Applied with
-    | [ Rename (_, "one", "two"); Rename (_, "start", "one") ] -> ()
+    | [ Rename (_, _, "one", "two"); Rename (_, _, "start", "one") ] -> ()
     | other -> Assert.Fail(sprintf "expected two separate Rename commands, got %A" other)
     Assert.Equal(Some selected, state.Editor.Selection)
 
@@ -201,7 +201,7 @@ let ``linking pushes one Link step carrying both sides, and undo restores the pr
 
     Assert.Equal(Some b, Zone.waypointNext zone a)
     match state.Editor.Undo.Applied with
-    | [ Link (r, None, Some after) ] ->
+    | [ Link (_, r, None, Some after) ] ->
         Assert.Equal<EntityRef>(a, r)
         Assert.Equal<EntityRef>(b, after)
     | other -> Assert.Fail(sprintf "expected exactly one Link command, got %A" other)
@@ -367,19 +367,19 @@ let ``consecutive transforms on one ref merge into a single step`` () =
     let first = { transformIdentity with Position = Vector3(1.0f, 0.0f, 0.0f) }
     let second = { transformIdentity with Position = Vector3(2.0f, 0.0f, 0.0f) }
 
-    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (a, transformIdentity, first)) }
-    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (a, first, second)) }
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (Place.start, a, transformIdentity, first)) }
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (Place.start, a, first, second)) }
 
     // One step spanning the whole gesture, from its first transform to its last.
     match state.Editor.Undo.Applied with
-    | [ Transform (r, before, after) ] ->
+    | [ Transform (_, r, before, after) ] ->
         Assert.Equal<EntityRef>(a, r)
         Assert.Equal(transformIdentity, before)
         Assert.Equal(second, after)
     | other -> Assert.Fail(sprintf "expected one merged Transform, got %A" other)
 
     // Another ref's transform is a step of its own.
-    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (b, transformIdentity, first)) }
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (Place.start, b, transformIdentity, first)) }
     Assert.Equal(2, state.Editor.Undo.Applied.Length)
 
 // ── Player designation (spec 045) ──
@@ -407,7 +407,7 @@ let ``setting the player records one SetPlayer step and undo puts the previous d
 
     Selection.setPlayer shared &state hero
     match state.Editor.Undo.Applied with
-    | [ SetPlayer (ValueNone, ValueSome designated) ] -> Assert.Equal(hero.Index, designated.Index)
+    | [ SetPlayer (_, ValueNone, ValueSome designated) ] -> Assert.Equal(hero.Index, designated.Index)
     | other -> Assert.Fail(sprintf "expected exactly one SetPlayer command, got %A" other)
 
     // Re-designating carries the previous actor, so the first undo is the *previous actor*, not no player.
@@ -432,3 +432,20 @@ let ``binding the actor who is already the player records nothing`` () =
     // One step for the two clicks, and the state did not move (FR-004).
     Assert.Equal(1, state.Editor.Undo.Applied.Length)
     Assert.Equal(hero.Index, zone.Player.Value.Index)
+
+// ── Commands carry the zone they act on (spec 077) ──
+
+[<Fact>]
+let ``transforms merge only within one place`` () =
+    // US3. An `EntityRef` index is per-zone, so the same index in two places must not merge into one step.
+    let a = actorRef 0u 0u
+    let t1 = { transformIdentity with Position = Vector3(1.0f, 0.0f, 0.0f) }
+    let t2 = { transformIdentity with Position = Vector3(2.0f, 0.0f, 0.0f) }
+
+    let mutable stack = UndoStack.create ()
+    stack <- UndoStack.push stack (Command.Transform (Place.start, a, transformIdentity, t1))
+    stack <- UndoStack.push stack (Command.Transform (Place.start, a, t1, t2))
+    Assert.Equal(1, stack.Applied.Length)   // same place and ref: one step
+
+    stack <- UndoStack.push stack (Command.Transform (Place.Island, a, transformIdentity, t1))
+    Assert.Equal(2, stack.Applied.Length)   // a different place: a step of its own

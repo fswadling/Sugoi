@@ -121,6 +121,9 @@ scene/camera without owning them.
 Every editor mutation goes through a command with `apply`/`undo`, pushed onto an
 undo stack. Commands store **values** (not closures):
 
+- Every content command names the **place** it acts on (`specs/077-commands-carry-zone`), so a step acts on its own
+  zone rather than whichever place is active, and a `Batch` may span places. `ZoneMove` remains a step because
+  switching the active place is itself an edit the author can undo, not because undo depends on it.
 - Entity commands store an `EntityRef` (kind, index, generation, and the
   environment epoch for parts) so undo survives entity deletion and slot reuse.
   Restoring a deleted entity re-occupies its recorded slot via `Occupy`, which
@@ -183,7 +186,8 @@ undo stack. Commands store **values** (not closures):
 
 `Command.apply`/`undo` take one zone plus the physics world and the asset manager as **values**, so
 `Command` depends on neither state container — avoiding a `Command → GameplayState → EditorState →
-Command` module cycle. (The advent flags live on `SharedState`; the zone registry
+Command` module cycle. The state-level runner resolves a content command's named place to its zone
+(`Command.placeOf`) before delegating, so `Command` still names no state container. (The advent flags live on `SharedState`; the zone registry
 and the physics world live on `GameplayState`; `Command` reads none of them directly.) The
 **history** is one, on the gameplay state:
 `state/History.fs`, compiled after `GameplayState`, carries the state-level runners and the steppers,

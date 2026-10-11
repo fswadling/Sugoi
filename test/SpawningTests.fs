@@ -84,7 +84,7 @@ let ``a create carries the authored value it was given, and redo rebuilds the re
     let live = (zone.Props.Get(handleOf ref)).State
     // The create records the authored value it was given, field for field.
     match state.Editor.Undo.Applied with
-    | [ PropCreate (r, created) ] ->
+    | [ PropCreate (_, r, created) ] ->
         Assert.Equal<EntityRef>(ref, r)
         Assert.Equal(live, created)
     | other -> Assert.Fail(sprintf "expected exactly one PropCreate command, got %A" other)
@@ -129,7 +129,7 @@ let ``duplicating a part spawns a copy, selects it, and pushes the reversing com
 
     // The paired command must name the copy, so undoing it removes exactly that.
     match state.Editor.Undo.Applied with
-    | PartCreate (r, _) :: _ -> Assert.Equal(state.Editor.Selection.Value, r)
+    | PartCreate (_, r, _) :: _ -> Assert.Equal(state.Editor.Selection.Value, r)
     | other -> Assert.Fail(sprintf "expected a PartCreate command, got %A" other)
 
 [<Fact>]
@@ -153,7 +153,7 @@ let ``duplicating a waypoint spawns a copy, selects it, and pushes the reversing
     | None -> Assert.Fail("duplicate did not select the copy")
 
     match state.Editor.Undo.Applied with
-    | WaypointCreate (r, _) :: _ -> Assert.Equal(state.Editor.Selection.Value, r)
+    | WaypointCreate (_, r, _) :: _ -> Assert.Equal(state.Editor.Selection.Value, r)
     | other -> Assert.Fail(sprintf "expected a WaypointCreate command, got %A" other)
 
 [<Fact>]
@@ -168,7 +168,7 @@ let ``a duplicate records the copy's own authored value, so redo restores the co
 
     let copy = state.Editor.Selection.Value
     match state.Editor.Undo.Applied with
-    | [ WaypointCreate (r, recorded) ] ->
+    | [ WaypointCreate (_, r, recorded) ] ->
         Assert.Equal<EntityRef>(copy, r)
         // The value belongs to the copy, not to the original: a redo must restore the copy
         // as the duplicate left it rather than a second original.
@@ -226,7 +226,7 @@ let ``adding a next waypoint links it and undoes as one step`` () =
 
     // The spawn and the link are one command, naming the predecessor and the new waypoint.
     match state.Editor.Undo.Applied with
-    | [ LinkSpawn (from, None, r, _) ] ->
+    | [ LinkSpawn (_, from, None, r, _) ] ->
         Assert.Equal<EntityRef>(a, from)
         Assert.Equal<EntityRef>(b, r)
     | other -> Assert.Fail(sprintf "expected exactly one LinkSpawn command, got %A" other)
@@ -317,7 +317,7 @@ let ``duplicating a trigger copies its payload but not its runtime state`` () =
     Assert.False(copied.Triggered)
 
     match state.Editor.Undo.Applied with
-    | [ TriggerCreate (r, _) ] -> Assert.Equal<EntityRef>(copy, r)
+    | [ TriggerCreate (_, r, _) ] -> Assert.Equal<EntityRef>(copy, r)
     | other -> Assert.Fail(sprintf "expected exactly one TriggerCreate command, got %A" other)
 
 [<Fact>]
@@ -336,7 +336,7 @@ let ``deleting a trigger and undoing restores its authored shape`` () =
     // The delete records the whole payload, because a trigger's shape is not carried by
     // the base entity the shared Delete command stores.
     match state.Editor.Undo.Applied with
-    | [ TriggerDelete (_, recorded) ] -> Assert.Equal(5.0f, recorded.Radius)
+    | [ TriggerDelete (_, _, recorded) ] -> Assert.Equal(5.0f, recorded.Radius)
     | other -> Assert.Fail(sprintf "expected exactly one TriggerDelete command, got %A" other)
 
     let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
