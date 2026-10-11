@@ -111,11 +111,11 @@ let rec private describe (cue: Cue) : string =
     | RemoveZone z -> sprintf "RemoveZone(%s)" (Place.placeName z)
     | PreloadZone z -> sprintf "PreloadZone(%s)" (Place.placeName z)
     | AddActor (p, a, asset, w) -> sprintf "AddActor(%s,%s,%s,%s)" (Place.placeName p) a asset w
-    | RemoveActor a -> sprintf "RemoveActor(%s)" a
-    | Animate (a, clip, _, d) -> sprintf "Animate(%s,%s,%g)" a clip d
-    | CrossFade (a, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%g)" a f t d
-    | Morph (a, m, _, d) -> sprintf "Morph(%s,%s,%g)" a m d
-    | CrossMorph (a, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%g)" a f t d
+    | RemoveActor (p, a) -> sprintf "RemoveActor(%s,%s)" (Place.placeName p) a
+    | Animate (p, a, clip, _, d) -> sprintf "Animate(%s,%s,%s,%g)" (Place.placeName p) a clip d
+    | CrossFade (p, a, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%s,%g)" (Place.placeName p) a f t d
+    | Morph (p, a, m, _, d) -> sprintf "Morph(%s,%s,%s,%g)" (Place.placeName p) a m d
+    | CrossMorph (p, a, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%s,%g)" (Place.placeName p) a f t d
     | BlendState (a, _, _, morph, f, t, _, _, _, _, _) ->
         if f = t then sprintf "%s(%s,%s)" (if morph then "Morph" else "Animate") a f
         else sprintf "%s(%s,%s,%s)" (if morph then "CrossMorph" else "CrossFade") a f t
@@ -123,12 +123,13 @@ let rec private describe (cue: Cue) : string =
     | MoveActorState (a, _, _, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" a
     | RotateActor (a, w, d) -> sprintf "RotateActor(%s,%s,%g)" a w d
     | RotateActorState (a, _, _, _, _, _, _) -> sprintf "RotateActor(%s)" a
-    | EnablePlayer a -> sprintf "EnablePlayer(%s)" a
-    | DisablePlayer a -> sprintf "DisablePlayer(%s)" a
+    | EnablePlayer (p, a) -> sprintf "EnablePlayer(%s,%s)" (Place.placeName p) a
+    | DisablePlayer (p, a) -> sprintf "DisablePlayer(%s,%s)" (Place.placeName p) a
     | EnableTrigger (p, t) -> sprintf "EnableTrigger(%s,%s)" (Place.placeName p) t
     | DisableTrigger (p, t) -> sprintf "DisableTrigger(%s,%s)" (Place.placeName p) t
-    | SetCamera w -> sprintf "SetCamera(%s)" w
-    | FlyCamera (p, _) | FlyCameraState (p, _, _, _, _) -> sprintf "FlyCamera(%s)" p
+    | SetCamera (p, w) -> sprintf "SetCamera(%s,%s)" (Place.placeName p) w
+    | FlyCamera (p, path, _) -> sprintf "FlyCamera(%s,%s)" (Place.placeName p) path
+    | FlyCameraState (path, _, _, _, _) -> sprintf "FlyCamera(%s)" path
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
     | RemoveAdvent m -> sprintf "Remove(%s)" (Advent.name m)
     | Await m | AwaitState m -> sprintf "Await(%s)" (Advent.name m)
@@ -300,7 +301,7 @@ let ``a set camera op frames from its waypoint and costs no time`` () =
     // the waypoint's arrow faces +X: `-UnitZ` rotated -90° about +Y (the Viewport arrow convention)
     let rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, -MathF.PI / 2.0f)
     do ignore (placeWaypoint state "balcony" (Vector3(4.0f, 5.0f, 6.0f)) rotation)
-    state.Cue <- seqOf [ SetCamera "balcony"; Exposit("after", Dialogue.Kind.Dialogue) ]
+    state.Cue <- seqOf [ SetCamera(mainPlace, "balcony"); Exposit("after", Dialogue.Kind.Dialogue) ]
 
     tick shared &state 0.0
 
@@ -320,20 +321,26 @@ let ``a set camera op with no such waypoint raises`` () =
         let mutable raised = false
         try tick shared &state 0.0 with _ -> raised <- true
         raised
-    Assert.True(raises (SetCamera "nope"))
-    Assert.True(raises (SetCamera ""))
+    Assert.True(raises (SetCamera(mainPlace, "nope")))
+    Assert.True(raises (SetCamera(mainPlace, "")))
 
 [<Fact>]
-let ``a set camera op resolves names only in the active zone`` () =
+let ``a set camera op resolves names only in the named place`` () =
     let mutable state = newState ()
     GameplayState.addZone shared &state atriumPlace // atrium is now active
     do ignore (placeWaypoint state "arch" Vector3.Zero Quaternion.Identity)
     GameplayState.switchZone shared &state mainPlace
 
-    state.Cue <- SetCamera "arch"
+    // naming the active place, which holds no 'arch', raises
+    state.Cue <- SetCamera(mainPlace, "arch")
     let mutable raised = false
     try tick shared &state 0.0 with _ -> raised <- true
     Assert.True raised
+
+    // naming the place that holds it frames from it (spec 075)
+    state.Cue <- SetCamera(atriumPlace, "arch")
+    tick shared &state 0.0
+    Assert.Equal(Vector3.Zero, state.Camera.Position)
 
 // ══════ Story 2 (spec 054) — the camera flies along a named chain ══════
 
@@ -347,7 +354,7 @@ let ``a fly camera op travels its chain and lands on the last waypoint`` () =
     do Zone.setWaypointNext zone a (Some b)
     do Zone.setWaypointNext zone b (Some c)
 
-    state.Cue <- FlyCamera("a", 1.0) // collinear 0..6 at speed 1: duration 6
+    state.Cue <- FlyCamera(mainPlace, "a", 1.0) // collinear 0..6 at speed 1: duration 6
 
     tick shared &state 0.0
     Assert.Equal(Vector3(0.0f, 0.0f, 0.0f), state.Camera.Position) // cut to the path start
@@ -367,7 +374,7 @@ let ``a flight is pinned to the path it resolved`` () =
     let b = placeWaypoint state "b" (Vector3(4.0f, 0.0f, 0.0f)) Quaternion.Identity
     do Zone.setWaypointNext zone a (Some b)
 
-    state.Cue <- FlyCamera("a", 1.0)
+    state.Cue <- FlyCamera(mainPlace, "a", 1.0)
     tick shared &state 0.0
     do Zone.removeWaypoint zone b // the end waypoint goes while the camera flies
     tick shared &state 5.0
@@ -383,10 +390,10 @@ let ``a fly camera op with a bad path or speed raises`` () =
         let mutable raised = false
         try tick shared &state 0.0 with _ -> raised <- true
         raised
-    Assert.True(raises (FlyCamera("nope", 1.0)))    // no such waypoint
-    Assert.True(raises (FlyCamera("solo", 1.0)))    // a chain of one
-    Assert.True(raises (FlyCamera("solo", 0.0)))    // speed is not positive
-    Assert.True(raises (FlyCamera("solo", -1.0)))
+    Assert.True(raises (FlyCamera(mainPlace, "nope", 1.0)))    // no such waypoint
+    Assert.True(raises (FlyCamera(mainPlace, "solo", 1.0)))    // a chain of one
+    Assert.True(raises (FlyCamera(mainPlace, "solo", 0.0)))    // speed is not positive
+    Assert.True(raises (FlyCamera(mainPlace, "solo", -1.0)))
 
 [<Fact>]
 let ``a cyclic chain terminates`` () =
@@ -397,7 +404,7 @@ let ``a cyclic chain terminates`` () =
     do Zone.setWaypointNext zone a (Some b)
     do Zone.setWaypointNext zone b (Some a) // a -> b -> a
 
-    state.Cue <- FlyCamera("a", 1.0)
+    state.Cue <- FlyCamera(mainPlace, "a", 1.0)
     tick shared &state 0.0
     tick shared &state 100.0
     Assert.True(state.Cue.IsFin, "a cyclic chain must terminate rather than loop")
@@ -409,7 +416,7 @@ let ``a flight in progress allocates nothing per tick`` () =
     let a = placeWaypoint state "a" (Vector3(0.0f, 0.0f, 0.0f)) Quaternion.Identity
     let b = placeWaypoint state "b" (Vector3(1000.0f, 0.0f, 0.0f)) Quaternion.Identity
     do Zone.setWaypointNext zone a (Some b)
-    state.Cue <- FlyCamera("a", 1.0)
+    state.Cue <- FlyCamera(mainPlace, "a", 1.0)
 
     tick shared &state 0.0
     for _ in 1 .. 50 do tick shared &state 0.5
@@ -906,11 +913,19 @@ let private waypointIn (zone: Zone.Zone) (name: string) (position: Vector3) (rot
           Draggable = true }
     Zone.spawnWaypoint zone entity
 
-/// The `(place, ref)` an actor resolves to by name, or `None` — the shape the assertions use.
+/// The `(place, ref)` an actor resolves to by name, scanning the present places in `Place.all` order — the
+/// test's own convenience (the engine resolves per place now, spec 075), or `None`.
 let private resolve (state: GameplayState.GameplayState) (name: string) : (Place * EntityRef) option =
-    match GameplayState.tryActorByName state name with
-    | Some (place, _, ref) -> Some (place, ref)
-    | None -> None
+    let mutable found = None
+    for place in Place.all do
+        if found.IsNone then
+            match state.Zones.TryGetValue place with
+            | true, zone ->
+                match Zone.tryActorByName zone name with
+                | Some ref -> found <- Some (place, ref)
+                | None -> ()
+            | false, _ -> ()
+    found
 
 let private castRef (state: GameplayState.GameplayState) (name: string) : EntityRef =
     match resolve state name with
@@ -987,7 +1002,7 @@ let ``an actor op is a runtime effect, not a step on the undo history`` () =
     do ignore (waypointIn zone "door" Vector3.Zero Quaternion.Identity)
     let undoBefore = List.length state.Editor.Undo.Applied
 
-    state.Cue <- seqOf [ AddActor(mainPlace, "Aiko", "aiko", "door"); RemoveActor "Aiko" ]
+    state.Cue <- seqOf [ AddActor(mainPlace, "Aiko", "aiko", "door"); RemoveActor(mainPlace, "Aiko") ]
     tick shared &state 0.0
 
     Assert.Equal("Fin", describe state.Cue)
@@ -1004,7 +1019,7 @@ let ``a remove takes the member out of the scene by name`` () =
     tick shared &state 0.0
     Assert.Equal(1u, zone.Actors.Count)
 
-    state.Cue <- RemoveActor "Aiko"
+    state.Cue <- RemoveActor(mainPlace, "Aiko")
     tick shared &state 0.0
 
     Assert.Equal("Fin", describe state.Cue)
@@ -1012,9 +1027,38 @@ let ``a remove takes the member out of the scene by name`` () =
     Assert.Equal(0u, zone.Actors.Count)
 
     // a second remove, and a remove of a name never in the scene, perform nothing
-    state.Cue <- seqOf [ RemoveActor "Aiko"; RemoveActor "Akane" ]
+    state.Cue <- seqOf [ RemoveActor(mainPlace, "Aiko"); RemoveActor(mainPlace, "Akane") ]
     tick shared &state 0.0
     Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``an actor op acts in its named place, not by a scan of the present places`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    // one Aiko in the active zone, one in the atrium
+    GameplayState.addZone shared &state atriumPlace
+    do ignore (waypointIn (state.Zones.[atriumPlace]) "far" Vector3.Zero Quaternion.Identity)
+    GameplayState.switchZone shared &state mainPlace
+    let mainZone = state.Zones.[mainPlace]
+    do ignore (waypointIn mainZone "near" Vector3.Zero Quaternion.Identity)
+    state.Cue <- seqOf
+        [ AddActor(mainPlace, "Aiko", "aiko", "near")
+          AddActor(atriumPlace, "Aiko", "aiko", "far") ]
+    tick shared &state 0.0
+    let mainAiko = Zone.tryActorByName mainZone "Aiko"
+    Assert.True(mainAiko.IsSome)
+    Assert.True((Zone.tryActorByName state.Zones.[atriumPlace] "Aiko").IsSome)
+
+    // a remove naming the atrium takes the atrium's Aiko, leaving the active zone's (spec 075 SC-001)
+    state.Cue <- RemoveActor(atriumPlace, "Aiko")
+    tick shared &state 0.0
+    Assert.Equal(None, Zone.tryActorByName state.Zones.[atriumPlace] "Aiko")
+    Assert.Equal(mainAiko, Zone.tryActorByName mainZone "Aiko")
+
+    // naming a place that holds no Aiko performs nothing
+    state.Cue <- RemoveActor(atriumPlace, "Aiko")
+    tick shared &state 0.0
+    Assert.Equal(mainAiko, Zone.tryActorByName mainZone "Aiko")
 
 [<Fact>]
 let ``a remove of the zone's player leaves a designation that no longer resolves`` () =
@@ -1028,7 +1072,7 @@ let ``a remove of the zone's player leaves a designation that no longer resolves
     zone.Player <- ValueSome (Systems.playerHandleOf ref)
     Assert.True(Systems.isPlayerLive zone)
 
-    state.Cue <- RemoveActor "Aiko"
+    state.Cue <- RemoveActor(mainPlace, "Aiko")
     tick shared &state 0.0
 
     // no clear step is added: the stale handle simply reads as "no player", as an editor delete leaves it
@@ -1067,7 +1111,7 @@ let ``every actor op on state it cannot act on performs nothing and the cue stil
         [ AddActor(classroomPlace, "Akane", "aiko", "door")  // place not present
           AddActor(mainPlace, "Akane", "akane", "door")     // undiscovered asset
           AddActor(mainPlace, "Akane", "aiko", "ghost")     // unknown waypoint
-          RemoveActor "Akane" ]                              // not in the scene
+          RemoveActor(mainPlace, "Akane") ]               // not in the scene
     tick shared &state 0.0
 
     Assert.Equal("Fin", describe state.Cue) // the cue ran to the end; nothing raised
@@ -1091,7 +1135,7 @@ let ``an add into an inactive place then a switch composes, and add then remove 
     | Some (place, _) -> Assert.Equal(atriumPlace, place)
     | None -> Assert.Fail "expected Aiko in the atrium"
 
-    state.Cue <- RemoveActor "Aiko"
+    state.Cue <- RemoveActor(atriumPlace, "Aiko")
     tick shared &state 0.0
     Assert.Equal(None, resolve state "Aiko")
 
@@ -1233,7 +1277,7 @@ let ``an animate op moves a clip's weight to the target over its duration and la
     let zone = GameplayState.activeZone state
     Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog")) // the asset defines Jog, but she holds it at 0
 
-    state.Cue <- Animate("Aiko", "Jog", 1.0f, 2.0)
+    state.Cue <- Animate(mainPlace, "Aiko", "Jog", 1.0f, 2.0)
     tick shared &state 0.0
     Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog")) // begun; the first tick writes nothing yet
 
@@ -1252,7 +1296,7 @@ let ``a cross fade takes one clip out as another comes in, reaching the target a
     let zone = GameplayState.activeZone state
     Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Idle")) // created holding Idle at full weight
 
-    state.Cue <- CrossFade("Aiko", "Idle", "Jog", 1.0f, 2.0)
+    state.Cue <- CrossFade(mainPlace, "Aiko", "Idle", "Jog", 1.0f, 2.0)
     tick shared &state 0.0
 
     tick shared &state 1.0
@@ -1272,7 +1316,7 @@ let ``a morph op blends a morph slot the same way`` () =
     let zone = GameplayState.activeZone state
     Assert.Equal(0.0f, weightOr -1.0f (morphWeight zone ref "Smile"))
 
-    state.Cue <- Morph("Aiko", "Smile", 1.0f, 2.0)
+    state.Cue <- Morph(mainPlace, "Aiko", "Smile", 1.0f, 2.0)
     tick shared &state 0.0
     tick shared &state 1.0
     Assert.Equal(0.5f, weightOr -1.0f (morphWeight zone ref "Smile"))
@@ -1282,13 +1326,37 @@ let ``a morph op blends a morph slot the same way`` () =
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
+let ``an in-flight blend keeps the place it began in across a zone switch`` () =
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let ref = placeAiko shared &state
+    GameplayState.addZone shared &state atriumPlace
+    GameplayState.switchZone shared &state mainPlace
+    let mainZone = state.Zones.[mainPlace]
+
+    state.Cue <- Animate(mainPlace, "Aiko", "Jog", 1.0f, 2.0)
+    tick shared &state 0.0
+    match state.Cue with
+    | BlendState (_, place, _, _, _, _, _, _, _, _, _) -> Assert.Equal(mainPlace, place)
+    | _ -> Assert.Fail "expected the blend to begin"
+
+    // her place is no longer active; the blend still runs on the place it began in (spec 075 FR-008)
+    GameplayState.switchZone shared &state atriumPlace
+    Assert.Equal(atriumPlace, state.ActiveZone)
+    tick shared &state 1.0
+    Assert.Equal(0.5f, weightOr -1.0f (clipWeight mainZone ref "Jog"))
+    tick shared &state 2.0
+    Assert.Equal(1.0f, weightOr -1.0f (clipWeight mainZone ref "Jog"))
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
 let ``a blend of an unknown clip or morph name, and of a missing actor, performs nothing`` () =
     let shared = actorShared ()
     let mutable state = newState ()
     let ref = placeAiko shared &state
     let zone = GameplayState.activeZone state
 
-    state.Cue <- seqOf [ Animate("Aiko", "Nope", 1.0f, 1.0); Morph("Aiko", "Nope", 1.0f, 1.0); CrossFade("Aiko", "Idle", "Nope", 1.0f, 1.0); Animate("Akane", "Idle", 1.0f, 1.0) ]
+    state.Cue <- seqOf [ Animate(mainPlace, "Aiko", "Nope", 1.0f, 1.0); Morph(mainPlace, "Aiko", "Nope", 1.0f, 1.0); CrossFade(mainPlace, "Aiko", "Idle", "Nope", 1.0f, 1.0); Animate(mainPlace, "Akane", "Idle", 1.0f, 1.0) ]
     tick shared &state 0.0
 
     Assert.Equal("Fin", describe state.Cue)
@@ -1302,7 +1370,7 @@ let ``a blend is a runtime effect, not a step on the undo history`` () =
     do ignore (placeAiko shared &state)
     let undoBefore = List.length state.Editor.Undo.Applied
 
-    state.Cue <- Animate("Aiko", "Jog", 1.0f, 1.0)
+    state.Cue <- Animate(mainPlace, "Aiko", "Jog", 1.0f, 1.0)
     tick shared &state 0.0
     tick shared &state 1.0
 
@@ -1546,7 +1614,7 @@ let ``stepping an in-flight morph blend allocates nothing per tick`` () =
     let shared = actorShared ()
     let mutable state = newState ()
     do ignore (placeAiko shared &state)
-    state.Cue <- Morph("Aiko", "Smile", 1.0f, 2.0)
+    state.Cue <- Morph(mainPlace, "Aiko", "Smile", 1.0f, 2.0)
     tick shared &state 0.0
     Assert.True((match state.Cue with BlendState _ -> true | _ -> false), "expected the morph to begin")
 
@@ -1572,18 +1640,18 @@ let ``enable player binds the actor as the zone's player and disable clears it``
     let zone = GameplayState.activeZone state
     Assert.False(Systems.isPlayerLive zone)
 
-    state.Cue <- EnablePlayer "Aiko"
+    state.Cue <- EnablePlayer(mainPlace, "Aiko")
     tick shared &state 0.0
     Assert.True(Systems.isPlayerLive zone)
     Assert.Equal(ValueSome (Systems.playerHandleOf ref), zone.Player)
 
-    state.Cue <- DisablePlayer "Aiko"
+    state.Cue <- DisablePlayer(mainPlace, "Aiko")
     tick shared &state 0.0
     Assert.False(Systems.isPlayerLive zone)
 
     // a disable when she is not the player, and an op on an actor not in the scene, perform nothing
     let undoBefore = List.length state.Editor.Undo.Applied
-    state.Cue <- seqOf [ DisablePlayer "Aiko"; EnablePlayer "Akane" ]
+    state.Cue <- seqOf [ DisablePlayer(mainPlace, "Aiko"); EnablePlayer(mainPlace, "Akane") ]
     tick shared &state 0.0
     Assert.Equal("Fin", describe state.Cue)
     Assert.False(Systems.isPlayerLive zone)

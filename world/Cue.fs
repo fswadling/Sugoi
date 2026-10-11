@@ -65,26 +65,27 @@ type Cue =
     | AddZone of place: Place
     | RemoveZone of place: Place
     | PreloadZone of place: Place
-    // The actor lifecycle (spec 073): a cue brings an actor into a named place and places her at a waypoint
-    // there (`AddActor` — always a new actor, named for the asset it is built from), or takes her out
-    // (`RemoveActor`). Both name the actor by a **string** — her `Name` — resolved by a scan of the present
-    // places (a name is a label, not an identity). Placement also names a place, an asset and a waypoint; only
-    // the asset and the waypoint are names, in the asset manager and the place's zone. Both are no-progress
-    // leaves and are no-ops on state they cannot act on (an absent place, a missing waypoint, an unknown asset,
-    // or an actor not in the scene), so a re-run is safe — though `AddActor` spawns a fresh actor each time it
-    // is reached with valid state, since a name is a label rather than an identity (spec 072 FR-008).
+    // The actor lifecycle (spec 073, spec 075): a cue brings an actor into a named place and places her at a
+    // waypoint there (`AddActor` — always a new actor, named for the asset it is built from), or takes her out
+    // of a named place (`RemoveActor`). Both name the actor by a **string** — her `Name` — and name the place
+    // she is in, so the zone is explicit rather than implied by the current zone (spec 075); a name is a label,
+    // not an identity. Placement also names an asset and a waypoint; only the asset and the waypoint are names,
+    // in the asset manager and the place's zone. Both are no-progress leaves and are no-ops on state they cannot
+    // act on (an absent place, a missing waypoint, an unknown asset, or an actor not in the named place), so a
+    // re-run is safe — though `AddActor` spawns a fresh actor each time it is reached with valid state, since a
+    // name is a label rather than an identity (spec 072 FR-008).
     | AddActor of place: Place * actor: string * asset: string * waypoint: string
-    | RemoveActor of actor: string
-    // The actor's animation/morph blends (spec 066): drive a slot's weight over a duration. `Animate`/`Morph`
-    // move one slot from its current weight to the target; `CrossFade`/`CrossMorph` take one out while another
-    // comes in. They act in the actor's own zone, active or not — slot weights are renderer state, not part of
-    // the simulation. `BlendState` is the in-flight form, holding the captured start weights so a blend that
-    // begins part-way is correct; it also carries the actor's resolved slot (`place` + `handle`), so the step
-    // reuses her instead of scanning by name each tick (`specs/074`).
-    | Animate of actor: string * clip: string * weight: float32 * duration: float
-    | CrossFade of actor: string * fromClip: string * toClip: string * weight: float32 * duration: float
-    | Morph of actor: string * morph: string * weight: float32 * duration: float
-    | CrossMorph of actor: string * fromMorph: string * toMorph: string * weight: float32 * duration: float
+    | RemoveActor of place: Place * actor: string
+    // The actor's animation/morph blends (spec 066, spec 075): drive a slot's weight over a duration.
+    // `Animate`/`Morph` move one slot from its current weight to the target; `CrossFade`/`CrossMorph` take one
+    // out while another comes in. They act in the **named place's** zone, active or not — slot weights are
+    // renderer state, not part of the simulation. `BlendState` is the in-flight form, holding the captured
+    // start weights so a blend that begins part-way is correct; it also carries the actor's resolved slot
+    // (`place` + `handle`), so the step reuses her instead of scanning by name each tick (`specs/074`).
+    | Animate of place: Place * actor: string * clip: string * weight: float32 * duration: float
+    | CrossFade of place: Place * actor: string * fromClip: string * toClip: string * weight: float32 * duration: float
+    | Morph of place: Place * actor: string * morph: string * weight: float32 * duration: float
+    | CrossMorph of place: Place * actor: string * fromMorph: string * toMorph: string * weight: float32 * duration: float
     | BlendState of actor: string * place: Place * handle: Handle * morph: bool * fromName: string * toName: string * initialFrom: float32 * initialTo: float32 * target: float32 * duration: float * endsAt: float
     // The actor's movement (spec 066): drive her body along a waypoint chain (`MoveActor`, turning to face the
     // path and blending a moving clip to an idle clip as she arrives), or turn her in place to face a waypoint
@@ -95,19 +96,21 @@ type Cue =
     | MoveActorState of actor: string * place: Place * handle: Handle * points: Vector3[] * speed: float * duration: float * endsAt: float * initialRotation: Quaternion * finalRotation: Quaternion * blend: float * movingClip: string * idleClip: string
     | RotateActor of actor: string * waypoint: string * duration: float
     | RotateActorState of actor: string * place: Place * handle: Handle * initialRotation: Quaternion * targetRotation: Quaternion * duration: float * endsAt: float
-    // The player toggle (spec 066): bind her as the zone's player — the runtime counterpart of the editor's
-    // "Set as Player", so the play-mode input drives her and the camera follows — or clear it when she is the
-    // player. No progress of their own, and a no-op on state they cannot act on.
-    | EnablePlayer of actor: string
-    | DisablePlayer of actor: string
+    // The player toggle (spec 066, spec 075): bind her as the **named place's** player — the runtime
+    // counterpart of the editor's "Set as Player", so the play-mode input drives her and the camera follows —
+    // or clear it when she is the player. No progress of their own, and a no-op on state they cannot act on.
+    | EnablePlayer of place: Place * actor: string
+    | DisablePlayer of place: Place * actor: string
     // The trigger toggles (spec 067): arm or disarm a named trigger in a named place — the cross-zone
     // convention (the op names a place, resolved at run time), a no-progress leaf, and a no-op on a place that
     // is not present, a missing trigger, or a redundant toggle. The flag is authored state; the trigger system
     // recomputes the derived runtime state on the next play tick.
     | EnableTrigger of place: Place * trigger: string
     | DisableTrigger of place: Place * trigger: string
-    | SetCamera of waypoint: string
-    | FlyCamera of path: string * speed: float
+    // The camera ops (spec 054, spec 075): read the named place's waypoints, so an author can frame from a
+    // waypoint in a zone other than the one they are standing in.
+    | SetCamera of place: Place * waypoint: string
+    | FlyCamera of place: Place * path: string * speed: float
     | FlyCameraState of path: string * points: Vector3[] * rotations: Quaternion[] * duration: float * endsAt: float
     | AddAdvent of advent: Advent
     | RemoveAdvent of advent: Advent

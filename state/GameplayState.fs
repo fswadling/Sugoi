@@ -90,23 +90,10 @@ let activeZone (state: GameplayState) : Zone.Zone =
     | true, zone -> zone
     | false, _ -> invalidOp (sprintf "activeZone: '%s' is not present" (Place.placeName state.ActiveZone))
 
-// ── The runtime cast (spec 072) ──
+// ── The runtime cast (spec 072, spec 075) ──
 
-// The actor playing `character`: the first live actor whose `Name` is the character's canonical name, scanning
-// the present places in `Place.all` order and returning the place, its zone and the ref. A name is a label, not
-// an identity, so a duplicate resolves to the first match; there is no index to keep exact. Global: it does not
-// depend on which place is active, and `None` means no present place holds an actor of that name.
-let tryActorByName (state: GameplayState) (name: string) : (Place * Zone.Zone * EntityRef) option =
-    let mutable found = None
-    for place in Place.all do
-        if found.IsNone then
-            match state.Zones.TryGetValue place with
-            | true, zone ->
-                match Zone.tryActorByName zone name with
-                | Some ref -> found <- Some (place, zone, ref)
-                | None -> ()
-            | false, _ -> ()
-    found
+// Resolution is per zone now: a cue op names its place and resolves the actor there with `Zone.tryActorByName`
+// (`world/CueEngine.fs`). There is no scan of the present places, so no resolver lives here.
 
 // After `ActiveZone` has changed: drop the (zone-scoped) selection/drag/nudge and re-frame the camera on the
 // incoming zone. The undo history is **not** touched: it is one timeline for the whole gameplay state, and the

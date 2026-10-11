@@ -101,13 +101,14 @@ runtime effect (not an undo step), and each op is a no-op on a place it cannot a
 run more than once. The cue also drives the **cast** (`specs/072-actor-name-addressing`,
 `specs/073-cue-actor-by-name`): `AddActor` brings an actor into a named place as a **new** actor, built from a
 **discovered actor asset** and given a typed **name**, at a named waypoint — a name is a label, not an identity, so
-a re-run places a second actor — and `RemoveActor` takes her out. Every actor cue op (the lifecycle pair, the
-blends and the motion ops below, and the player toggles) addresses its actor by a plain **string** — her `Name` —
-resolved by a scan of the present places (the same pattern as a waypoint or trigger name), with no role on the
-actor and no index. The editor's actor chooser offers only the place being viewed's live actors, and the
-clip/morph choosers read the chosen actor's asset. An actor op resolves its actor by name **once**, when it
-begins; its in-flight `…State` (a move, a turn, a blend) carries the resolved slot handle and place, so each tick
-is an O(1) slot-map lookup rather than a fresh scan, and the op stays on the actor it began with (`specs/074`).
+a re-run places a second actor — and `RemoveActor` takes her out of a named place. Every actor cue op (the
+lifecycle pair, the blends and the motion ops below, and the player toggles) addresses its actor by a plain
+**string** — her `Name` — in an explicit **place** (`specs/075-cue-zone-selector`), resolved within that place's
+zone by the same name scan a waypoint or trigger name uses, with no role on the actor and no index. The editor's
+actor chooser offers the op's own place's live actors, and the clip/morph choosers read the chosen actor's asset.
+An actor op resolves its actor by name **once**, when it begins; its in-flight `…State` (a move, a turn, a blend)
+carries the resolved slot handle and place, so each tick is an O(1) slot-map lookup rather than a fresh scan, and
+the op stays on the actor it began with (`specs/074`).
 `specs/074-retire-cast` then retires the cast outright:
 the look vocabulary, the slot → asset binding, the Cast panel and the roster itself leave the game — the `Character`
 union moves into `narrative/`, and a portrait line's speaker becomes a plain **string**, resolved to her actor asset

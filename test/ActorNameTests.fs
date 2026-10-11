@@ -1,9 +1,10 @@
 module ActorNameTests
 
-// Actors are addressed by name (spec 072): the cast role and the runtime cast index are gone, so resolution is
-// a name scan over the present places — the same pattern `tryWaypointByName` / `tryTriggerByName` already use.
-// Headless: an actor is spawned through the real `Spawning` / `Zone` path against a fabricated actor asset
-// whose GPU handles are defaulted, so the scan is asserted with no device.
+// Actors are addressed by name (spec 072) and, since spec 075, resolved per zone: a cue op names its place and
+// resolves the actor there with a `Zone`-local name scan (`Zone.tryActorByName`, the pattern
+// `tryWaypointByName` / `tryTriggerByName` already use). There is no scan over the present places. Headless: an
+// actor is spawned through the real `Spawning` / `Zone` path against a fabricated actor asset whose GPU handles
+// are defaulted, so the scan is asserted with no device.
 
 open System
 open System.Collections.Generic
@@ -13,9 +14,6 @@ open Gltf
 open Entity
 open Place
 open TestSupport
-
-let private classroomPlace : Place = Place.ArtRoom Period.Evening
-let private atriumPlace : Place = Place.Island
 
 // A zero model: enough for `ActorRender.create` to hold no clip and pose nothing.
 let private emptyModel () : Iqm.Model =
@@ -79,22 +77,6 @@ let ``Zone.tryActorByName finds a named live actor by its name and misses an unk
     Assert.Equal(Some ref, Zone.tryActorByName zone "Aiko")
     Assert.Equal(None, Zone.tryActorByName zone "Akane")
 
-// ── GameplayState.tryActorByName — the resolver ──
-
-[<Fact>]
-let ``the resolver finds a named actor across the present places, not just the active one`` () =
-    let shared = sharedState (headlessAssets ())
-    let mutable state = newState ()
-    GameplayState.addZone shared &state classroomPlace
-    let ref = spawn shared &state "Aiko"
-    Assert.Equal(classroomPlace, state.ActiveZone)
-    Assert.Equal(Some (classroomPlace, ref), (match GameplayState.tryActorByName state "Aiko" with Some (p, _, r) -> Some (p, r) | None -> None))
-
-    // the answer does not depend on the active place: it is a scan, not an index
-    GameplayState.addZone shared &state atriumPlace
-    Assert.Equal(atriumPlace, state.ActiveZone)
-    Assert.Equal(Some (classroomPlace, ref), (match GameplayState.tryActorByName state "Aiko" with Some (p, _, r) -> Some (p, r) | None -> None))
-
 [<Fact>]
 let ``a duplicate name resolves to the first actor, silently`` () =
     let shared = sharedState (headlessAssets ())
@@ -102,4 +84,5 @@ let ``a duplicate name resolves to the first actor, silently`` () =
     let first = spawn shared &state "Aiko"
     let second = spawn shared &state "Aiko"
     Assert.NotEqual(first, second)
-    Assert.Equal(Some first, (match GameplayState.tryActorByName state "Aiko" with Some (_, _, r) -> Some r | None -> None))
+    let zone = GameplayState.activeZone state
+    Assert.Equal(Some first, Zone.tryActorByName zone "Aiko")

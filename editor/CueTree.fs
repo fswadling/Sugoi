@@ -87,23 +87,24 @@ let private label (cue: Cue) : string =
     | PreloadZone place -> "Preload zone: " + Place.placeName place
     | AddActor (place, actor, asset, waypoint) ->
         sprintf "Add actor: %s/%s in %s @ %s" actor asset (Place.placeName place) waypoint
-    | RemoveActor actor -> sprintf "Remove actor: %s" actor
-    | Animate (_, clip, _, _) -> blendLabel false clip clip
-    | CrossFade (_, fromClip, toClip, _, _) -> blendLabel false fromClip toClip
-    | Morph (_, morph, _, _) -> blendLabel true morph morph
-    | CrossMorph (_, fromMorph, toMorph, _, _) -> blendLabel true fromMorph toMorph
-    | BlendState (_, _, _, morph, fromName, toName, _, _, _, _, _) -> blendLabel morph fromName toName
+    | RemoveActor (place, actor) -> sprintf "Remove actor: %s in %s" actor (Place.placeName place)
+    | Animate (place, _, clip, _, _) -> sprintf "%s in %s" (blendLabel false clip clip) (Place.placeName place)
+    | CrossFade (place, _, fromClip, toClip, _, _) -> sprintf "%s in %s" (blendLabel false fromClip toClip) (Place.placeName place)
+    | Morph (place, _, morph, _, _) -> sprintf "%s in %s" (blendLabel true morph morph) (Place.placeName place)
+    | CrossMorph (place, _, fromMorph, toMorph, _, _) -> sprintf "%s in %s" (blendLabel true fromMorph toMorph) (Place.placeName place)
+    | BlendState (_, place, _, morph, fromName, toName, _, _, _, _, _) -> sprintf "%s in %s" (blendLabel morph fromName toName) (Place.placeName place)
     | MoveActor (actor, _, _, _, _) | MoveActorState (actor, _, _, _, _, _, _, _, _, _, _, _) ->
         "Move actor: " + actor
     | RotateActor (actor, _, _) | RotateActorState (actor, _, _, _, _, _, _) ->
         "Rotate actor: " + actor
-    | EnablePlayer actor -> "Enable player: " + actor
-    | DisablePlayer actor -> "Disable player: " + actor
+    | EnablePlayer (place, actor) -> sprintf "Enable player: %s in %s" actor (Place.placeName place)
+    | DisablePlayer (place, actor) -> sprintf "Disable player: %s in %s" actor (Place.placeName place)
     | EnableTrigger (place, trigger) -> sprintf "Enable trigger: %s in %s" trigger (Place.placeName place)
     | DisableTrigger (place, trigger) -> sprintf "Disable trigger: %s in %s" trigger (Place.placeName place)
     | Print text -> "Print: " + text
-    | SetCamera waypoint -> "Camera: " + waypoint
-    | FlyCamera (path, _) | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
+    | SetCamera (place, waypoint) -> sprintf "Camera: %s in %s" waypoint (Place.placeName place)
+    | FlyCamera (place, path, _) -> sprintf "Fly: %s in %s" path (Place.placeName place)
+    | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
     | AddAdvent advent -> "Add: " + Advent.name advent
     | RemoveAdvent advent -> "Remove: " + Advent.name advent
     | Await advent | AwaitState advent -> "Await: " + Advent.name advent
@@ -278,10 +279,10 @@ let private kindName (cue: Cue) : string =
     | PreloadZone _ -> "Preload zone"
     | AddActor _ -> "Add actor"
     | RemoveActor _ -> "Remove actor"
-    | Animate (_, clip, _, _) -> blendOpName false clip clip
-    | CrossFade (_, fromClip, toClip, _, _) -> blendOpName false fromClip toClip
-    | Morph (_, morph, _, _) -> blendOpName true morph morph
-    | CrossMorph (_, fromMorph, toMorph, _, _) -> blendOpName true fromMorph toMorph
+    | Animate (_, _, clip, _, _) -> blendOpName false clip clip
+    | CrossFade (_, _, fromClip, toClip, _, _) -> blendOpName false fromClip toClip
+    | Morph (_, _, morph, _, _) -> blendOpName true morph morph
+    | CrossMorph (_, _, fromMorph, toMorph, _, _) -> blendOpName true fromMorph toMorph
     | BlendState (_, _, _, morph, fromName, toName, _, _, _, _, _) -> blendOpName morph fromName toName
     | MoveActor _ | MoveActorState _ -> "Move actor"
     | RotateActor _ | RotateActorState _ -> "Rotate actor"
@@ -302,7 +303,7 @@ let private kindName (cue: Cue) : string =
 /// (the walk pulls the queue's front into the front in the same step, so the author can add to it and it).
 /// A `Set zone` defaults to the start place — a place is a closed value, so there is no empty-name state to
 /// guard; an `Exposit` defaults to an empty line and a plain dialogue kind.
-let private defaultOfKind (kind: string) : Cue =
+let defaultOfKind (place: Place) (kind: string) : Cue =
     let defaultAdvent = List.head Advent.all
     match kind with
     | "Fin" -> Fin
@@ -314,28 +315,28 @@ let private defaultOfKind (kind: string) : Cue =
     | "Fade in" -> FadeIn 1.0
     | "Exposit" -> Exposit("", Dialogue.Kind.Dialogue)
     | "Print" -> Print ""
-    | "Set zone" -> SetZone Place.start
-    | "Add zone" -> AddZone Place.start
-    | "Remove zone" -> RemoveZone Place.start
-    | "Preload zone" -> PreloadZone Place.start
-    | "Add actor" -> AddActor(Place.start, "", "", "")
-    | "Remove actor" -> RemoveActor ""
+    | "Set zone" -> SetZone place
+    | "Add zone" -> AddZone place
+    | "Remove zone" -> RemoveZone place
+    | "Preload zone" -> PreloadZone place
+    | "Add actor" -> AddActor(place, "", "", "")
+    | "Remove actor" -> RemoveActor(place, "")
     | "Move actor" -> MoveActor("", "", 3.5, "Jog", "Idle")
     | "Rotate actor" -> RotateActor("", "", 1.0)
-    | "Enable player" -> EnablePlayer ""
-    | "Disable player" -> DisablePlayer ""
-    | "Enable trigger" -> EnableTrigger(Place.start, "")
-    | "Disable trigger" -> DisableTrigger(Place.start, "")
-    | "Animate" -> Animate("", "Idle", 1.0f, 1.0)
-    | "Cross fade" -> CrossFade("", "Idle", "Jog", 1.0f, 1.0)
-    | "Morph" -> Morph("", "", 1.0f, 1.0)
-    | "Cross morph" -> CrossMorph("", "", "", 1.0f, 1.0)
-    | "Set camera" -> SetCamera ""
+    | "Enable player" -> EnablePlayer(place, "")
+    | "Disable player" -> DisablePlayer(place, "")
+    | "Enable trigger" -> EnableTrigger(place, "")
+    | "Disable trigger" -> DisableTrigger(place, "")
+    | "Animate" -> Animate(place, "", "Idle", 1.0f, 1.0)
+    | "Cross fade" -> CrossFade(place, "", "Idle", "Jog", 1.0f, 1.0)
+    | "Morph" -> Morph(place, "", "", 1.0f, 1.0)
+    | "Cross morph" -> CrossMorph(place, "", "", "", 1.0f, 1.0)
+    | "Set camera" -> SetCamera(place, "")
     | "Add advent" -> AddAdvent defaultAdvent
     | "Remove advent" -> RemoveAdvent defaultAdvent
     | "Await" -> Await defaultAdvent
     | "If" -> If(defaultAdvent, Fin, Fin)
-    | _ -> FlyCamera("", 1.0)
+    | _ -> FlyCamera(place, "", 1.0)
 
 /// The node's editable text, or `ValueNone` when it has none. The field that edits it belongs to the caller
 /// (the buffer is a widget's scaffolding, not the cue's), so the control names no editor state and says only
@@ -349,13 +350,13 @@ let textOf (cue: Cue) : string voption =
     | Exposit (text, _) -> ValueSome text
     | Print text -> ValueSome text
     | AddActor (_, actor, _, _) -> ValueSome actor
-    | Animate (_, clip, _, _) -> ValueSome clip
-    | CrossFade (_, fromClip, _, _, _) -> ValueSome fromClip
-    | Morph (_, morph, _, _) -> ValueSome morph
-    | CrossMorph (_, fromMorph, _, _, _) -> ValueSome fromMorph
+    | Animate (_, _, clip, _, _) -> ValueSome clip
+    | CrossFade (_, _, fromClip, _, _, _) -> ValueSome fromClip
+    | Morph (_, _, morph, _, _) -> ValueSome morph
+    | CrossMorph (_, _, fromMorph, _, _, _) -> ValueSome fromMorph
     | MoveActor (_, _, _, movingClip, _) -> ValueSome movingClip
-    | SetCamera waypoint -> ValueSome waypoint
-    | FlyCamera (path, _) -> ValueSome path
+    | SetCamera (_, waypoint) -> ValueSome waypoint
+    | FlyCamera (_, path, _) -> ValueSome path
     | _ -> ValueNone
 
 /// The node's **second** editable text field, or `ValueNone` when it has none. Only the ops that carry two
@@ -363,8 +364,8 @@ let textOf (cue: Cue) : string voption =
 /// `AddActor`'s waypoint (its first field is the actor's name).
 let textOf2 (cue: Cue) : string voption =
     match cue with
-    | CrossFade (_, _, toClip, _, _) -> ValueSome toClip
-    | CrossMorph (_, _, toMorph, _, _) -> ValueSome toMorph
+    | CrossFade (_, _, _, toClip, _, _) -> ValueSome toClip
+    | CrossMorph (_, _, _, toMorph, _, _) -> ValueSome toMorph
     | MoveActor (_, _, _, _, idleClip) -> ValueSome idleClip
     | AddActor (_, _, _, waypoint) -> ValueSome waypoint
     | _ -> ValueNone
@@ -375,20 +376,20 @@ let withText (cue: Cue) (text: string) : Cue =
     | Exposit (_, kind) -> Exposit(text, kind)
     | Print _ -> Print text
     | AddActor (place, _, asset, waypoint) -> AddActor(place, text, asset, waypoint)
-    | Animate (actor, _, weight, duration) -> Animate(actor, text, weight, duration)
-    | CrossFade (actor, _, toClip, weight, duration) -> CrossFade(actor, text, toClip, weight, duration)
-    | Morph (actor, _, weight, duration) -> Morph(actor, text, weight, duration)
-    | CrossMorph (actor, _, toMorph, weight, duration) -> CrossMorph(actor, text, toMorph, weight, duration)
+    | Animate (place, actor, _, weight, duration) -> Animate(place, actor, text, weight, duration)
+    | CrossFade (place, actor, _, toClip, weight, duration) -> CrossFade(place, actor, text, toClip, weight, duration)
+    | Morph (place, actor, _, weight, duration) -> Morph(place, actor, text, weight, duration)
+    | CrossMorph (place, actor, _, toMorph, weight, duration) -> CrossMorph(place, actor, text, toMorph, weight, duration)
     | MoveActor (actor, path, speed, _, idleClip) -> MoveActor(actor, path, speed, text, idleClip)
-    | SetCamera _ -> SetCamera text
-    | FlyCamera (_, speed) -> FlyCamera(text, speed)
+    | SetCamera (place, _) -> SetCamera(place, text)
+    | FlyCamera (place, _, speed) -> FlyCamera(place, text, speed)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no text" (label cue))
 
 /// The node with its second text field replaced — the write the caller's second field commits.
 let withText2 (cue: Cue) (text: string) : Cue =
     match cue with
-    | CrossFade (actor, fromClip, _, weight, duration) -> CrossFade(actor, fromClip, text, weight, duration)
-    | CrossMorph (actor, fromMorph, _, weight, duration) -> CrossMorph(actor, fromMorph, text, weight, duration)
+    | CrossFade (place, actor, fromClip, _, weight, duration) -> CrossFade(place, actor, fromClip, text, weight, duration)
+    | CrossMorph (place, actor, fromMorph, _, weight, duration) -> CrossMorph(place, actor, fromMorph, text, weight, duration)
     | MoveActor (actor, path, speed, movingClip, _) -> MoveActor(actor, path, speed, movingClip, text)
     | AddActor (place, actor, asset, _) -> AddActor(place, actor, asset, text)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no second text" (label cue))
@@ -397,8 +398,8 @@ let withText2 (cue: Cue) (text: string) : Cue =
 /// waypoint, the set op's waypoint, the move op's path, or the rotate op's waypoint.
 let withWaypoint (name: string) (cue: Cue) : Cue =
     match cue with
-    | SetCamera _ -> SetCamera name
-    | FlyCamera (_, speed) -> FlyCamera(name, speed)
+    | SetCamera (place, _) -> SetCamera(place, name)
+    | FlyCamera (place, _, speed) -> FlyCamera(place, name, speed)
     | AddActor (place, actor, asset, _) -> AddActor(place, actor, asset, name)
     | MoveActor (actor, _, speed, movingClip, idleClip) -> MoveActor(actor, name, speed, movingClip, idleClip)
     | RotateActor (actor, _, duration) -> RotateActor(actor, name, duration)
@@ -429,8 +430,8 @@ let private withAdvent (advent: Advent) (cue: Cue) : Cue =
     | If (_, thenCue, elseCue) -> If(advent, thenCue, elseCue)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no milestone" (label cue))
 
-/// The node with its place replaced — the write the place chooser commits. Only the zone ops carry one
-/// (specs 061, 062).
+/// The node with its place replaced — the write the place chooser commits. Every entity op carries one now
+/// (specs 061, 062, 075).
 let withPlace (place: Place) (cue: Cue) : Cue =
     match cue with
     | SetZone _ -> SetZone place
@@ -438,23 +439,32 @@ let withPlace (place: Place) (cue: Cue) : Cue =
     | RemoveZone _ -> RemoveZone place
     | PreloadZone _ -> PreloadZone place
     | AddActor (_, actor, asset, waypoint) -> AddActor(place, actor, asset, waypoint)
+    | RemoveActor (_, actor) -> RemoveActor(place, actor)
+    | Animate (_, actor, clip, weight, duration) -> Animate(place, actor, clip, weight, duration)
+    | CrossFade (_, actor, fromClip, toClip, weight, duration) -> CrossFade(place, actor, fromClip, toClip, weight, duration)
+    | Morph (_, actor, morph, weight, duration) -> Morph(place, actor, morph, weight, duration)
+    | CrossMorph (_, actor, fromMorph, toMorph, weight, duration) -> CrossMorph(place, actor, fromMorph, toMorph, weight, duration)
+    | EnablePlayer (_, actor) -> EnablePlayer(place, actor)
+    | DisablePlayer (_, actor) -> DisablePlayer(place, actor)
     | EnableTrigger (_, trigger) -> EnableTrigger(place, trigger)
     | DisableTrigger (_, trigger) -> DisableTrigger(place, trigger)
+    | SetCamera (_, waypoint) -> SetCamera(place, waypoint)
+    | FlyCamera (_, path, speed) -> FlyCamera(place, path, speed)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no place" (label cue))
 
 /// The node with its actor replaced — the write the actor chooser commits. Every actor op carries one.
 let withActor (actor: string) (cue: Cue) : Cue =
     match cue with
     | AddActor (place, _, asset, waypoint) -> AddActor(place, actor, asset, waypoint)
-    | RemoveActor _ -> RemoveActor actor
-    | Animate (_, clip, weight, duration) -> Animate(actor, clip, weight, duration)
-    | CrossFade (_, fromClip, toClip, weight, duration) -> CrossFade(actor, fromClip, toClip, weight, duration)
-    | Morph (_, morph, weight, duration) -> Morph(actor, morph, weight, duration)
-    | CrossMorph (_, fromMorph, toMorph, weight, duration) -> CrossMorph(actor, fromMorph, toMorph, weight, duration)
+    | RemoveActor (place, _) -> RemoveActor(place, actor)
+    | Animate (place, _, clip, weight, duration) -> Animate(place, actor, clip, weight, duration)
+    | CrossFade (place, _, fromClip, toClip, weight, duration) -> CrossFade(place, actor, fromClip, toClip, weight, duration)
+    | Morph (place, _, morph, weight, duration) -> Morph(place, actor, morph, weight, duration)
+    | CrossMorph (place, _, fromMorph, toMorph, weight, duration) -> CrossMorph(place, actor, fromMorph, toMorph, weight, duration)
     | MoveActor (_, path, speed, movingClip, idleClip) -> MoveActor(actor, path, speed, movingClip, idleClip)
     | RotateActor (_, waypoint, duration) -> RotateActor(actor, waypoint, duration)
-    | EnablePlayer _ -> EnablePlayer actor
-    | DisablePlayer _ -> DisablePlayer actor
+    | EnablePlayer (place, _) -> EnablePlayer(place, actor)
+    | DisablePlayer (place, _) -> DisablePlayer(place, actor)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no actor" (label cue))
 
 /// The node with its asset replaced — the write the asset chooser commits. Only `AddActor` carries one.
@@ -462,6 +472,18 @@ let withAsset (asset: string) (cue: Cue) : Cue =
     match cue with
     | AddActor (place, actor, _, waypoint) -> AddActor(place, actor, asset, waypoint)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no asset" (label cue))
+
+/// The place a node's op names, or `ValueNone` when it names none — every entity op names its zone now
+/// (spec 075); the physics-driven motion ops and the `…State` forms do not.
+let placeOf (cue: Cue) : Place voption =
+    match cue with
+    | SetZone p | AddZone p | RemoveZone p | PreloadZone p -> ValueSome p
+    | AddActor (p, _, _, _) | RemoveActor (p, _) -> ValueSome p
+    | Animate (p, _, _, _, _) | CrossFade (p, _, _, _, _, _) | Morph (p, _, _, _, _) | CrossMorph (p, _, _, _, _, _) -> ValueSome p
+    | EnablePlayer (p, _) | DisablePlayer (p, _) -> ValueSome p
+    | EnableTrigger (p, _) | DisableTrigger (p, _) -> ValueSome p
+    | SetCamera (p, _) | FlyCamera (p, _, _) -> ValueSome p
+    | _ -> ValueNone
 
 // ── the drawing ──
 
@@ -568,6 +590,7 @@ let filteredNameCombo (buffer: byte[]) (label: string) (preview: string) (items:
 /// because a queue's tail is ahead of the running op, so appending to it cannot disturb it.
 let drawEditor
     (idPrefix: string)
+    (defaultPlace: Place)
     (filter: byte[])
     (names: string list)
     (cue: Cue)
@@ -615,21 +638,29 @@ let drawEditor
                         first <- false
                         for kind in groupKinds do
                             if selectable kind (kind = current) && kind <> current then
-                                do commit (withAt selection (defaultOfKind kind) cue)
+                                do commit (withAt selection (defaultOfKind defaultPlace kind) cue)
                     []
                 else
                     // flat while filtering
                     let visible = kinds |> Array.toList |> List.collect snd |> List.filter (matches query)
                     for kind in visible do
                         if selectable kind (kind = current) && kind <> current then
-                            do commit (withAt selection (defaultOfKind kind) cue)
+                            do commit (withAt selection (defaultOfKind defaultPlace kind) cue)
                     visible
             match offered with
             | top :: _ when submitted ->
-                do commit (withAt selection (defaultOfKind top) cue)
+                do commit (withAt selection (defaultOfKind defaultPlace top) cue)
                 do ImGui.closeCurrentPopup()
             | _ -> ()
             do ImGui.endCombo()
+
+        // The place a node names, chosen from the closed set: every entity op names its zone (spec 075), and
+        // a place needs no zone or registry read, so the control offers it here (spec 061 FR-005).
+        match placeOf node with
+        | ValueSome place ->
+            filteredCombo filter ("Place##" + idBase) (Place.placeName place) Place.all Place.placeName place (fun candidate ->
+                do commit (withAt selection (withPlace candidate node) cue))
+        | ValueNone -> ()
 
         // A `…State` case is the in-flight form, so it is normally the op that is running and never reaches
         // here; an author who put one in a queue gets its authored numbers, which is the same edit.
@@ -645,10 +676,10 @@ let drawEditor
         | FadeIn duration | FadeInState (_, duration, _) ->
             dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (FadeIn(float v)) cue))
 
-        | FlyCamera (path, speed) ->
+        | FlyCamera (place, path, speed) ->
             // a flight's own number: how fast to travel. Its path is text, which the caller's field edits,
             // and its start and end are the chain's, so the authored form carries neither.
-            dragNumber idBase "Speed" (float32 speed) (fun v -> commit (withAt selection (FlyCamera(path, float v)) cue))
+            dragNumber idBase "Speed" (float32 speed) (fun v -> commit (withAt selection (FlyCamera(place, path, float v)) cue))
 
         | AddAdvent advent | RemoveAdvent advent | Await advent | AwaitState advent | If (advent, _, _) ->
             // the milestone, chosen from the closed list — a milestone needs no zone or registry, so the
@@ -685,37 +716,26 @@ let drawEditor
                     do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(speaker, candidate)) node) cue))
             | _ -> ()
 
-        | SetZone place | AddZone place | RemoveZone place | PreloadZone place ->
-            // the place, chosen from the closed set — a place needs no zone or registry read, so the control can
-            // offer it where it could not offer a zone name (spec 061 FR-005); the four zone ops share it.
-            filteredCombo filter ("Place##" + idBase) (Place.placeName place) Place.all Place.placeName place (fun candidate ->
-                do commit (withAt selection (withPlace candidate node) cue))
-
-        | AddActor (place, _, _, _) ->
-            // the place, chosen from the closed set; the actor, the asset and the waypoint are the caller's
-            // fields (`CueEditor`), because the actor chooser is the scene and the asset is discovered.
-            filteredCombo filter ("Place##" + idBase) (Place.placeName place) Place.all Place.placeName place (fun candidate ->
-                do commit (withAt selection (withPlace candidate node) cue))
-
-        | RemoveActor _ ->
-            // the actor is chosen by the caller's combo (`CueEditor`); a remove names her alone (no place).
+        | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _ | AddActor _ | RemoveActor _ ->
+            // the place is drawn above (spec 075); an `AddActor`/`RemoveActor` name and asset are the caller's
+            // fields (`CueEditor`); the zone ops carry no numbers or text of their own
             ()
 
-        | Animate (actor, clip, weight, duration) ->
-            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (Animate(actor, clip, v, duration)) cue))
-            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (Animate(actor, clip, weight, float v)) cue))
+        | Animate (place, actor, clip, weight, duration) ->
+            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (Animate(place, actor, clip, v, duration)) cue))
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (Animate(place, actor, clip, weight, float v)) cue))
 
-        | CrossFade (actor, fromClip, toClip, weight, duration) ->
-            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (CrossFade(actor, fromClip, toClip, v, duration)) cue))
-            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (CrossFade(actor, fromClip, toClip, weight, float v)) cue))
+        | CrossFade (place, actor, fromClip, toClip, weight, duration) ->
+            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (CrossFade(place, actor, fromClip, toClip, v, duration)) cue))
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (CrossFade(place, actor, fromClip, toClip, weight, float v)) cue))
 
-        | Morph (actor, morph, weight, duration) ->
-            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (Morph(actor, morph, v, duration)) cue))
-            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (Morph(actor, morph, weight, float v)) cue))
+        | Morph (place, actor, morph, weight, duration) ->
+            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (Morph(place, actor, morph, v, duration)) cue))
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (Morph(place, actor, morph, weight, float v)) cue))
 
-        | CrossMorph (actor, fromMorph, toMorph, weight, duration) ->
-            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (CrossMorph(actor, fromMorph, toMorph, v, duration)) cue))
-            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (CrossMorph(actor, fromMorph, toMorph, weight, float v)) cue))
+        | CrossMorph (place, actor, fromMorph, toMorph, weight, duration) ->
+            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (CrossMorph(place, actor, fromMorph, toMorph, v, duration)) cue))
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (CrossMorph(place, actor, fromMorph, toMorph, weight, float v)) cue))
 
         | MoveActor (actor, path, speed, movingClip, idleClip) ->
             // the actor and the speed; its path and clips are the caller's fields (`CueEditor`)
@@ -728,14 +748,13 @@ let drawEditor
             // the actor is chosen by the caller's combo (`CueEditor`); the op is otherwise fixed
             ()
 
-        | EnableTrigger (place, _) | DisableTrigger (place, _) ->
-            // the place, chosen from the closed set; the trigger name is the caller's field (`CueEditor`)
-            filteredCombo filter ("Place##" + idBase) (Place.placeName place) Place.all Place.placeName place (fun candidate ->
-                do commit (withAt selection (withPlace candidate node) cue))
+        | EnableTrigger (_, _) | DisableTrigger (_, _) ->
+            // the place is drawn above; the trigger name is the caller's field (`CueEditor`)
+            ()
 
         | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | Print _ | FlyCameraState _ | BlendState _ | MoveActorState _ | RotateActorState _ ->
             // no numbers of their own. `SetCamera` and `Print` carry text (the caller's field edits it) and a
-            // `FlyCamera` carries its path and speed above; a zone op's place is chosen above.
+            // `FlyCamera` carries its path and speed above; a place-carrying op's place is chosen above.
             ()
 
     // ── Add Child: the one container that takes one, whether or not it is running ──
@@ -743,7 +762,7 @@ let drawEditor
         if ImGui.smallButton("Add Child##" + idBase) then
             // a `Wait` rather than a `Fin`: an added op should be a real step the author then edits, and a
             // queued `Fin` is skipped by the walk and reads as nonsense in a queue
-            let (node', childPath) = withAppendedChild selection (defaultOfKind "Wait") cue
+            let (node', childPath) = withAppendedChild selection (defaultOfKind defaultPlace "Wait") cue
             do commit (withAt selection node' cue)
             adopted <- Some childPath
 

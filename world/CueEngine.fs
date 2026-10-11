@@ -132,6 +132,17 @@ let private detachIfInactive (world: Physics.World) (place: Place) (active: Plac
         | Some ph when Physics.isAdded world ph.Body -> do Physics.removeBody world ph.Body
         | _ -> ()
 
+/// The live actor named `actor` in `place`'s zone: `None` when the place is not present or holds no such
+/// actor. Every actor op names its zone explicitly now (spec 075), so there is no scan of the present places.
+let private tryActorIn (state: byref<GameplayState.GameplayState>) (place: Place) (actor: string) : (Zone.Zone * EntityRef) option =
+    match state.Zones.TryGetValue place with
+    | false, _ -> None
+    | true, zone ->
+
+    Zone.tryActorByName zone actor
+    |> Option.map (fun ref -> zone, ref)
+
+
 /// Bring an actor named `actor` into `place`, placed at `transform` and drawn from the discovered actor asset
 /// `asset` (spec 073 FR-003). It never looks for an existing actor: a name is a label, so moving a member is a
 /// removal followed by an add. An `asset` that names no discovered actor asset performs nothing.
@@ -151,12 +162,11 @@ let private addActor
     let ref = Zone.spawnActor zone state.Physics shared.Assets entity asset
     do detachIfInactive state.Physics place state.ActiveZone zone ref
 
-/// Take the actor named `actor` out of the scene, wherever the name scan finds her (spec 073 FR-002). An actor
-/// not in the scene is untouched. No place is named: the scan is global and the first match wins.
-let private removeActor (state: byref<GameplayState.GameplayState>) (actor: string) : unit =
-    match GameplayState.tryActorByName state actor with
-    | None -> do noOp "RemoveActor" actor "she is not in the scene"
-    | Some (_, zone, ref) -> do Zone.removeActor zone state.Physics ref
+/// Take the actor named `actor` out of `place` (spec 075). An actor not in that place's zone is untouched.
+let private removeActor (state: byref<GameplayState.GameplayState>) (place: Place) (actor: string) : unit =
+    match tryActorIn &state place actor with
+    | None -> do noOp "RemoveActor" actor (sprintf "she is not in '%s'" (Place.placeName place))
+    | Some (zone, ref) -> do Zone.removeActor zone state.Physics ref
 
 /// Arm or disarm a named trigger in a named place (spec 067): resolve the place (absent is a no-op), the
 /// trigger (`Zone.tryTriggerByName`; a miss is a no-op) and read it; a flag that already holds is a no-op,
@@ -178,11 +188,6 @@ let private setTriggerEnabled (state: byref<GameplayState.GameplayState>) (place
     do Zone.setTrigger zone ref { trigger' with Base = { trigger'.Base with Enabled = enabled } }
 
 // ── Actor blends and motion (spec 066) ──
-
-/// The live actor named `actor` resolves to, with the place she is in: `None` when she is not in the scene.
-/// One place both the blends and the motion ops start from.
-let private tryResolveActor (state: byref<GameplayState.GameplayState>) (actor: string) : (Place * Zone.Zone * EntityRef) option =
-    GameplayState.tryActorByName state actor
 
 /// The zone a `…State` actor op's actor is in, or none when the op can no longer act: her place is gone, her slot
 /// is dead or recycled, or the slot now holds a different name. O(1) — the place and handle were captured at
@@ -230,14 +235,14 @@ let private writeBlend (renderer: byref<ActorRender.ActorRender>) (morph: bool) 
 /// Begin a blend: capture the starting weights of the slots the op names and hold a `BlendState`. `Fin` at once
 /// when the actor is not in the scene, or her asset does not define a named clip/morph — a blend no-ops, so a
 /// cue re-runs safely. A duration of zero (or less) is over before it begins, landing on the endpoints.
-let private beginBlend (state: byref<GameplayState.GameplayState>) (actor: string) (morph: bool) (fromName: string) (toName: string) (target: float32) (duration: float) (now: float) : Cue =
+let private beginBlend (state: byref<GameplayState.GameplayState>) (place: Place) (actor: string) (morph: bool) (fromName: string) (toName: string) (target: float32) (duration: float) (now: float) : Cue =
     let opName = if fromName = toName then (if morph then "Morph" else "Animate") else (if morph then "CrossMorph" else "CrossFade")
     let no reason =
         do noOp opName actor reason
         Fin
-    match tryResolveActor &state actor with
-    | None -> no "she is not in the scene"
-    | Some (place, zone, ref) ->
+    match tryActorIn &state place actor with
+    | None -> no (sprintf "she is not in '%s'" (Place.placeName place))
+    | Some (zone, ref) ->
     let live = &zone.Actors.Get(handleOf ref)
     let initialFrom =
         if morph then ActorRender.tryMorphWeight &live.Renderer fromName
@@ -278,11 +283,11 @@ let private beginMove (state: byref<GameplayState.GameplayState>) (actor: string
     let no reason =
         do noOp "MoveActor" actor reason
         Fin
+    let place = state.ActiveZone // motion is physics-driven, so it acts only in the active zone (spec 075)
     if speed <= 0.0 then no (sprintf "speed %g is not positive" speed) else
-    match tryResolveActor &state actor with
-    | None -> no "she is not in the scene"
-    | Some (place, zone, ref) ->
-    if place <> state.ActiveZone then no (sprintf "her zone '%s' is not the active zone '%s'" (Place.placeName place) (Place.placeName state.ActiveZone)) else
+    match tryActorIn &state place actor with
+    | None -> no "she is not in the active zone"
+    | Some (zone, ref) ->
     let live = &zone.Actors.Get(handleOf ref)
     match live.Physics with
     | None -> no "she has no physics body"
@@ -371,10 +376,10 @@ let private beginRotate (state: byref<GameplayState.GameplayState>) (actor: stri
     let no reason =
         do noOp "RotateActor" actor reason
         Fin
-    match tryResolveActor &state actor with
-    | None -> no "she is not in the scene"
-    | Some (place, zone, ref) ->
-    if place <> state.ActiveZone then no (sprintf "her zone '%s' is not the active zone '%s'" (Place.placeName place) (Place.placeName state.ActiveZone)) else
+    let place = state.ActiveZone // motion is physics-driven, so it acts only in the active zone (spec 075)
+    match tryActorIn &state place actor with
+    | None -> no "she is not in the active zone"
+    | Some (zone, ref) ->
     let live = &zone.Actors.Get(handleOf ref)
     match live.Physics with
     | None -> no "she has no physics body"
@@ -478,8 +483,8 @@ let rec advance
         | None -> do noOp "AddActor" actor (sprintf "no waypoint named '%s' in '%s'" waypoint (Place.placeName place))
         ValueSome Fin
 
-    | RemoveActor actor ->
-        do removeActor &state actor
+    | RemoveActor (place, actor) ->
+        do removeActor &state place actor
         ValueSome Fin
 
     | EnableTrigger (place, trigger) ->
@@ -490,17 +495,17 @@ let rec advance
         do setTriggerEnabled &state place trigger false
         ValueSome Fin
 
-    | Animate (actor, clip, weight, duration) ->
-        ValueSome(beginBlend &state actor false clip clip weight duration now)
+    | Animate (place, actor, clip, weight, duration) ->
+        ValueSome(beginBlend &state place actor false clip clip weight duration now)
 
-    | CrossFade (actor, fromClip, toClip, weight, duration) ->
-        ValueSome(beginBlend &state actor false fromClip toClip weight duration now)
+    | CrossFade (place, actor, fromClip, toClip, weight, duration) ->
+        ValueSome(beginBlend &state place actor false fromClip toClip weight duration now)
 
-    | Morph (actor, morph, weight, duration) ->
-        ValueSome(beginBlend &state actor true morph morph weight duration now)
+    | Morph (place, actor, morph, weight, duration) ->
+        ValueSome(beginBlend &state place actor true morph morph weight duration now)
 
-    | CrossMorph (actor, fromMorph, toMorph, weight, duration) ->
-        ValueSome(beginBlend &state actor true fromMorph toMorph weight duration now)
+    | CrossMorph (place, actor, fromMorph, toMorph, weight, duration) ->
+        ValueSome(beginBlend &state place actor true fromMorph toMorph weight duration now)
 
     | BlendState (actor, place, handle, morph, fromName, toName, initialFrom, initialTo, target, duration, endsAt) ->
         if stepBlend &state actor place handle morph fromName toName initialFrom initialTo target duration endsAt now
@@ -523,21 +528,21 @@ let rec advance
         then ValueSome Fin
         else ValueNone
 
-    | EnablePlayer actor ->
-        // the runtime counterpart of the editor's "Set as Player": bind her as her own zone's player
-        match tryResolveActor &state actor with
-        | Some (_, zone, ref) -> zone.Player <- ValueSome (Systems.playerHandleOf ref)
-        | None -> do noOp "EnablePlayer" actor "she is not in the scene"
+    | EnablePlayer (place, actor) ->
+        // the runtime counterpart of the editor's "Set as Player": bind her as the named place's player
+        match tryActorIn &state place actor with
+        | Some (zone, ref) -> zone.Player <- ValueSome (Systems.playerHandleOf ref)
+        | None -> do noOp "EnablePlayer" actor (sprintf "she is not in '%s'" (Place.placeName place))
         ValueSome Fin
 
-    | DisablePlayer actor ->
-        match tryResolveActor &state actor with
-        | Some (_, zone, ref) ->
+    | DisablePlayer (place, actor) ->
+        match tryActorIn &state place actor with
+        | Some (zone, ref) ->
             let handle = Systems.playerHandleOf ref
             match zone.Player with
             | ValueSome current when current = handle -> zone.Player <- ValueNone
             | _ -> do noOp "DisablePlayer" actor "she is not the player"
-        | None -> do noOp "DisablePlayer" actor "she is not in the scene"
+        | None -> do noOp "DisablePlayer" actor (sprintf "she is not in '%s'" (Place.placeName place))
         ValueSome Fin
 
     | Wait seconds -> ValueSome(beginWait now seconds)
@@ -562,17 +567,23 @@ let rec advance
 
     | FadeInState (initial, duration, endsAt) ->
         if stepFade &state initial 0.0f duration endsAt now then ValueSome Fin else ValueNone
-    | SetCamera waypoint ->
-        let zone = GameplayState.activeZone state
-        let (position, rotation) = snapPose state.ActiveZone zone waypoint
+    | SetCamera (place, waypoint) ->
+        if not (state.Zones.ContainsKey place) then
+            invalidOp (sprintf "cue camera: place '%s' is not present" (Place.placeName place))
+        else
+        let zone = state.Zones.[place]
+        let (position, rotation) = snapPose place zone waypoint
         do setCamera &state position rotation
         ValueSome Fin // no progress of its own: performed here and gone
 
-    | FlyCamera (path, speed) ->
+    | FlyCamera (place, path, speed) ->
         if speed <= 0.0 then invalidOp (sprintf "cue camera: speed must be positive (was %g)" speed) else
+        if not (state.Zones.ContainsKey place) then
+            invalidOp (sprintf "cue camera: place '%s' is not present" (Place.placeName place))
+        else
 
-        let zone = GameplayState.activeZone state
-        let (points, rotations) = resolvedPath state.ActiveZone zone path
+        let zone = state.Zones.[place]
+        let (points, rotations) = resolvedPath place zone path
         let duration = pathLength points 10 / speed
         if duration <= 0.0 then
             // over before it begins: land on the last waypoint and hold no state

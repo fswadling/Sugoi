@@ -307,8 +307,8 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
   binding had been delivered first by `specs/032-cast-binding` (roster in `cast/Roster.fs`, binding in
   `world/Casting.fs`, panel in `editor/CastPanel.fs`); the **runtime** half moved to addressing **by name**
   first (`specs/072-actor-name-addressing`, `specs/073-cue-actor-by-name`): an actor carries no role, and a
-  cue names her by a plain string — her `Name` — found by scanning the present places for the matching name,
-  and `specs/063-cast-index`'s role and runtime index were withdrawn. The actor lifecycle cue ops — `AddActor`
+  cue names her by a plain string — her `Name` — in an explicit place (`specs/075-cue-zone-selector`), resolved
+  within that place's zone; `specs/063-cast-index`'s role and runtime index were withdrawn. The actor lifecycle cue ops — `AddActor`
   (a pure spawn that names a discovered actor asset plus a typed name) and `RemoveActor` — landed in
   `specs/064-actor-cue-ops` and were re-based by
   `specs/072`/`specs/073`, and the rest of
