@@ -5,11 +5,12 @@ module Dialogue
 // zone's, not an entity's: spec 038 FR-007), written field by field by the editor
 // panel, and read by the view (`world/DialogueRender.fs`).
 //
-// Compiled after `cast/Roster.fs` (it names a `Character`) and before `world/Systems.fs`
-// (which reads it), per `specs/038-dialogue-display/contracts/dialogue-display.md`.
+// Compiled before `world/Assets.fs` and `world/Systems.fs` (which read it), per
+// `specs/038-dialogue-display/contracts/dialogue-display.md`. The speaker is a plain string
+// (`specs/074`): the actor's `Name`, resolved to her asset by the view; this module names no roster.
 
 /// A character's expression. The closed set every declared portrait set must cover, so
-/// "the portrait is derived from (character, expression)" is a checkable claim rather
+/// "the portrait is derived from (speaker, expression)" is a checkable claim rather
 /// than a hopeful one (FR-006). The reference's five.
 ///
 /// A union rather than a string so it is matched exhaustively and a misspelling is a
@@ -24,8 +25,8 @@ type Emotion =
     | Angry
     | Surprised
 
-/// The renderable name of an expression — matched over the cases, as `Roster.characterName`
-/// is, rather than formatted, so adding a case is an edit here and the compiler reports it.
+/// The renderable name of an expression — matched over the cases rather than formatted, so
+/// adding a case is an edit here and the compiler reports it.
 let emotionName (emotion: Emotion) : string =
     match emotion with
     | Neutral -> nameof Neutral
@@ -44,7 +45,7 @@ let emotions : Emotion list = [ Neutral; Happy; Sad; Angry; Surprised ]
 /// `Dialogue` and `Thought` are the reference's two speaker-less kinds; `Thought` draws
 /// no portrait and no name plate and its panel is drawn inverted (FR-002).
 type Kind =
-    | PortraitDialogue of Roster.Character * Emotion
+    | PortraitDialogue of speaker: string * Emotion
     | Dialogue
     | Thought
 

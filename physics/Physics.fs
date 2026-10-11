@@ -162,11 +162,11 @@ let setBodyRotation (world: World) (BodyId id) (rotation: Quaternion) : unit =
     do world.System.BodyInterface.SetRotation(&bodyId, &r, Activation.Activate)
 
 // The body's position (capsule centre) and rotation, read after a step.
-let getBodyTransform (world: World) (BodyId id) : Vector3 * Quaternion =
+let getBodyTransform (world: World) (BodyId id) : struct (Vector3 * Quaternion) =
     let mutable bodyId = BodyID(id)
     let position = world.System.BodyInterface.GetPosition(&bodyId)
     let rotation = world.System.BodyInterface.GetRotation(&bodyId)
-    position, rotation
+    struct (position, rotation)
 
 let setBodyTransform (world: World) (BodyId id) (position: Vector3) (rotation: Quaternion) : unit =
     let mutable bodyId = BodyID(id)

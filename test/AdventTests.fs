@@ -21,7 +21,6 @@ let private newState () : GameplayState.GameplayState =
 let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Cast = { Casting.Bindings = Dictionary() }
       Advents = Set.empty }
 
 /// The set milestones as their names, in declaration order — the set as a person reads it.

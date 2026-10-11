@@ -172,7 +172,7 @@ let syncActors (world: Physics.World) (zone: Zone.Zone) : unit =
         | None -> ()
         | Some attachment ->
         let offset = Vector3(0.0f, attachment.Collider.HalfHeight + attachment.Collider.Radius, 0.0f)
-        let (position, rotation) = Physics.getBodyTransform world attachment.Body
+        let struct (position, rotation) = Physics.getBodyTransform world attachment.Body
         actor.State.Base.Transform.Position <- position - offset
         actor.State.Base.Transform.Rotation <- rotation
 

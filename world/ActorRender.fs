@@ -68,8 +68,8 @@ let create (device: Gpu.Device) (asset: ActorAsset.ActorAsset) : ActorRender =
     let slots = SlotMap<Actor.AnimationSlot>(uint Actor.MaxAnimationSlots)
     let initialClip =
         match Actor.tryFindAnimIndex model "Idle" with
-        | Some i -> Some i
-        | None ->
+        | ValueSome i -> Some i
+        | ValueNone ->
         if model.Model.Anims.Length > 0 then Some 0 else None
     match initialClip with
     | Some i -> slots.Add(Actor.createSlot model.Model i true) |> ignore
@@ -108,8 +108,8 @@ let advanceInPlace (r: byref<ActorRender>) (dt: float32) : unit =
 let setClipWeight (r: byref<ActorRender>) (name: string) (weight: float32) : unit =
     let model = r.Asset.Model
     match Actor.tryFindAnimIndex model name with
-    | None -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
-    | Some index ->
+    | ValueNone -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+    | ValueSome index ->
     do Actor.setSlotWeight model r.AnimationSlots index weight
 
 // Remove the named clip from the actor's set. A clip the asset does not define raises,
@@ -117,9 +117,22 @@ let setClipWeight (r: byref<ActorRender>) (name: string) (weight: float32) : uni
 let removeClip (r: byref<ActorRender>) (name: string) : unit =
     let model = r.Asset.Model
     match Actor.tryFindAnimIndex model name with
-    | None -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
-    | Some index ->
+    | ValueNone -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+    | ValueSome index ->
     do Actor.removeSlot r.AnimationSlots index
+
+// The index of the morph named `name` in an asset's morph list, or `ValueNone` — the morph counterpart of
+// `Actor.tryFindAnimIndex`, shared by the three morph lookups below. A loop rather than `Array.tryFindIndex`,
+// which captures `name` in a closure and allocates on every call — `setMorphWeight` runs per frame from a morph
+// blend (`specs/074`).
+let private tryMorphIndex (morphs: ActorAsset.ActorMorphs) (name: string) : int voption =
+    let names = morphs.Names
+    let mutable found = ValueNone
+    let mutable i = 0
+    while found.IsNone && i < names.Length do
+        if names.[i] = name then found <- ValueSome i
+        i <- i + 1
+    found
 
 // Set the named morph's weight, clamped to 0..1, adding the morph to the actor's set when it is
 // not already held (FR-005, FR-007). A morph the asset does not carry raises (FR-007).
@@ -127,20 +140,20 @@ let setMorphWeight (r: byref<ActorRender>) (name: string) (weight: float32) : un
     match r.Asset.Morphs with
     | None -> failwithf "actor asset '%s' has no morphs" r.Asset.Id
     | Some morphs ->
-    let index = Array.tryFindIndex (fun n -> n = name) morphs.Names
-    match index with
-    | Some i -> do Actor.setMorphWeight r.MorphSlots morphs.Count i weight
-    | None -> failwithf "actor asset '%s' has no morph '%s'" r.Asset.Id name
+    match tryMorphIndex morphs name with
+    | ValueNone -> failwithf "actor asset '%s' has no morph '%s'" r.Asset.Id name
+    | ValueSome index ->
+    do Actor.setMorphWeight r.MorphSlots morphs.Count index weight
 
 // Remove the named morph from the actor's set.
 let removeMorph (r: byref<ActorRender>) (name: string) : unit =
     match r.Asset.Morphs with
     | None -> failwithf "actor asset '%s' has no morphs" r.Asset.Id
     | Some morphs ->
-    let index = Array.tryFindIndex (fun n -> n = name) morphs.Names
-    match index with
-    | Some i -> do Actor.removeMorph r.MorphSlots i
-    | None -> failwithf "actor asset '%s' has no morph '%s'" r.Asset.Id name
+    match tryMorphIndex morphs name with
+    | ValueNone -> failwithf "actor asset '%s' has no morph '%s'" r.Asset.Id name
+    | ValueSome index ->
+    do Actor.removeMorph r.MorphSlots index
 
 // The named clip's current weight, or `None` when the asset does not define it. A clip the asset defines but
 // the instance does not yet hold reads 0 — so a blend captures where it is and can begin a clip it is not
@@ -149,8 +162,8 @@ let removeMorph (r: byref<ActorRender>) (name: string) : unit =
 let tryClipWeight (r: byref<ActorRender>) (name: string) : float32 option =
     let model = r.Asset.Model
     match Actor.tryFindAnimIndex model name with
-    | None -> None
-    | Some index ->
+    | ValueNone -> None
+    | ValueSome index ->
     let slots = r.AnimationSlots.Slots
     let mutable weight = 0.0f
     for i in 0 .. slots.Length - 1 do
@@ -164,9 +177,9 @@ let tryMorphWeight (r: byref<ActorRender>) (name: string) : float32 option =
     match r.Asset.Morphs with
     | None -> None
     | Some morphs ->
-    match Array.tryFindIndex (fun n -> n = name) morphs.Names with
-    | None -> None
-    | Some index ->
+    match tryMorphIndex morphs name with
+    | ValueNone -> None
+    | ValueSome index ->
     let slots = r.MorphSlots.Slots
     let mutable weight = 0.0f
     for i in 0 .. slots.Length - 1 do
@@ -182,8 +195,8 @@ let playClip (r: byref<ActorRender>) (name: string) : unit =
     let model = r.Asset.Model
 
     match Actor.tryFindAnimIndex model name with
-    | None -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
-    | Some index ->
+    | ValueNone -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+    | ValueSome index ->
 
     let slots = r.AnimationSlots
     let span = slots.Slots

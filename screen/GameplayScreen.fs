@@ -113,7 +113,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     // so the frame is the pre-feature frame (FR-003, FR-009).
     let viewport = ImGui.displaySize()
     do Ui.beginBatch &state.Ui viewport.x viewport.y
-    do DialogueRender.draw shared.Assets shared.Cast viewport.x viewport.y &state.Ui state.Dialogue
+    do DialogueRender.draw shared.Assets viewport.x viewport.y &state.Ui state.Dialogue
     do PromptRender.draw (promptText state (GameplayState.activeZone state)) viewport.x viewport.y &state.Ui
 
     // The fade (spec 059) is the last thing in the layer's batch, so it covers the dialogue and prompt

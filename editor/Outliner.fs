@@ -28,17 +28,6 @@ let private entityRow (shared: SharedState.SharedState) (state: byref<GameplaySt
     if ImGui.smallButton(sprintf "Dup##dup_%s" id) then
         Selection.duplicateRef shared &state ref
 
-// The cast members the runtime cast index places in `place` (spec 063), as a short tag list, or "" when none.
-// Read from the index, so a zone row answers "who is here" at a glance without opening the Cast panel.
-let private castTags (state: GameplayState.GameplayState) (place: Place.Place) : string =
-    let members =
-        state.Cast
-        |> Seq.filter (fun pair -> fst pair.Value = place)
-        |> Seq.map (fun pair -> Roster.characterName pair.Key)
-        |> Seq.sort
-        |> Seq.toArray
-    if members.Length = 0 then "" else "[" + System.String.Join(", ", members) + "]"
-
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
     do ImGui.beginWindow("Outliner", System.IntPtr.Zero, 0) |> ignore
 
@@ -71,12 +60,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                 if ImGui.smallButton(sprintf "Del##delzone_%s" name) then
                     History.commit shared &state (ZoneDelete (state.ActiveZone, place, Zone.captureZone state.Zones.[place]))
                 do ImGui.endDisabled()
-
-                // The cast members standing in this zone, as tags beside its row.
-                let tags = castTags state place
-                if tags <> "" then
-                    do ImGui.sameLine(0.0f, 8.0f)
-                    do ImGui.text(tags)
 
         do ImGui.text("")
         // Adding offers the declared places that are not present — a place already present is not offered.

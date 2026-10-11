@@ -103,7 +103,7 @@ let ``an absent Portraits block parses to a default set, not null`` () =
 // ── The dismiss rule (FR-008, SC-004) ──
 
 let private shown : Dialogue.Dialogue =
-    { Shown = true; Kind = Dialogue.Kind.PortraitDialogue (Roster.Akane, Dialogue.Sad); Text = "hello" }
+    { Shown = true; Kind = Dialogue.Kind.PortraitDialogue ("Akane", Dialogue.Sad); Text = "hello" }
 
 [<Fact>]
 let ``a shown line clears only when the key is pressed and no field has focus`` () =
@@ -153,28 +153,21 @@ let private assetsWith (portraitsOpt: ActorAsset.ActorPortraits option) : Assets
           Morphs = None; Portraits = portraitsOpt }
     TestSupport.manager System.IntPtr.Zero actors (Dictionary()) (Dictionary())
 
-let private castBinding (character: Roster.Character) : Casting.Cast =
-    let bindings = Dictionary<Casting.Slot, string>()
-    bindings.[{ Casting.Character = character; Casting.Look = Casting.Look.SchoolUniform }] <- "akane"
-    { Casting.Bindings = bindings }
-
-let private emptyCast : Casting.Cast = { Casting.Bindings = Dictionary() }
+[<Fact>]
+let ``a speaker with no such asset resolves to no portrait, as an expected miss`` () =
+    match DialogueRender.tryPortrait (assetsWith (Some portraits)) "Nobody" Dialogue.Sad with
+    | Missed reason -> Assert.Equal(NoAsset, reason)
+    | Resolved _ -> Assert.Fail("a speaker with no asset must not resolve")
 
 [<Fact>]
-let ``an unbound character resolves to no portrait, as an expected miss`` () =
-    match DialogueRender.tryPortrait (assetsWith (Some portraits)) emptyCast Roster.Akane Dialogue.Sad with
-    | Missed reason -> Assert.Equal(Unbound, reason)
-    | Resolved _ -> Assert.Fail("an unbound character must not resolve")
-
-[<Fact>]
-let ``a bound character whose asset declares no portraits is an expected miss`` () =
-    match DialogueRender.tryPortrait (assetsWith None) (castBinding Roster.Akane) Roster.Akane Dialogue.Sad with
+let ``an asset that declares no portraits is an expected miss`` () =
+    match DialogueRender.tryPortrait (assetsWith None) "Akane" Dialogue.Sad with
     | Missed reason -> Assert.Equal(NoPortraits, reason)
     | Resolved _ -> Assert.Fail("an asset with no portraits must not resolve")
 
 [<Fact>]
-let ``a bound character with portraits resolves`` () =
-    match DialogueRender.tryPortrait (assetsWith (Some portraits)) (castBinding Roster.Akane) Roster.Akane Dialogue.Sad with
+let ``an asset named for the speaker with portraits resolves`` () =
+    match DialogueRender.tryPortrait (assetsWith (Some portraits)) "Akane" Dialogue.Sad with
     | Resolved _ -> ()
     | Missed reason -> Assert.Fail(sprintf "expected a portrait, got %A" reason)
 
@@ -194,14 +187,13 @@ let ``layout allocates nothing per call`` () =
 [<Fact>]
 let ``tryPortrait allocates nothing per call`` () =
     let assets = assetsWith (Some portraits)
-    let cast = castBinding Roster.Akane
     // Both the resolved path and the miss path run every frame a portrait line is shown.
     for _ in 1 .. 1000 do
-        DialogueRender.tryPortrait assets cast Roster.Akane Dialogue.Sad |> ignore
-        DialogueRender.tryPortrait assets emptyCast Roster.Akane Dialogue.Sad |> ignore
+        DialogueRender.tryPortrait assets "Akane" Dialogue.Sad |> ignore
+        DialogueRender.tryPortrait assets "Nobody" Dialogue.Sad |> ignore
     let before = System.GC.GetAllocatedBytesForCurrentThread()
     for _ in 1 .. 10000 do
-        DialogueRender.tryPortrait assets cast Roster.Akane Dialogue.Sad |> ignore
-        DialogueRender.tryPortrait assets emptyCast Roster.Akane Dialogue.Sad |> ignore
+        DialogueRender.tryPortrait assets "Akane" Dialogue.Sad |> ignore
+        DialogueRender.tryPortrait assets "Nobody" Dialogue.Sad |> ignore
     let after = System.GC.GetAllocatedBytesForCurrentThread()
     Assert.Equal(0L, after - before)

@@ -26,8 +26,7 @@ let deleteRef (shared: SharedState.SharedState) (state: byref<GameplayState.Game
         | EntityKind.Waypoint -> WaypointDelete (ref, Zone.captureWaypoint zone ref)
         | EntityKind.Trigger -> TriggerDelete (ref, Zone.captureTrigger zone ref)
         | EntityKind.Environment -> invalidOp "deleteRef: the environment is not an addressable entity"
-    // Through the state-level runner, so an actor's delete drops its cast-index entry where its undo/redo
-    // restores it (spec 063), rather than in a second place that could drift.
+    // Through the state-level runner so undo/redo reverse it in one place.
     do History.commit shared &state cmd
     if state.Editor.Selection = Some ref then
         state.Editor <- { state.Editor with Selection = None; Drag = None }

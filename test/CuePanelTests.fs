@@ -54,19 +54,19 @@ let rec private describe (cue: Cue) : string =
     | AddZone z -> sprintf "AddZone(%s)" (Place.placeName z)
     | RemoveZone z -> sprintf "RemoveZone(%s)" (Place.placeName z)
     | PreloadZone z -> sprintf "PreloadZone(%s)" (Place.placeName z)
-    | SetActor (p, c, l, w) -> sprintf "SetActor(%s,%s,%s,%s)" (Place.placeName p) (Roster.characterName c) (Casting.lookName l) w
-    | RemoveActor c -> sprintf "RemoveActor(%s)" (Roster.characterName c)
-    | Animate (c, clip, _, d) -> sprintf "Animate(%s,%s,%g)" (Roster.characterName c) clip d
-    | CrossFade (c, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%g)" (Roster.characterName c) f t d
-    | Morph (c, m, _, d) -> sprintf "Morph(%s,%s,%g)" (Roster.characterName c) m d
-    | CrossMorph (c, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%g)" (Roster.characterName c) f t d
-    | BlendState (c, morph, f, t, _, _, _, _, _) -> sprintf "Blend(%s,%b,%s,%s)" (Roster.characterName c) morph f t
-    | MoveActor (c, p, _, mv, idl) -> sprintf "MoveActor(%s,%s,%s,%s)" (Roster.characterName c) p mv idl
-    | MoveActorState (c, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" (Roster.characterName c)
-    | RotateActor (c, w, d) -> sprintf "RotateActor(%s,%s,%g)" (Roster.characterName c) w d
-    | RotateActorState (c, _, _, _, _) -> sprintf "RotateActor(%s)" (Roster.characterName c)
-    | EnablePlayer c -> sprintf "EnablePlayer(%s)" (Roster.characterName c)
-    | DisablePlayer c -> sprintf "DisablePlayer(%s)" (Roster.characterName c)
+    | AddActor (p, a, asset, w) -> sprintf "AddActor(%s,%s,%s,%s)" (Place.placeName p) a asset w
+    | RemoveActor a -> sprintf "RemoveActor(%s)" a
+    | Animate (a, clip, _, d) -> sprintf "Animate(%s,%s,%g)" a clip d
+    | CrossFade (a, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%g)" a f t d
+    | Morph (a, m, _, d) -> sprintf "Morph(%s,%s,%g)" a m d
+    | CrossMorph (a, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%g)" a f t d
+    | BlendState (a, _, _, morph, f, t, _, _, _, _, _) -> sprintf "Blend(%s,%b,%s,%s)" a morph f t
+    | MoveActor (a, p, _, mv, idl) -> sprintf "MoveActor(%s,%s,%s,%s)" a p mv idl
+    | MoveActorState (a, _, _, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" a
+    | RotateActor (a, w, d) -> sprintf "RotateActor(%s,%s,%g)" a w d
+    | RotateActorState (a, _, _, _, _, _, _) -> sprintf "RotateActor(%s)" a
+    | EnablePlayer a -> sprintf "EnablePlayer(%s)" a
+    | DisablePlayer a -> sprintf "DisablePlayer(%s)" a
     | EnableTrigger (p, t) -> sprintf "EnableTrigger(%s,%s)" (Place.placeName p) t
     | DisableTrigger (p, t) -> sprintf "DisableTrigger(%s,%s)" (Place.placeName p) t
     | SetCamera w -> sprintf "Camera(%s)" w
@@ -100,7 +100,6 @@ let private sharedState () : SharedState.SharedState =
 
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = assets
-      Cast = { Casting.Bindings = Dictionary() }
       Advents = Set.empty }
 
 /// An actor placed directly in a zone, its renderer left default: enough for a `Transform` step, which rebuilds
@@ -114,7 +113,7 @@ let private placedActor (name: string) : Actor =
           Selectable = true
           Draggable = true }
 
-    { State = { Base = baseEntity; AssetId = ""; ShowCollider = false; Cast = None }
+    { State = { Base = baseEntity; AssetId = ""; ShowCollider = false }
       Physics = None
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 
@@ -371,28 +370,29 @@ let ``only the text-bearing kinds carry text, and writing it replaces exactly th
     Assert.True(raises (fun () -> withText (Wait 1.0) "x" |> ignore))
 
 [<Fact>]
-let ``the actor ops render, and their chooser writes replace the place, the character, the look and the waypoint`` () =
+let ``the actor ops render, and their chooser writes replace the place, the name, the asset and the waypoint`` () =
     let labelOf (cue: Cue) : string = (List.head (rows cue)).Label
-    let set = SetActor(Place.Island, Roster.Aiko, Casting.Look.SchoolUniform, "door")
-    Assert.Equal("Set actor: Aiko/SchoolUniform in Island @ door", labelOf set)
-    Assert.Equal("Remove actor: Akane", labelOf (RemoveActor Roster.Akane))
+    let set = AddActor(Place.Island, "Aiko", "aiko", "door")
+    Assert.Equal("Add actor: Aiko/aiko in Island @ door", labelOf set)
+    Assert.Equal("Remove actor: Akane", labelOf (RemoveActor "Akane"))
 
-    // the place, the character and the look are separate writes; each preserves the rest
-    Assert.Equal("SetActor(Island,Akane,Casual,door)", describe (withLook Casting.Look.Casual (withCharacter Roster.Akane (withPlace Place.Island set))))
-    Assert.Equal("SetActor(Island,Aiko,SchoolUniform,atrium)", describe (withText set "atrium"))
-    // the set op's waypoint is the text a caller's field edits
-    Assert.Equal(ValueSome "door", textOf set)
+    // the place, the name, the asset and the waypoint are separate writes; each preserves the rest
+    Assert.Equal("AddActor(Island,Akane,casual,door)", describe (withAsset "casual" (withActor "Akane" (withPlace Place.Island set))))
+    Assert.Equal("AddActor(Island,Aiko,aiko,atrium)", describe (withText2 set "atrium"))
+    // the add op's first text field names the actor; its second is the waypoint
+    Assert.Equal(ValueSome "Aiko", textOf set)
+    Assert.Equal(ValueSome "door", textOf2 set)
 
-    // the remove op carries only a character, so a place write or a look write on it is a bug
-    Assert.Equal("RemoveActor(Akane)", describe (withCharacter Roster.Akane (RemoveActor Roster.Aiko)))
-    Assert.True(raises (fun () -> withPlace Place.Island (RemoveActor Roster.Aiko) |> ignore))
-    Assert.True(raises (fun () -> withLook Casting.Look.Casual (RemoveActor Roster.Aiko) |> ignore))
+    // the remove op carries only a name, so a place write or an asset write on it is a bug
+    Assert.Equal("RemoveActor(Akane)", describe (withActor "Akane" (RemoveActor "Aiko")))
+    Assert.True(raises (fun () -> withPlace Place.Island (RemoveActor "Aiko") |> ignore))
+    Assert.True(raises (fun () -> withAsset "casual" (RemoveActor "Aiko") |> ignore))
 
 [<Fact>]
 let ``an exposit's text and presentation are written independently`` () =
     // the panel edits the line's text and its presentation as two separate writes, so each preserves the
     // other; the presentation is the closed `Dialogue.Kind`, so a portrait line always keeps its pair
-    let portrait = Dialogue.Kind.PortraitDialogue(Roster.Akane, Dialogue.Emotion.Angry)
+    let portrait = Dialogue.Kind.PortraitDialogue("Akane", Dialogue.Emotion.Angry)
     let kindOf (cue: Cue) : Dialogue.Kind =
         match cue with
         | Exposit (_, k) -> k
@@ -675,32 +675,32 @@ let ``the trigger inline editor keeps its own selection and text buffer`` () =
 [<Fact>]
 let ``the blend, motion and player ops render, and their writes replace their fields`` () =
     let labelOf (cue: Cue) : string = (List.head (rows cue)).Label
-    Assert.Equal("Animate: Jog", labelOf (Animate(Roster.Aiko, "Jog", 1.0f, 1.0)))
-    Assert.Equal("Cross fade: Idle -> Jog", labelOf (CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 1.0)))
-    Assert.Equal("Morph: Smile", labelOf (Morph(Roster.Aiko, "Smile", 1.0f, 1.0)))
-    Assert.Equal("Cross morph: A -> B", labelOf (CrossMorph(Roster.Aiko, "A", "B", 1.0f, 1.0)))
-    Assert.Equal("Move actor: Aiko", labelOf (MoveActor(Roster.Aiko, "route", 3.5, "Jog", "Idle")))
-    Assert.Equal("Rotate actor: Aiko", labelOf (RotateActor(Roster.Aiko, "door", 1.0)))
-    Assert.Equal("Enable player: Aiko", labelOf (EnablePlayer Roster.Aiko))
-    Assert.Equal("Disable player: Aiko", labelOf (DisablePlayer Roster.Aiko))
+    Assert.Equal("Animate: Jog", labelOf (Animate("Aiko", "Jog", 1.0f, 1.0)))
+    Assert.Equal("Cross fade: Idle -> Jog", labelOf (CrossFade("Aiko", "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal("Morph: Smile", labelOf (Morph("Aiko", "Smile", 1.0f, 1.0)))
+    Assert.Equal("Cross morph: A -> B", labelOf (CrossMorph("Aiko", "A", "B", 1.0f, 1.0)))
+    Assert.Equal("Move actor: Aiko", labelOf (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")))
+    Assert.Equal("Rotate actor: Aiko", labelOf (RotateActor("Aiko", "door", 1.0)))
+    Assert.Equal("Enable player: Aiko", labelOf (EnablePlayer "Aiko"))
+    Assert.Equal("Disable player: Aiko", labelOf (DisablePlayer "Aiko"))
 
-    // the character chooser writes the character, keeping every other field
-    Assert.Equal("Animate(Akane,Jog,1)", describe (withCharacter Roster.Akane (Animate(Roster.Aiko, "Jog", 1.0f, 1.0))))
-    Assert.Equal("DisablePlayer(Akane)", describe (withCharacter Roster.Akane (DisablePlayer Roster.Aiko)))
+    // the actor chooser writes the name, keeping every other field
+    Assert.Equal("Animate(Akane,Jog,1)", describe (withActor "Akane" (Animate("Aiko", "Jog", 1.0f, 1.0))))
+    Assert.Equal("DisablePlayer(Akane)", describe (withActor "Akane" (DisablePlayer "Aiko")))
     // two-field ops: the first text field and the second write independently
-    Assert.Equal("CrossFade(Aiko,Walk,Jog,1)", describe (withText (CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 1.0)) "Walk"))
-    Assert.Equal("CrossFade(Aiko,Idle,Walk,1)", describe (withText2 (CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 1.0)) "Walk"))
-    Assert.Equal(ValueSome "Idle", textOf (CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 1.0)))
-    Assert.Equal(ValueSome "Jog", textOf2 (CrossFade(Roster.Aiko, "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal("CrossFade(Aiko,Walk,Jog,1)", describe (withText (CrossFade("Aiko", "Idle", "Jog", 1.0f, 1.0)) "Walk"))
+    Assert.Equal("CrossFade(Aiko,Idle,Walk,1)", describe (withText2 (CrossFade("Aiko", "Idle", "Jog", 1.0f, 1.0)) "Walk"))
+    Assert.Equal(ValueSome "Idle", textOf (CrossFade("Aiko", "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal(ValueSome "Jog", textOf2 (CrossFade("Aiko", "Idle", "Jog", 1.0f, 1.0)))
     // the move's path is the waypoint writer's, and its two clips are the two text fields
-    Assert.Equal("MoveActor(Aiko,atrium,Jog,Idle)", describe (withWaypoint "atrium" (MoveActor(Roster.Aiko, "route", 3.5, "Jog", "Idle"))))
-    Assert.Equal(ValueSome "Jog", textOf (MoveActor(Roster.Aiko, "route", 3.5, "Jog", "Idle")))
-    Assert.Equal(ValueSome "Idle", textOf2 (MoveActor(Roster.Aiko, "route", 3.5, "Jog", "Idle")))
-    Assert.Equal("MoveActor(Aiko,route,Walk,Idle)", describe (withText (MoveActor(Roster.Aiko, "route", 3.5, "Jog", "Idle")) "Walk"))
+    Assert.Equal("MoveActor(Aiko,atrium,Jog,Idle)", describe (withWaypoint "atrium" (MoveActor("Aiko", "route", 3.5, "Jog", "Idle"))))
+    Assert.Equal(ValueSome "Jog", textOf (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")))
+    Assert.Equal(ValueSome "Idle", textOf2 (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")))
+    Assert.Equal("MoveActor(Aiko,route,Walk,Idle)", describe (withText (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")) "Walk"))
     // the rotate op names a waypoint, not a text field
-    Assert.Equal(ValueNone, textOf (RotateActor(Roster.Aiko, "door", 1.0)))
-    Assert.Equal(ValueNone, textOf2 (RotateActor(Roster.Aiko, "door", 1.0)))
-    Assert.Equal("RotateActor(Aiko,atrium,1)", describe (withWaypoint "atrium" (RotateActor(Roster.Aiko, "door", 1.0))))
+    Assert.Equal(ValueNone, textOf (RotateActor("Aiko", "door", 1.0)))
+    Assert.Equal(ValueNone, textOf2 (RotateActor("Aiko", "door", 1.0)))
+    Assert.Equal("RotateActor(Aiko,atrium,1)", describe (withWaypoint "atrium" (RotateActor("Aiko", "door", 1.0))))
 
 [<Fact>]
 let ``the trigger toggles and print render, and their writes replace their fields`` () =

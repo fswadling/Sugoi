@@ -24,22 +24,6 @@ let commit (shared: SharedState.SharedState) (state: byref<GameplayState.Gamepla
 
 // ── the panel ──
 
-/// The cast characters a registered scenario contains, as a short tag list, or `""` when it holds none — the
-/// shape the Outliner's zone rows use. Read from the stored zones' actors' authored roles (FR-013), so a
-/// scenario's tags are its own contents and not the live scene's; an actor that is not in the cast contributes
-/// nothing, exactly as in the Outliner. Pure, so it is asserted headlessly.
-let actorTags (contents: ScenarioContents) : string =
-    let members =
-        contents.Zones
-        |> Map.toSeq
-        |> Seq.collect (fun (_, zone) -> zone.Actors)
-        |> Seq.choose (fun actor -> actor.Cast)
-        |> Seq.map Roster.characterName
-        |> Seq.distinct
-        |> Seq.sort
-        |> Seq.toArray
-    if members.Length = 0 then "" else "[" + System.String.Join(", ", members) + "]"
-
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
     do ImGui.beginWindow("Scenario", System.IntPtr.Zero, 0) |> ignore
 
@@ -74,14 +58,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         if ImGui.smallButton "Clear" then
             do commit shared &state scenario None
         do ImGui.endDisabled()
-
-        // Who the scenario contains, as tags (FR-013): the cast characters across its zones, so a row answers
-        // "who is in this" without opening anything. Drawn last, as the Outliner's zone rows do.
-        match registered with
-        | Some contents when actorTags contents <> "" ->
-            do ImGui.sameLine(0.0f, 8.0f)
-            do ImGui.text (actorTags contents)
-        | _ -> ()
 
         do ImGui.popId()
 

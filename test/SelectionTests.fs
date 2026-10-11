@@ -26,7 +26,6 @@ let private entity (name: string) : Entity =
 let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Cast = { Casting.Bindings = Dictionary() }
       Advents = Set.empty }
 
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
@@ -41,7 +40,6 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       ZoneRegistry = ZoneRegistry.create ()
       Scenarios = ScenarioRegistry.create ()
       Physics = Physics.create ()
-      Cast = Dictionary<Roster.Character, Place * EntityRef>()
       ActiveZone = Place.start
       Editor = EditorState.create ()
       Editing = true
@@ -339,8 +337,7 @@ let ``the collider overlay is recorded with the actor and is not an undo step`` 
         zone.Actors.Add({ State =
                             { Base = entity "hero"
                               AssetId = "character"
-                              ShowCollider = false
-                              Cast = None }
+                              ShowCollider = false }
                           Physics = None
                           Renderer = Unchecked.defaultof<ActorRender.ActorRender> })
     let ref = actorRef handle.Index handle.Generation
@@ -394,8 +391,7 @@ let private playerZone () : Zone.Zone * EntityRef * EntityRef =
         zone.Actors.Add({ State =
                             { Base = entity name
                               AssetId = "character"
-                              ShowCollider = false
-                              Cast = None }
+                              ShowCollider = false }
                           Physics = None
                           Renderer = Unchecked.defaultof<ActorRender.ActorRender> })
     let zone = Zone.create ()

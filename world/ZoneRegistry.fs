@@ -3,12 +3,11 @@ module ZoneRegistry
 // The zone registered at each of the game's places: the config half of the world, and the editor's Zone
 // Registry panel reads all of it (spec 034). The **vocabulary** — the `Place`/`Period` union — is
 // `world/Place.fs` (spec 061), kept separate so the runtime may key its zones by a place without depending
-// on this store, as `Roster` sits apart from `Casting`.
+// on this store.
 //
 // A *place* is one of the game's zones together with one of the variants that zone declares —
-// `Place.ArtRoom Period.Morning`. Each zone's variants are its own union, unlike the cast's single
-// shared `Look`, so two zones declare unrelated sets and there is no shared vocabulary to keep in
-// step. Because a place is a value from a closed union, the registry can be keyed by it: the map is
+// `Place.ArtRoom Period.Morning`. Each zone's variants are its own union, so two zones declare unrelated
+// sets and there is no shared vocabulary to keep in step. Because a place is a value from a closed union, the registry can be keyed by it: the map is
 // sparse, an entry's presence says a zone is registered there, and an absent place is one nobody has
 // registered yet rather than an error.
 //
@@ -55,9 +54,8 @@ let private variantCases (case: UnionCaseInfo) : UnionCaseInfo array =
 /// a variant needs no panel change; computed once, as `Roster.characters` is, so drawing reflects
 /// nothing per frame.
 ///
-/// The names come from the same walk as the tree, deliberately, where `Casting.lookName` matches its
-/// cases by hand. A look's arms number one small union, so a hand-written match earns its keep there;
-/// a place's arms are the product of the zones and their variants, and a second enumeration is the
+/// The names come from the same walk as the tree, deliberately, rather than a hand-written match beside
+/// it: a place's arms are the product of the zones and their variants, and a second enumeration is the
 /// list beside the vocabulary this function exists to avoid.
 let byZone : ZoneGroup list =
     let placeOf (case: UnionCaseInfo) (variant: UnionCaseInfo) : Place =

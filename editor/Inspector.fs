@@ -271,15 +271,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         if ref.Kind = EntityKind.Actor then
             let actor = Zone.captureActor zone ref
 
-            // The character this actor plays (spec 063): authored at spawn and not edited here — changing who
-            // an actor plays is a despawn and a spawn — so it is shown rather than offered. A non-cast actor
-            // (an Asset-Browser spawn) names none.
-            let cast =
-                match actor.Cast with
-                | Some character -> Roster.characterName character
-                | None -> "(none)"
-            do ImGui.text(sprintf "Cast: %s" cast)
-
             let mutable show = actor.ShowCollider
             if ImGui.checkbox("Show Collider", &show) then
                 do Zone.setShowCollider zone ref show

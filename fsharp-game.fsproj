@@ -7,18 +7,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The cast (spec 032), listed FIRST: the engine and the game name one roster, and neither
-         owns it. It consumes nothing and is asset-free, so it sits below the engine — which is
-         what keeps "the engine cannot reference the game" a compile error rather than a
-         convention. -->
-    <Compile Include="cast/Roster.fs" />
+    <!-- The cast (spec 074): the roster is the narrative engine's vocabulary now, so it is listed
+         FIRST among the narrative files. It consumes nothing and is asset-free, which keeps "the
+         engine cannot reference the game" a compile error rather than a convention. -->
+    <Compile Include="narrative/Roster.fs" />
 
     <!-- The narrative engine (spec 025). A source folder in this project, listed before the
-         game's own files: F# compiles in list order, so putting it after the cast and before the
-         game makes "the engine cannot reference the game" a compile error rather than a
-         convention. It also means the engine is compiled into one assembly with no package
-         references of its own, which is what FR-025 asks for: usable with no graphical
-         interface. -->
+         game's own files: F# compiles in list order, so putting it before the game makes "the
+         engine cannot reference the game" a compile error rather than a convention. It also means
+         the engine is compiled into one assembly with no package references of its own, which is
+         what FR-025 asks for: usable with no graphical interface. -->
     <Compile Include="narrative/Vocabulary.fs" />
     <Compile Include="narrative/ParticipantIndex.fs" />
     <Compile Include="narrative/Canonical.fs" />
@@ -55,8 +53,8 @@
          pipeline, one quad batch, and SDL_ttf text. Technology-only — it knows Gpu,
          Texture and the font, and nothing of characters or dialogue. -->
     <Compile Include="render/Ui.fs" />
-    <!-- The dialogue state and its closed vocabulary (spec 038). Only needs the cast,
-         so it sits before the actor and systems modules and stays free of GPU and assets. -->
+    <!-- The dialogue state and its closed vocabulary (spec 038; the speaker became a string in spec 074).
+         Pure — no GPU, no asset, no cast — so it sits before the actor and systems modules. -->
     <Compile Include="world/Dialogue.fs" />
     <Compile Include="world/Actor.fs" />
     <Compile Include="world/ActorAsset.fs" />
@@ -76,10 +74,9 @@
          worker pool. CPU-only; depends on `Gltf` and `Texture`, and is depended on by `Assets`. -->
     <Compile Include="world/AssetLoad.fs" />
     <Compile Include="world/Assets.fs" />
-    <Compile Include="world/Casting.fs" />
-    <!-- The dialogue view (spec 038): the only module that knows the whole chain from a
-         character to the asset's portraits to the atlas. Needs Assets, Casting, Ui and
-         Dialogue, so it sits after them. -->
+    <!-- The dialogue view (spec 074): it resolves a speaker name to an actor asset (by name, through the
+         asset manager's index) and draws that asset's declared portrait. Needs Assets, Ui and Dialogue,
+         so it sits after them. -->
     <Compile Include="world/DialogueRender.fs" />
     <!-- The interact prompt's view (spec 039): the 2D layer's second consumer. Needs only `Ui`,
          so it sits beside the dialogue view. -->
@@ -139,7 +136,6 @@
     <Compile Include="editor/Outliner.fs" />
     <Compile Include="editor/Inspector.fs" />
     <Compile Include="editor/AssetBrowser.fs" />
-    <Compile Include="editor/CastPanel.fs" />
     <!-- The named adventure flags' panel (spec 055): a tab beside the Inspector on the right. It writes
          through `History.commit`, so a toggle is one `Advent` step on the one history. -->
     <Compile Include="editor/AdventPanel.fs" />

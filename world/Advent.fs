@@ -4,7 +4,7 @@ module Advent
 // met Akane". A cue or trigger will branch on membership; the flags are a `Set<Advent>` on
 // `SharedState`, the fact those branches read.
 //
-// A milestone is a **closed union**, not a string, for the reasons `cast/Roster.fs` gives for its
+// A milestone is a **closed union**, not a string, for the reasons `Roster` gives for its
 // cast: a milestone cannot be misspelled, matching on one is exhaustive, and nothing about a
 // milestone's identity is decided by a string comparison. The game's own declaration grows by adding
 // a case, which the build reports every match of — `name` below is an explicit match for that reason.

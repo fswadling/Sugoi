@@ -5,7 +5,7 @@ module Cue
 // down to `Fin` — what is left when a cue finishes, and where it then rolls.
 //
 // The ops with no progress of their own (`Exposit`, `Print`, `SetZone`, `AddZone`, `RemoveZone`, `PreloadZone`,
-// `SetActor`, `RemoveActor`, `EnablePlayer`, `DisablePlayer`, `EnableTrigger`, `DisableTrigger`, `SetCamera`,
+// `AddActor`, `RemoveActor`, `EnablePlayer`, `DisablePlayer`, `EnableTrigger`, `DisableTrigger`, `SetCamera`,
 // `AddAdvent`, `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
 // (`WaitState`'s deadline, `FlyCameraState`'s resolved path, the fade states' captured level, `BlendState`'s
 // captured weights, `MoveActorState`'s spline, `RotateActorState`'s turn). So a case suffixed `State` appears
@@ -14,8 +14,9 @@ module Cue
 // exception: it carries the same `Advent`, existing only to mark a blocking op as begun — spec 056.)
 //
 // Neither names a zone, a screen, an asset or a device: this module depends on `Prime` (for
-// `FDeque`), `System.Numerics`, `Advent` (the closed milestone union) and `Dialogue` (the closed
-// presentation union, which names `Roster`) only, so it loads on its own. The engine that walks it
+// `FDeque`), `System.Numerics`, `Advent` (the closed milestone union), `Dialogue` (the closed
+// presentation union), `Place` (a closed vocabulary) and `SlotMap` (its `Handle`, which the actor
+// `…State` cases carry) only, so it loads on its own. The engine that walks it
 // (`world/CueEngine.fs`) is compiled *after* `state/GameplayState.fs`, because the ops perform
 // their effects on the gameplay state where the walk reaches them (research D3).
 
@@ -23,6 +24,7 @@ open System.Numerics
 open Prime
 open Advent
 open Place
+open SlotMap
 
 // ── The cue — and therefore the run ──
 
@@ -63,37 +65,41 @@ type Cue =
     | AddZone of place: Place
     | RemoveZone of place: Place
     | PreloadZone of place: Place
-    // The actor lifecycle (spec 064): a cue brings a member into a named place and places her at a waypoint
-    // there (`SetActor` — one op for a first placement and a move, unifying odin's add and warp), or takes her
-    // out (`RemoveActor`). Placement names a place and a character; removal names the character alone, because
-    // the runtime cast index (`specs/063`) already knows where she is and she is unique across all zones. Only
-    // the waypoint is a name in the place's zone. Each is a no-progress leaf, and each is a no-op on state it
-    // cannot act on, so a cue re-runs safely.
-    | SetActor of place: Place * character: Roster.Character * look: Casting.Look * waypoint: string
-    | RemoveActor of character: Roster.Character
+    // The actor lifecycle (spec 073): a cue brings an actor into a named place and places her at a waypoint
+    // there (`AddActor` — always a new actor, named for the asset it is built from), or takes her out
+    // (`RemoveActor`). Both name the actor by a **string** — her `Name` — resolved by a scan of the present
+    // places (a name is a label, not an identity). Placement also names a place, an asset and a waypoint; only
+    // the asset and the waypoint are names, in the asset manager and the place's zone. Both are no-progress
+    // leaves and are no-ops on state they cannot act on (an absent place, a missing waypoint, an unknown asset,
+    // or an actor not in the scene), so a re-run is safe — though `AddActor` spawns a fresh actor each time it
+    // is reached with valid state, since a name is a label rather than an identity (spec 072 FR-008).
+    | AddActor of place: Place * actor: string * asset: string * waypoint: string
+    | RemoveActor of actor: string
     // The actor's animation/morph blends (spec 066): drive a slot's weight over a duration. `Animate`/`Morph`
     // move one slot from its current weight to the target; `CrossFade`/`CrossMorph` take one out while another
-    // comes in. They resolve the actor through the index and act in her own zone, active or not — slot weights
-    // are renderer state, not part of the simulation. `BlendState` is the in-flight form, holding the captured
-    // start weights so a blend that begins part-way is correct.
-    | Animate of character: Roster.Character * clip: string * weight: float32 * duration: float
-    | CrossFade of character: Roster.Character * fromClip: string * toClip: string * weight: float32 * duration: float
-    | Morph of character: Roster.Character * morph: string * weight: float32 * duration: float
-    | CrossMorph of character: Roster.Character * fromMorph: string * toMorph: string * weight: float32 * duration: float
-    | BlendState of character: Roster.Character * morph: bool * fromName: string * toName: string * initialFrom: float32 * initialTo: float32 * target: float32 * duration: float * endsAt: float
+    // comes in. They act in the actor's own zone, active or not — slot weights are renderer state, not part of
+    // the simulation. `BlendState` is the in-flight form, holding the captured start weights so a blend that
+    // begins part-way is correct; it also carries the actor's resolved slot (`place` + `handle`), so the step
+    // reuses her instead of scanning by name each tick (`specs/074`).
+    | Animate of actor: string * clip: string * weight: float32 * duration: float
+    | CrossFade of actor: string * fromClip: string * toClip: string * weight: float32 * duration: float
+    | Morph of actor: string * morph: string * weight: float32 * duration: float
+    | CrossMorph of actor: string * fromMorph: string * toMorph: string * weight: float32 * duration: float
+    | BlendState of actor: string * place: Place * handle: Handle * morph: bool * fromName: string * toName: string * initialFrom: float32 * initialTo: float32 * target: float32 * duration: float * endsAt: float
     // The actor's movement (spec 066): drive her body along a waypoint chain (`MoveActor`, turning to face the
     // path and blending a moving clip to an idle clip as she arrives), or turn her in place to face a waypoint
     // (`RotateActor`). Both are **physics-driven** and act only while her zone is the **active** one, so an
-    // obstructed move stops where the collision leaves it. Each `…State` is the in-flight form.
-    | MoveActor of character: Roster.Character * path: string * speed: float * movingClip: string * idleClip: string
-    | MoveActorState of character: Roster.Character * points: Vector3[] * speed: float * duration: float * endsAt: float * initialRotation: Quaternion * finalRotation: Quaternion * blend: float * movingClip: string * idleClip: string
-    | RotateActor of character: Roster.Character * waypoint: string * duration: float
-    | RotateActorState of character: Roster.Character * initialRotation: Quaternion * targetRotation: Quaternion * duration: float * endsAt: float
+    // obstructed move stops where the collision leaves it. Each `…State` is the in-flight form, and each also
+    // carries the actor's resolved slot (`place` + `handle`) so the step reuses her (`specs/074`).
+    | MoveActor of actor: string * path: string * speed: float * movingClip: string * idleClip: string
+    | MoveActorState of actor: string * place: Place * handle: Handle * points: Vector3[] * speed: float * duration: float * endsAt: float * initialRotation: Quaternion * finalRotation: Quaternion * blend: float * movingClip: string * idleClip: string
+    | RotateActor of actor: string * waypoint: string * duration: float
+    | RotateActorState of actor: string * place: Place * handle: Handle * initialRotation: Quaternion * targetRotation: Quaternion * duration: float * endsAt: float
     // The player toggle (spec 066): bind her as the zone's player — the runtime counterpart of the editor's
     // "Set as Player", so the play-mode input drives her and the camera follows — or clear it when she is the
     // player. No progress of their own, and a no-op on state they cannot act on.
-    | EnablePlayer of character: Roster.Character
-    | DisablePlayer of character: Roster.Character
+    | EnablePlayer of actor: string
+    | DisablePlayer of actor: string
     // The trigger toggles (spec 067): arm or disarm a named trigger in a named place — the cross-zone
     // convention (the op names a place, resolved at run time), a no-progress leaf, and a no-op on a place that
     // is not present, a missing trigger, or a redundant toggle. The flag is authored state; the trigger system

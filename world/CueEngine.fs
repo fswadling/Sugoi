@@ -18,6 +18,7 @@ open Entity
 open Maths
 open Advent
 open Place
+open SlotMap
 
 // ── The ops' effects, performed where the walk reaches them ──
 
@@ -114,10 +115,10 @@ let private poseTransform (position: Vector3) (rotation: Quaternion) : Transform
 /// Say why a cue op performed nothing, on stderr (the `Spawning` warning convention). These ops are deliberately
 /// forgiving — a no-op is the right outcome for state the op cannot act on — but a silent one cannot be told from
 /// a working op in the editor, so the reason is named. Called once, where the op begins.
-let private noOp (op: string) (character: Roster.Character) (reason: string) : unit =
-    eprintfn "cue: %s(%s) performs nothing: %s" op (Roster.characterName character) reason
+let private noOp (op: string) (actor: string) (reason: string) : unit =
+    eprintfn "cue: %s(%s) performs nothing: %s" op actor reason
 
-/// The non-actor counterpart of `noOp` (spec 067): a trigger toggle names a place and a trigger, not a character.
+/// The non-actor counterpart of `noOp` (spec 067): a trigger toggle names a place and a trigger, not an actor.
 let private noOpTrigger (op: string) (place: Place) (trigger: string) (reason: string) : unit =
     eprintfn "cue: %s(%s/%s) performs nothing: %s" op (Place.placeName place) trigger reason
 
@@ -131,52 +132,31 @@ let private detachIfInactive (world: Physics.World) (place: Place) (active: Plac
         | Some ph when Physics.isAdded world ph.Body -> do Physics.removeBody world ph.Body
         | _ -> ()
 
-/// Bring `character` into `place` and place her at `transform`: the unified set (spec 064 FR-002, research
-/// D3). A member already in the place is moved; one elsewhere is moved across zones keeping her own art; one
-/// nowhere is spawned from the cast binding for `look`.
-let private setActor
+/// Bring an actor named `actor` into `place`, placed at `transform` and drawn from the discovered actor asset
+/// `asset` (spec 073 FR-003). It never looks for an existing actor: a name is a label, so moving a member is a
+/// removal followed by an add. An `asset` that names no discovered actor asset performs nothing.
+let private addActor
     (shared: SharedState.SharedState)
     (state: byref<GameplayState.GameplayState>)
     (place: Place)
-    (character: Roster.Character)
-    (look: Casting.Look)
+    (actor: string)
+    (asset: string)
     (transform: Transform) : unit =
-    let zone = state.Zones.[place]
-    match GameplayState.tryCastActor state character with
-    | Some (oldPlace, oldRef) when oldPlace <> place ->
-        // Move her across zones: her art is her own, so the op's look is not consulted (spec 064 FR-004).
-        let oldZone = state.Zones.[oldPlace]
-        let actor = Zone.captureActor oldZone oldRef
-        do Zone.removeActor oldZone state.Physics oldRef
-        GameplayState.removeCast &state character
-        let entity = { actor.Base with Transform = transform }
-        let ref = Zone.spawnActor zone state.Physics shared.Assets entity actor.AssetId (Some character)
-        do Zone.setShowCollider zone ref actor.ShowCollider
-        do detachIfInactive state.Physics place state.ActiveZone zone ref
-        GameplayState.addCast &state character place ref
-    | Some (_, ref) ->
-        // Already in this place: the same actor, placed (spec 064 FR-002).
-        do Zone.setTransform zone state.Physics ref transform
-        do detachIfInactive state.Physics place state.ActiveZone zone ref
-    | None ->
-        let slot : Casting.Slot = { Character = character; Look = look }
-        match Casting.tryAsset slot shared.Cast with
-        | None -> do noOp "SetActor" character (sprintf "her look '%s' has no actor asset" (Casting.lookName look)) // no art for the look: nothing (spec 064 FR-004)
-        | Some assetId ->
-        let entity = baseEntity (Roster.characterName character) transform
-        let ref = Zone.spawnActor zone state.Physics shared.Assets entity assetId (Some character)
-        do detachIfInactive state.Physics place state.ActiveZone zone ref
-        GameplayState.addCast &state character place ref
+    if not (shared.Assets.Actors.ContainsKey asset) then
+        do noOp "AddActor" actor (sprintf "no actor asset '%s'" asset)
+    else
 
-/// Take `character` out of the scene, wherever the cast index says she is (spec 064 FR-003). A character not
-/// in the scene is untouched. No place is named: the index is global and one character is at most one actor,
-/// so the place is already known.
-let private removeActor (state: byref<GameplayState.GameplayState>) (character: Roster.Character) : unit =
-    match GameplayState.tryCastActor state character with
-    | None -> do noOp "RemoveActor" character "she is not in the scene"
-    | Some (memberPlace, ref) ->
-    do Zone.removeActor state.Zones.[memberPlace] state.Physics ref
-    GameplayState.removeCast &state character
+    let zone = state.Zones.[place]
+    let entity = baseEntity actor transform
+    let ref = Zone.spawnActor zone state.Physics shared.Assets entity asset
+    do detachIfInactive state.Physics place state.ActiveZone zone ref
+
+/// Take the actor named `actor` out of the scene, wherever the name scan finds her (spec 073 FR-002). An actor
+/// not in the scene is untouched. No place is named: the scan is global and the first match wins.
+let private removeActor (state: byref<GameplayState.GameplayState>) (actor: string) : unit =
+    match GameplayState.tryActorByName state actor with
+    | None -> do noOp "RemoveActor" actor "she is not in the scene"
+    | Some (_, zone, ref) -> do Zone.removeActor zone state.Physics ref
 
 /// Arm or disarm a named trigger in a named place (spec 067): resolve the place (absent is a no-op), the
 /// trigger (`Zone.tryTriggerByName`; a miss is a no-op) and read it; a flag that already holds is a no-op,
@@ -199,19 +179,30 @@ let private setTriggerEnabled (state: byref<GameplayState.GameplayState>) (place
 
 // ── Actor blends and motion (spec 066) ──
 
-/// The live actor a character resolves to, with the place she is in: `None` when she is not in the scene or her
-/// slot is stale. One place both the blends and the motion ops start from.
-let private tryResolveActor (state: byref<GameplayState.GameplayState>) (character: Roster.Character) : (Place * Zone.Zone * EntityRef) option =
-    match GameplayState.tryCastActor state character with
-    | None -> None
-    | Some (place, ref) ->
+/// The live actor named `actor` resolves to, with the place she is in: `None` when she is not in the scene.
+/// One place both the blends and the motion ops start from.
+let private tryResolveActor (state: byref<GameplayState.GameplayState>) (actor: string) : (Place * Zone.Zone * EntityRef) option =
+    GameplayState.tryActorByName state actor
+
+/// The zone a `…State` actor op's actor is in, or none when the op can no longer act: her place is gone, her slot
+/// is dead or recycled, or the slot now holds a different name. O(1) — the place and handle were captured at
+/// `begin*`, so a running move/turn/blend never scans the scene by name (`specs/074`).
+let private tryLiveZone (state: byref<GameplayState.GameplayState>) (name: string) (place: Place) (handle: Handle) : Zone.Zone voption =
+    if not (state.Zones.ContainsKey place) then ValueNone
+    else
+
     let zone = state.Zones.[place]
-    if zone.Actors.IsAlive(handleOf ref) then Some (place, zone, ref) else None
+    if not (zone.Actors.IsAlive handle) then ValueNone
+    else
+
+    let live = &zone.Actors.Get handle
+    if live.State.Base.Name <> name then ValueNone
+    else ValueSome zone
 
 /// The facing an actor takes to look where a waypoint's arrow points. An actor's forward is its local `+Z`
 /// (`Systems.forwardOf`, and the model matrix `ActorRender` reads), while a waypoint's arrow is its own `-Z`
 /// (`editor/Viewport.fs`), so the waypoint's rotation is turned about Y to match. Shared by every op that points
-/// an actor at a waypoint (`SetActor`, `MoveActor`, `RotateActor`) so they agree.
+/// an actor at a waypoint (`AddActor`, `MoveActor`, `RotateActor`) so they agree.
 let private actorFacing (waypointRotation: Quaternion) : Quaternion =
     let arrow = Vector3.Transform(-Vector3.UnitZ, waypointRotation)
     let yaw = System.MathF.Atan2(arrow.X, arrow.Z)
@@ -239,65 +230,65 @@ let private writeBlend (renderer: byref<ActorRender.ActorRender>) (morph: bool) 
 /// Begin a blend: capture the starting weights of the slots the op names and hold a `BlendState`. `Fin` at once
 /// when the actor is not in the scene, or her asset does not define a named clip/morph — a blend no-ops, so a
 /// cue re-runs safely. A duration of zero (or less) is over before it begins, landing on the endpoints.
-let private beginBlend (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (morph: bool) (fromName: string) (toName: string) (target: float32) (duration: float) (now: float) : Cue =
+let private beginBlend (state: byref<GameplayState.GameplayState>) (actor: string) (morph: bool) (fromName: string) (toName: string) (target: float32) (duration: float) (now: float) : Cue =
     let opName = if fromName = toName then (if morph then "Morph" else "Animate") else (if morph then "CrossMorph" else "CrossFade")
     let no reason =
-        do noOp opName character reason
+        do noOp opName actor reason
         Fin
-    match tryResolveActor &state character with
+    match tryResolveActor &state actor with
     | None -> no "she is not in the scene"
-    | Some (_, zone, ref) ->
-    let actor = &zone.Actors.Get(handleOf ref)
+    | Some (place, zone, ref) ->
+    let live = &zone.Actors.Get(handleOf ref)
     let initialFrom =
-        if morph then ActorRender.tryMorphWeight &actor.Renderer fromName
-        else ActorRender.tryClipWeight &actor.Renderer fromName
+        if morph then ActorRender.tryMorphWeight &live.Renderer fromName
+        else ActorRender.tryClipWeight &live.Renderer fromName
     let initialTo =
-        if morph then ActorRender.tryMorphWeight &actor.Renderer toName
-        else ActorRender.tryClipWeight &actor.Renderer toName
+        if morph then ActorRender.tryMorphWeight &live.Renderer toName
+        else ActorRender.tryClipWeight &live.Renderer toName
     match initialFrom, initialTo with
     | Some from, Some to' ->
         let endsAt = now + duration
         if now >= endsAt then
-            do writeBlend &actor.Renderer morph fromName toName from to' target 1.0f
+            do writeBlend &live.Renderer morph fromName toName from to' target 1.0f
             Fin
-        else BlendState(character, morph, fromName, toName, from, to', target, duration, endsAt)
+        else BlendState(actor, place, handleOf ref, morph, fromName, toName, from, to', target, duration, endsAt)
     | None, _ -> no (sprintf "her asset has no %s '%s'" (if morph then "morph" else "clip") fromName)
     | _, None -> no (sprintf "her asset has no %s '%s'" (if morph then "morph" else "clip") toName)
 
 /// Step a blend at `now`, writing toward the target and answering whether it is over (exactly on the endpoints
 /// at the deadline). An actor that has left the scene ends the blend.
-let private stepBlend (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (morph: bool) (fromName: string) (toName: string) (initialFrom: float32) (initialTo: float32) (target: float32) (duration: float) (endsAt: float) (now: float) : bool =
-    match tryResolveActor &state character with
-    | None -> true
-    | Some (_, zone, ref) ->
-    let actor = &zone.Actors.Get(handleOf ref)
+let private stepBlend (state: byref<GameplayState.GameplayState>) (actor: string) (place: Place) (handle: Handle) (morph: bool) (fromName: string) (toName: string) (initialFrom: float32) (initialTo: float32) (target: float32) (duration: float) (endsAt: float) (now: float) : bool =
+    match tryLiveZone &state actor place handle with
+    | ValueNone -> true
+    | ValueSome zone ->
+    let live = &zone.Actors.Get handle
     if now >= endsAt then
-        do writeBlend &actor.Renderer morph fromName toName initialFrom initialTo target 1.0f
+        do writeBlend &live.Renderer morph fromName toName initialFrom initialTo target 1.0f
         true
     else
         let t = float32 ((now - (endsAt - duration)) / duration)
-        do writeBlend &actor.Renderer morph fromName toName initialFrom initialTo target t
+        do writeBlend &live.Renderer morph fromName toName initialFrom initialTo target t
         false
 
 /// Begin a move: resolve the actor (her zone must be the **active** one — motion is active-zone only), her body
 /// and the named path (a single waypoint is a straight walk to it; positive speed). Build the spline from her
 /// current position through the chain, preset the moving clip, and hold a `MoveActorState`. Anything unresolved
 /// is `Fin`. The asset must define both clips, as an unknown clip name no-ops.
-let private beginMove (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (path: string) (speed: float) (movingClip: string) (idleClip: string) (now: float) : Cue =
+let private beginMove (state: byref<GameplayState.GameplayState>) (actor: string) (path: string) (speed: float) (movingClip: string) (idleClip: string) (now: float) : Cue =
     let no reason =
-        do noOp "MoveActor" character reason
+        do noOp "MoveActor" actor reason
         Fin
     if speed <= 0.0 then no (sprintf "speed %g is not positive" speed) else
-    match tryResolveActor &state character with
+    match tryResolveActor &state actor with
     | None -> no "she is not in the scene"
     | Some (place, zone, ref) ->
     if place <> state.ActiveZone then no (sprintf "her zone '%s' is not the active zone '%s'" (Place.placeName place) (Place.placeName state.ActiveZone)) else
-    let actor = &zone.Actors.Get(handleOf ref)
-    match actor.Physics with
+    let live = &zone.Actors.Get(handleOf ref)
+    match live.Physics with
     | None -> no "she has no physics body"
     | Some _ ->
-    let moving = ActorRender.tryClipWeight &actor.Renderer movingClip
-    let idle = ActorRender.tryClipWeight &actor.Renderer idleClip
+    let moving = ActorRender.tryClipWeight &live.Renderer movingClip
+    let idle = ActorRender.tryClipWeight &live.Renderer idleClip
     if moving.IsNone then no (sprintf "her asset has no clip '%s'" movingClip) else
     if idle.IsNone then no (sprintf "her asset has no clip '%s'" idleClip) else
     match Zone.tryWaypointByName zone path with
@@ -307,7 +298,7 @@ let private beginMove (state: byref<GameplayState.GameplayState>) (character: Ro
     // is the spline's start), so there is no "fewer than two" rule — only a path with no length no-ops.
     let chain = Zone.waypointChain zone start
     let chainPositions = Array.zeroCreate chain.Length
-    let mutable finalRotation = actor.State.Base.Transform.Rotation
+    let mutable finalRotation = live.State.Base.Transform.Rotation
     let mutable resolved = true
     for i in 0 .. chain.Length - 1 do
         match Zone.tryEntityAt zone chain.[i] with
@@ -316,8 +307,8 @@ let private beginMove (state: byref<GameplayState.GameplayState>) (character: Ro
             finalRotation <- actorFacing entity.Transform.Rotation
         | None -> resolved <- false
     if not resolved then no "a waypoint on the path is not alive" else
-    let initialRotation = actor.State.Base.Transform.Rotation
-    let actorPosition = actor.State.Base.Transform.Position
+    let initialRotation = live.State.Base.Transform.Rotation
+    let actorPosition = live.State.Base.Transform.Position
     // Walk from where she stands: prepend her position unless it is already the chain's start. A duplicated
     // point gives the spline a degenerate first segment (its endpoint tangent bends the curve backwards), so
     // the walk would stall; skipping it makes "already at the start" walk the chain itself.
@@ -330,22 +321,22 @@ let private beginMove (state: byref<GameplayState.GameplayState>) (character: Ro
     let blend = min 0.25 (duration * 0.3)
     // She slerps from her own facing to the path's end facing — the last waypoint's arrow read as an actor
     // facing — so a waypoint the author turned to face the path leaves her facing it.
-    do ActorRender.setClipWeight &actor.Renderer movingClip 1.0f
-    do ActorRender.setClipWeight &actor.Renderer idleClip 0.0f
-    MoveActorState(character, points, speed, duration, now + duration, initialRotation, finalRotation, blend, movingClip, idleClip)
+    do ActorRender.setClipWeight &live.Renderer movingClip 1.0f
+    do ActorRender.setClipWeight &live.Renderer idleClip 0.0f
+    MoveActorState(actor, place, handleOf ref, points, speed, duration, now + duration, initialRotation, finalRotation, blend, movingClip, idleClip)
 
 /// Step a move at `now`: physics-drive the body toward the spline point for this instant (horizontal velocity
 /// at `speed`, vertical preserved so gravity still acts), slerp her facing from her own to the path's end facing,
 /// and blend the moving clip down to idle over the final `blend` seconds. Answers whether it is over; at the
 /// deadline she stops where she is — the last waypoint when unobstructed. An actor that has left the scene, or
 /// whose zone is no longer active, ends it.
-let private stepMove (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (points: Vector3[]) (speed: float) (duration: float) (endsAt: float) (initialRotation: Quaternion) (finalRotation: Quaternion) (blend: float) (movingClip: string) (idleClip: string) (now: float) : bool =
-    match tryResolveActor &state character with
-    | None -> true
-    | Some (place, zone, ref) ->
+let private stepMove (state: byref<GameplayState.GameplayState>) (actor: string) (place: Place) (handle: Handle) (points: Vector3[]) (speed: float) (duration: float) (endsAt: float) (initialRotation: Quaternion) (finalRotation: Quaternion) (blend: float) (movingClip: string) (idleClip: string) (now: float) : bool =
+    match tryLiveZone &state actor place handle with
+    | ValueNone -> true
+    | ValueSome zone ->
     if place <> state.ActiveZone then true else
-    let actor = &zone.Actors.Get(handleOf ref)
-    match actor.Physics with
+    let live = &zone.Actors.Get handle
+    match live.Physics with
     | None -> true
     | Some attachment ->
     let body = attachment.Body
@@ -354,12 +345,12 @@ let private stepMove (state: byref<GameplayState.GameplayState>) (character: Ros
     if now >= endsAt then
         do Physics.setBodyVelocity state.Physics body (Vector3(0.0f, vertical, 0.0f))
         do Physics.setBodyRotation state.Physics body finalRotation
-        do ActorRender.setClipWeight &actor.Renderer movingClip 0.0f
-        do ActorRender.setClipWeight &actor.Renderer idleClip 1.0f
+        do ActorRender.setClipWeight &live.Renderer movingClip 0.0f
+        do ActorRender.setClipWeight &live.Renderer idleClip 1.0f
         true
     else
         let t = (now - (endsAt - duration)) / duration
-        let (bodyPosition, _) = Physics.getBodyTransform state.Physics body
+        let struct (bodyPosition, _) = Physics.getBodyTransform state.Physics body
         let target = evalSpline points t + offset
         let toward = Vector3(target.X - bodyPosition.X, 0.0f, target.Z - bodyPosition.Z)
         let velocity =
@@ -370,45 +361,45 @@ let private stepMove (state: byref<GameplayState.GameplayState>) (character: Ros
         do Physics.setBodyRotation state.Physics body (Quaternion.Slerp(initialRotation, finalRotation, float32 t))
         let remaining = endsAt - now
         let arrival = if blend <= 0.0 then 0.0f else float32 (max 0.0 (1.0 - remaining / blend))
-        do ActorRender.setClipWeight &actor.Renderer movingClip (1.0f - arrival)
-        do ActorRender.setClipWeight &actor.Renderer idleClip arrival
+        do ActorRender.setClipWeight &live.Renderer movingClip (1.0f - arrival)
+        do ActorRender.setClipWeight &live.Renderer idleClip arrival
         false
 
 /// Begin an in-place turn: resolve the actor (her zone must be active) and the named waypoint, capture her
 /// current facing and the waypoint's, and hold a `RotateActorState`. Anything unresolved is `Fin`.
-let private beginRotate (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (waypoint: string) (duration: float) (now: float) : Cue =
+let private beginRotate (state: byref<GameplayState.GameplayState>) (actor: string) (waypoint: string) (duration: float) (now: float) : Cue =
     let no reason =
-        do noOp "RotateActor" character reason
+        do noOp "RotateActor" actor reason
         Fin
-    match tryResolveActor &state character with
+    match tryResolveActor &state actor with
     | None -> no "she is not in the scene"
     | Some (place, zone, ref) ->
     if place <> state.ActiveZone then no (sprintf "her zone '%s' is not the active zone '%s'" (Place.placeName place) (Place.placeName state.ActiveZone)) else
-    let actor = &zone.Actors.Get(handleOf ref)
-    match actor.Physics with
+    let live = &zone.Actors.Get(handleOf ref)
+    match live.Physics with
     | None -> no "she has no physics body"
     | Some attachment ->
     match waypointPose zone waypoint with
     | None -> no (sprintf "no waypoint named '%s' in '%s'" waypoint (Place.placeName place))
     | Some (_, targetRotation) ->
     let target = actorFacing targetRotation
-    let initialRotation = actor.State.Base.Transform.Rotation
+    let initialRotation = live.State.Base.Transform.Rotation
     let endsAt = now + duration
     if now >= endsAt then
         do Physics.setBodyRotation state.Physics attachment.Body target
         Fin
-    else RotateActorState(character, initialRotation, target, duration, endsAt)
+    else RotateActorState(actor, place, handleOf ref, initialRotation, target, duration, endsAt)
 
 /// Step an in-place turn at `now`, writing the body's rotation and answering whether it is over (exactly on the
 /// waypoint's facing at the deadline). An actor that has left the scene, or whose zone is no longer active, ends
 /// it.
-let private stepRotate (state: byref<GameplayState.GameplayState>) (character: Roster.Character) (initialRotation: Quaternion) (targetRotation: Quaternion) (duration: float) (endsAt: float) (now: float) : bool =
-    match tryResolveActor &state character with
-    | None -> true
-    | Some (place, zone, ref) ->
+let private stepRotate (state: byref<GameplayState.GameplayState>) (actor: string) (place: Place) (handle: Handle) (initialRotation: Quaternion) (targetRotation: Quaternion) (duration: float) (endsAt: float) (now: float) : bool =
+    match tryLiveZone &state actor place handle with
+    | ValueNone -> true
+    | ValueSome zone ->
     if place <> state.ActiveZone then true else
-    let actor = &zone.Actors.Get(handleOf ref)
-    match actor.Physics with
+    let live = &zone.Actors.Get handle
+    match live.Physics with
     | None -> true
     | Some attachment ->
     if now >= endsAt then
@@ -475,20 +466,20 @@ let rec advance
             | None -> ()
         ValueSome Fin
 
-    | SetActor (place, character, look, waypoint) ->
-        // a place that is not present, or a waypoint the place does not hold, is a no-op (spec 064 FR-006)
+    | AddActor (place, actor, asset, waypoint) ->
+        // a place that is not present, or a waypoint the place does not hold, is a no-op (spec 073 FR-003)
         if not (state.Zones.ContainsKey place) then
-            do noOp "SetActor" character (sprintf "place '%s' is not present" (Place.placeName place))
+            do noOp "AddActor" actor (sprintf "place '%s' is not present" (Place.placeName place))
             ValueSome Fin
         else
         let zone = state.Zones.[place]
         match waypointPose zone waypoint with
-        | Some (position, rotation) -> do setActor shared &state place character look (poseTransform position (actorFacing rotation))
-        | None -> do noOp "SetActor" character (sprintf "no waypoint named '%s' in '%s'" waypoint (Place.placeName place))
+        | Some (position, rotation) -> do addActor shared &state place actor asset (poseTransform position (actorFacing rotation))
+        | None -> do noOp "AddActor" actor (sprintf "no waypoint named '%s' in '%s'" waypoint (Place.placeName place))
         ValueSome Fin
 
-    | RemoveActor character ->
-        do removeActor &state character
+    | RemoveActor actor ->
+        do removeActor &state actor
         ValueSome Fin
 
     | EnableTrigger (place, trigger) ->
@@ -499,54 +490,54 @@ let rec advance
         do setTriggerEnabled &state place trigger false
         ValueSome Fin
 
-    | Animate (character, clip, weight, duration) ->
-        ValueSome(beginBlend &state character false clip clip weight duration now)
+    | Animate (actor, clip, weight, duration) ->
+        ValueSome(beginBlend &state actor false clip clip weight duration now)
 
-    | CrossFade (character, fromClip, toClip, weight, duration) ->
-        ValueSome(beginBlend &state character false fromClip toClip weight duration now)
+    | CrossFade (actor, fromClip, toClip, weight, duration) ->
+        ValueSome(beginBlend &state actor false fromClip toClip weight duration now)
 
-    | Morph (character, morph, weight, duration) ->
-        ValueSome(beginBlend &state character true morph morph weight duration now)
+    | Morph (actor, morph, weight, duration) ->
+        ValueSome(beginBlend &state actor true morph morph weight duration now)
 
-    | CrossMorph (character, fromMorph, toMorph, weight, duration) ->
-        ValueSome(beginBlend &state character true fromMorph toMorph weight duration now)
+    | CrossMorph (actor, fromMorph, toMorph, weight, duration) ->
+        ValueSome(beginBlend &state actor true fromMorph toMorph weight duration now)
 
-    | BlendState (character, morph, fromName, toName, initialFrom, initialTo, target, duration, endsAt) ->
-        if stepBlend &state character morph fromName toName initialFrom initialTo target duration endsAt now
+    | BlendState (actor, place, handle, morph, fromName, toName, initialFrom, initialTo, target, duration, endsAt) ->
+        if stepBlend &state actor place handle morph fromName toName initialFrom initialTo target duration endsAt now
         then ValueSome Fin
         else ValueNone
 
-    | MoveActor (character, path, speed, movingClip, idleClip) ->
-        ValueSome(beginMove &state character path speed movingClip idleClip now)
+    | MoveActor (actor, path, speed, movingClip, idleClip) ->
+        ValueSome(beginMove &state actor path speed movingClip idleClip now)
 
-    | MoveActorState (character, points, speed, duration, endsAt, initialRotation, finalRotation, blend, movingClip, idleClip) ->
-        if stepMove &state character points speed duration endsAt initialRotation finalRotation blend movingClip idleClip now
+    | MoveActorState (actor, place, handle, points, speed, duration, endsAt, initialRotation, finalRotation, blend, movingClip, idleClip) ->
+        if stepMove &state actor place handle points speed duration endsAt initialRotation finalRotation blend movingClip idleClip now
         then ValueSome Fin
         else ValueNone
 
-    | RotateActor (character, waypoint, duration) ->
-        ValueSome(beginRotate &state character waypoint duration now)
+    | RotateActor (actor, waypoint, duration) ->
+        ValueSome(beginRotate &state actor waypoint duration now)
 
-    | RotateActorState (character, initialRotation, targetRotation, duration, endsAt) ->
-        if stepRotate &state character initialRotation targetRotation duration endsAt now
+    | RotateActorState (actor, place, handle, initialRotation, targetRotation, duration, endsAt) ->
+        if stepRotate &state actor place handle initialRotation targetRotation duration endsAt now
         then ValueSome Fin
         else ValueNone
 
-    | EnablePlayer character ->
+    | EnablePlayer actor ->
         // the runtime counterpart of the editor's "Set as Player": bind her as her own zone's player
-        match tryResolveActor &state character with
+        match tryResolveActor &state actor with
         | Some (_, zone, ref) -> zone.Player <- ValueSome (Systems.playerHandleOf ref)
-        | None -> do noOp "EnablePlayer" character "she is not in the scene"
+        | None -> do noOp "EnablePlayer" actor "she is not in the scene"
         ValueSome Fin
 
-    | DisablePlayer character ->
-        match tryResolveActor &state character with
+    | DisablePlayer actor ->
+        match tryResolveActor &state actor with
         | Some (_, zone, ref) ->
             let handle = Systems.playerHandleOf ref
             match zone.Player with
             | ValueSome current when current = handle -> zone.Player <- ValueNone
-            | _ -> do noOp "DisablePlayer" character "she is not the player"
-        | None -> do noOp "DisablePlayer" character "she is not in the scene"
+            | _ -> do noOp "DisablePlayer" actor "she is not the player"
+        | None -> do noOp "DisablePlayer" actor "she is not in the scene"
         ValueSome Fin
 
     | Wait seconds -> ValueSome(beginWait now seconds)

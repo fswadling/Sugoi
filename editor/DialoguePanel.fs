@@ -2,7 +2,7 @@ module DialoguePanel
 
 // The Dialogue panel: the authoring surface for the dialogue state (FR-009). It writes
 // `state.Dialogue` directly — no command, nothing persisted — so it is a direct-write surface
-// beside the cast binding, the zone registry and the actor animation/morph sections
+// beside the zone registry and the actor animation/morph sections
 // (`docs/EDITOR_DESIGN.md`, D-011).
 //
 // It is a panel of its own rather than a section of the Inspector, because the Inspector's whole
@@ -40,9 +40,8 @@ let private kindName (kind: Kind) : string =
 /// `NotMissed`.
 let private advisory (reason: DialogueRender.MissReason) : string =
     match reason with
-    | DialogueRender.Unbound -> "no actor asset bound for this speaker — assign one in the Cast panel"
-    | DialogueRender.AssetNotLoaded -> "the actor asset bound to this speaker is not loaded"
-    | DialogueRender.NoPortraits -> "the actor asset bound to this speaker declares no portraits"
+    | DialogueRender.NoAsset -> "no actor asset named for this speaker — name her asset after her and declare its portraits"
+    | DialogueRender.NoPortraits -> "the actor asset for this speaker declares no portraits"
     | DialogueRender.TooTallForViewport -> "the line is taller than the viewport and will not be shown"
     | DialogueRender.NotMissed -> ""
 
@@ -69,32 +68,32 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         // pair is written only when the kind actually changes into portrait.
         let alreadyPortrait = match dialogue.Kind with Kind.PortraitDialogue _ -> true | _ -> false
         if selectable "Portrait" alreadyPortrait && not alreadyPortrait then
-            dialogue.Kind <- Kind.PortraitDialogue (List.head Roster.characters, Neutral)
+            let names = Assets.actorNames shared.Assets
+            dialogue.Kind <- Kind.PortraitDialogue (List.tryHead names |> Option.defaultValue "", Neutral)
         do ImGui.endCombo()
 
     // The speaker and the expression are meaningful only for a portrait line, so they are shown
-    // only for that kind: a plain line or a thought has neither.
+    // only for that kind: a plain line or a thought has neither. The speaker is a plain string (the
+    // actor's `Name`), chosen from the discovered actor assets (`specs/074`) — no roster.
     match dialogue.Kind with
-    | Kind.PortraitDialogue (character, emotion) ->
-        if ImGui.beginCombo("Speaker", Roster.characterName character, 0) then
-            for c in Roster.characters do
-                if selectable (Roster.characterName c) (c = character) then
-                    dialogue.Kind <- Kind.PortraitDialogue (c, emotion)
-            do ImGui.endCombo()
+    | Kind.PortraitDialogue (speaker, emotion) ->
+        let names = Assets.actorNames shared.Assets
+        let preview = if speaker = "" then "(none)" else speaker
+        // The speaker may be typed as well as picked, so a line can name a speaker before her asset exists
+        // (`specs/074` FR-009). It reuses the editor's shared transient combo-filter buffer — only one combo is
+        // open at a time.
+        CueTree.filteredNameCombo state.Editor.ComboFilter "Speaker" preview names speaker (fun name ->
+            dialogue.Kind <- Kind.PortraitDialogue (name, emotion))
 
         if ImGui.beginCombo("Expression", emotionName emotion, 0) then
             for e in emotions do
                 if selectable (emotionName e) (e = emotion) then
-                    dialogue.Kind <- Kind.PortraitDialogue (character, e)
+                    dialogue.Kind <- Kind.PortraitDialogue (speaker, e)
             do ImGui.endCombo()
     | _ -> ()
 
-    // Why the configured line would not appear, in the same terms the view left it undrawn: the
-    // authoring-side counterpart of the draw-time miss (FR-005). Asking `DialogueRender` keeps one
-    // definition of "a miss"; measuring goes through `state.Ui`'s cached text slots, so it costs
-    // nothing while the line is unchanged.
     let viewport = ImGui.displaySize()
-    match DialogueRender.missReason shared.Assets shared.Cast &state.Ui viewport.x viewport.y dialogue with
+    match DialogueRender.missReason shared.Assets &state.Ui viewport.x viewport.y dialogue with
     | DialogueRender.NotMissed -> ()
     | reason -> do ImGui.text(advisory reason)
 

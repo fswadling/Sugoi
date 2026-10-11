@@ -64,8 +64,7 @@ let private actor (name: string) : Actor =
               Selectable = true
               Draggable = true }
           AssetId = ""
-          ShowCollider = false
-          Cast = None }
+          ShowCollider = false }
       Physics = None
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 

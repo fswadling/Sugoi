@@ -98,10 +98,21 @@ as an entity edit. A cue drives the same world from its zone ops (`specs/062-zon
 declared place present — streaming its registered template in without entering it — makes a present place
 absent, and preloads a present zone's environment so the later switch is instant. A cue zone change is a
 runtime effect (not an undo step), and each op is a no-op on a place it cannot act on, so a cue is safe to
-run more than once. The cue also drives the **cast** (`specs/064-actor-cue-ops`): `SetActor` brings a member
-into a named place at a named waypoint — one op for a first placement and a move, and across zones, keeping
-her art — and `RemoveActor` takes her out, both resolving the member through the runtime cast index
-(`specs/063-cast-index`). Like the zone ops, each is a runtime effect and a no-op on state it cannot act on.
+run more than once. The cue also drives the **cast** (`specs/072-actor-name-addressing`,
+`specs/073-cue-actor-by-name`): `AddActor` brings an actor into a named place as a **new** actor, built from a
+**discovered actor asset** and given a typed **name**, at a named waypoint — a name is a label, not an identity, so
+a re-run places a second actor — and `RemoveActor` takes her out. Every actor cue op (the lifecycle pair, the
+blends and the motion ops below, and the player toggles) addresses its actor by a plain **string** — her `Name` —
+resolved by a scan of the present places (the same pattern as a waypoint or trigger name), with no role on the
+actor and no index. The editor's actor chooser offers only the place being viewed's live actors, and the
+clip/morph choosers read the chosen actor's asset. An actor op resolves its actor by name **once**, when it
+begins; its in-flight `…State` (a move, a turn, a blend) carries the resolved slot handle and place, so each tick
+is an O(1) slot-map lookup rather than a fresh scan, and the op stays on the actor it began with (`specs/074`).
+`specs/074-retire-cast` then retires the cast outright:
+the look vocabulary, the slot → asset binding, the Cast panel and the roster itself leave the game — the `Character`
+union moves into `narrative/`, and a portrait line's speaker becomes a plain **string**, resolved to her actor asset
+by name in the asset manager. Like the zone ops, each is a runtime effect and a no-op on state it cannot act
+on.
 A third cue family drives an actor's motion and animation (`specs/066-actor-motion-cue-ops`): the blends fade
 a clip or morph slot's weight over a duration (in the actor's own zone, active or not); the movement ops walk
 an actor along a waypoint chain or turn her in place — **physics-driven** (the op writes the body's velocity
@@ -129,9 +140,9 @@ archetypes.
 ## State management
 
 - `Shared_State` holds state the engine itself, or more than one screen, may read: the GPU
-  context, the asset manager, the cast binding (`cast_members`) and the named `advents`. The test is
+  context, the asset manager and the named `advents`. The test is
   **readership** — a member is here because something outside the gameplay screen needs it (the
-  engine reads the GPU context; a journal or inventory screen may present the cast and the flags),
+  engine reads the GPU context; a journal or inventory screen may present a character and the flags),
   not because it is authored or persisted.
 - `Screen_Manager` owns `Shared_State` plus one stateful struct per screen,
   with init/activate/deactivate/update/draw per screen.
@@ -219,15 +230,14 @@ high-school social simulation, in which the player directs drama rather than
 steering relationship meters. Events are committed history; facts are what the
 current rule set says that history currently implies.
 
-- `cast/Roster.fs` — the closed roster of four `Character` cases, and the **one declaration of
-  the cast**: hoisted out of the engine (`specs/032-cast-binding`) so that the engine and the game
-  name the same cast without either owning it. Closed deliberately: a wrong case name does not
-  compile, a misspelled character is not a character, and the cast being fixed is what lets that be
-  a type rather than a table to keep in step. It is asset-free — the game binds a member and a look
-  to an actor asset in `world/Casting.fs`, and nothing here names a portrait, an asset or an actor.
-  The **runtime** cast (`specs/063-cast-index`) is the game's, not the roster's: an actor records the
-  character it plays (`ActorState.Cast`, authored), and `GameplayState` indexes it by `Character` — one
-  character at most across all zones — so a cue addresses an actor by who it is.
+- `narrative/Roster.fs` — the closed roster of four `Character` cases, the narrative **engine's**
+  vocabulary (`specs/074-retire-cast` moved it in from the old `cast/` cluster). Closed deliberately: a
+  wrong case name does not compile, a misspelled character is not a character, and the cast being fixed
+  is what lets that be a type rather than a table to keep in step. It is asset-free: nothing here names a
+  portrait, an asset or an actor. The game no longer names the cast at all — a cue and a portrait line
+  address their actor by a plain **string** (her `Name`), resolved by a scan of the present places
+  (`specs/072`, `specs/073`) or the asset manager (`specs/074`), with no role on the actor and no index. A
+  name is a label, not an identity, so duplicates are permitted and resolve to the first match.
 - `narrative/Vocabulary.fs` — one closed `Event` DU (8 cases), one closed `Fact`
   DU (7 cases), `FactKind` (the constructs as a value, which is what the index and a rule's reads are
   keyed by), and `Trait = Shy | HotHeaded`. The roster is `Roster`'s rather than this module's.
@@ -267,16 +277,16 @@ Two properties the design depends on:
   replaying the same event stream through the new rules, not editing the past;
   there is no way to assert a fact or to alter a committed event at all.
 
-`cast/` is listed **first** in `fsharp-game.fsproj`, with `narrative/` immediately after it and
-ahead of the game's own files. F# compiles in list order, so the roster sits low enough that the
-engine can see it, while the engine still cannot reference the game — a compile error rather than
-a convention. That is why the compile order departs from the `core → … → Engine` sequence
+`narrative/Roster.fs` is listed **first** among the narrative files in `fsharp-game.fsproj`, with the
+rest of `narrative/` after it and ahead of the game's own files. F# compiles in list order, so the roster
+sits low enough that the engine can see it, while the engine still cannot reference the game — a compile
+error rather than a convention. That is why the compile order departs from the `core → … → Engine` sequence
 `docs/PROJECT_STRUCTURE.md` records.
 
 **Open: is the narrative engine a roadmap phase of its own, or part of phase
 10?** `specs/025-narrative-core` declines to settle whether it becomes a new
 phase in `docs/ROADMAP.md` or extends phase 10 (story primitives — `world/`'s
-waypoints, triggers, advent and cast); the roadmap's phase table has no entry for
+waypoints, triggers and advent); the roadmap's phase table has no entry for
 the narrative engine today.
 
 ## F# port decisions

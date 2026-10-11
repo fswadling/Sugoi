@@ -56,8 +56,7 @@ let private actor (name: string) : Actor =
     { State =
         { Base = entity name
           AssetId = "character"
-          ShowCollider = false
-          Cast = None }
+          ShowCollider = false }
       Physics = None
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 
@@ -537,7 +536,7 @@ let ``moving a prop updates its body in place instead of rebuilding`` () =
 
     // Same body (never destroyed/rebuilt), now at the new position.
     Assert.Equal<BodyId>(body, propBody zone ref)
-    let (position, _) = Physics.getBodyTransform world body
+    let struct (position, _) = Physics.getBodyTransform world body
     Assert.Equal(moved.Position, position)
     Assert.Equal<EntityRef>(ref, zone.BodyToEntity.[body])
     Assert.Equal(moved.Position, (Zone.tryEntityAt zone ref).Value.Transform.Position)
@@ -554,7 +553,7 @@ let ``rotating a prop updates its body in place instead of rebuilding`` () =
     Zone.setTransform zone world ref rotated
 
     Assert.Equal<BodyId>(body, propBody zone ref)
-    let (_, rotation) = Physics.getBodyTransform world body
+    let struct (_, rotation) = Physics.getBodyTransform world body
     Assert.True(MathF.Abs(Quaternion.Dot(rotated.Rotation, rotation)) > 0.9999f, sprintf "expected %A, got %A" rotated.Rotation rotation)
 
 [<Fact>]

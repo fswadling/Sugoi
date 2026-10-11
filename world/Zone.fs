@@ -215,7 +215,7 @@ let capsuleCenter (transform: Transform) (collider: CapsuleCollider) : Vector3 =
 let private capsuleBody (world: Physics.World) (collider: CapsuleCollider) (transform: Transform) : Physics.BodyId =
     // `createCapsuleBody` builds at identity rotation, so the transform's facing is written onto the body here:
     // the body is the source of truth while playing (`Systems.syncActors` copies body -> entity each frame), so
-    // without this an editor-authored (or `SetActor`-authored) rotation would be lost the moment Play begins. The
+    // without this an editor-authored (or `AddActor`-authored) rotation would be lost the moment Play begins. The
     // actor capsule's rotation is locked (`Physics.translationOnly`), so setting it directly is what
     // `Systems.playerInput` does too.
     let body = Physics.createCapsuleBody world (capsuleCenter transform collider) collider.HalfHeight collider.Radius
@@ -549,14 +549,27 @@ let removeTrigger (zone: Zone) (ref: EntityRef) : unit =
         do zone.Triggers.Free(handleOf ref)
 
 // Spawn a new actor and return the new ref (renderer + physics attached).
-let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) (cast: Roster.Character option) : EntityRef =
+let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) : EntityRef =
     let renderer = Assets.createActorRender assets assetId
     let attachment = attachActorPhysics world assets assetId entity.Transform
-    let state = { Base = entity; AssetId = assetId; ShowCollider = false; Cast = cast }
+    let state = { Base = entity; AssetId = assetId; ShowCollider = false }
     let handle = zone.Actors.Add({ State = state; Physics = attachment; Renderer = renderer })
     let ref = actorRef handle.Index handle.Generation
     do mapBody zone attachment ref
     ref
+
+// The first live actor named `name`, in slot order, or None when there is none. Names are not required to be
+// unique: the first match wins, deterministically. Used by the cue's actor ops to resolve the actor an author
+// names (spec 072).
+let tryActorByName (zone: Zone) (name: string) : EntityRef option =
+    let slots = zone.Actors.Slots
+    let mutable found = None
+    for i in 0 .. slots.Length - 1 do
+        if found.IsNone then
+            let slot = &slots.[i]
+            if slot.Alive && slot.Value.State.Base.Name = name then
+                found <- Some (actorRef (uint32 i) slot.Generation)
+    found
 
 // Build a mesh-backed prop value from an entity + binding, with no resources yet
 // (used while building an environment's parts map; activation attaches them).

@@ -60,6 +60,7 @@ let manager
     { Device = device
       Root = ""
       Actors = actors
+      ActorsByName = Assets.indexByName actors
       Props = props
       Environments = environments
       Loader = lazy (loader device)

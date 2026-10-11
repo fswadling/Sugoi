@@ -10,7 +10,7 @@ across the editor phases of `docs/ROADMAP.md`.
 
 The editor is a **scene/scenario authoring tool** for a narrative game: place
 actors and props, lay waypoint paths, place triggers and wire them to cue
-scripts, and assemble scenarios from zones and cast members.
+scripts, and assemble scenarios from zones and characters.
 
 ## Principles
 
@@ -27,8 +27,8 @@ scripts, and assemble scenarios from zones and cast members.
    history for the gameplay state (`specs/048-unified-undo-stack`). A zone move, an add and a delete are
    steps on it too, which is what keeps an edit undoable after the developer has moved away from the zone
    it was made in. Session-scoped authoring state that is not a scene edit — the collider overlay's
-   visualisation preference — is a direct write, and the cast binding (D-022) and zone registry (D-023)
-   still are, though the per-zone reason they were given no longer applies.
+   visualisation preference — is a direct write, and the zone registry (D-023)
+   still is, though the per-zone reason it was given no longer applies.
 5. **Data-oriented** — editor state is a small record (mode, selection, tool,
    camera, undo stack); no per-field text-buffer bloat.
 
@@ -39,17 +39,15 @@ A single editor workspace with a menu bar and dockable panels (ImGui docking):
 | Panel | Dock | Purpose |
 |-------|------|---------|
 | **Viewport** | center | 3D scene, selection, gizmos, waypoint/trigger overlays |
-| **Outliner** | left | hierarchical tree: Zone → Actors/Props/Waypoints/Triggers; tabs with Cast, Scenario, and Zone Registry |
+| **Outliner** | left | hierarchical tree: Zone → Actors/Props/Waypoints/Triggers; tabs with Scenario and Zone Registry |
 | **Inspector** | right | the single editing surface: the selected item's properties (entity / scenario / zone entry); tabs with Cue, Advent and Miscellaneous |
 | **Asset Browser** | bottom | actors/environments/props; drag into the viewport to spawn |
 | **Dialogue** | bottom | the dialogue state put on screen by hand — shown, kind, speaker, expression, text (spec 038) |
 
 The sub-editors are dockable windows/tabs opened from a **Window** menu, not
-separate screens. Cast, Scenario, and Zone Registry dock as tabs in
+separate screens. Scenario and Zone Registry dock as tabs in
 the **left** panel (alongside the Outliner) and are shown by default:
 
-- **Cast** — the cast as a tree: each member a collapsible node, and under her one row per
-  look with the actor asset bound to that slot (D-022).
 - **Advent** — the story milestones as a checklist (a typed union; spec 055), docked on the **right**.
 - **Scenario** — the game's scenarios, one row each: **Register** files the current scene (its zones, the
   active place and the cue) under the scenario and **Clear** empties it, each one step on the one history
@@ -165,9 +163,8 @@ undo stack. Commands store **values** (not closures):
   `Advent` steps — the set before and after the edit — on the same history, carried by `state/History.fs` because the
   set is not a zone's. The scenario is the one surface a project-scoped stack is still owed to, and it is a gap for a
   surface that does not exist yet rather than for this one.
-  Two surfaces that were expected
-  to need one are not among them: the cast binding (D-022) and the zone registry (D-023)
-  are both direct writes, because neither is a scene edit and re-making an entry by hand
+  The surfaces expected
+  to need one are not among them: the zone registry (D-023) is a direct write, because it is not a scene edit and re-making an entry by hand
   costs less than the stack would. The Inspector's actor animation and morph
   sections (`specs/036`, `specs/037`) are a third: an actor's animation slots and
   its morph weights are runtime state on its renderer, which a command payload may
@@ -186,7 +183,7 @@ undo stack. Commands store **values** (not closures):
 
 `Command.apply`/`undo` take one zone plus the physics world and the asset manager as **values**, so
 `Command` depends on neither state container — avoiding a `Command → GameplayState → EditorState →
-Command` module cycle. (The cast binding and the advent flags live on `SharedState`; the zone registry
+Command` module cycle. (The advent flags live on `SharedState`; the zone registry
 and the physics world live on `GameplayState`; `Command` reads none of them directly.) The
 **history** is one, on the gameplay state:
 `state/History.fs`, compiled after `GameplayState`, carries the state-level runners and the steppers,
@@ -237,9 +234,17 @@ dropdown. The grouped kind list shows **flat** while a filter is entered and its
 pick is the same edit as before — one step on the one history — so this changes how an option is *found*, not
 what choosing it writes.
 
-## Cast panel (D-022)
+## Cast panel (D-022, retired)
 
-The cast panel is a tree that assigns **in place**: each member is a collapsible node, and
+D-022 once described the **Cast panel**: a tree that assigned an actor asset to each member-and-look
+*slot* in place, with a Spawn control that placed a bound slot's actor. `specs/074-retire-cast` retired it.
+The look vocabulary, the slot → actor asset binding, the panel and the roster all left the game: the closed
+`Character` union is now the narrative engine's (`narrative/Roster.fs`), and a portrait line's speaker — like
+a cue's actor — is a plain **string**, resolved to her actor asset by name (the asset manager's name index).
+Placing an actor is the Asset Browser's job, which already named an asset directly, so the panel's
+"assign directly, place undoably" split is gone with it. The reasons recorded below are kept for history.
+
+The cast panel was a tree that assigns **in place**: each member is a collapsible node, and
 under her one row per look, each row naming the look and holding the actor asset bound to
 that slot. An earlier shape — a list of members, each selected and then edited in the
 Inspector — is rejected for two reasons: a *slot* (a member and a look) is not a selectable
@@ -252,24 +257,23 @@ was that the undo stacks were per zone (`GameplayState.UndoByZone`), swapped on 
 edit's undo always applied to the zone it was recorded in — and the cast binding outlives
 every zone, so an assignment parked in one zone's stack was unreachable from every
 other, and was discarded outright when that zone was deleted. **That reason is gone**
-(`specs/048-unified-undo-stack`: one history, no swap), so whether the binding should now be undoable is an
-open question rather than a settled one; the panel is unchanged for now. Assigning to it is a
+(`specs/048-unified-undo-stack`: one history, no swap), and the binding has since been retired outright.
+Assigning to it was a
 direct write, like the collider overlay's visualisation preference, both of which the code
 treats as binding actions rather than scene edits. (A zone's player designation used to be
 cited here as a third; it is neither project-scoped nor, since
 `specs/045-undoable-player-designation`, a direct write — D-025.) A project-scoped stack is a
 real gap, but it is a gap for the *editable* surfaces that do not yet ride the one history (the
 scenario, and the cue root); the adventure flags, which used to be named here, have landed as an
-`Advent` step on that history (`specs/055-advent-flags`). Not for this one: an assignment is two clicks in a list, and re-making it by
-hand costs less than undoing it. The zone registry, which since `specs/034-zone-registry` does
+`Advent` step on that history (`specs/055-advent-flags`). The zone registry, which since `specs/034-zone-registry` does
 exist, answered the same way (D-023).
 
-Assigning is not the panel's only act. A slot with an asset bound can also **place** it: the panel's
-Spawn control creates an actor in the active zone, drawn with that asset and named for the member,
-through `editor/Spawning.fs` — the one place the editor creates entities, which is what pairs the
+Assigning was not the panel's only act. A slot with an asset bound could also **place** it: the panel's
+Spawn control created an actor in the active zone, drawn with that asset and named for the member,
+through `editor/Spawning.fs` — the one place the editor creates entities, which is what paired the
 create with the command that reverses it and selects what it made (`specs/033-cast-spawn`). So the
-panel assigns directly and places undoably, side by side in one panel, and the difference between
-them is exactly the difference between a binding and a scene edit.
+panel assigned directly and placed undoably, side by side in one panel, and the difference between
+them was exactly the difference between a binding and a scene edit.
 
 ## Zone registry panel (D-023)
 
@@ -278,7 +282,7 @@ variant that zone declares — and each row carries two controls: one that files
 loaded environment against that place, and one that puts a registered zone back into the active
 zone. The tree is derived from the zone union (`world/ZoneRegistry.fs`) rather than maintained
 beside it, so a new zone or a new variant needs no panel change, and two zones are free to declare
-entirely different variant sets — unlike the cast, where one `Look` union is shared by every member.
+entirely different variant sets.
 
 The two controls behave differently on purpose, for the reason D-022 gives. **Registering** is a
 direct write: a registration is one click to make again by hand, and when the undo stacks were per zone an
@@ -312,7 +316,7 @@ change is reversible; the controls commit when released or left (`isItemDeactiva
 the Inspector's trigger fields do, so one drag is one step and two changes are two steps. The edit
 is pushed through `Selection.setLight`, which records a `SetLight` command against the zone.
 
-Unlike the cast binding and the zone registry (D-022, D-023), which are deliberately direct writes,
+Unlike the zone registry (D-023), which is deliberately a direct write,
 this is a *zone's own* setting rather than project-scoped state, so it lives on the zone and its undo
 rides the zone's own stack — which is why it is a command at all. The same command is what an
 **instantiate** uses: a registration records the light with the environment and the props, and
@@ -323,7 +327,7 @@ environment, so one Ctrl+Z restores the previous light along with everything els
 
 Which of a zone's actors is the avatar is a **zone's own** setting, held as `Zone.Player` — and
 `docs/ARCHITECTURE.md` already says so ("the player designation and the undo history are held per
-zone"). It was nonetheless listed among the direct writes that *outlive a zone* (principle 4, D-022),
+It was nonetheless listed among the direct writes that *outlive a zone* (principle 4),
 and that grouping was wrong: those are project-scoped surfaces, which have no zone to be undone in,
 where this one lives on the zone and has one.
 
@@ -379,7 +383,7 @@ already provides the minimal `ig*` layer; grow it per milestone.
 - **Phase 9** — the cue engine (`specs/046`, done: one type that is the vocabulary and
   the run, shrinking to `Fin`), then the cue editor as a dockable window (recursive tree
   list); its edits are steps on the one undo history (`specs/049`).
-- **Phase 10** — waypoints/triggers/advent/cast as dockable panels; trigger→cue
+- **Phase 10** — waypoints/triggers/advent as dockable panels; trigger→cue
   wiring inline in the Inspector.
 - **Phase 11** — scenario editor (library + cue + scene tabs).
 - **Phase 12** — zone registry editor.
@@ -398,7 +402,7 @@ rest are in `editor/`.
 | `Outliner` | hierarchical entity list |
 | `Inspector` | single editing surface for the selection (and the active zone's environment and lighting when nothing is selected) |
 | `Viewport` | 3D viewport + transform gizmo |
-| `CastPanel` / `AdventPanel` / `AssetBrowser` | docked list panels |
+| `AdventPanel` / `AssetBrowser` | docked list panels |
 | `MiscPanel` | the right-docked Miscellaneous panel: game-wide runtime tuning (the fade level is its first control) |
 | `CueEditor` / `CueTree` | the cue panel (right column, beside the Inspector) + the shared recursive cue-tree control |
 | `ScenarioEditor` / `ZoneRegistryPanel` | scenario / zone registry editors |

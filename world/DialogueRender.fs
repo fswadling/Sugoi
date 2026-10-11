@@ -1,9 +1,9 @@
 module DialogueRender
 
 // The dialogue view: it turns the screen's dialogue state into `Ui` draw calls. This is the
-// only module that knows the whole chain — a `Roster.Character`, the cast binding, the actor
-// asset's portraits, the font — and so the only place that maps an `Emotion` to a portrait
-// field (FR-005). Compiled after `world/Assets.fs`, `world/Casting.fs` and `render/Ui.fs`.
+// only module that knows the whole chain — a speaker string, her actor asset (by name, via the
+// asset manager), the asset's portraits, the font — and so the only place that maps an `Emotion`
+// to a portrait field (FR-005). Compiled after `world/Assets.fs` and `render/Ui.fs`.
 //
 // The layout arithmetic here is pure (viewport + a measured content height → three rects),
 // so it is asserted headlessly (`test/DialogueTests.fs`); the measuring and the drawing need
@@ -106,7 +106,7 @@ let private drawBorder (ui: byref<Ui.Ui>) (r: Ui.Rect) (c: Vector4) : unit =
 /// allocates no `Some` (FR-010).
 let private speaker (kind: Dialogue.Kind) : string voption =
     match kind with
-    | Dialogue.Kind.PortraitDialogue (character, _) -> ValueSome (Roster.characterName character)
+    | Dialogue.Kind.PortraitDialogue (speaker, _) -> ValueSome speaker
     | _ -> ValueNone
 
 /// The one place an expression names a portrait field — exhaustive over the closed `Emotion`,
@@ -123,12 +123,11 @@ let portraitOf (emotion: Dialogue.Emotion) (p: ActorAsset.ActorPortraits) : Text
 /// reference comparison and no message is built on the hot path (FR-010).
 type MissReason =
     | NotMissed
-    | Unbound
-    | AssetNotLoaded
+    | NoAsset
     | NoPortraits
     | TooTallForViewport
 
-/// The outcome of resolving a *(character, emotion)* pair. `[<Struct>]` so the draw path allocates
+/// The outcome of resolving a *(speaker, expression)* pair. `[<Struct>]` so the draw path allocates
 /// nothing — `Result`/`Option` would allocate an object per call (FR-010). The fields are named
 /// because a struct union requires same-named fields to share a type.
 [<Struct>]
@@ -136,33 +135,20 @@ type PortraitResolution =
     | Resolved of texture: Texture.Texture
     | Missed of reason: MissReason
 
-/// Resolve a *(character, emotion)* pair to a portrait: the cast binding maps the character to an
-/// actor asset, and the asset carries the set. Nothing names a portrait or a file. An **expected**
-/// miss — the author may name a character before binding her — so it is a value rather than an
-/// exception, and the caller leaves the line undrawn (FR-005, FR-006).
+/// Resolve a *(speaker, emotion)* pair to a portrait: the speaker string names an actor asset (its
+/// declared `Name`) through the asset manager's index, and the asset carries the set (`specs/074`).
+/// Nothing names a portrait or a file. An **expected** miss — the author may name a speaker before her
+/// asset exists — so it is a value rather than an exception, and the caller leaves the line undrawn
+/// (FR-005, FR-006).
 ///
-/// The lookup asks the binding per look — a couple of lookups rather than an enumeration of the
-/// dictionary — because this runs on every drawn frame and enumerating it allocates. The first look
-/// in declaration order that is bound wins, so the choice is deterministic without sorting; a
-/// `Seq.filter`/`Seq.sortBy` pipeline here would build a sorted array and close over the cast every
-/// frame (FR-010).
-///
-/// `ContainsKey` + the indexer rather than `match … TryGetValue … with | true, v -> …`: the latter
-/// allocates a tuple for its answer, twice per call, which is per-frame garbage in this path.
-let tryPortrait (assets: Assets.AssetManager) (cast: Casting.Cast) (character: Roster.Character) (emotion: Dialogue.Emotion) : PortraitResolution =
-    let mutable assetId : string = null
-    for look in Casting.allLooks do
-        if isNull assetId then
-            let slot : Casting.Slot = { Character = character; Look = look }
-            if cast.Bindings.ContainsKey slot then assetId <- cast.Bindings.[slot]
-
-    if isNull assetId then Missed Unbound
+/// The lookup is a contains + indexer on the scan-time name index, so it enumerates nothing and adds no
+/// per-frame allocation (FR-010); the index resolves a shared name to the lowest `Id`, so the choice is
+/// deterministic without any per-frame sorting.
+let tryPortrait (assets: Assets.AssetManager) (speaker: string) (emotion: Dialogue.Emotion) : PortraitResolution =
+    if not (assets.ActorsByName.ContainsKey speaker) then Missed NoAsset
     else
 
-    if not (assets.Actors.ContainsKey assetId) then Missed AssetNotLoaded
-    else
-
-    match assets.Actors.[assetId].Portraits with
+    match assets.ActorsByName.[speaker].Portraits with
     | Some p -> Resolved (portraitOf emotion p)
     | None -> Missed NoPortraits
 
@@ -203,10 +189,10 @@ let private heightMiss (ui: byref<Ui.Ui>) (viewportW: float32) (viewportH: float
 /// the line is taller than the viewport. The single place the view and the authoring panel agree, so
 /// the panel can explain an absence in the same terms the view left it undrawn (FR-004, FR-005).
 /// Expected while authoring, so a value rather than an exception (FR-006, SC-002).
-let missReason (assets: Assets.AssetManager) (cast: Casting.Cast) (ui: byref<Ui.Ui>) (viewportW: float32) (viewportH: float32) (dialogue: Dialogue.Dialogue) : MissReason =
+let missReason (assets: Assets.AssetManager) (ui: byref<Ui.Ui>) (viewportW: float32) (viewportH: float32) (dialogue: Dialogue.Dialogue) : MissReason =
     match dialogue.Kind with
-    | Dialogue.Kind.PortraitDialogue (character, emotion) ->
-        match tryPortrait assets cast character emotion with
+    | Dialogue.Kind.PortraitDialogue (speaker, emotion) ->
+        match tryPortrait assets speaker emotion with
         | Missed reason -> reason
         | Resolved _ -> heightMiss &ui viewportW viewportH dialogue
     | _ -> heightMiss &ui viewportW viewportH dialogue
@@ -215,7 +201,7 @@ let missReason (assets: Assets.AssetManager) (cast: Casting.Cast) (ui: byref<Ui.
 /// emitted and the frame is the pre-feature frame (FR-003, SC-001). A line that cannot resolve or
 /// does not fit is left undrawn; the authoring panel reports why (`missReason`), so the view is
 /// silent and keeps no state.
-let draw (assets: Assets.AssetManager) (cast: Casting.Cast) (viewportW: float32) (viewportH: float32) (ui: byref<Ui.Ui>) (dialogue: Dialogue.Dialogue) : unit =
+let draw (assets: Assets.AssetManager) (viewportW: float32) (viewportH: float32) (ui: byref<Ui.Ui>) (dialogue: Dialogue.Dialogue) : unit =
     if not dialogue.Shown then () else
 
     let colours =
@@ -232,8 +218,8 @@ let draw (assets: Assets.AssetManager) (cast: Casting.Cast) (viewportW: float32)
     // only the second leaves the line undrawn.
     let portrait =
         match dialogue.Kind with
-        | Dialogue.Kind.PortraitDialogue (character, emotion) ->
-            match tryPortrait assets cast character emotion with
+        | Dialogue.Kind.PortraitDialogue (speaker, emotion) ->
+            match tryPortrait assets speaker emotion with
             | Resolved texture -> ValueSome texture
             | Missed _ -> ValueNone
         | _ -> ValueNone

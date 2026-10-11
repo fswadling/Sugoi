@@ -23,29 +23,12 @@ let private commit (state: byref<GameplayState.GameplayState>) (cmd: Command) (r
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
 
-// Spawn a whole actor into the active zone. `cast` is the character the actor plays, or `None` for an actor
-// not in the cast (spec 063): a cast member is recorded in the gameplay state's cast index. One character at
-// most, across all zones (FR-007): a spawn of an already-present character performs nothing — safe to repeat
-// from a click or a cue — and the cross-zone case is logged, because one character standing in two places is
-// the authoring mistake worth naming rather than failing on.
-let spawnActor (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) (cast: Roster.Character option) : unit =
-    let present =
-        match cast with
-        | Some character -> GameplayState.tryCastActor state character
-        | None -> None
-    match present with
-    | Some (place, _) ->
-        match cast with
-        | Some character when place <> state.ActiveZone ->
-            eprintfn "Spawning: '%s' is already in '%s'" (Roster.characterName character) (Place.placeName place)
-        | _ -> ()
-    | None ->
-
+// Spawn a whole actor into the active zone. A name is a label, not an identity (spec 072), so this places an
+// actor named by `entity` and records nothing else: a duplicate name is a legitimate scene, and the Asset
+// Browser is the one surface that places an actor, so there is only this one rule.
+let spawnActor (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) : unit =
     let zone = GameplayState.activeZone state
-    let ref = Zone.spawnActor zone state.Physics shared.Assets entity assetId cast
-    match cast with
-    | Some character -> GameplayState.addCast &state character state.ActiveZone ref
-    | None -> ()
+    let ref = Zone.spawnActor zone state.Physics shared.Assets entity assetId
     do commit &state (ActorCreate (ref, Zone.captureActor zone ref)) ref
 
 let spawnProp (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) : unit =
@@ -88,7 +71,7 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     match source.Kind with
     | EntityKind.Actor ->
         let original = Zone.captureActor zone source
-        let ref = Zone.spawnActor zone state.Physics shared.Assets entity original.AssetId None
+        let ref = Zone.spawnActor zone state.Physics shared.Assets entity original.AssetId
         // `spawnActor` opens with the overlay off; the copy takes the original's value.
         do Zone.setShowCollider zone ref original.ShowCollider
         do commit &state (ActorCreate (ref, Zone.captureActor zone ref)) ref

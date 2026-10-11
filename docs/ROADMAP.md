@@ -300,13 +300,18 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
   cue ops that read and write the flags (`AddAdvent`, `RemoveAdvent`, `Await`, `If`).
   *(complete — `specs/055-advent-flags` for the flags and the panel, `specs/056-advent-cue-ops` for the
   cue ops)*
-- cast — delivered ahead of this phase by `specs/032-cast-binding`: the roster is `cast/Roster.fs`
-  (one declaration, shared with the narrative engine), the look vocabulary and the slot → actor
-  asset binding are `world/Casting.fs`, and the panel is `editor/CastPanel.fs`. The **runtime** half —
-  which actor in the scene plays which character — landed in `specs/063-cast-index`: `ActorState.Cast`
-  records the authored role and `GameplayState` indexes it by character, one character at most across
-  all zones, so a cue can name an actor by who it is rather than by a slot. The actor lifecycle cue ops —
-  `SetActor` (spawn-or-move, one op) and `RemoveActor` — landed in `specs/064-actor-cue-ops`, and the rest of
+- cast — retired (`specs/074-retire-cast`): the look vocabulary, the slot → actor asset binding, the Cast
+  panel and the roster all left the game. The closed `Character` union is now the narrative engine's
+  (`narrative/Roster.fs`), and a portrait line's speaker — like a cue's actor — is a plain **string**,
+  resolved to her actor asset by name (a name is a label, so duplicates resolve to the first match). The
+  binding had been delivered first by `specs/032-cast-binding` (roster in `cast/Roster.fs`, binding in
+  `world/Casting.fs`, panel in `editor/CastPanel.fs`); the **runtime** half moved to addressing **by name**
+  first (`specs/072-actor-name-addressing`, `specs/073-cue-actor-by-name`): an actor carries no role, and a
+  cue names her by a plain string — her `Name` — found by scanning the present places for the matching name,
+  and `specs/063-cast-index`'s role and runtime index were withdrawn. The actor lifecycle cue ops — `AddActor`
+  (a pure spawn that names a discovered actor asset plus a typed name) and `RemoveActor` — landed in
+  `specs/064-actor-cue-ops` and were re-based by
+  `specs/072`/`specs/073`, and the rest of
   odin's actor family in `specs/066-actor-motion-cue-ops`: the animation/morph blends (`Animate`/`CrossFade`/
   `Morph`/`CrossMorph`), the movement ops (`MoveActor`/`RotateActor`, physics-driven and active-zone only) and
   the player toggles (`Enable`/`DisablePlayer`, the runtime form of the editor's "Set as Player").
@@ -318,7 +323,8 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
 
 **Done when**: you can place waypoints/triggers, wire triggers to cues, set
 adventure flags, and manage the cast. *(Complete: `specs/026-waypoints`–`specs/029-triggers`, the cast and
-the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`.)*
+the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`. The cast itself was later retired —
+`specs/074-retire-cast`.)*
 
 ### 11 · Scenario editor
 

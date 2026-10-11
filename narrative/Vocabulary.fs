@@ -4,8 +4,8 @@ namespace Narrative
 // Adding a construct is one case here, after which the compiler reports every rule that must
 // account for it — which is the deliberate cost of the closure (research D16, D26).
 //
-// The roster is not here. `cast/Roster.fs` declares it, below this engine, so that the engine
-// and the game name one cast without either owning it (spec 032).
+// The roster is not here either: `narrative/Roster.fs` declares it, compiled just before this module,
+// so the engine's constructs can name a character (`specs/074` moved it in from the old `cast/` cluster).
 
 open Roster
 

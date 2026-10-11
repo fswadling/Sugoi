@@ -119,7 +119,7 @@ let ``dynamic capsule falls and rests upright on the floor`` () =
     let body = Physics.createCapsuleBody world (Vector3(0.0f, -3.0f, 0.0f)) 0.5f 0.35f
     for _ in 1 .. 300 do
         Physics.step world (1.0f / 60.0f)
-    let (position, rotation) = Physics.getBodyTransform world body
+    let struct (position, rotation) = Physics.getBodyTransform world body
     Assert.True(abs (position.Y + 4.15f) < 0.1f, sprintf "expected rest y near -4.15, got %f" position.Y)
     Assert.True(abs rotation.X + abs rotation.Y + abs rotation.Z < 1e-3f, sprintf "expected an upright body, got %A" rotation)
 
@@ -136,5 +136,5 @@ let ``collision still works after a garbage collection`` () =
     let body = Physics.createCapsuleBody world (Vector3(0.0f, -3.0f, 0.0f)) 0.5f 0.35f
     for _ in 1 .. 300 do
         Physics.step world (1.0f / 60.0f)
-    let (position, _) = Physics.getBodyTransform world body
+    let struct (position, _) = Physics.getBodyTransform world body
     Assert.True(abs (position.Y + 4.15f) < 0.1f, sprintf "expected rest y near -4.15, got %f" position.Y)

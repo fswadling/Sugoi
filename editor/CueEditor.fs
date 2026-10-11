@@ -34,45 +34,17 @@ let private bufferText (buffer: byte[]) : string =
     let length = if zero < 0 then buffer.Length else zero
     if length = 0 then "" else Encoding.UTF8.GetString(buffer, 0, length)
 
-// ── the names a character's asset defines ──
+// ── the names an actor's asset defines ──
 
-/// The animation-clip and morph names a character's asset defines, for the panel's clip/morph choosers. Read
-/// from the actor in the scene when she is placed, else from any cast binding for her (the cue resolves the art
-/// at run time, so the binding is the authoring-time stand-in). Empty when neither resolves — the field then
-/// falls back to typing the name.
-let private assetNames
-    (assets: Assets.AssetManager)
-    (cast: Dictionary<Casting.Slot, string>)
-    (zones: Dictionary<Place.Place, Zone.Zone>)
-    (runtimeCast: Dictionary<Roster.Character, Place.Place * EntityRef>)
-    (character: Roster.Character) : string list * string list =
-    let fromScene =
-        match runtimeCast.TryGetValue character with
-        | true, (place, ref) ->
-            match zones.TryGetValue place with
-            | true, zone when zone.Actors.IsAlive(handleOf ref) ->
-                let actor = &zone.Actors.Get(handleOf ref)
-                Some actor.Renderer.Asset
-            | _ -> None
-        | false, _ -> None
-    let asset =
-        match fromScene with
-        | Some a -> Some a
-        | None ->
-        // else the binding's asset for any look, since the op names the character, not a look
-        let mutable found = None
-        for pair in cast do
-            if found.IsNone && pair.Key.Character = character then
-                match assets.Actors.TryGetValue pair.Value with
-                | true, a -> found <- Some a
-                | false, _ -> ()
-        found
-    match asset with
-    | None -> [], []
-    | Some a ->
-        let clips = a.Model.Model.Anims |> Array.map (fun anim -> anim.Name) |> Array.toList
-        let morphs = match a.Morphs with Some m -> Array.toList m.Names | None -> []
-        clips, morphs
+/// The animation-clip and morph names an actor asset defines, for the panel's clip/morph choosers (spec 073
+/// FR-006). Pure: an id that names no loaded asset yields nothing, and the field falls back to typing.
+let private assetNamesOfAsset (assets: Assets.AssetManager) (assetId: string) : string list * string list =
+    match assets.Actors.TryGetValue assetId with
+    | false, _ -> [], []
+    | true, a ->
+    let clips = a.Model.Model.Anims |> Array.map (fun anim -> anim.Name) |> Array.toList
+    let morphs = match a.Morphs with Some m -> Array.toList m.Names | None -> []
+    clips, morphs
 
 // ── the write path (the screen's cue) ──
 
@@ -179,6 +151,48 @@ let private drawTriggerCombo
     CueTree.filteredCombo buffer ("Trigger##" + comboId) preview (List.ofSeq names) id current (fun name ->
         onCommit (CueTree.withAt nodePath (CueTree.withTrigger name node) cue))
 
+/// The actor an existing-actor op names, chosen from the **viewed place's** live actors rather than the roster,
+/// so the chooser is the scene (`spec 073` FR-005). The caller reads the zone; the write is `CueTree.withActor`.
+let private drawActorCombo
+    (buffer: byte[])
+    (zone: Zone.Zone)
+    (idPrefix: string)
+    (nodePath: int list)
+    (node: Cue)
+    (cue: Cue)
+    (current: string)
+    (onCommit: Cue -> unit)
+    : unit =
+
+    let comboId = CueTree.rowId idPrefix nodePath
+    let names = ResizeArray<string>()
+    let slots = zone.Actors.Slots
+    for i in 0 .. slots.Length - 1 do
+        let slot = slots.[i]
+        if slot.Alive then names.Add slot.Value.State.Base.Name
+    let preview = if current = "" then "(none)" else current
+    CueTree.filteredCombo buffer ("Actor##" + comboId) preview (List.ofSeq names) id current (fun name ->
+        onCommit (CueTree.withAt nodePath (CueTree.withActor name node) cue))
+
+/// The actor asset `AddActor` builds from, chosen from the discovered actor assets (`spec 073` FR-008). The
+/// caller reads the asset manager; the write is `CueTree.withAsset`.
+let private drawAssetCombo
+    (assets: Assets.AssetManager)
+    (buffer: byte[])
+    (idPrefix: string)
+    (nodePath: int list)
+    (node: Cue)
+    (cue: Cue)
+    (current: string)
+    (onCommit: Cue -> unit)
+    : unit =
+
+    let comboId = CueTree.rowId idPrefix nodePath
+    let ids = assets.Actors.Values |> Seq.sortBy (fun a -> a.Id) |> Seq.map (fun a -> a.Id) |> List.ofSeq
+    let preview = if current = "" then "(none)" else current
+    CueTree.filteredCombo buffer ("Asset##" + comboId) preview ids id current (fun id ->
+        onCommit (CueTree.withAt nodePath (CueTree.withAsset id node) cue))
+
 // ── the selected node's text or waypoint, whichever it carries ──
 
 /// Draw the editor for `path`'s node after `drawEditor`: the waypoint/path ops choose from the active zone's
@@ -187,9 +201,10 @@ let private drawTriggerCombo
 /// the next cue. A node that carries a name is never executing, so this needs no lock check. Returns the two
 /// fields' `(path, editing)` pairs for the caller to store.
 let private drawNodeText
+    (assets: Assets.AssetManager)
     (zone: Zone.Zone)
     (zoneOfPlace: Place.Place -> Zone.Zone option)
-    (namesOf: Roster.Character -> string list * string list)
+    (namesOf: string -> string list * string list)
     (filter: byte[])
     (buffer: byte[])
     (textPath: int list option)
@@ -232,35 +247,43 @@ let private drawNodeText
     | SetCamera current | FlyCamera (current, _) ->
         do drawWaypointCombo filter zone idPrefix path node cue current onCommit
         (textPath, editing), (textPath2, editing2)
-    | RotateActor (_, current, _) ->
-        // the turn names a waypoint in the active zone (motion is active-zone only), chosen here
+    | RotateActor (actor, current, _) ->
+        // the actor and the waypoint (in the active zone, motion being active-zone only) are chosen here
+        do drawActorCombo filter zone idPrefix path node cue actor onCommit
         do drawWaypointCombo filter zone idPrefix path node cue current onCommit
         (textPath, editing), (textPath2, editing2)
-    | MoveActor (character, current, _, _, _) ->
-        // the path is chosen; the moving and idle clips are chosen from her asset's clips
+    | MoveActor (actor, current, _, _, _) ->
+        // the actor and the path are chosen; the moving and idle clips are chosen from her asset's clips
+        do drawActorCombo filter zone idPrefix path node cue actor onCommit
         do drawWaypointCombo filter zone idPrefix path node cue current onCommit
-        let clips, _ = namesOf character
+        let clips, _ = namesOf actor
         drawName "clip0" buffer textPath editing clips CueTree.textOf CueTree.withText,
         drawName "clip1" buffer2 textPath2 editing2 clips CueTree.textOf2 CueTree.withText2
-    | Animate (character, _, _, _) | Morph (character, _, _, _) ->
-        let clips, morphs = namesOf character
+    | Animate (actor, _, _, _) | Morph (actor, _, _, _) ->
+        do drawActorCombo filter zone idPrefix path node cue actor onCommit
+        let clips, morphs = namesOf actor
         let names = match node with Animate _ -> clips | _ -> morphs
         drawName "clip0" buffer textPath editing names CueTree.textOf CueTree.withText, (textPath2, editing2)
-    | CrossFade (character, _, _, _, _) | CrossMorph (character, _, _, _, _) ->
-        let clips, morphs = namesOf character
+    | CrossFade (actor, _, _, _, _) | CrossMorph (actor, _, _, _, _) ->
+        do drawActorCombo filter zone idPrefix path node cue actor onCommit
+        let clips, morphs = namesOf actor
         let names = match node with CrossFade _ -> clips | _ -> morphs
         drawName "clip0" buffer textPath editing names CueTree.textOf CueTree.withText,
         drawName "clip1" buffer2 textPath2 editing2 names CueTree.textOf2 CueTree.withText2
-    | SetActor (place, _, _, current) ->
-        // The set op names a waypoint in its **own** place, which may not be the active zone, so the combo is
-        // offered from that place's zone when it is present; an absent place falls back to the typed field.
+    | AddActor (place, actor, asset, waypoint) ->
+        // The asset is chosen from the discovered actor assets; the name is typed (there is no actor yet); the
+        // waypoint is chosen from the op's **own** place's zone, which may not be the active one.
+        do drawAssetCombo assets filter idPrefix path node cue asset onCommit
+        let nameField = drawText buffer textPath editing "" idPrefix path node cue actor CueTree.withText onCommit
         match zoneOfPlace place with
         | Some placeZone ->
-            do drawWaypointCombo filter placeZone idPrefix path node cue current onCommit
-            (textPath, editing), (textPath2, editing2)
+            do drawWaypointCombo filter placeZone idPrefix path node cue waypoint onCommit
+            nameField, (textPath2, editing2)
         | None ->
-            drawText buffer textPath editing "" idPrefix path node cue current CueTree.withText onCommit, (textPath2, editing2)
-    | RemoveActor _ -> (textPath, editing), (textPath2, editing2)
+            nameField, drawText buffer2 textPath2 editing2 "2" idPrefix path node cue waypoint CueTree.withText2 onCommit
+    | RemoveActor actor ->
+        do drawActorCombo filter zone idPrefix path node cue actor onCommit
+        (textPath, editing), (textPath2, editing2)
     | EnableTrigger (place, current) | DisableTrigger (place, current) ->
         // the trigger is chosen in the place the op names (the cross-zone convention); an absent place falls
         // back to the typed field, as the set op's waypoint does
@@ -270,6 +293,9 @@ let private drawNodeText
             (textPath, editing), (textPath2, editing2)
         | None ->
             drawText buffer textPath editing "" idPrefix path node cue current (fun n name -> CueTree.withTrigger name n) onCommit, (textPath2, editing2)
+    | EnablePlayer actor | DisablePlayer actor ->
+        do drawActorCombo filter zone idPrefix path node cue actor onCommit
+        (textPath, editing), (textPath2, editing2)
     | _ -> drawGenericFields ()
 
 // ── the Cue panel ──
@@ -288,10 +314,13 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         match zones.TryGetValue place with
         | true, z -> Some z
         | false, _ -> None
-    // The clip/morph choosers read the character's asset's names; the dicts are captured, not the byref.
-    let runtimeCast = state.Cast
-    let assetNamesOf (character: Roster.Character) : string list * string list =
-        assetNames shared.Assets shared.Cast.Bindings zones runtimeCast character
+    // The clip/morph choosers read the placed actor's asset — the actor of that name in the active zone.
+    let assetNamesOf (actor: string) : string list * string list =
+        match Zone.tryActorByName zone actor with
+        | Some ref when zone.Actors.IsAlive(handleOf ref) ->
+            let a = &zone.Actors.Get(handleOf ref)
+            assetNamesOfAsset shared.Assets a.State.AssetId
+        | _ -> [], []
 
     // ── the tree, then the selected node's editor ──
     // An edit accepted here shows in the tree next frame; the tree above the click does not move, so the lag
@@ -313,7 +342,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         // be captured by the callback it draws through, so the write is staged here and applied in one
         // place, as one step.
         let mutable pending : Cue option = None
-        selection <- CueTree.drawEditor idPrefix state.Editor.ComboFilter cue path (fun next -> pending <- Some next)
+        selection <- CueTree.drawEditor idPrefix state.Editor.ComboFilter (Assets.actorNames shared.Assets) cue path (fun next -> pending <- Some next)
         // Add Child (a new selection) and Remove (no selection) are the structural edits; record one so the next
         // frame re-focuses the tree.
         structural <- selection <> Some path
@@ -327,7 +356,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             | Some node ->
                 let mutable textPending : Cue option = None
                 let (path'', editing), (path2', editing2) =
-                    drawNodeText zone zoneOfPlace assetNamesOf state.Editor.ComboFilter state.Editor.CueTextBuffer state.Editor.CueTextPath state.Editor.CueTextEditing state.Editor.CueTextBuffer2 state.Editor.CueTextPath2 state.Editor.CueTextEditing2 idPrefix path' node state.Cue (fun next -> textPending <- Some next)
+                    drawNodeText shared.Assets zone zoneOfPlace assetNamesOf state.Editor.ComboFilter state.Editor.CueTextBuffer state.Editor.CueTextPath state.Editor.CueTextEditing state.Editor.CueTextBuffer2 state.Editor.CueTextPath2 state.Editor.CueTextEditing2 idPrefix path' node state.Cue (fun next -> textPending <- Some next)
                 state.Editor <- { state.Editor with CueTextPath = path''; CueTextEditing = editing; CueTextPath2 = path2'; CueTextEditing2 = editing2 }
                 match textPending with
                 | Some next -> do commit &state next
@@ -367,9 +396,12 @@ let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.Ga
         match zones.TryGetValue place with
         | true, z -> Some z
         | false, _ -> None
-    let runtimeCast = state.Cast
-    let assetNamesOf (character: Roster.Character) : string list * string list =
-        assetNames shared.Assets shared.Cast.Bindings zones runtimeCast character
+    let assetNamesOf (actor: string) : string list * string list =
+        match Zone.tryActorByName zone actor with
+        | Some ref when zone.Actors.IsAlive(handleOf ref) ->
+            let a = &zone.Actors.Get(handleOf ref)
+            assetNamesOfAsset shared.Assets a.State.AssetId
+        | _ -> [], []
     match Zone.tryTriggerAt zone ref with
     | ValueNone -> ()
     | ValueSome trigger ->
@@ -388,7 +420,7 @@ let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.Ga
     | Some path ->
 
         let mutable pending : Cue option = None
-        selection <- CueTree.drawEditor idPrefix state.Editor.ComboFilter cue path (fun next -> pending <- Some next)
+        selection <- CueTree.drawEditor idPrefix state.Editor.ComboFilter (Assets.actorNames shared.Assets) cue path (fun next -> pending <- Some next)
         match pending with
         | Some next -> do Selection.updateTriggerRef shared &state ref (fun t -> { t with Cue = next })
         | None -> ()
@@ -399,7 +431,7 @@ let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.Ga
             | Some node ->
                 let mutable textPending : Cue option = None
                 let (path'', editing), (path2', editing2) =
-                    drawNodeText zone zoneOfPlace assetNamesOf state.Editor.ComboFilter state.Editor.TriggerCueTextBuffer state.Editor.TriggerCueTextPath state.Editor.TriggerCueEditing state.Editor.TriggerCueTextBuffer2 state.Editor.TriggerCueTextPath2 state.Editor.TriggerCueTextEditing2 idPrefix path' node cue (fun next -> textPending <- Some next)
+                    drawNodeText shared.Assets zone zoneOfPlace assetNamesOf state.Editor.ComboFilter state.Editor.TriggerCueTextBuffer state.Editor.TriggerCueTextPath state.Editor.TriggerCueEditing state.Editor.TriggerCueTextBuffer2 state.Editor.TriggerCueTextPath2 state.Editor.TriggerCueTextEditing2 idPrefix path' node cue (fun next -> textPending <- Some next)
                 state.Editor <- { state.Editor with TriggerCueTextPath = path''; TriggerCueEditing = editing; TriggerCueTextPath2 = path2'; TriggerCueTextEditing2 = editing2 }
                 match textPending with
                 | Some next -> do Selection.updateTriggerRef shared &state ref (fun t -> { t with Cue = next })

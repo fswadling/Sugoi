@@ -8,8 +8,7 @@ module SharedState
 //     target) — which the engine's own render loop reads;
 //   - the asset manager, which any presenting screen may read (a journal resolves portraits through
 //     it);
-//   - the cast binding and the named adventure flags, which a journal or inventory screen may
-//     present.
+//   - the named adventure flags, which a journal or inventory screen may present or gate on.
 //
 // The gameplay world and its configuration — the zones, the zone registry and the physics world —
 // are the gameplay screen's and live on `GameplayState`, beside the screen's own runtime state.
@@ -23,9 +22,6 @@ open Advent
 type SharedState =
     { mutable Gpu : Gpu.Gpu
       Assets : Assets.AssetManager
-      // The slot → actor-asset binding (spec 032): shared because a screen other than the world (a
-      // journal or inventory) may present a character's look — not because it outlives a zone.
-      Cast : Casting.Cast
       // The named adventure flags (spec 055): story milestones a screen other than the world may
       // present or gate on, for the same reason. Mutable because the one undo history writes it in
       // place — a flag edit is a state-level step, as the cue's `SetCue` is (specs/048, specs/049).
@@ -34,5 +30,4 @@ type SharedState =
 let create (gpu: Gpu.Gpu) : SharedState =
     { Gpu = gpu
       Assets = Assets.scan "assets" gpu.Device
-      Cast = { Casting.Bindings = System.Collections.Generic.Dictionary() }
       Advents = Set.empty }

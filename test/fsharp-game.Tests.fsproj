@@ -14,6 +14,8 @@
     <Compile Include="AssetLoadTests.fs" />
     <Compile Include="EntityTests.fs" />
     <Compile Include="AssetsTests.fs" />
+    <!-- The actor name index (spec 074): the speaker -> asset resolution, pure and device-free. -->
+    <Compile Include="AssetNameIndexTests.fs" />
     <Compile Include="InputTests.fs" />
     <Compile Include="CameraTests.fs" />
     <Compile Include="RaycastTests.fs" />
@@ -27,9 +29,9 @@
     <Compile Include="PlayerTests.fs" />
     <Compile Include="SystemsTests.fs" />
     <Compile Include="GameplayStateTests.fs" />
-    <!-- The runtime cast (spec 063): resolution, one-character uniqueness, and the index's exactness across
-         create/delete/undo/redo and zone delete/restore, driven through the real spawn path headlessly. -->
-    <Compile Include="CastIndexTests.fs" />
+    <!-- Actors addressed by name (spec 072): the resolver scans the present places, a name is a label, and the
+         real spawn path runs headlessly against a fabricated actor asset. -->
+    <Compile Include="ActorNameTests.fs" />
     <Compile Include="EnvironmentBatchTests.fs" />
 
     <!-- The cel actor shading (spec 040): the pure face-mesh rule and the face-light direction. -->
@@ -49,10 +51,8 @@
          that keep an unedited scene identical to the constant they replace. -->
     <Compile Include="LightTests.fs" />
 
-    <!-- The cast (spec 032): the roster is not the engine's, so this opens `Roster` and not
-         `Narrative`. -->
+    <!-- The roster (spec 074 moved it into the narrative subsystem): the closed union and its enumeration. -->
     <Compile Include="RosterTests.fs" />
-    <Compile Include="CastingTests.fs" />
 
     <!-- The zone registry (spec 034): the places, the sparse map, and the round trip through the real
          environment load path. -->

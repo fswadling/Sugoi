@@ -25,7 +25,7 @@ let private entity (name: string) : Entity =
 
 // An actor value, as the player-designation test needs one — no renderer, which it never dereferences.
 let private actor (name: string) : Actor =
-    { State = { Base = entity name; AssetId = ""; ShowCollider = false; Cast = None }
+    { State = { Base = entity name; AssetId = ""; ShowCollider = false }
       Physics = None
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 
@@ -37,7 +37,6 @@ let private newState () : GameplayState.GameplayState =
 let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Cast = { Casting.Bindings = Dictionary() }
       Advents = Set.empty }
 
 /// Register the current scene under `Intro`, the way the panel's Register control does.
@@ -51,24 +50,7 @@ let private raises (f: unit -> unit) : bool =
     with _ ->
         true
 
-// An authored actor state, cast (named role) or not — enough to exercise the row's tags.
-let private castActor (character: Roster.Character) : ActorState =
-    { Base = entity (Roster.characterName character); AssetId = ""; ShowCollider = false; Cast = Some character }
-
-let private plainActor : ActorState =
-    { Base = entity "extra"; AssetId = ""; ShowCollider = false; Cast = None }
-
-// A scenario zone carrying just its actors, for the tag tests (an empty zone otherwise).
-let private scenarioZone (actors: ActorState array) : ScenarioZone.ScenarioZone =
-    { Environment = None
-      Light = Texture.defaultLight
-      Actors = actors
-      Waypoints = [||]
-      Triggers = [||]
-      Player = None }
-
-let private contentsWith (zones: (Place * ScenarioZone.ScenarioZone) list) : ScenarioContents =
-    { Zones = Map.ofList zones; Active = Place.start; Cue = Cue.Fin }
+// A scenario zone carrying just its actors (an empty zone otherwise).
 
 // ══════ the vocabulary (FR-003) ══════
 
@@ -213,19 +195,3 @@ let ``the zone-level runner refuses a scenario step, which is state-level`` () =
     Assert.True(raises (fun () -> Command.apply zone state.Physics shared.Assets step))
     Assert.True(raises (fun () -> Command.undo zone state.Physics shared.Assets step))
 
-// ══════ the row's tags (FR-013) ══════
-
-[<Fact>]
-let ``a scenario's tags are its cast actors, aggregated across zones and sorted`` () =
-    let contents =
-        contentsWith
-            [ Place.start, scenarioZone [| castActor Roster.Yuki; plainActor |]
-              Place.Island, scenarioZone [| castActor Roster.Aiko; castActor Roster.Yuki |] ]
-
-    // Across both zones, distinct and sorted; the uncast actor contributes nothing.
-    Assert.Equal("[Aiko, Yuki]", ScenarioPanel.actorTags contents)
-
-[<Fact>]
-let ``a scenario with no cast actors has no tags`` () =
-    Assert.Equal("", ScenarioPanel.actorTags (contentsWith [ Place.start, scenarioZone [| plainActor |] ]))
-    Assert.Equal("", ScenarioPanel.actorTags (contentsWith [ Place.start, scenarioZone [||] ]))

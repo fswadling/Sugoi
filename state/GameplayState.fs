@@ -41,10 +41,8 @@ type GameplayState =
       // map), owned here beside the zones because only the gameplay screen simulates. A zone never
       // holds it — `Zone.*` receives it as a parameter, so there is one world for the whole game.
       Physics : Physics.World
-      // The runtime cast (spec 063): which actor plays each character. Keyed by the closed roster, one
-      // character at most across every zone; the value carries the zone because `EntityRef` is zone-scoped.
-      // It is a lookup the actor-existence points maintain from `ActorState.Cast`, not a second source of truth.
-      Cast : Dictionary<Roster.Character, Place * EntityRef>
+      // The runtime cast (spec 072): resolving which actor plays a character is a name scan over the present
+      // places, not an index (`tryActorByName` below). There is no map to keep exact.
       mutable ActiveZone : Place
       mutable Editor : EditorState.EditorState
       mutable Editing : bool
@@ -68,7 +66,6 @@ type GameplayState =
 let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) : GameplayState =
     let zones = Dictionary<Place, Zone.Zone>()
     zones.[Place.start] <- Zone.create ()
-    let cast = Dictionary<Roster.Character, Place * EntityRef>()
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
       DebugDraw = debugDraw
       GizmoDraw = gizmoDraw
@@ -78,7 +75,6 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui
       ZoneRegistry = ZoneRegistry.create ()
       Scenarios = ScenarioRegistry.create ()
       Physics = Physics.create ()
-      Cast = cast
       ActiveZone = Place.start
       Editor = EditorState.create ()
       Editing = true
@@ -94,29 +90,23 @@ let activeZone (state: GameplayState) : Zone.Zone =
     | true, zone -> zone
     | false, _ -> invalidOp (sprintf "activeZone: '%s' is not present" (Place.placeName state.ActiveZone))
 
-// ── The runtime cast (spec 063) ──
+// ── The runtime cast (spec 072) ──
 
-// The actor playing `character`, with the zone it is in, or nothing. One lookup; it does not depend on which
-// zone is active (the index is global).
-let tryCastActor (state: GameplayState) (character: Roster.Character) : (Place * EntityRef) option =
-    match state.Cast.TryGetValue character with
-    | true, found -> Some found
-    | false, _ -> None
-
-// Record the actor playing `character`. The spawn path has checked that the character is not already in the
-// scene; a duplicate is a bug (one character at most, across all zones), so this fails loudly.
-let addCast (state: byref<GameplayState>) (character: Roster.Character) (place: Place) (ref: EntityRef) : unit =
-    if state.Cast.ContainsKey character then invalidOp (sprintf "addCast: '%s' is already in the scene" (Roster.characterName character)) else
-    state.Cast.[character] <- (place, ref)
-
-let removeCast (state: byref<GameplayState>) (character: Roster.Character) : unit =
-    state.Cast.Remove character |> ignore
-
-// Drop every member of `place` — what a zone delete needs. O(its cast).
-let removeCastZone (state: byref<GameplayState>) (place: Place) : unit =
-    let cast = state.Cast
-    let stale = [ for pair in cast do if fst pair.Value = place then yield pair.Key ]
-    for character in stale do cast.Remove character |> ignore
+// The actor playing `character`: the first live actor whose `Name` is the character's canonical name, scanning
+// the present places in `Place.all` order and returning the place, its zone and the ref. A name is a label, not
+// an identity, so a duplicate resolves to the first match; there is no index to keep exact. Global: it does not
+// depend on which place is active, and `None` means no present place holds an actor of that name.
+let tryActorByName (state: GameplayState) (name: string) : (Place * Zone.Zone * EntityRef) option =
+    let mutable found = None
+    for place in Place.all do
+        if found.IsNone then
+            match state.Zones.TryGetValue place with
+            | true, zone ->
+                match Zone.tryActorByName zone name with
+                | Some ref -> found <- Some (place, zone, ref)
+                | None -> ()
+            | false, _ -> ()
+    found
 
 // After `ActiveZone` has changed: drop the (zone-scoped) selection/drag/nudge and re-frame the camera on the
 // incoming zone. The undo history is **not** touched: it is one timeline for the whole gameplay state, and the
@@ -200,7 +190,6 @@ let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (
 
     let zone = state.Zones.[name]
     do Zone.release zone state.Physics shared.Gpu.Device
-    do removeCastZone &state name
     state.Zones.Remove name |> ignore
 
     // The environment is the asset manager's, shared by id: unload it only when no still-present place uses it.

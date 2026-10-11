@@ -17,7 +17,7 @@ open Command
 
 // The docked panels in focus order. The viewport is a passthru node, not an
 // ImGui window, so it is intentionally absent from this list.
-let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Cast"; "Advent"; "Miscellaneous"; "Zone Registry"; "Scenario"; "Dialogue"; "Cue" |]
+let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Advent"; "Miscellaneous"; "Zone Registry"; "Scenario"; "Dialogue"; "Cue" |]
 
 // Compute the index the focus should move to (forward/backward, wrapping).
 let private nextPanelIndex (forward: bool) : int =
@@ -432,9 +432,8 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     do Inspector.draw shared &state
     do Outliner.draw shared &state
     do AssetBrowser.draw shared &state
-    do CastPanel.draw shared &state
     // The cue panel (spec 047): the screen's cue, read-only where it is executing and editable ahead of it.
-    // It takes `shared` so its clip/morph choosers can read a character's asset's names.
+    // It takes `shared` so its clip/morph choosers can read the placed actor's asset's names.
     do CueEditor.draw shared &state
     do AdventPanel.draw shared &state
     // The Miscellaneous panel (spec 059): the right-column home for game-wide, non-entity runtime tuning —

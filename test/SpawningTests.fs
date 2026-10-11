@@ -44,7 +44,7 @@ let private headlessAssets () : Assets.AssetManager =
     TestSupport.manager IntPtr.Zero (Dictionary()) props environments
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Cast = { Casting.Bindings = Dictionary() }; Advents = Set.empty }
+    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Advents = Set.empty }
 
 // A minimal gameplay state: the fake draws are never touched on these paths. The
 // zone is installed under a name with exactly one active zone.
@@ -60,7 +60,6 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       ZoneRegistry = ZoneRegistry.create ()
       Scenarios = ScenarioRegistry.create ()
       Physics = Physics.create ()
-      Cast = Dictionary<Roster.Character, Place * EntityRef>()
       ActiveZone = Place.start
       Editor = EditorState.create ()
       Editing = true

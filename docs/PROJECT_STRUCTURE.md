@@ -15,8 +15,8 @@ marks a file that is not created yet — the marker is dropped when the file lan
 
 ## Principles
 
-1. **Organise by domain cluster, one level deep.** Eight stable clusters —
-   `cast`, `core`, `physics`, `render`, `world`, `state`, `screen`, `editor` — plus the
+1. **Organise by domain cluster, one level deep.** Seven stable clusters —
+   `core`, `physics`, `render`, `world`, `state`, `screen`, `editor` — plus the
    `narrative` engine below them, a top-level `Engine.fs` loop and a thin `Program.fs`
    entry point.
 2. **Flat module namespace.** One top-level `module X` per file, no namespace.
@@ -41,9 +41,8 @@ The `.fsproj` compile list is ordered like this (abridged):
 
 ```xml
 <ItemGroup>
-  <!-- cast (first, and consumes nothing: the engine cannot reference the game) -->
-  <Compile Include="cast/Roster.fs" />
-  <!-- narrative (after the cast, and still before the game) -->
+  <!-- narrative (first: the roster sits below the engine, and the engine cannot reference the game) -->
+  <Compile Include="narrative/Roster.fs" />
   <Compile Include="narrative/Vocabulary.fs" />
   ...
   <!-- core (structural, no dependencies above it) -->
@@ -94,9 +93,8 @@ The `.fsproj` compile list is ordered like this (abridged):
 fsharp-game/
 ├── Program.fs                  # entry point: [<EntryPoint>] main → Engine.run
 ├── Engine.fs                   # top-level run loop (split out of Program.fs)
-├── cast/                       # the shared cast vocabulary
-│   └── Roster.fs               #   the closed roster, characterName, characters (asset-free)
 ├── narrative/                  # the narrative engine: events → facts → rules
+│   ├── Roster.fs               #   the closed roster, characterName, characters (asset-free; spec 074)
 │   ├── Vocabulary.fs           #   FactKind and the closed Event / Fact / Trait vocabulary
 │   ├── Canonical.fs            #   canonical text: construct name and argument text (rendering only)
 │   ├── History.fs              #   committed events, game time
@@ -150,9 +148,8 @@ fsharp-game/
 │   ├── EnvironmentAsset.fs     #   static-model asset record
 │   ├── EnvironmentRender.fs    #   static environment + prop rendering
 │   ├── Advent.fs               #   the milestone union and its flag set (spec 055)
-│   ├── Casting.fs              #   Look, Slot and the sparse slot → actor asset binding
-│   ├── Dialogue.fs             #   the dialogue state: Kind and Emotion, runtime screen state
-│   ├── DialogueRender.fs       #   the dialogue view + the panel layout (pure)
+│   ├── Dialogue.fs             #   the dialogue state: Kind (speaker string) and Emotion, runtime screen state
+│   ├── DialogueRender.fs       #   the dialogue view: speaker name -> actor asset -> portrait, + the panel layout
 │   ├── PromptRender.fs         #   the interact prompt view + its layout (pure)
 │   ├── Cue.fs                  #   the cue: one type, the vocabulary, its run and forkInto (spec 046/058)
 │   ├── CueEngine.fs            #   advance / tick (spec 046; compiled after state/)
@@ -161,7 +158,7 @@ fsharp-game/
 │   └── Project.fs              #   DTO persistence (project.json) (planned)
 ├── state/                      # app/screen + editor-command state
 │   ├── Screen.fs               #   kind/transition/input types
-│   ├── SharedState.fs          #   engine/any-screen state: GPU context, assets, cast binding, advents
+│   ├── SharedState.fs          #   engine/any-screen state: GPU context, assets, advents
 │   ├── Command.fs              #   undoable editor commands
 │   ├── EditorState.fs          #   selection + transient UI state
 │   ├── GameplayState.fs        #   the gameplay world: zones + zone registry + physics, and the screen's view
@@ -181,7 +178,6 @@ fsharp-game/
 │   ├── Outliner.fs
 │   ├── Inspector.fs            #   single editing surface for the selection
 │   ├── AssetBrowser.fs
-│   ├── CastPanel.fs            #   the cast tree: a look per row, an asset per slot
 │   ├── ZoneRegistryPanel.fs    #   the places tree: register a zone against one, instantiate one
 │   ├── ScenarioPanel.fs        #   the scenarios: register the current scene under one, clear it (spec 070)
 │   ├── DialoguePanel.fs        #   the dialogue authoring surface (direct write)
@@ -199,18 +195,13 @@ fsharp-game/
 
 ## Clusters
 
-- **`cast/`** — the shared cast vocabulary: one closed `Character` roster, declared once and
-  consumed by both the engine and the game, and asset-free. It is compiled first and consumes
-  nothing, which is what lets the engine see it while still being unable to reference the game
-  (`docs/ARCHITECTURE.md`, `specs/032-cast-binding`). The game's half — the look vocabulary and the
-  binding from a member and a look to an actor asset — is `world/Casting.fs`, above the engine and
-  out of its reach.
 - **`narrative/`** — the narrative engine: immutable committed events projected into
   facts, facts combined by rules, every conclusion carrying the rule and premises behind
-  it. It is compiled **after `cast/` and before `core/SlotMap.fs`**, and depends on no game
+  it. It is compiled **first, before `core/SlotMap.fs`**, and depends on no game
   module, which is how "the engine cannot reference the game" is a compile error rather than a
-  convention (`docs/ARCHITECTURE.md`, `specs/025-narrative-core`). Nothing consumes it yet:
-  the engine is complete and tested headlessly, and the integration that makes the game feed
+  convention (`docs/ARCHITECTURE.md`, `specs/025-narrative-core`). Its `Roster.fs` holds the closed
+  `Character` roster (`specs/074-retire-cast` moved it in from the old `cast/` cluster). Nothing consumes
+  it yet: the engine is complete and tested headlessly, and the integration that makes the game feed
   it committed events is separate work.
 - **`core/`** — dependency-free structural utilities: the slot map, the IQM/glTF
   parsers, and the input snapshot. Everything may depend on it, and it depends on
@@ -233,9 +224,9 @@ fsharp-game/
 
 Dependency direction is strictly downward, matching the compile order:
 `Program`/`Engine` → `screen` → `editor` → `state` → `world` → `render` →
-`physics` → `core` → `SlotMap`. Two clusters sit below that chain: `narrative/`
-(below `core/`, and consumed by no other cluster yet) and `cast/` below it, which the engine
-and the game both consume and which consumes nothing.
+`physics` → `core` → `SlotMap`. One cluster sits below that chain: `narrative/`
+(below `core/`, and consumed by no other cluster yet), which holds the closed `Character` roster
+and consumes nothing.
 
 ## Naming
 

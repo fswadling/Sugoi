@@ -5,11 +5,11 @@ module Place
 // time. Only its *presence* in the gameplay state changes at run time.
 //
 // This module is the **vocabulary**; the registry (`world/ZoneRegistry.fs`) is the sparse **config** store
-// keyed by a place. That is the same split `Roster` (vocabulary) and `Casting` (mapping) already use, and
-// it is why the runtime may key its zones by `Place` without depending on the registry.
+// keyed by a place. Kept apart, it is why the runtime may key its zones by `Place` without depending on
+// the registry.
 //
-// Pure and dependency-free (only reflection, to enumerate itself as `Roster.characters` and
-// `Casting.allLooks` do), so it sits early — before `world/Cue.fs`, which names a place in its `SetZone`.
+// Pure and dependency-free (only reflection, to enumerate itself as `Roster.characters` does), so it sits
+// early — before `world/Cue.fs`, which names a place in its `SetZone`.
 
 open Microsoft.FSharp.Reflection
 

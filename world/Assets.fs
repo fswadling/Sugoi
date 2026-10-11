@@ -74,6 +74,10 @@ type AssetManager =
     { Device : Gpu.Device
       Root : string
       Actors : Dictionary<AssetId, ActorAsset.ActorAsset>
+      // The actor asset each declared `Name` resolves to, built once at scan (`specs/074`). A portrait
+      // line's speaker is a plain string, resolved through this on the per-frame draw path, so no
+      // enumeration runs per frame. The lowest `Id` wins a shared name (a name is a label).
+      ActorsByName : Dictionary<string, ActorAsset.ActorAsset>
       Props : Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>
       Environments : Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>
       // Created on first use, so a headless scan (no assets, or no GPU) never allocates a texture.
@@ -306,6 +310,20 @@ let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<AssetI
 
         actors.[id] <- { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel; Morphs = morphs; Portraits = portraits }
     actors
+
+// The name index (`specs/074`): each declared `Name` to the actor asset that answers it. Built once, so a
+// portrait line's speaker resolves on the per-frame draw path without enumerating. Sorted by `Id`, so a
+// name two assets share resolves to the lowest `Id` — deterministic regardless of scan order. Public so
+// `Assets.scan` and the headless fixture share one rule.
+let indexByName (actors: Dictionary<AssetId, ActorAsset.ActorAsset>) : Dictionary<string, ActorAsset.ActorAsset> =
+    let byName = Dictionary<string, ActorAsset.ActorAsset>()
+    for asset in actors.Values |> Seq.sortBy (fun a -> a.Id) do
+        if not (byName.ContainsKey asset.Name) then byName.[asset.Name] <- asset
+    byName
+
+/// The discovered actor names, sorted and de-duplicated — what a speaker chooser offers (`specs/074`).
+let actorNames (manager: AssetManager) : string list =
+    manager.Actors.Values |> Seq.map (fun a -> a.Name) |> Seq.distinct |> Seq.sort |> List.ofSeq
 
 // ── static (environment/prop) asset loading ──
 
@@ -665,10 +683,12 @@ let scan (root: string) (device: Gpu.Device) : AssetManager =
         environments.[id] <- metadataOnly id name (Path.Combine(root, modelPath))
 
     let actors = loadActors loader root
+    let actorsByName = indexByName actors
 
     { Device = device
       Root = root
       Actors = actors
+      ActorsByName = actorsByName
       Props = props
       Environments = environments
       Loader = loader

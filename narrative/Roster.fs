@@ -1,12 +1,11 @@
 module Roster
 
-// The cast: who can exist in this story. Declared once, here — outside the narrative engine and
-// outside the game — because both name the same cast and neither may own it (spec 032). The
-// engine keys its constructs on a character; the game binds each member and look to an actor
-// asset in `world/Casting.fs`.
+// The cast: who can exist in this story. Declared once, here, in the narrative subsystem (`specs/074`
+// moved it in from the old `cast/` cluster): the engine keys its constructs on a character, and the game
+// no longer names the cast at all.
 //
-// This module is deliberately **asset-free**: it may not reference `Casting`, `Assets`, `Zone`,
-// or any render or physics module. It consumes nothing and is compiled first, so the engine can
+// This module is deliberately **asset-free**: it may not reference `Assets`, `Zone`, or any render or
+// physics module. It consumes nothing and is compiled first among the narrative files, so the engine can
 // see it and still cannot reach the game.
 
 open Microsoft.FSharp.Reflection
@@ -37,8 +36,8 @@ type Character =
     /// The transfer student: in the roster from the start, in the story only once declared.
     | Yuki
 
-/// The renderable name of a character — the case name, so canonical text, the report and the
-/// cast panel all spell a character the same way.
+/// The renderable name of a character — the case name, so canonical text and the report spell a
+/// character the same way.
 ///
 /// A match on the cases rather than `string` or `ToString()`, both of which go through F#'s
 /// formatting machinery for a union. Canonical text is report-facing only — nothing stores,
@@ -54,8 +53,7 @@ let characterName (character: Character) : string =
 
 /// Everyone in the roster, in declaration order. Enumerated from the type rather than listed
 /// again, so a case cannot be left out of it — which matters because a caller building a
-/// scenario out of the whole cast has no other way to ask for one, and because the cast panel
-/// walks this to draw its tree.
+/// scenario out of the whole cast has no other way to ask for one.
 let characters : Character list =
     FSharpType.GetUnionCases typeof<Character>
     |> Array.toList

@@ -76,8 +76,17 @@ let createModel (model: Iqm.Model) : ActorModel =
 
     { Model = model; InverseBind = inverseBind }
 
-let tryFindAnimIndex (m: ActorModel) (name: string) : int option =
-    m.Model.Anims |> Array.tryFindIndex (fun a -> a.Name = name)
+/// The index of the animation clip named `name`, or `ValueNone`. A loop rather than `Array.tryFindIndex`:
+/// `setClipWeight` calls this per frame, and the closure `tryFindIndex` takes captures `name`, allocating on
+/// every call (`specs/074`). A `voption` so the found answer does not allocate either.
+let tryFindAnimIndex (m: ActorModel) (name: string) : int voption =
+    let anims = m.Model.Anims
+    let mutable found = ValueNone
+    let mutable i = 0
+    while found.IsNone && i < anims.Length do
+        if anims.[i].Name = name then found <- ValueSome i
+        i <- i + 1
+    found
 
 let createSlot (model: Iqm.Model) (animIndex: int) (loop: bool) : AnimationSlot =
     let anim = model.Anims.[animIndex]
