@@ -75,31 +75,30 @@ Two zone containers exist on purpose:
 
 - `Zone_Map` — runtime. `Slot_Map(^Zone)` + an `active` index ("which zones
   exist, which is active").
-- `Zone_Registry` — editor templates. An entry carries the environment asset, the
-  environment's settings, the environment's parts and the zone's placed props, each as
-  the author left them (`specs/034-zone-registry`, and `specs/035-zone-template-props` for
-  the props — the reference's `prop_template`). Splat maps are the deferred sibling of
-  those, and `template_saved` belongs to persistence (`docs/ROADMAP.md` phase 15).
+- `Zone_Registry` — **retired** (`specs/079-scenario-owned-zones`). A zone's **staging** — its environment asset,
+  the environment's parts, its light and its placed props — now rides with a **scenario** (`world/ScenarioZone.fs`),
+  so the separate store and its editor panel are gone. A zone is addressed by a **name** (`string`), not a closed
+  union, and a zone that is named but not present is created by a fork.
 
 In the F# port the runtime container is folded into the gameplay screen: zones live
-in a `Dictionary<Place, Zone>` keyed by the place they are — a place is the authored identity of a
-runtime zone, a closed union in `world/Place.fs` (`specs/061-zones-as-places`) — with `ActiveZone : Place`
-naming the active one. A place is either **present** (it has a zone in the map) or **absent**; the
-active place is always present (zones are addressed by identity and never bulk-iterated, so a
+in a `Dictionary<string, Zone>` keyed by their **name** — a zone is addressed by a name, as an actor or a
+waypoint is (`specs/079-scenario-owned-zones`; the closed `Place` union retired) — with `ActiveZone : string`
+naming the active one. A zone is either **present** (it has an entry in the map) or **absent**; the
+active zone is always present (zones are addressed by name and never bulk-iterated, so a
 slot map buys nothing). Only the active zone's bodies are attached to the one shared
 physics world: a switch detaches the outgoing zone with `BodyInterface.RemoveBody`
 and re-attaches the incoming one with `AddBody`, then re-optimises the broadphase, so
 inactive zones neither collide nor integrate without rebuilding any shape or body.
 Deleting a zone destroys its bodies and releases its GPU resources, unloading its environment through
-the asset manager unless another present place still uses that environment. The player
+the asset manager unless another present zone still uses that environment. The player
 designation is held per zone; the **undo history is one**, on the gameplay screen
 (`specs/048-unified-undo-stack`), because a zone move, an add and a delete are steps on the same timeline
-as an entity edit — and a command names the **place** it acts on (`specs/077-commands-carry-zone`), so a step
-acts on its own zone rather than the active one and a batch may span places. A cue drives the same world from its zone ops (`specs/062-zone-cue-ops`): it makes a
-declared place present — streaming its registered template in without entering it — makes a present place
-absent, and preloads a present zone's environment so the later switch is instant. A cue zone change is a
-runtime effect (not an undo step), and each op is a no-op on a place it cannot act on, so a cue is safe to
-run more than once. The cue also drives the **cast** (`specs/072-actor-name-addressing`,
+as an entity edit — and a command names the **zone** it acts on (`specs/077-commands-carry-zone`), so a step
+acts on its own zone rather than the active one and a batch may span zones. A cue drives the same world from its zone ops (`specs/062-zone-cue-ops`, trimmed by `specs/079`): it switches to a present
+zone (`SetZone`) and makes a present zone absent (`RemoveZone`); bringing a zone in **with its staging** is a
+scenario fork now (below), so the old `AddZone`/`PreloadZone` retired with the Zone Registry. A cue zone
+change is a runtime effect (not an undo step), and each op is a no-op on a zone it cannot act on, so a cue is
+safe to run more than once. The cue also drives the **cast** (`specs/072-actor-name-addressing`,
 `specs/073-cue-actor-by-name`): `AddActor` brings an actor into a named place as a **new** actor, built from a
 **discovered actor asset** and given a typed **name**, at a named waypoint — a name is a label, not an identity, so
 a re-run places a second actor — and `RemoveActor` takes her out of a named place. Every actor cue op (the
@@ -123,10 +122,11 @@ move stops where the collision leaves it; and the player toggles bind or clear h
 (the runtime form of the editor's "Set as Player"). The trigger toggles and `Print`
 (`specs/067-print-trigger-cue-ops`) arm or disarm a named trigger in a named place — the runtime form of the
 Inspector's checkbox, a no-op on an absent place or an already-set flag — and write a developer-facing line to
-the console. `ForkScenario` (`specs/078-fork-scenario`) materialises a registered scenario into the scene — appending
-its entities into their places (creating absent ones from the Zone Registry's template, without entering them) and
-forking its cue beside the rest — as a runtime effect. Odin's other scenario ops (`InlineScenario`/`ClearScenario`)
-and the camera-follow / interactions toggles remain the deferred cue families.
+the console. A **scenario owns its zones** (`specs/079-scenario-owned-zones`): it carries each zone's **staging**
+(environment, light and placed props) as well as its narrative entities, so `ForkScenario` (`specs/078-fork-scenario`)
+**ensures** each zone by name — creating and staging an absent one, or restaging a present one — **appends** its
+entities, and forks its cue beside the rest, as a runtime effect. Odin's other scenario ops
+(`InlineScenario`/`ClearScenario`) and the camera-follow / interactions toggles remain the deferred cue families.
 
 ## Systems
 
@@ -151,9 +151,8 @@ archetypes.
 - `Screen_Manager` owns `Shared_State` plus one stateful struct per screen,
   with init/activate/deactivate/update/draw per screen.
 - `Gameplay_Screen` owns the gameplay world and that world's configuration — the `zones`, the
-  `zone_registry` (the recipe table those zones are instantiated from), the `scenarios` library the
-  editor files a scene under and the physics world their
-  bodies attach to — beside its own runtime state: the `camera` and render buffers (view), the
+  `scenarios` library the editor files a scene under (each scenario carrying its zones' staging) and the physics
+  world their bodies attach to — beside its own runtime state: the `camera` and render buffers (view), the
   `cue` run, `dialogue`/exposition, `interactable_trigger`, `editor` and `fade`, plus the
   locomotion/`camera_follow` hot paths and `clock`. Hot/cold fields are grouped.
 
@@ -214,10 +213,9 @@ graph TD
     SS --> ADV[Advent_Set]
     SS --> CAST[Cast_Members]
 
-    GS --> ZONES["zones: Dictionary(Place, Zone)"]
-    GS --> ZR[Zone_Registry]
+    GS --> ZONES["zones: Dictionary(string, Zone)"]
     GS --> SL[Scenario_Library]
-    GS --> ACTIVE["active place"]
+    GS --> ACTIVE["active zone"]
     GS --> C["cue: Cue"]
     ZONES --> Z[Zone]
 
@@ -325,8 +323,8 @@ the narrative engine today.
   AGENTS.md guidance.
 - **Zone containers** → the runtime container is a name-keyed
   `Dictionary<string, Zone>` on `GameplayState` with an `ActiveZone` name (not a
-  `Zone_Map` slot map: zones are addressed by identity and never bulk-iterated).
-  `Zone_Registry` (authoring templates) stays a distinct structure.
+  `Zone_Map` slot map: zones are addressed by name and never bulk-iterated). A zone's staging lives with the
+  scenario that authors it (`specs/079-scenario-owned-zones`); the old `Zone_Registry` is retired.
 - **Jolt ownership** → `PhysicsSystem` holds only *raw pointers* to the object-layer
   pair filter, broad-phase interface, and object-vs-broadphase filter, so the `World`
   must keep their managed wrappers (and its `PhysicsSystemSettings`) alive as fields.

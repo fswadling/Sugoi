@@ -1,16 +1,16 @@
 module ScenarioZone
 
-// A zone as a **scenario** holds it (spec 070; trimmed to narrative entities by spec 076): the authored record of one
-// zone's narrative — its actors, waypoints and triggers — free of every reference the origin zone used (no
+// A zone as a **scenario** holds it (spec 070; the staging restored by spec 079): the authored record of one
+// zone — its staging and its narrative entities — free of every reference the origin zone used (no
 // `EntityRef`, and waypoint chains by index). Deliberately its own type, not `ZoneContents`: that record exists to
 // reverse a zone *delete*, so it must keep each entity's ref and the live environment (epoch and parts) for a
 // restore to land in the same slots. A scenario carries none of that — a fork instantiates into fresh zones — so
 // reusing `ZoneContents` would push zone-scoped identity and its `(ref, state)` list shape onto scenarios.
 // `docs/ZONE_MODEL_DECISION.md` records the reasoning.
 //
-// A zone's **staging** is not narrative and is not captured (spec 076): its environment and light belong to the
-// **place** (authored in the Zone Registry), its player designation is per-zone state (`Zone.Player`), and placed
-// props are environment decoration. A scenario zone is therefore actors, waypoints and triggers only.
+// A zone's **staging** — its environment, light and placed props — rides with it (spec 079): a scenario owns it now
+// that the Zone Registry has retired, so a fork brings a zone up fully. The player designation is per-zone runtime
+// state (`Zone.Player`), not staging, and is not captured.
 //
 // Listed after `world/Zone.fs`, whose live zone is what `capture` reads, and before `world/ScenarioRegistry.fs`,
 // which files one under a scenario. Loading a scenario back (`occupy`, the fork) is a later increment.
@@ -18,6 +18,7 @@ module ScenarioZone
 open System.Collections.Generic
 open Entity
 open Zone
+open ZoneTemplate
 
 /// A waypoint whose chain link is the **index** of the next waypoint in this zone's own `Waypoints` array — not
 /// the live-zone `EntityRef` a `Waypoint` holds, which a fresh zone has no slot for.
@@ -25,10 +26,12 @@ type ScenarioWaypoint =
     { Base : Entity
       Next : int option }
 
-/// One zone as a scenario holds it: the narrative entities as arrays of authored states (the shape a bulk load
-/// walks). A waypoint's link is an index into `Waypoints`, so nothing names a live slot.
+/// One zone as a scenario holds it: its staging (the environment/light/props recipe, `None` for an
+/// environment-less zone) and its narrative entities as arrays of authored states. A waypoint's link is an index
+/// into `Waypoints`, so nothing names a live slot.
 type ScenarioZone =
-    { Actors : ActorState array
+    { Staging : ZoneTemplate option
+      Actors : ActorState array
       Waypoints : ScenarioWaypoint array
       Triggers : TriggerState array }
 
@@ -69,6 +72,7 @@ let capture (zone: Zone) : ScenarioZone =
     let triggers = ResizeArray<TriggerState>(int zone.Triggers.Count)
     zone.Triggers.IteriAlive (fun _ _ trigger -> triggers.Add trigger.State)
 
-    { Actors = captureActors zone
+    { Staging = Zone.captureTemplate zone
+      Actors = captureActors zone
       Waypoints = captureWaypoints zone
       Triggers = triggers.ToArray() }

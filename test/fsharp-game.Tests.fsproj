@@ -54,9 +54,7 @@
     <!-- The roster (spec 074 moved it into the narrative subsystem): the closed union and its enumeration. -->
     <Compile Include="RosterTests.fs" />
 
-    <!-- The zone registry (spec 034): the places, the sparse map, and the round trip through the real
-         environment load path. -->
-    <Compile Include="ZoneRegistryTests.fs" />
+
 
     <!-- Narrative engine tests (spec 025). NarrativeTestSupport is first: the other
          files open it for the MVP rule set, and it needs no graphics native, so these

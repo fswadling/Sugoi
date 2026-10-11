@@ -90,8 +90,8 @@ let ``a flag survives a zone switch`` () =
     let mutable state = newState ()
     do AdventPanel.commit shared &state (Set.add OpeningComplete shared.Advents)
 
-    do History.commit shared &state (Command.ZoneAdd (Place.start, Place.Island))
-    Assert.Equal(Place.Island, state.ActiveZone)
+    do History.commit shared &state (Command.ZoneAdd (GameplayState.startZone, "Island"))
+    Assert.Equal("Island", state.ActiveZone)
     Assert.Equal<string list>([ "OpeningComplete" ], setNames shared.Advents)
 
 // ══════ the history (FR-007, FR-009) ══════
@@ -118,12 +118,12 @@ let ``a flag edit before a zone move is reached only after the move is undone`` 
     let shared = sharedState ()
     let mutable state = newState ()
     do AdventPanel.commit shared &state (Set.add OpeningComplete shared.Advents)
-    do History.commit shared &state (Command.ZoneAdd (Place.start, Place.Island))
+    do History.commit shared &state (Command.ZoneAdd (GameplayState.startZone, "Island"))
 
     // The move reverses first, carrying the view back to main — and leaving the flag set, because a
     // move's undo touches no flag.
     do History.undoHistory shared &state
-    Assert.Equal(Place.start, state.ActiveZone)
+    Assert.Equal(GameplayState.startZone, state.ActiveZone)
     Assert.Equal<string list>([ "OpeningComplete" ], setNames shared.Advents)
 
     // ...then the flag edit itself.

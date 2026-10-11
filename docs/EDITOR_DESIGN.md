@@ -49,14 +49,13 @@ separate screens. Scenario and Zone Registry dock as tabs in
 the **left** panel (alongside the Outliner) and are shown by default:
 
 - **Advent** — the story milestones as a checklist (a typed union; spec 055), docked on the **right**.
-- **Scenario** — the game's scenarios, one row each: **Register** files the current scene's narrative entities
-  (each present zone's actors, waypoints and triggers) and the cue under the scenario, **Clear** empties it, and
-  **Fork** runs it — appends the scenario's entities into the scene and forks its cue into the screen's cue, as one
-  step on the one history (specs 070, 078). A zone's staging (environment, light, player) and the active place are
-  not captured (`specs/076-scenario-narrative-only`).
-- **Zone Registry** — the game's places as a tree: a zone per node and one row per variant it
-  declares, each row registering the active zone's environment against that place or instantiating
-  one into the active zone (D-023).
+- **Scenario** — the game's scenarios, one row each: **Register** files the current scene's zones (each with
+  its staging and its narrative entities) and the cue under the scenario, **Clear** empties it, and **Fork** runs
+  it — ensuring and restaging the scenario's zones, appending its entities and forking its cue, as one step on the
+  one history (specs 070, 078, 079).
+- **Zone Registry** — **retired** (`specs/079-scenario-owned-zones`): a scenario owns its zones' staging, zones are
+  addressed by **name**, and the store and its panel are gone. The active zone's environment is set in the Asset
+  Browser (a `SetEnvironment` step) and its light in the Inspector.
 
 The **Cue** panel (spec 047) and the **Advent** panel (spec 055) are the exceptions among the
 sub-editors: they dock as tabs beside the **Inspector** in the **right** column rather than in the
@@ -280,7 +279,7 @@ create with the command that reverses it and selects what it made (`specs/033-ca
 panel assigned directly and placed undoably, side by side in one panel, and the difference between
 them was exactly the difference between a binding and a scene edit.
 
-## Zone registry panel (D-023)
+## Zone registry panel (D-023, retired)
 
 The zone registry panel shows the game's **places** as a tree — one node per zone, one row per
 variant that zone declares — and each row carries two controls: one that files the active zone's
@@ -391,7 +390,8 @@ already provides the minimal `ig*` layer; grow it per milestone.
 - **Phase 10** — waypoints/triggers/advent as dockable panels; trigger→cue
   wiring inline in the Inspector.
 - **Phase 11** — scenario editor (library + cue + scene tabs).
-- **Phase 12** — zone registry editor.
+- **Phase 12** — zone registry editor. *(retired `specs/079-scenario-owned-zones`: a zone is named and its
+  staging rides with the scenario that authors it, so the registry and its editor are gone)*
 
 ## Module map
 
@@ -410,6 +410,6 @@ rest are in `editor/`.
 | `AdventPanel` / `AssetBrowser` | docked list panels |
 | `MiscPanel` | the right-docked Miscellaneous panel: game-wide runtime tuning (the fade level is its first control) |
 | `CueEditor` / `CueTree` | the cue panel (right column, beside the Inspector) + the shared recursive cue-tree control |
-| `ScenarioEditor` / `ZoneRegistryPanel` | scenario / zone registry editors |
+| `ScenarioPanel` | the scenario panel (register / clear / fork) |
 | `Command` | undoable editor commands |
 | `Raycast` | screen-ray picking math |

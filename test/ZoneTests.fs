@@ -805,7 +805,7 @@ let ``undo and redo of an environment load route through the real lifecycle`` ()
     let previous = zone.Environment
     let environment = Zone.loadEnvironment zone world assets "room"
     let reference = partRef environment.Epoch 0u 0u
-    let stack = UndoStack.push (UndoStack.create ()) (SetEnvironment (Place.start, previous, Some environment))
+    let stack = UndoStack.push (UndoStack.create ()) (SetEnvironment (GameplayState.startZone, previous, Some environment))
     Assert.True(Zone.isAlive zone reference)
 
     let stack = UndoStack.undo stack zone world assets
@@ -913,7 +913,7 @@ let ``delete and undo restore a prop exactly`` () =
     // Recording is a read: what a command carries is the live authored value, whole.
     Assert.Equal(live, recorded)
 
-    let cmd = PropDelete (Place.start, ref, recorded)
+    let cmd = PropDelete (GameplayState.startZone, ref, recorded)
 
     do apply zone world assets cmd
     Assert.False(Zone.isAlive zone ref)
@@ -941,7 +941,7 @@ let ``delete and undo restore an environment part exactly`` () =
     let recorded = Zone.capturePart zone ref
     Assert.Equal(live, recorded)
 
-    let cmd = PartDelete (Place.start, ref, recorded)
+    let cmd = PartDelete (GameplayState.startZone, ref, recorded)
 
     do apply zone world assets cmd
     Assert.False(Zone.isAlive zone ref)
@@ -964,7 +964,7 @@ let ``delete and undo restore a trigger exactly, without its runtime flag`` () =
     let recorded = Zone.captureTrigger zone ref
     Assert.Equal(live, recorded)
 
-    let cmd = TriggerDelete (Place.start, ref, recorded)
+    let cmd = TriggerDelete (GameplayState.startZone, ref, recorded)
 
     do apply zone world assets cmd
     Assert.False(Zone.isAlive zone ref)
@@ -985,7 +985,7 @@ let ``repeated delete and undo cycles leave no body behind`` () =
     let baseline = zone.BodyToEntity.Count
 
     for _ in 1 .. 50 do
-        let cmd = PropDelete (Place.start, ref, Zone.captureProp zone ref)
+        let cmd = PropDelete (GameplayState.startZone, ref, Zone.captureProp zone ref)
         do apply zone world assets cmd
         // Undo rebuilds the body. A leaked one would still be attached to the world and
         // would keep its entry in the body map.
@@ -1025,7 +1025,7 @@ let ``a registered zone loads back part for part, deletions and duplicates inclu
     let south = partRef loaded.Epoch 2u 0u
     do Zone.setTransform zone world north { transformIdentity with Position = Vector3(5.0f, 0.0f, 0.0f) }
     do Zone.setName zone east "east wing"
-    do apply zone world assets (PartDelete (Place.start, south, Zone.capturePart zone south))
+    do apply zone world assets (PartDelete (GameplayState.startZone, south, Zone.capturePart zone south))
 
     // And one duplicated, through the real part path — what `Spawning.duplicate` does for a part. The
     // copy is a live part of its own, so the record has to carry it and its source rather than
@@ -1096,7 +1096,7 @@ let ``a record carries the zone's props as the author left them`` () =
     let chair = Zone.spawnProp zone world assets (entity "chair") "crate"
     do Zone.setTransform zone world lectern { transformIdentity with Position = Vector3(1.0f, 2.0f, 3.0f) }
     do Zone.setName zone books "book stack"
-    do apply zone world assets (PropDelete (Place.start, chair, Zone.captureProp zone chair))
+    do apply zone world assets (PropDelete (GameplayState.startZone, chair, Zone.captureProp zone chair))
     do Zone.spawnPropBinding zone world assets (entity "lectern copy") { AssetId = Some "crate"; SubmeshIndex = 0; SubmeshCount = 0 } |> ignore
 
     let template = (Zone.captureTemplate zone).Value
@@ -1130,7 +1130,7 @@ let ``capturing a zone is a copy, and a zone with no props is a complete entry``
 
     // ...and the zone moving on afterwards does not reach it.
     do Zone.setName zone crate "crate moved on"
-    do apply zone world assets (PropDelete (Place.start, crate, Zone.captureProp zone crate))
+    do apply zone world assets (PropDelete (GameplayState.startZone, crate, Zone.captureProp zone crate))
     Assert.Equal(1, taken.Props.Length)
     Assert.Equal("crate", taken.Props.[0].Base.Name)
 
@@ -1150,7 +1150,7 @@ let ``the zone's light is set by the command and put back by its undo`` () =
 
     let before = zone.Light
     let after = { before with Pitch = 20.0f; Yaw = 200.0f; Color = Vector3(0.9f, 0.8f, 0.7f); Ambient = 0.9f }
-    let cmd = SetLight (Place.start, before, after)
+    let cmd = SetLight (GameplayState.startZone, before, after)
 
     do apply zone world assets cmd
     Assert.Equal(after, zone.Light)
@@ -1174,7 +1174,7 @@ let ``the player designation is set by the command and put back by its undo`` ()
     let c = zone.Actors.Add(actor "c")
 
     // A first designation undoes to no player at all — `ValueNone` is a real state, not a hole.
-    let cmd = SetPlayer (Place.start, ValueNone, ValueSome b)
+    let cmd = SetPlayer (GameplayState.startZone, ValueNone, ValueSome b)
     do apply zone world assets cmd
     Assert.Equal(ValueSome b, zone.Player)
 
@@ -1185,7 +1185,7 @@ let ``the player designation is set by the command and put back by its undo`` ()
     Assert.Equal(ValueSome b, zone.Player)
 
     // A re-designation puts the *previous actor* back, which is what the payload's `Previous` carries.
-    let recmd = SetPlayer (Place.start, ValueSome b, ValueSome c)
+    let recmd = SetPlayer (GameplayState.startZone, ValueSome b, ValueSome c)
     do apply zone world assets recmd
     Assert.Equal(ValueSome c, zone.Player)
 

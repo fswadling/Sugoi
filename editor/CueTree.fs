@@ -18,7 +18,6 @@ open System.Numerics
 open Prime
 open Cue
 open Advent
-open Place
 open Scenario
 
 // ── what the cue looks like ──
@@ -53,7 +52,7 @@ let rec executing (cue: Cue) : bool =
     | Sequence (current, _) -> executing current
     | Parallel (left, right) -> executing left || executing right
     | Fork inner -> executing inner
-    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | Print _ | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _
+    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | Print _ | SetZone _ | RemoveZone _
     | AddActor _ | RemoveActor _ | Animate _ | CrossFade _ | Morph _ | CrossMorph _ | MoveActor _ | RotateActor _
     | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
     | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ | ForkScenario _ -> false
@@ -82,30 +81,28 @@ let private label (cue: Cue) : string =
     | FadeOut duration | FadeOutState (_, duration, _) -> sprintf "Fade out %g" duration
     | FadeIn duration | FadeInState (_, duration, _) -> sprintf "Fade in %g" duration
     | Exposit (text, _) -> "Exposit: " + text
-    | SetZone place -> "Zone: " + Place.placeName place
-    | AddZone place -> "Add zone: " + Place.placeName place
-    | RemoveZone place -> "Remove zone: " + Place.placeName place
-    | PreloadZone place -> "Preload zone: " + Place.placeName place
+    | SetZone place -> "Zone: " + place
+    | RemoveZone place -> "Remove zone: " + place
     | ForkScenario scenario -> "Fork scenario: " + Scenario.scenarioName scenario
     | AddActor (place, actor, asset, waypoint) ->
-        sprintf "Add actor: %s/%s in %s @ %s" actor asset (Place.placeName place) waypoint
-    | RemoveActor (place, actor) -> sprintf "Remove actor: %s in %s" actor (Place.placeName place)
-    | Animate (place, _, clip, _, _) -> sprintf "%s in %s" (blendLabel false clip clip) (Place.placeName place)
-    | CrossFade (place, _, fromClip, toClip, _, _) -> sprintf "%s in %s" (blendLabel false fromClip toClip) (Place.placeName place)
-    | Morph (place, _, morph, _, _) -> sprintf "%s in %s" (blendLabel true morph morph) (Place.placeName place)
-    | CrossMorph (place, _, fromMorph, toMorph, _, _) -> sprintf "%s in %s" (blendLabel true fromMorph toMorph) (Place.placeName place)
-    | BlendState (_, place, _, morph, fromName, toName, _, _, _, _, _) -> sprintf "%s in %s" (blendLabel morph fromName toName) (Place.placeName place)
+        sprintf "Add actor: %s/%s in %s @ %s" actor asset (place) waypoint
+    | RemoveActor (place, actor) -> sprintf "Remove actor: %s in %s" actor (place)
+    | Animate (place, _, clip, _, _) -> sprintf "%s in %s" (blendLabel false clip clip) (place)
+    | CrossFade (place, _, fromClip, toClip, _, _) -> sprintf "%s in %s" (blendLabel false fromClip toClip) (place)
+    | Morph (place, _, morph, _, _) -> sprintf "%s in %s" (blendLabel true morph morph) (place)
+    | CrossMorph (place, _, fromMorph, toMorph, _, _) -> sprintf "%s in %s" (blendLabel true fromMorph toMorph) (place)
+    | BlendState (_, place, _, morph, fromName, toName, _, _, _, _, _) -> sprintf "%s in %s" (blendLabel morph fromName toName) (place)
     | MoveActor (actor, _, _, _, _) | MoveActorState (actor, _, _, _, _, _, _, _, _, _, _, _) ->
         "Move actor: " + actor
     | RotateActor (actor, _, _) | RotateActorState (actor, _, _, _, _, _, _) ->
         "Rotate actor: " + actor
-    | EnablePlayer (place, actor) -> sprintf "Enable player: %s in %s" actor (Place.placeName place)
-    | DisablePlayer (place, actor) -> sprintf "Disable player: %s in %s" actor (Place.placeName place)
-    | EnableTrigger (place, trigger) -> sprintf "Enable trigger: %s in %s" trigger (Place.placeName place)
-    | DisableTrigger (place, trigger) -> sprintf "Disable trigger: %s in %s" trigger (Place.placeName place)
+    | EnablePlayer (place, actor) -> sprintf "Enable player: %s in %s" actor (place)
+    | DisablePlayer (place, actor) -> sprintf "Disable player: %s in %s" actor (place)
+    | EnableTrigger (place, trigger) -> sprintf "Enable trigger: %s in %s" trigger (place)
+    | DisableTrigger (place, trigger) -> sprintf "Disable trigger: %s in %s" trigger (place)
     | Print text -> "Print: " + text
-    | SetCamera (place, waypoint) -> sprintf "Camera: %s in %s" waypoint (Place.placeName place)
-    | FlyCamera (place, path, _) -> sprintf "Fly: %s in %s" path (Place.placeName place)
+    | SetCamera (place, waypoint) -> sprintf "Camera: %s in %s" waypoint (place)
+    | FlyCamera (place, path, _) -> sprintf "Fly: %s in %s" path (place)
     | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
     | AddAdvent advent -> "Add: " + Advent.name advent
     | RemoveAdvent advent -> "Remove: " + Advent.name advent
@@ -124,7 +121,7 @@ let children (cue: Cue) : Cue list =
     | Fork inner -> [ inner ]
     | If (_, thenCue, elseCue) -> [ thenCue; elseCue ]
     | Fin | Wait _ | WaitState _ | FadeOut _ | FadeIn _ | FadeOutState _ | FadeInState _ | Exposit _
-    | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _ | AddActor _ | RemoveActor _ | SetCamera _
+    | SetZone _ | RemoveZone _ | AddActor _ | RemoveActor _ | SetCamera _
     | Animate _ | CrossFade _ | Morph _ | CrossMorph _ | BlendState _ | MoveActor _ | MoveActorState _
     | RotateActor _ | RotateActorState _ | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
     | Print _
@@ -253,7 +250,7 @@ let private kinds : (string * string list) array = [|
     "Structure", [ "Fin"; "Sequence"; "Parallel"; "Fork" ]
     "Timing",    [ "Wait"; "Fade out"; "Fade in" ]
     "Dialogue",  [ "Exposit" ]
-    "Zones",     [ "Set zone"; "Add zone"; "Remove zone"; "Preload zone" ]
+    "Zones",     [ "Set zone"; "Remove zone" ]
     "Actors",    [ "Add actor"; "Remove actor"; "Move actor"; "Rotate actor"; "Enable player"; "Disable player" ]
     "Animation", [ "Animate"; "Cross fade"; "Morph"; "Cross morph" ]
     "Camera",    [ "Set camera"; "Fly camera" ]
@@ -277,9 +274,7 @@ let private kindName (cue: Cue) : string =
     | Exposit _ -> "Exposit"
     | Print _ -> "Print"
     | SetZone _ -> "Set zone"
-    | AddZone _ -> "Add zone"
     | RemoveZone _ -> "Remove zone"
-    | PreloadZone _ -> "Preload zone"
     | AddActor _ -> "Add actor"
     | RemoveActor _ -> "Remove actor"
     | Animate (_, _, clip, _, _) -> blendOpName false clip clip
@@ -305,9 +300,8 @@ let private kindName (cue: Cue) : string =
 ///
 /// A `Sequence` defaults deliberately to something rather than nothing: a `Fin` front and an empty queue
 /// (the walk pulls the queue's front into the front in the same step, so the author can add to it and it).
-/// A `Set zone` defaults to the start place — a place is a closed value, so there is no empty-name state to
-/// guard; an `Exposit` defaults to an empty line and a plain dialogue kind.
-let defaultOfKind (place: Place) (kind: string) : Cue =
+/// A `Set zone` defaults to the given zone name; an `Exposit` defaults to an empty line and a plain dialogue kind.
+let defaultOfKind (place: string) (kind: string) : Cue =
     let defaultAdvent = List.head Advent.all
     match kind with
     | "Fin" -> Fin
@@ -320,9 +314,7 @@ let defaultOfKind (place: Place) (kind: string) : Cue =
     | "Exposit" -> Exposit("", Dialogue.Kind.Dialogue)
     | "Print" -> Print ""
     | "Set zone" -> SetZone place
-    | "Add zone" -> AddZone place
     | "Remove zone" -> RemoveZone place
-    | "Preload zone" -> PreloadZone place
     | "Add actor" -> AddActor(place, "", "", "")
     | "Remove actor" -> RemoveActor(place, "")
     | "Move actor" -> MoveActor("", "", 3.5, "Jog", "Idle")
@@ -437,12 +429,10 @@ let private withAdvent (advent: Advent) (cue: Cue) : Cue =
 
 /// The node with its place replaced — the write the place chooser commits. Every entity op carries one now
 /// (specs 061, 062, 075).
-let withPlace (place: Place) (cue: Cue) : Cue =
+let withPlace (place: string) (cue: Cue) : Cue =
     match cue with
     | SetZone _ -> SetZone place
-    | AddZone _ -> AddZone place
     | RemoveZone _ -> RemoveZone place
-    | PreloadZone _ -> PreloadZone place
     | AddActor (_, actor, asset, waypoint) -> AddActor(place, actor, asset, waypoint)
     | RemoveActor (_, actor) -> RemoveActor(place, actor)
     | Animate (_, actor, clip, weight, duration) -> Animate(place, actor, clip, weight, duration)
@@ -486,9 +476,9 @@ let withAsset (asset: string) (cue: Cue) : Cue =
 
 /// The place a node's op names, or `ValueNone` when it names none — every entity op names its zone now
 /// (spec 075); the physics-driven motion ops and the `…State` forms do not.
-let placeOf (cue: Cue) : Place voption =
+let placeOf (cue: Cue) : string voption =
     match cue with
-    | SetZone p | AddZone p | RemoveZone p | PreloadZone p -> ValueSome p
+    | SetZone p | RemoveZone p -> ValueSome p
     | AddActor (p, _, _, _) | RemoveActor (p, _) -> ValueSome p
     | Animate (p, _, _, _, _) | CrossFade (p, _, _, _, _, _) | Morph (p, _, _, _, _) | CrossMorph (p, _, _, _, _, _) -> ValueSome p
     | EnablePlayer (p, _) | DisablePlayer (p, _) -> ValueSome p
@@ -601,7 +591,8 @@ let filteredNameCombo (buffer: byte[]) (label: string) (preview: string) (items:
 /// because a queue's tail is ahead of the running op, so appending to it cannot disturb it.
 let drawEditor
     (idPrefix: string)
-    (defaultPlace: Place)
+    (defaultPlace: string)
+    (zones: string list)
     (filter: byte[])
     (names: string list)
     (cue: Cue)
@@ -665,11 +656,11 @@ let drawEditor
             | _ -> ()
             do ImGui.endCombo()
 
-        // The place a node names, chosen from the closed set: every entity op names its zone (spec 075), and
-        // a place needs no zone or registry read, so the control offers it here (spec 061 FR-005).
+        // The zone a node names, chosen from the present zones: every entity op names its zone (spec 075); with
+        // the closed vocabulary retired (spec 079) the caller supplies the names it holds.
         match placeOf node with
         | ValueSome place ->
-            filteredCombo filter ("Place##" + idBase) (Place.placeName place) Place.all Place.placeName place (fun candidate ->
+            filteredCombo filter ("Place##" + idBase) place zones id place (fun candidate ->
                 do commit (withAt selection (withPlace candidate node) cue))
         | ValueNone -> ()
 
@@ -727,7 +718,7 @@ let drawEditor
                     do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(speaker, candidate)) node) cue))
             | _ -> ()
 
-        | SetZone _ | AddZone _ | RemoveZone _ | PreloadZone _ | AddActor _ | RemoveActor _ ->
+        | SetZone _ | RemoveZone _ | AddActor _ | RemoveActor _ ->
             // the place is drawn above (spec 075); an `AddActor`/`RemoveActor` name and asset are the caller's
             // fields (`CueEditor`); the zone ops carry no numbers or text of their own
             ()

@@ -11,7 +11,6 @@ open System.Collections.Generic
 open System.Numerics
 open Command
 open Entity
-open Place
 
 let private entity (name: string) : Entity =
     { Name = name
@@ -29,18 +28,17 @@ let private sharedState () : SharedState.SharedState =
       Advents = Set.empty }
 
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
-    let zones = Dictionary<Place, Zone.Zone>()
-    zones.[Place.start] <- zone
+    let zones = Dictionary<string, Zone.Zone>()
+    zones.[GameplayState.startZone] <- zone
     { Camera = Camera.create Vector3.Zero Vector3.Zero
       DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       Ui = Unchecked.defaultof<Ui.Ui>
       Dialogue = Dialogue.empty
       Zones = zones
-      ZoneRegistry = ZoneRegistry.create ()
       Scenarios = ScenarioRegistry.create ()
       Physics = Physics.create ()
-      ActiveZone = Place.start
+      ActiveZone = GameplayState.startZone
       Editor = EditorState.create ()
       Editing = true
       Follow = Systems.createFollow ()
@@ -367,8 +365,8 @@ let ``consecutive transforms on one ref merge into a single step`` () =
     let first = { transformIdentity with Position = Vector3(1.0f, 0.0f, 0.0f) }
     let second = { transformIdentity with Position = Vector3(2.0f, 0.0f, 0.0f) }
 
-    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (Place.start, a, transformIdentity, first)) }
-    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (Place.start, a, first, second)) }
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (GameplayState.startZone, a, transformIdentity, first)) }
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (GameplayState.startZone, a, first, second)) }
 
     // One step spanning the whole gesture, from its first transform to its last.
     match state.Editor.Undo.Applied with
@@ -379,7 +377,7 @@ let ``consecutive transforms on one ref merge into a single step`` () =
     | other -> Assert.Fail(sprintf "expected one merged Transform, got %A" other)
 
     // Another ref's transform is a step of its own.
-    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (Place.start, b, transformIdentity, first)) }
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Command.Transform (GameplayState.startZone, b, transformIdentity, first)) }
     Assert.Equal(2, state.Editor.Undo.Applied.Length)
 
 // ── Player designation (spec 045) ──
@@ -443,9 +441,9 @@ let ``transforms merge only within one place`` () =
     let t2 = { transformIdentity with Position = Vector3(2.0f, 0.0f, 0.0f) }
 
     let mutable stack = UndoStack.create ()
-    stack <- UndoStack.push stack (Command.Transform (Place.start, a, transformIdentity, t1))
-    stack <- UndoStack.push stack (Command.Transform (Place.start, a, t1, t2))
+    stack <- UndoStack.push stack (Command.Transform (GameplayState.startZone, a, transformIdentity, t1))
+    stack <- UndoStack.push stack (Command.Transform (GameplayState.startZone, a, t1, t2))
     Assert.Equal(1, stack.Applied.Length)   // same place and ref: one step
 
-    stack <- UndoStack.push stack (Command.Transform (Place.Island, a, transformIdentity, t1))
+    stack <- UndoStack.push stack (Command.Transform ("Island", a, transformIdentity, t1))
     Assert.Equal(2, stack.Applied.Length)   // a different place: a step of its own

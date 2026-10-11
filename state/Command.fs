@@ -26,39 +26,39 @@ open Zone
 open Texture
 open SlotMap
 open Advent
-open Place
 open Scenario
+open ZoneTemplate
 
 type Command =
     // An edit of the properties every kind shares. The `Place` names the zone the command acts on.
-    | Transform of Place : Place * Ref : EntityRef * Before : Transform * After : Transform
-    | Rename of Place : Place * Ref : EntityRef * Before : string * After : string
+    | Transform of ZoneId : string * Ref : EntityRef * Before : Transform * After : Transform
+    | Rename of ZoneId : string * Ref : EntityRef * Before : string * After : string
     // One create and one delete per kind, carrying the kind's own authored value.
-    | ActorCreate of Place : Place * Ref : EntityRef * Actor : ActorState
-    | ActorDelete of Place : Place * Ref : EntityRef * Actor : ActorState
-    | PropCreate of Place : Place * Ref : EntityRef * Prop : PropState
-    | PropDelete of Place : Place * Ref : EntityRef * Prop : PropState
-    | PartCreate of Place : Place * Ref : EntityRef * Part : PropState
-    | PartDelete of Place : Place * Ref : EntityRef * Part : PropState
-    | WaypointCreate of Place : Place * Ref : EntityRef * Waypoint : Waypoint
-    | WaypointDelete of Place : Place * Ref : EntityRef * Waypoint : Waypoint
-    | TriggerCreate of Place : Place * Ref : EntityRef * Trigger : TriggerState
-    | TriggerDelete of Place : Place * Ref : EntityRef * Trigger : TriggerState
+    | ActorCreate of ZoneId : string * Ref : EntityRef * Actor : ActorState
+    | ActorDelete of ZoneId : string * Ref : EntityRef * Actor : ActorState
+    | PropCreate of ZoneId : string * Ref : EntityRef * Prop : PropState
+    | PropDelete of ZoneId : string * Ref : EntityRef * Prop : PropState
+    | PartCreate of ZoneId : string * Ref : EntityRef * Part : PropState
+    | PartDelete of ZoneId : string * Ref : EntityRef * Part : PropState
+    | WaypointCreate of ZoneId : string * Ref : EntityRef * Waypoint : Waypoint
+    | WaypointDelete of ZoneId : string * Ref : EntityRef * Waypoint : Waypoint
+    | TriggerCreate of ZoneId : string * Ref : EntityRef * Trigger : TriggerState
+    | TriggerDelete of ZoneId : string * Ref : EntityRef * Trigger : TriggerState
     // A property edit that belongs to one kind: a waypoint's link, a trigger's shape.
-    | Link of Place : Place * Ref : EntityRef * Before : EntityRef option * After : EntityRef option
-    | TriggerSet of Place : Place * Ref : EntityRef * Before : TriggerState * After : TriggerState
+    | Link of ZoneId : string * Ref : EntityRef * Before : EntityRef option * After : EntityRef option
+    | TriggerSet of ZoneId : string * Ref : EntityRef * Before : TriggerState * After : TriggerState
     // The extend gesture as one step: create `Ref` from `Waypoint` and point `From` at it.
-    | LinkSpawn of Place : Place * From : EntityRef * Before : EntityRef option * Ref : EntityRef * Waypoint : Waypoint
+    | LinkSpawn of ZoneId : string * From : EntityRef * Before : EntityRef option * Ref : EntityRef * Waypoint : Waypoint
     // Zone-level rather than an entity: swapping the loaded environment.
-    | SetEnvironment of Place : Place * Previous : Environment option * Next : Environment option
+    | SetEnvironment of ZoneId : string * Previous : Environment option * Next : Environment option
     // Zone-level rather than an entity: the authored light (spec 043). Pushed by the Inspector's
     // committed edits and carried by an instantiate, so a light change is reversible like any other.
-    | SetLight of Place : Place * Previous : LightSettings * Next : LightSettings
+    | SetLight of ZoneId : string * Previous : LightSettings * Next : LightSettings
     // Zone-level rather than an entity: the player designation (spec 045) — which of the zone's actors is
     // the avatar. The payload is the value `Player` already holds, so no fourth spelling of it is
     // introduced, and `Previous` is what makes undoing a re-designation restore the *previous actor*
     // rather than no player at all.
-    | SetPlayer of Place : Place * Previous : Handle voption * Next : Handle voption
+    | SetPlayer of ZoneId : string * Previous : Handle voption * Next : Handle voption
     // Several mutations that were one gesture: applied forwards, reversed backwards, so a create and
     // the delete that preceded it cannot come apart. One entry on the stack, like any other command,
     // and a step that puts a zone back exactly is what needs it (spec 035 FR-005). Not itself a place's:
@@ -67,20 +67,24 @@ type Command =
     // The active place moved (spec 048, spec 077). A content command now names its own place, so this is no
     // longer load-bearing for undo's correctness; it stays because switching the active place is itself an
     // edit the author can undo.
-    | ZoneMove of Previous : Place * Next : Place
+    | ZoneMove of Previous : string * Next : string
     // A place was made present, and made active (spec 048, 061). `Previous` is the place active before the
     // add, which its undo restores: an add and the active change it causes are **one** step, so one click is
     // one undo.
-    | ZoneAdd of Previous : Place * Name : Place
+    | ZoneAdd of Previous : string * Name : string
     // A place was made absent (spec 048, 061), carrying everything needed to put its zone back. The removed
     // place is never the active one (spec 061 FR-011), so `Previous` is the active place and is unchanged by
     // the delete; its undo rebuilds the zone in place without switching (spec 077 FR-014).
-    | ZoneDelete of Previous : Place * Name : Place * Contents : ZoneContents
-    // A place was made present **without** entering it (spec 078). The one new step the editor's scenario fork
-    // needs: `ZoneAdd` makes a place present *and active*, but a fork must not switch the layout. It carries no
-    // `Previous` because it never changes the active place — the active place is always present, so this only
-    // ever names an absent one. Apply streams the registry template in; undo removes the place.
-    | ZonePresent of Name : Place
+    | ZoneDelete of Previous : string * Name : string * Contents : ZoneContents
+    // A place was made present **without** entering it (spec 078); its staging rides the command (spec 079) so
+    // redo needs no store. `ZoneAdd` makes a place present *and active*, but a fork must not switch the layout. It
+    // carries no `Previous` — it never changes the active place. Apply makes the place present and stages it from
+    // `Staging`; undo removes the place.
+    | ZonePresent of Name : string * Staging : ZoneTemplate option
+    // A present zone's staging was replaced (spec 079): a fork into a zone the scene already holds. State-level
+    // like `ZonePresent`, because only the state-level runner knows the active place and can detach an inactive
+    // zone's built bodies. Apply stages to `Next`; undo stages back to `Previous`.
+    | ZoneStage of Name : string * Previous : ZoneTemplate option * Next : ZoneTemplate option
     // The screen's cue was edited (spec 049). It is not a zone's — a cue spans zones (spec 046 FR-013) — so, like
     // a zone step, it is carried out against the gameplay state and not by the zone-level runner. The payload is
     // the two cue values: a cue is immutable, so a snapshot is a reference, and that is exactly what the cue's
@@ -104,7 +108,7 @@ type Command =
 /// each name their own place). The state-level runner resolves `Some place` to its zone before handing the
 /// command to the zone-level runner, so a step acts on its own place, not the active one. Total: a case either
 /// names its place or is one of the state-level steps listed below.
-let placeOf (cmd: Command) : Place option =
+let placeOf (cmd: Command) : string option =
     match cmd with
     | Transform (place, _, _, _)
     | Rename (place, _, _, _)
@@ -130,6 +134,7 @@ let placeOf (cmd: Command) : Place option =
     | ZoneAdd _
     | ZoneDelete _
     | ZonePresent _
+    | ZoneStage _
     | SetCue _
     | Advent _
     | SetScenario _ ->
@@ -183,6 +188,7 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
     | ZoneAdd _
     | ZoneDelete _
     | ZonePresent _
+    | ZoneStage _
     | SetCue _
     | Advent _
     | SetScenario _ ->
@@ -233,6 +239,7 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
     | ZoneAdd _
     | ZoneDelete _
     | ZonePresent _
+    | ZoneStage _
     | SetCue _
     | Advent _
     | SetScenario _ ->

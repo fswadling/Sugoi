@@ -332,16 +332,17 @@ the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`. The ca
 
 **Deliverables**
 - `world/Scenario.fs` — the scenarios, a closed union; `world/ScenarioZone.fs` — a zone as a scenario holds it
-  (ref-free: the narrative entities — arrays of authored actor/waypoint/trigger states, with waypoint chains by
-  index); `world/ScenarioRegistry.fs` — the contents captured under each: a scenario = every present zone (each a
-  `ScenarioZone`) + the cue (immutable at runtime). *(the library and its panel are `specs/070-scenario-library`;
-  the zone's staging and the active place are not captured, `specs/076-scenario-narrative-only`)*
+  (its **staging** — environment, light and placed props — plus its narrative entities as arrays of authored
+  actor/waypoint/trigger states, with waypoint chains by index); `world/ScenarioRegistry.fs` — the contents captured
+  under each: a scenario = every present zone (each a `ScenarioZone`) + the cue (immutable at runtime). *(the library
+  and its panel are `specs/070-scenario-library`; the staging was restored to the scenario by
+  `specs/079-scenario-owned-zones`)*
 - `editor/ScenarioPanel.fs` — the scenarios, one row each, with **Register** (file the current scene), **Clear**
   and **Fork** (run it), all steps on the one undo history. *(complete — `specs/070-scenario-library`,
   `specs/078-fork-scenario`)*
 - `world/ScenarioFork.fs` — the materialiser both entry points call (the `ForkScenario` cue op and the panel's Fork
-  control): it appends a registered scenario's entities into their places, creating absent ones from the Zone
-  Registry's template, and returns the commands that reverse it. *(`specs/078-fork-scenario`)*
+  control): it ensures each zone by name (creating and staging an absent one, restaging a present one), appends its
+  entities, and returns the commands that reverse it. *(`specs/078-fork-scenario`, `specs/079-scenario-owned-zones`)*
 
 **Done when**: you can assemble and run a scenario. *(Both are in: assembling is the library, the panel and
 registration (`specs/070-scenario-library`); **running** one is the Fork control and the `ForkScenario` cue op,
@@ -349,7 +350,7 @@ which materialise the scenario and fork its cue beside the running one (`specs/0
 scenario cue ops `InlineScenario`/`ClearScenario` and the camera-follow/interaction toggles remain the deferred cue
 families.)*
 
-### 12 · Zone registry + editor ✅
+### 12 · Zone registry + editor — retired (`specs/079-scenario-owned-zones`)
 
 **Goal**: author zone templates/settings.
 
@@ -486,10 +487,11 @@ PBR → physics → walk around). After that, the content-authoring path is
 
 ## Next step
 
-**Phase 11 — scenarios, running one**: the scenario library is in — the closed union (`world/Scenario.fs`),
-its captured contents (`world/ScenarioRegistry.fs`) and the **Scenario** panel that files the current scene
-under one, clears it and **forks** it, each a step on the one undo history (`specs/070-scenario-library`,
-`specs/078-fork-scenario`). Running a scenario is forking it into the scene: `world/ScenarioFork.fs` appends its
-entities and the `ForkScenario` cue op forks its cue beside the running one. What remains of the deferred cue
-families is odin's other scenario ops (`InlineScenario`/`ClearScenario`) and the camera-follow / interaction
-toggles. (Phase 10 is complete.)
+**Phase 11 — scenarios own their zones**: a **scenario** is the primary unit of authoring. It carries each of its
+zones' **staging** (environment, light and placed props) as well as their narrative entities, and a zone is
+addressed by a **name** (`specs/079-scenario-owned-zones`). The **Scenario** panel files the current scene, clears
+it and **forks** it — ensuring each zone by name (creating and staging, or restaging a present one), appending its
+entities and forking its cue — each a step on the one undo history (`specs/070`, `specs/078`, `specs/079`). The Zone
+Registry and the closed `Place` union are **retired**. What remains of the deferred cue families is odin's other
+scenario ops (`InlineScenario`/`ClearScenario`) and the camera-follow / interaction toggles. (Phase 10 is complete;
+phase 12 is retired by 079.)

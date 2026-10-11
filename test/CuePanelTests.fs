@@ -51,27 +51,25 @@ let rec private describe (cue: Cue) : string =
     | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
     | Print t -> sprintf "Print(%s)" t
-    | SetZone z -> sprintf "Zone(%s)" (Place.placeName z)
-    | AddZone z -> sprintf "AddZone(%s)" (Place.placeName z)
-    | RemoveZone z -> sprintf "RemoveZone(%s)" (Place.placeName z)
-    | PreloadZone z -> sprintf "PreloadZone(%s)" (Place.placeName z)
-    | AddActor (p, a, asset, w) -> sprintf "AddActor(%s,%s,%s,%s)" (Place.placeName p) a asset w
-    | RemoveActor (p, a) -> sprintf "RemoveActor(%s,%s)" (Place.placeName p) a
-    | Animate (p, a, clip, _, d) -> sprintf "Animate(%s,%s,%s,%g)" (Place.placeName p) a clip d
-    | CrossFade (p, a, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%s,%g)" (Place.placeName p) a f t d
-    | Morph (p, a, m, _, d) -> sprintf "Morph(%s,%s,%s,%g)" (Place.placeName p) a m d
-    | CrossMorph (p, a, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%s,%g)" (Place.placeName p) a f t d
+    | SetZone z -> sprintf "Zone(%s)" (z)
+    | RemoveZone z -> sprintf "RemoveZone(%s)" (z)
+    | AddActor (p, a, asset, w) -> sprintf "AddActor(%s,%s,%s,%s)" (p) a asset w
+    | RemoveActor (p, a) -> sprintf "RemoveActor(%s,%s)" (p) a
+    | Animate (p, a, clip, _, d) -> sprintf "Animate(%s,%s,%s,%g)" (p) a clip d
+    | CrossFade (p, a, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%s,%g)" (p) a f t d
+    | Morph (p, a, m, _, d) -> sprintf "Morph(%s,%s,%s,%g)" (p) a m d
+    | CrossMorph (p, a, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%s,%g)" (p) a f t d
     | BlendState (a, _, _, morph, f, t, _, _, _, _, _) -> sprintf "Blend(%s,%b,%s,%s)" a morph f t
     | MoveActor (a, p, _, mv, idl) -> sprintf "MoveActor(%s,%s,%s,%s)" a p mv idl
     | MoveActorState (a, _, _, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" a
     | RotateActor (a, w, d) -> sprintf "RotateActor(%s,%s,%g)" a w d
     | RotateActorState (a, _, _, _, _, _, _) -> sprintf "RotateActor(%s)" a
-    | EnablePlayer (p, a) -> sprintf "EnablePlayer(%s,%s)" (Place.placeName p) a
-    | DisablePlayer (p, a) -> sprintf "DisablePlayer(%s,%s)" (Place.placeName p) a
-    | EnableTrigger (p, t) -> sprintf "EnableTrigger(%s,%s)" (Place.placeName p) t
-    | DisableTrigger (p, t) -> sprintf "DisableTrigger(%s,%s)" (Place.placeName p) t
-    | SetCamera (p, w) -> sprintf "Camera(%s,%s)" (Place.placeName p) w
-    | FlyCamera (p, path, _) -> sprintf "Fly(%s,%s)" (Place.placeName p) path
+    | EnablePlayer (p, a) -> sprintf "EnablePlayer(%s,%s)" (p) a
+    | DisablePlayer (p, a) -> sprintf "DisablePlayer(%s,%s)" (p) a
+    | EnableTrigger (p, t) -> sprintf "EnableTrigger(%s,%s)" (p) t
+    | DisableTrigger (p, t) -> sprintf "DisableTrigger(%s,%s)" (p) t
+    | SetCamera (p, w) -> sprintf "Camera(%s,%s)" (p) w
+    | FlyCamera (p, path, _) -> sprintf "Fly(%s,%s)" (p) path
     | FlyCameraState (path, _, _, _, _) -> sprintf "Fly(%s)" path
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
     | RemoveAdvent m -> sprintf "Remove(%s)" (Advent.name m)
@@ -177,12 +175,10 @@ let ``every kind's row says what it is, and a leaf in flight as the op it came f
     Assert.Equal("Fork", labelOf (Fork(Wait 1.0)))
     Assert.Equal("Wait 1", labelOf (Wait 1.0))
     Assert.Equal("Exposit: hello", labelOf (Exposit("hello", Dialogue.Kind.Dialogue)))
-    Assert.Equal("Zone: Island", labelOf (SetZone Place.Island))
-    Assert.Equal("Add zone: Island", labelOf (AddZone Place.Island))
-    Assert.Equal("Remove zone: Island", labelOf (RemoveZone Place.Island))
-    Assert.Equal("Preload zone: Island", labelOf (PreloadZone Place.Island))
-    Assert.Equal("Camera: balcony in Island", labelOf (SetCamera(Place.Island, "balcony")))
-    Assert.Equal("Fly: route in Island", labelOf (FlyCamera(Place.Island, "route", 1.0)))
+    Assert.Equal("Zone: Island", labelOf (SetZone "Island"))
+    Assert.Equal("Remove zone: Island", labelOf (RemoveZone "Island"))
+    Assert.Equal("Camera: balcony in Island", labelOf (SetCamera("Island", "balcony")))
+    Assert.Equal("Fly: route in Island", labelOf (FlyCamera("Island", "route", 1.0)))
     Assert.Equal("Fade out 2", labelOf (FadeOut 2.0))
     Assert.Equal("Fade in 2", labelOf (FadeIn 2.0))
     // ... and the in-flight forms read as the ops they came from
@@ -203,7 +199,7 @@ let ``the scenario op carries no children or place, and its authoring round-trip
     Assert.True((placeOf (ForkScenario Intro)).IsNone)
 
     // a chosen scenario defaults to the first declared one
-    match defaultOfKind Place.start "Fork scenario" with
+    match defaultOfKind GameplayState.startZone "Fork scenario" with
     | ForkScenario s -> Assert.Equal(Intro, s)
     | other -> Assert.Fail(sprintf "expected a ForkScenario, got %A" other)
 
@@ -369,44 +365,40 @@ let ``appending to a sequence gives the node and the new child's path`` () =
 [<Fact>]
 let ``only the text-bearing kinds carry text, and writing it replaces exactly that`` () =
     Assert.Equal(ValueSome "hello", textOf (Exposit("hello", Dialogue.Kind.Dialogue)))
-    Assert.Equal(ValueNone, textOf (SetZone Place.Island))
-    Assert.Equal(ValueNone, textOf (AddZone Place.Island))
-    Assert.Equal(ValueNone, textOf (RemoveZone Place.Island))
-    Assert.Equal(ValueNone, textOf (PreloadZone Place.Island))
-    Assert.Equal(ValueSome "balcony", textOf (SetCamera(Place.Island, "balcony")))
-    Assert.Equal(ValueSome "route", textOf (FlyCamera(Place.Island, "route", 1.0)))
+    Assert.Equal(ValueNone, textOf (SetZone "Island"))
+    Assert.Equal(ValueNone, textOf (RemoveZone "Island"))
+    Assert.Equal(ValueSome "balcony", textOf (SetCamera("Island", "balcony")))
+    Assert.Equal(ValueSome "route", textOf (FlyCamera("Island", "route", 1.0)))
     Assert.Equal(ValueNone, textOf (Wait 1.0))
     Assert.Equal(ValueNone, textOf (AddAdvent MetAiko))
     Assert.Equal(ValueNone, textOf (Await MetAiko))
     Assert.Equal(ValueNone, textOf (If(MetAiko, Fin, Fin)))
     Assert.Equal(ValueNone, textOf Fin)
     Assert.Equal("Exposit(hi)", describe (withText (Exposit("hello", Dialogue.Kind.Dialogue)) "hi"))
-    Assert.Equal("Zone(Island)", describe (withPlace Place.Island (SetZone Place.start)))
-    Assert.Equal("AddZone(Island)", describe (withPlace Place.Island (AddZone Place.start)))
-    Assert.Equal("RemoveZone(Island)", describe (withPlace Place.Island (RemoveZone Place.start)))
-    Assert.Equal("PreloadZone(Island)", describe (withPlace Place.Island (PreloadZone Place.start)))
-    Assert.Equal("Camera(Island,atrium)", describe (withText (SetCamera(Place.Island, "balcony")) "atrium"))
-    Assert.Equal("Fly(Island,route)", describe (withText (FlyCamera(Place.Island, "lo", 2.0)) "route"))
+    Assert.Equal("Zone(Island)", describe (withPlace "Island" (SetZone GameplayState.startZone)))
+    Assert.Equal("RemoveZone(Island)", describe (withPlace "Island" (RemoveZone GameplayState.startZone)))
+    Assert.Equal("Camera(Island,atrium)", describe (withText (SetCamera("Island", "balcony")) "atrium"))
+    Assert.Equal("Fly(Island,route)", describe (withText (FlyCamera("Island", "lo", 2.0)) "route"))
     Assert.True(raises (fun () -> withText (Wait 1.0) "x" |> ignore))
 
 [<Fact>]
 let ``the actor ops render, and their chooser writes replace the place, the name, the asset and the waypoint`` () =
     let labelOf (cue: Cue) : string = (List.head (rows cue)).Label
-    let set = AddActor(Place.Island, "Aiko", "aiko", "door")
+    let set = AddActor("Island", "Aiko", "aiko", "door")
     Assert.Equal("Add actor: Aiko/aiko in Island @ door", labelOf set)
-    Assert.Equal("Remove actor: Akane in Island", labelOf (RemoveActor(Place.Island, "Akane")))
+    Assert.Equal("Remove actor: Akane in Island", labelOf (RemoveActor("Island", "Akane")))
 
     // the place, the name, the asset and the waypoint are separate writes; each preserves the rest
-    Assert.Equal("AddActor(Island,Akane,casual,door)", describe (withAsset "casual" (withActor "Akane" (withPlace Place.Island set))))
+    Assert.Equal("AddActor(Island,Akane,casual,door)", describe (withAsset "casual" (withActor "Akane" (withPlace "Island" set))))
     Assert.Equal("AddActor(Island,Aiko,aiko,atrium)", describe (withText2 set "atrium"))
     // the add op's first text field names the actor; its second is the waypoint
     Assert.Equal(ValueSome "Aiko", textOf set)
     Assert.Equal(ValueSome "door", textOf2 set)
 
     // the remove op now names its place too (spec 075): the place write replaces it, and an asset write is a bug
-    Assert.Equal("RemoveActor(Island,Akane)", describe (withActor "Akane" (RemoveActor(Place.Island, "Aiko"))))
-    Assert.Equal("RemoveActor(ArtRoom Morning,Akane)", describe (withPlace Place.start (RemoveActor(Place.Island, "Akane"))))
-    Assert.True(raises (fun () -> withAsset "casual" (RemoveActor(Place.Island, "Aiko")) |> ignore))
+    Assert.Equal("RemoveActor(Island,Akane)", describe (withActor "Akane" (RemoveActor("Island", "Aiko"))))
+    Assert.Equal("RemoveActor(start,Akane)", describe (withPlace GameplayState.startZone (RemoveActor("Island", "Akane"))))
+    Assert.True(raises (fun () -> withAsset "casual" (RemoveActor("Island", "Aiko")) |> ignore))
 
 [<Fact>]
 let ``an exposit's text and presentation are written independently`` () =
@@ -574,20 +566,20 @@ let ``a cue edit made before a zone move is still reachable after it`` () =
 
     do CueEditor.commit &state (withAt [ 0 ] (Exposit("b", Dialogue.Kind.Dialogue)) state.Cue) // cue edit A, in main
     let afterA = describe state.Cue
-    do History.commit shared &state (ZoneAdd (Place.start, Place.Island)) // a real move: the art room → the island
-    Assert.Equal(Place.Island, state.ActiveZone)
+    do History.commit shared &state (ZoneAdd (GameplayState.startZone, "Island")) // a real move: the art room → the island
+    Assert.Equal("Island", state.ActiveZone)
     do CueEditor.commit &state (withAt [ 0 ] (Exposit("c", Dialogue.Kind.Dialogue)) state.Cue) // cue edit B, in classroom
     let afterB = describe state.Cue
     Assert.NotEqual<string>(afterA, afterB)
 
     // B first, with classroom still on screen.
     do History.undoHistory shared &state
-    Assert.Equal(Place.Island, state.ActiveZone)
+    Assert.Equal("Island", state.ActiveZone)
     Assert.Equal(afterA, describe state.Cue)
 
     // Then the move steps back, carrying the view to main — where A is now reachable.
     do History.undoHistory shared &state
-    Assert.Equal(Place.start, state.ActiveZone)
+    Assert.Equal(GameplayState.startZone, state.ActiveZone)
     Assert.Equal(afterA, describe state.Cue)
 
     // Then A itself.
@@ -695,25 +687,25 @@ let ``the trigger inline editor keeps its own selection and text buffer`` () =
 [<Fact>]
 let ``the blend, motion and player ops render, and their writes replace their fields`` () =
     let labelOf (cue: Cue) : string = (List.head (rows cue)).Label
-    Assert.Equal("Animate: Jog in Island", labelOf (Animate(Place.Island, "Aiko", "Jog", 1.0f, 1.0)))
-    Assert.Equal("Cross fade: Idle -> Jog in Island", labelOf (CrossFade(Place.Island, "Aiko", "Idle", "Jog", 1.0f, 1.0)))
-    Assert.Equal("Morph: Smile in Island", labelOf (Morph(Place.Island, "Aiko", "Smile", 1.0f, 1.0)))
-    Assert.Equal("Cross morph: A -> B in Island", labelOf (CrossMorph(Place.Island, "Aiko", "A", "B", 1.0f, 1.0)))
+    Assert.Equal("Animate: Jog in Island", labelOf (Animate("Island", "Aiko", "Jog", 1.0f, 1.0)))
+    Assert.Equal("Cross fade: Idle -> Jog in Island", labelOf (CrossFade("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal("Morph: Smile in Island", labelOf (Morph("Island", "Aiko", "Smile", 1.0f, 1.0)))
+    Assert.Equal("Cross morph: A -> B in Island", labelOf (CrossMorph("Island", "Aiko", "A", "B", 1.0f, 1.0)))
     Assert.Equal("Move actor: Aiko", labelOf (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")))
     Assert.Equal("Rotate actor: Aiko", labelOf (RotateActor("Aiko", "door", 1.0)))
-    Assert.Equal("Enable player: Aiko in Island", labelOf (EnablePlayer(Place.Island, "Aiko")))
-    Assert.Equal("Disable player: Aiko in Island", labelOf (DisablePlayer(Place.Island, "Aiko")))
+    Assert.Equal("Enable player: Aiko in Island", labelOf (EnablePlayer("Island", "Aiko")))
+    Assert.Equal("Disable player: Aiko in Island", labelOf (DisablePlayer("Island", "Aiko")))
 
     // the actor chooser writes the name, keeping every other field (the place is preserved)
-    Assert.Equal("Animate(Island,Akane,Jog,1)", describe (withActor "Akane" (Animate(Place.Island, "Aiko", "Jog", 1.0f, 1.0))))
-    Assert.Equal("DisablePlayer(Island,Akane)", describe (withActor "Akane" (DisablePlayer(Place.Island, "Aiko"))))
+    Assert.Equal("Animate(Island,Akane,Jog,1)", describe (withActor "Akane" (Animate("Island", "Aiko", "Jog", 1.0f, 1.0))))
+    Assert.Equal("DisablePlayer(Island,Akane)", describe (withActor "Akane" (DisablePlayer("Island", "Aiko"))))
     // the zone selector writes the place, keeping the actor and the rest (spec 075)
-    Assert.Equal("Animate(ArtRoom Morning,Aiko,Jog,1)", describe (withPlace Place.start (Animate(Place.Island, "Aiko", "Jog", 1.0f, 1.0))))
+    Assert.Equal("Animate(start,Aiko,Jog,1)", describe (withPlace GameplayState.startZone (Animate("Island", "Aiko", "Jog", 1.0f, 1.0))))
     // two-field ops: the first text field and the second write independently
-    Assert.Equal("CrossFade(Island,Aiko,Walk,Jog,1)", describe (withText (CrossFade(Place.Island, "Aiko", "Idle", "Jog", 1.0f, 1.0)) "Walk"))
-    Assert.Equal("CrossFade(Island,Aiko,Idle,Walk,1)", describe (withText2 (CrossFade(Place.Island, "Aiko", "Idle", "Jog", 1.0f, 1.0)) "Walk"))
-    Assert.Equal(ValueSome "Idle", textOf (CrossFade(Place.Island, "Aiko", "Idle", "Jog", 1.0f, 1.0)))
-    Assert.Equal(ValueSome "Jog", textOf2 (CrossFade(Place.Island, "Aiko", "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal("CrossFade(Island,Aiko,Walk,Jog,1)", describe (withText (CrossFade("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)) "Walk"))
+    Assert.Equal("CrossFade(Island,Aiko,Idle,Walk,1)", describe (withText2 (CrossFade("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)) "Walk"))
+    Assert.Equal(ValueSome "Idle", textOf (CrossFade("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal(ValueSome "Jog", textOf2 (CrossFade("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
     // the move's path is the waypoint writer's, and its two clips are the two text fields
     Assert.Equal("MoveActor(Aiko,atrium,Jog,Idle)", describe (withWaypoint "atrium" (MoveActor("Aiko", "route", 3.5, "Jog", "Idle"))))
     Assert.Equal(ValueSome "Jog", textOf (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")))
@@ -727,20 +719,20 @@ let ``the blend, motion and player ops render, and their writes replace their fi
 [<Fact>]
 let ``the trigger toggles and print render, and their writes replace their fields`` () =
     let labelOf (cue: Cue) : string = (List.head (rows cue)).Label
-    let enable = EnableTrigger(Place.Island, "door")
+    let enable = EnableTrigger("Island", "door")
     Assert.Equal("Enable trigger: door in Island", labelOf enable)
-    Assert.Equal("Disable trigger: gate in Island", labelOf (DisableTrigger(Place.Island, "gate")))
+    Assert.Equal("Disable trigger: gate in Island", labelOf (DisableTrigger("Island", "gate")))
     Assert.Equal("Print: chapter 1", labelOf (Print "chapter 1"))
 
     // the place chooser and the trigger-name chooser are separate writes; each keeps the rest
-    Assert.Equal(sprintf "EnableTrigger(%s,door)" (Place.placeName Place.start), describe (withPlace Place.start enable))
+    Assert.Equal(sprintf "EnableTrigger(%s,door)" (GameplayState.startZone), describe (withPlace GameplayState.startZone enable))
     Assert.Equal("EnableTrigger(Island,atrium)", describe (withTrigger "atrium" enable))
-    Assert.Equal(sprintf "DisableTrigger(%s,gate)" (Place.placeName Place.start), describe (withPlace Place.start (DisableTrigger(Place.Island, "gate"))))
-    Assert.Equal("DisableTrigger(Island,hall)", describe (withTrigger "hall" (DisableTrigger(Place.Island, "gate"))))
+    Assert.Equal(sprintf "DisableTrigger(%s,gate)" (GameplayState.startZone), describe (withPlace GameplayState.startZone (DisableTrigger("Island", "gate"))))
+    Assert.Equal("DisableTrigger(Island,hall)", describe (withTrigger "hall" (DisableTrigger("Island", "gate"))))
     // the toggle carries no text field: its name is the trigger chooser's
     Assert.Equal(ValueNone, textOf enable)
     Assert.True(raises (fun () -> withTrigger "x" (Wait 1.0) |> ignore))
-    Assert.True(raises (fun () -> withPlace Place.start (Print "x") |> ignore))
+    Assert.True(raises (fun () -> withPlace GameplayState.startZone (Print "x") |> ignore))
 
     // print is a plain text field, and its kind round-trips
     Assert.Equal(ValueSome "chapter 1", textOf (Print "chapter 1"))
@@ -757,13 +749,13 @@ let ``the combo filter matches case-insensitive substrings, and an empty filter 
 [<Fact>]
 let ``a chosen kind defaults its place to the given default place`` () =
     // every place-carrying kind takes the place the panel passes (the active zone, spec 075 FR-007)
-    for kind in [ "Set zone"; "Add zone"; "Remove zone"; "Preload zone"; "Add actor"; "Remove actor"
+    for kind in [ "Set zone"; "Remove zone"; "Add actor"; "Remove actor"
                   "Enable player"; "Disable player"; "Enable trigger"; "Disable trigger"
                   "Animate"; "Cross fade"; "Morph"; "Cross morph"; "Set camera"; "Fly camera" ] do
-        match placeOf (defaultOfKind Place.Island kind) with
-        | ValueSome place -> Assert.Equal(Place.Island, place)
+        match placeOf (defaultOfKind "Island" kind) with
+        | ValueSome place -> Assert.Equal("Island", place)
         | ValueNone -> Assert.Fail (sprintf "kind '%s' should carry the default place" kind)
     // a place-less op does not
-    Assert.Equal(ValueNone, placeOf (defaultOfKind Place.Island "Wait"))
-    Assert.Equal(ValueNone, placeOf (defaultOfKind Place.Island "Move actor"))
-    Assert.Equal(ValueNone, placeOf (defaultOfKind Place.Island "Rotate actor"))
+    Assert.Equal(ValueNone, placeOf (defaultOfKind "Island" "Wait"))
+    Assert.Equal(ValueNone, placeOf (defaultOfKind "Island" "Move actor"))
+    Assert.Equal(ValueNone, placeOf (defaultOfKind "Island" "Rotate actor"))

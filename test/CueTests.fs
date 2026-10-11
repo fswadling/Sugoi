@@ -16,12 +16,11 @@ open Cue
 open CueEngine
 open Entity
 open Advent
-open Place
 
-// The game's places, as these tests name them.
-let private mainPlace : Place = Place.start
-let private atriumPlace : Place = Place.ArtRoom Period.Evening
-let private classroomPlace : Place = Place.Island
+// The zones these tests name (spec 079: a zone is a string).
+let private mainPlace : string = GameplayState.startZone
+let private atriumPlace : string = "ArtRoom Evening"
+let private classroomPlace : string = "Island"
 
 // ── Headless fixtures ──
 
@@ -73,24 +72,6 @@ let private residentShared () : SharedState.SharedState =
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) environments
       Advents = Set.empty }
 
-// Register a template for `place`: the `"room"` environment, no light change and no parts or props —
-// enough that a cue's add op streams something and `Zone.Environment` is present.
-let private registerTemplate (state: GameplayState.GameplayState) (place: Place) : unit =
-    let baseEntity : Entity =
-        { Name = "room"
-          Transform = transformIdentity
-          Enabled = true
-          Visible = true
-          Selectable = true
-          Draggable = true }
-    state.ZoneRegistry.Templates.[place] <-
-        { AssetId = "room"
-          Base = baseEntity
-          Orientation = Quaternion.Identity
-          Light = Texture.defaultLight
-          Parts = [||]
-          Props = [||] }
-
 /// The cue as a person (or the editor's panel) reads it. The in-flight `WaitState` renders as the `Wait`
 /// it came from: the view is what is left to run, and its front is the running op.
 let rec private describe (cue: Cue) : string =
@@ -106,16 +87,14 @@ let rec private describe (cue: Cue) : string =
     | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
     | Print t -> sprintf "Print(%s)" t
-    | SetZone z -> sprintf "Zone(%s)" (Place.placeName z)
-    | AddZone z -> sprintf "AddZone(%s)" (Place.placeName z)
-    | RemoveZone z -> sprintf "RemoveZone(%s)" (Place.placeName z)
-    | PreloadZone z -> sprintf "PreloadZone(%s)" (Place.placeName z)
-    | AddActor (p, a, asset, w) -> sprintf "AddActor(%s,%s,%s,%s)" (Place.placeName p) a asset w
-    | RemoveActor (p, a) -> sprintf "RemoveActor(%s,%s)" (Place.placeName p) a
-    | Animate (p, a, clip, _, d) -> sprintf "Animate(%s,%s,%s,%g)" (Place.placeName p) a clip d
-    | CrossFade (p, a, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%s,%g)" (Place.placeName p) a f t d
-    | Morph (p, a, m, _, d) -> sprintf "Morph(%s,%s,%s,%g)" (Place.placeName p) a m d
-    | CrossMorph (p, a, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%s,%g)" (Place.placeName p) a f t d
+    | SetZone z -> sprintf "Zone(%s)" (z)
+    | RemoveZone z -> sprintf "RemoveZone(%s)" (z)
+    | AddActor (p, a, asset, w) -> sprintf "AddActor(%s,%s,%s,%s)" (p) a asset w
+    | RemoveActor (p, a) -> sprintf "RemoveActor(%s,%s)" (p) a
+    | Animate (p, a, clip, _, d) -> sprintf "Animate(%s,%s,%s,%g)" (p) a clip d
+    | CrossFade (p, a, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%s,%g)" (p) a f t d
+    | Morph (p, a, m, _, d) -> sprintf "Morph(%s,%s,%s,%g)" (p) a m d
+    | CrossMorph (p, a, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%s,%g)" (p) a f t d
     | BlendState (a, _, _, morph, f, t, _, _, _, _, _) ->
         if f = t then sprintf "%s(%s,%s)" (if morph then "Morph" else "Animate") a f
         else sprintf "%s(%s,%s,%s)" (if morph then "CrossMorph" else "CrossFade") a f t
@@ -123,12 +102,12 @@ let rec private describe (cue: Cue) : string =
     | MoveActorState (a, _, _, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" a
     | RotateActor (a, w, d) -> sprintf "RotateActor(%s,%s,%g)" a w d
     | RotateActorState (a, _, _, _, _, _, _) -> sprintf "RotateActor(%s)" a
-    | EnablePlayer (p, a) -> sprintf "EnablePlayer(%s,%s)" (Place.placeName p) a
-    | DisablePlayer (p, a) -> sprintf "DisablePlayer(%s,%s)" (Place.placeName p) a
-    | EnableTrigger (p, t) -> sprintf "EnableTrigger(%s,%s)" (Place.placeName p) t
-    | DisableTrigger (p, t) -> sprintf "DisableTrigger(%s,%s)" (Place.placeName p) t
-    | SetCamera (p, w) -> sprintf "SetCamera(%s,%s)" (Place.placeName p) w
-    | FlyCamera (p, path, _) -> sprintf "FlyCamera(%s,%s)" (Place.placeName p) path
+    | EnablePlayer (p, a) -> sprintf "EnablePlayer(%s,%s)" (p) a
+    | DisablePlayer (p, a) -> sprintf "DisablePlayer(%s,%s)" (p) a
+    | EnableTrigger (p, t) -> sprintf "EnableTrigger(%s,%s)" (p) t
+    | DisableTrigger (p, t) -> sprintf "DisableTrigger(%s,%s)" (p) t
+    | SetCamera (p, w) -> sprintf "SetCamera(%s,%s)" (p) w
+    | FlyCamera (p, path, _) -> sprintf "FlyCamera(%s,%s)" (p) path
     | FlyCameraState (path, _, _, _, _) -> sprintf "FlyCamera(%s)" path
     | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
     | RemoveAdvent m -> sprintf "Remove(%s)" (Advent.name m)
@@ -733,26 +712,7 @@ let ``a switch to an absent place performs nothing`` () =
 // ══════ Zone cue ops (spec 062) ══════
 
 [<Fact>]
-let ``an add op makes an absent place present with its registered template, without entering it`` () =
-    let shared = residentShared ()
-    let mutable state = withCue (seqOf [ AddZone atriumPlace ])
-    registerTemplate state atriumPlace
-    let activeBefore = state.ActiveZone
-
-    tick shared &state 0.0
-
-    Assert.Equal("Fin", describe state.Cue)
-    Assert.True(state.Zones.ContainsKey atriumPlace)
-    Assert.Equal(activeBefore, state.ActiveZone) // an add prepares; it does not enter
-    Assert.Equal(Some "room", state.Zones.[atriumPlace].Environment |> Option.map (fun e -> e.AssetId))
-
-    // a place already present is a no-op
-    let mutable again = state
-    tick shared &again 0.0
-    Assert.Equal(activeBefore, again.ActiveZone)
-
-[<Fact>]
-let ``a remove op makes a present inactive place absent, and is a no-op for the active or an absent place`` () =
+let ``a remove op makes a present inactive zone absent, and is a no-op for the active or an absent zone`` () =
     let mutable state = withCue (seqOf [ RemoveZone atriumPlace ])
     GameplayState.addZone shared &state atriumPlace
     GameplayState.switchZone shared &state mainPlace
@@ -762,7 +722,7 @@ let ``a remove op makes a present inactive place absent, and is a no-op for the 
     Assert.False(state.Zones.ContainsKey atriumPlace)
     Assert.Equal(mainPlace, state.ActiveZone)
 
-    // the active place cannot be removed by a cue, and an absent place is nothing to remove
+    // the active zone cannot be removed by a cue, and an absent zone is nothing to remove
     let mutable active = withCue (seqOf [ RemoveZone mainPlace ])
     tick shared &active 0.0
     Assert.True(active.Zones.ContainsKey mainPlace)
@@ -772,84 +732,16 @@ let ``a remove op makes a present inactive place absent, and is a no-op for the 
     Assert.False(absent.Zones.ContainsKey atriumPlace)
 
 [<Fact>]
-let ``a preload op requests a present zone's environment and leaves the active zone's alone`` () =
-    let shared = residentShared ()
-    let mutable state = newState ()
-    registerTemplate state atriumPlace
-    // the active zone already has the shared environment resident, so "untouched" is a real claim
-    do ignore (Zone.loadEnvironment (GameplayState.activeZone state) state.Physics shared.Assets "room")
-    Assert.True(Assets.isEnvironmentResident shared.Assets "room")
-    GameplayState.presentZone shared &state atriumPlace (ZoneRegistry.tryTemplate atriumPlace state.ZoneRegistry)
-
-    state.Cue <- PreloadZone atriumPlace
-    let activeBefore = state.ActiveZone
-    tick shared &state 0.0
-
-    Assert.Equal("Fin", describe state.Cue)
-    Assert.Equal(activeBefore, state.ActiveZone)
-    Assert.True(Assets.isEnvironmentResident shared.Assets "room")
-    Assert.True(Option.isSome (GameplayState.activeZone state).Environment)
-
-    // an absent place is nothing to preload
-    let mutable bare = withCue (seqOf [ PreloadZone atriumPlace ])
-    tick shared &bare 0.0
-    Assert.False(bare.Zones.ContainsKey atriumPlace)
-
-[<Fact>]
-let ``a preload op brings a present but empty registered place its content`` () =
-    let shared = residentShared ()
-    let mutable state = newState ()
-    registerTemplate state atriumPlace
-    GameplayState.addZone shared &state atriumPlace // the editor's add: present but with no environment
-    GameplayState.switchZone shared &state mainPlace
-    Assert.True(Option.isNone state.Zones.[atriumPlace].Environment)
-
-    state.Cue <- PreloadZone atriumPlace
-    tick shared &state 0.0
-
-    Assert.Equal("Fin", describe state.Cue)
-    Assert.Equal(Some "room", state.Zones.[atriumPlace].Environment |> Option.map (fun e -> e.AssetId))
-    Assert.Equal(mainPlace, state.ActiveZone) // preloading does not enter
-
-    // and it works while the place is the active one too
-    let mutable active = newState ()
-    registerTemplate active atriumPlace
-    GameplayState.addZone shared &active atriumPlace
-    Assert.True(Option.isNone active.Zones.[atriumPlace].Environment)
-    active.Cue <- PreloadZone atriumPlace
-    tick shared &active 0.0
-    Assert.Equal(atriumPlace, active.ActiveZone)
-    Assert.Equal(Some "room", active.Zones.[atriumPlace].Environment |> Option.map (fun e -> e.AssetId))
-
-[<Fact>]
-let ``every zone op on a place it cannot act on performs nothing and the cue still finishes`` () =
+let ``every zone op on a zone it cannot act on performs nothing and the cue still finishes`` () =
     let mutable state = withCue (seqOf
-        [ AddZone mainPlace          // already present
-          RemoveZone atriumPlace     // absent
-          RemoveZone mainPlace       // the active place
-          SetZone atriumPlace        // absent
-          PreloadZone atriumPlace ]) // absent
+        [ RemoveZone atriumPlace     // absent
+          RemoveZone mainPlace       // the active zone
+          SetZone atriumPlace ])     // absent
     tick shared &state 0.0
     Assert.Equal("Fin", describe state.Cue)
     Assert.True(state.Zones.ContainsKey mainPlace)
     Assert.False(state.Zones.ContainsKey atriumPlace)
     Assert.Equal(mainPlace, state.ActiveZone)
-
-[<Fact>]
-let ``preload, set and remove compose into a prepared transition`` () =
-    let shared = residentShared ()
-    let mutable state = newState ()
-    registerTemplate state atriumPlace
-    GameplayState.addZone shared &state classroomPlace // present and active
-    GameplayState.switchZone shared &state mainPlace
-    state.Cue <- seqOf [ AddZone atriumPlace; PreloadZone atriumPlace; SetZone atriumPlace; RemoveZone classroomPlace ]
-
-    tick shared &state 0.0
-
-    Assert.Equal("Fin", describe state.Cue)
-    Assert.Equal(atriumPlace, state.ActiveZone)
-    Assert.True(state.Zones.ContainsKey atriumPlace)
-    Assert.False(state.Zones.ContainsKey classroomPlace)
 
 [<Fact>]
 let ``the cue resumes rather than restarts across an edit`` () =
@@ -914,18 +806,15 @@ let private waypointIn (zone: Zone.Zone) (name: string) (position: Vector3) (rot
           Draggable = true }
     Zone.spawnWaypoint zone entity
 
-/// The `(place, ref)` an actor resolves to by name, scanning the present places in `Place.all` order — the
-/// test's own convenience (the engine resolves per place now, spec 075), or `None`.
-let private resolve (state: GameplayState.GameplayState) (name: string) : (Place * EntityRef) option =
+/// The `(zone, ref)` an actor resolves to by name, scanning the present zones — the test's own convenience
+/// (the engine resolves per zone now, spec 075), or `None`.
+let private resolve (state: GameplayState.GameplayState) (name: string) : (string * EntityRef) option =
     let mutable found = None
-    for place in Place.all do
+    for KeyValue (place, zone) in state.Zones do
         if found.IsNone then
-            match state.Zones.TryGetValue place with
-            | true, zone ->
-                match Zone.tryActorByName zone name with
-                | Some ref -> found <- Some (place, ref)
-                | None -> ()
-            | false, _ -> ()
+            match Zone.tryActorByName zone name with
+            | Some ref -> found <- Some (place, ref)
+            | None -> ()
     found
 
 let private castRef (state: GameplayState.GameplayState) (name: string) : EntityRef =

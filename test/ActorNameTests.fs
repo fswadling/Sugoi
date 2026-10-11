@@ -12,7 +12,6 @@ open System.Numerics
 open Xunit
 open Gltf
 open Entity
-open Place
 open TestSupport
 
 // A zero model: enough for `ActorRender.create` to hold no clip and pose nothing.

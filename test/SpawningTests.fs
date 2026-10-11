@@ -14,7 +14,6 @@ open EnvironmentAsset
 open Gltf
 open Physics
 open TestSupport
-open Place
 
 let private entity (name: string) : Entity =
     { Name = name
@@ -49,18 +48,17 @@ let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState 
 // A minimal gameplay state: the fake draws are never touched on these paths. The
 // zone is installed under a name with exactly one active zone.
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
-    let zones = Dictionary<Place, Zone.Zone>()
-    zones.[Place.start] <- zone
+    let zones = Dictionary<string, Zone.Zone>()
+    zones.[GameplayState.startZone] <- zone
     { Camera = Camera.create Vector3.Zero Vector3.Zero
       DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       Ui = Unchecked.defaultof<Ui.Ui>
       Dialogue = Dialogue.empty
       Zones = zones
-      ZoneRegistry = ZoneRegistry.create ()
       Scenarios = ScenarioRegistry.create ()
       Physics = Physics.create ()
-      ActiveZone = Place.start
+      ActiveZone = GameplayState.startZone
       Editor = EditorState.create ()
       Editing = true
       Follow = Systems.createFollow ()
@@ -387,13 +385,14 @@ let ``restoring onto an occupied slot reports the reused slot instead of clobber
     Assert.Contains("reused by an untracked Add", message)
     Assert.Equal("wall", (Zone.tryEntityAt zone ref).Value.Name)
 
-// ── Instantiating a registered zone (spec 035) ──
+// ── Staging a zone from a template (spec 035; the restager is `GameplayState.stageZone`, spec 079) ──
 //
-// The replacement runs through `Spawning`, so these drive the real editor path: a zone's contents are
-// recorded, the zone moves on, and one instantiation puts the recorded ones back in one step.
+// These drive the real restage path: a zone's contents are recorded as a `ZoneTemplate`, the zone moves on, and
+// one `stageZone` puts the recorded ones back. (`Spawning.instantiateZone` retired with the Zone Registry; its
+// undoable form is `Command.ZoneStage`, covered in `ScenarioForkTests`.)
 
 [<Fact>]
-let ``instantiate replaces the zone's props with the entry's, and one undo puts them back`` () =
+let ``stageZone replaces the zone's props with the template's`` () =
     let assets = headlessAssets ()
     let zone = Zone.create ()
     let shared = sharedState assets
@@ -419,8 +418,8 @@ let ``instantiate replaces the zone's props with the entry's, and one undo puts 
 
     do Zone.setName zone desk "desk of my own"
 
-    // One gesture.
-    do Spawning.instantiateZone shared &state registered
+    // One gesture: stage the zone from the template.
+    do GameplayState.stageZone shared &state GameplayState.startZone (Some registered)
 
     // The zone's props are the entry's and nothing else: same count, same names, same placement — and
     // the desk it held is gone rather than left standing beside them.
@@ -443,42 +442,27 @@ let ``instantiate replaces the zone's props with the entry's, and one undo puts 
     Assert.True(Zone.isAlive zone marker)
     Assert.True(Zone.isAlive zone door)
 
-    // One step, whatever it replaced and whatever it placed. Undoing it once must restore the previous
-    // environment and the prop that stood there — at the ref it had, not as a copy at a fresh slot,
-    // which is the half a values-only comparison would not notice. (`lectern` and `books` are not this
-    // assertion's business: the setup removed them by hand, outside any command, so nothing could
-    // bring them back and nothing should.)
-    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone state.Physics assets }
-    Assert.Equal(previousEnvironment, zone.Environment.Value)
-    Assert.Equal(1u, zone.Props.Count)
-    Assert.True(Zone.isAlive zone desk)
-    Assert.Equal("desk of my own", (Zone.tryEntityAt zone desk).Value.Name)
-
 [<Fact>]
-let ``an entry that records no props clears the zone's, and one undo brings them back`` () =
+let ``a template that records no props clears the zone's`` () =
     let assets = headlessAssets ()
     let zone = Zone.create ()
     let shared = sharedState assets
     let mutable state = gameplayState zone
 
-    // Registered from a zone with nothing placed in it: an entry with no props is a complete entry, not
-    // a partial one — and it is the state every entry registered before props were recorded is in.
+    // Registered from a zone with nothing placed in it: a template with no props is complete, not partial.
     do Zone.loadEnvironment zone state.Physics assets "room" |> ignore
     let registered = (Zone.captureTemplate zone).Value
     Assert.Empty(registered.Props)
 
-    // The zone is set out afterwards, then instantiated from the bare entry: the entry is the whole of
-    // what the zone's props become, so they are cleared rather than left standing.
+    // The zone is set out afterwards, then staged from the bare template: the template is the whole of what
+    // the zone's props become, so they are cleared rather than left standing.
     let lectern = Zone.spawnProp zone state.Physics assets (entity "lectern") "crate"
-    do Spawning.instantiateZone shared &state registered
+    do GameplayState.stageZone shared &state GameplayState.startZone (Some registered)
     Assert.Equal(0u, zone.Props.Count)
-
-    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone state.Physics assets }
-    Assert.Equal(1u, zone.Props.Count)
-    Assert.True(Zone.isAlive zone lectern)
+    ignore lectern
 
 [<Fact>]
-let ``instantiate restores the entry's light, and one undo puts the previous light back`` () =
+let ``stageZone restores the template's light`` () =
     let assets = headlessAssets ()
     let zone = Zone.create ()
     let shared = sharedState assets
@@ -491,13 +475,8 @@ let ``instantiate restores the entry's light, and one undo puts the previous lig
     let registered = (Zone.captureTemplate zone).Value
     Assert.Equal(authored, registered.Light)
 
-    // The zone moves on: a different light.
+    // The zone moves on: a different light, then staged back from the template.
     let moved = { authored with Pitch = 80.0f; Yaw = 10.0f }
     zone.Light <- moved
-
-    do Spawning.instantiateZone shared &state registered
+    do GameplayState.stageZone shared &state GameplayState.startZone (Some registered)
     Assert.Equal(authored, zone.Light)
-
-    // One gesture: undoing the instantiation restores the light it replaced along with the rest.
-    state.Editor <- { state.Editor with Undo = UndoStack.undo state.Editor.Undo zone state.Physics assets }
-    Assert.Equal(moved, zone.Light)

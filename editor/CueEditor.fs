@@ -204,7 +204,7 @@ let private drawAssetCombo
 let private drawNodeText
     (assets: Assets.AssetManager)
     (activeZone: Zone.Zone)
-    (zoneOfPlace: Place.Place -> Zone.Zone option)
+    (zoneOfPlace: string -> Zone.Zone option)
     (namesOf: Zone.Zone -> string -> string list * string list)
     (filter: byte[])
     (buffer: byte[])
@@ -342,7 +342,8 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     let idPrefix = "cue"
     let activeZone = GameplayState.activeZone state
     let zones = state.Zones
-    let zoneOfPlace (place: Place.Place) : Zone.Zone option =
+    let zoneNames = zones |> Seq.map (fun kv -> kv.Key) |> Seq.sort |> List.ofSeq
+    let zoneOfPlace (place: string) : Zone.Zone option =
         match zones.TryGetValue place with
         | true, z -> Some z
         | false, _ -> None
@@ -374,7 +375,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         // be captured by the callback it draws through, so the write is staged here and applied in one
         // place, as one step.
         let mutable pending : Cue option = None
-        selection <- CueTree.drawEditor idPrefix state.ActiveZone state.Editor.ComboFilter (Assets.actorNames shared.Assets) cue path (fun next -> pending <- Some next)
+        selection <- CueTree.drawEditor idPrefix state.ActiveZone zoneNames state.Editor.ComboFilter (Assets.actorNames shared.Assets) cue path (fun next -> pending <- Some next)
         // Add Child (a new selection) and Remove (no selection) are the structural edits; record one so the next
         // frame re-focuses the tree.
         structural <- selection <> Some path
@@ -424,7 +425,8 @@ let resetTriggerEditor (state: byref<GameplayState.GameplayState>) (ref: EntityR
 let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) : unit =
     let activeZone = GameplayState.activeZone state
     let zones = state.Zones
-    let zoneOfPlace (place: Place.Place) : Zone.Zone option =
+    let zoneNames = zones |> Seq.map (fun kv -> kv.Key) |> Seq.sort |> List.ofSeq
+    let zoneOfPlace (place: string) : Zone.Zone option =
         match zones.TryGetValue place with
         | true, z -> Some z
         | false, _ -> None
@@ -452,7 +454,7 @@ let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.Ga
     | Some path ->
 
         let mutable pending : Cue option = None
-        selection <- CueTree.drawEditor idPrefix state.ActiveZone state.Editor.ComboFilter (Assets.actorNames shared.Assets) cue path (fun next -> pending <- Some next)
+        selection <- CueTree.drawEditor idPrefix state.ActiveZone zoneNames state.Editor.ComboFilter (Assets.actorNames shared.Assets) cue path (fun next -> pending <- Some next)
         match pending with
         | Some next -> do Selection.updateTriggerRef shared &state ref (fun t -> { t with Cue = next })
         | None -> ()

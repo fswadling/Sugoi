@@ -17,13 +17,11 @@ open Gltf
 open Physics
 open SlotMap
 open TestSupport
-open Place
 
-// The game's places, as these tests name them. `Place.start` is where a state begins; the other two are
-// further declared places.
-let private mainPlace : Place = Place.start
-let private classroomPlace : Place = Place.ArtRoom Period.Evening
-let private atriumPlace : Place = Place.Island
+// The zones these tests name (spec 079: a zone is a string). `GameplayState.startZone` is where a state begins.
+let private mainPlace : string = GameplayState.startZone
+let private classroomPlace : string = "ArtRoom Evening"
+let private atriumPlace : string = "Island"
 
 let private entity (name: string) : Entity =
     { Name = name

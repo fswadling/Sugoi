@@ -65,11 +65,6 @@
          immutable, ordered set — project state that belongs to no zone. Pure data — it names no zone,
          screen, asset or device — so it sits before the state that holds it. -->
     <Compile Include="world/Advent.fs" />
-    <!-- The game's places (spec 061): the authored identity of a runtime zone, a closed union. The
-         vocabulary, kept apart from the registry's config store (as `Roster` sits apart from `Casting`),
-         so the runtime keys its zones by a place without depending on the registry. Listed before
-         `world/Cue.fs`, which names a place in its `SetZone`. -->
-    <Compile Include="world/Place.fs" />
     <!-- The async load substrate (spec 053): the decoded payload, the bounded recency queue and the
          worker pool. CPU-only; depends on `Gltf` and `Texture`, and is depended on by `Assets`. -->
     <Compile Include="world/AssetLoad.fs" />
@@ -81,9 +76,9 @@
     <!-- The interact prompt's view (spec 039): the 2D layer's second consumer. Needs only `Ui`,
          so it sits beside the dialogue view. -->
     <Compile Include="world/PromptRender.fs" />
-    <!-- The game's scenarios (spec 070): the authored narrative units — a set of zones and the cue to run — as a
-         closed union. The **vocabulary**, kept apart from the store (`world/ScenarioRegistry.fs`) as `Place` sits
-         apart from `ZoneRegistry`, so a future cue op may name a scenario without depending on the store. Listed
+    <!-- The game's scenarios (spec 070): the authored narrative units — a set of zones (each with its staging)
+         and the cue to run — as a closed union. The **vocabulary**, kept apart from the store
+         (`world/ScenarioRegistry.fs`), so a cue op may name a scenario without depending on the store. Listed
          before `world/Cue.fs` for that reason. -->
     <Compile Include="world/Scenario.fs" />
     <!-- The cue — and therefore the run (spec 046): one type, the vocabulary and its execution
@@ -96,17 +91,14 @@
          takes one as its argument. -->
     <Compile Include="world/ZoneTemplate.fs" />
     <Compile Include="world/Zone.fs" />
-    <!-- A zone as a scenario holds it (spec 070): the ref-free authored record — its environment as authored and
-         arrays of authored states, with waypoint chains and the player by index. Listed after `world/Zone.fs`
-         (its `capture` reads a live zone) and before `world/ScenarioRegistry.fs`, which files one under a scenario.
-         Its own type, not `ZoneContents`, so no zone-scoped identity is pushed onto scenarios
-         (`docs/ZONE_MODEL_DECISION.md`). -->
+    <!-- A zone as a scenario holds it (spec 070; the staging restored by spec 079): its staging (the
+         environment/light/props recipe) and its narrative entities as arrays of authored states, ref-free, with
+         waypoint chains by index. Listed after `world/Zone.fs` (its `capture` reads a live zone) and after
+         `world/ZoneTemplate.fs` (its staging type), and before `world/ScenarioRegistry.fs`, which files one under
+         a scenario. -->
     <Compile Include="world/ScenarioZone.fs" />
-    <!-- The game's places and the zone registered at each (spec 034). Listed after `Zone.fs`, and it
-         needs neither that module nor any editor one: it records environments, not zones. -->
-    <Compile Include="world/ZoneRegistry.fs" />
     <!-- The scenario library (spec 070): the contents captured under each scenario. Listed after `world/Zone.fs`
-         (a capture is a `ZoneContents`) and `world/Cue.fs` (it carries a cue), beside the zone registry it mirrors. -->
+         (a capture reads the live zones) and `world/Cue.fs` (it carries a cue). -->
     <Compile Include="world/ScenarioRegistry.fs" />
     <Compile Include="world/Systems.fs" />
     <Compile Include="state/Screen.fs" />
@@ -148,7 +140,6 @@
     <!-- The Miscellaneous panel (spec 059): a right-column home for game-wide, non-entity runtime tuning,
          starting with the screen fade level. It writes the state in place (no step on the one history). -->
     <Compile Include="editor/MiscPanel.fs" />
-    <Compile Include="editor/ZoneRegistryPanel.fs" />
     <!-- The scenario panel (spec 070): the game's scenarios, with a Register control that files the current scene
          under one and a Clear control that empties it — each a `SetScenario` step on the one history. -->
     <Compile Include="editor/ScenarioPanel.fs" />

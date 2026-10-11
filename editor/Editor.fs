@@ -439,7 +439,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     // The Miscellaneous panel (spec 059): the right-column home for game-wide, non-entity runtime tuning —
     // the screen fade level is its first control. Submitted after Advent so it is the rightmost tab there.
     do MiscPanel.draw &state
-    do ZoneRegistryPanel.draw shared &state
     // The scenario panel (spec 070): the game's scenarios, with a Register control that files the current scene
     // under one and a Clear control that empties it — each a `SetScenario` step on the one history.
     do ScenarioPanel.draw shared &state

@@ -1,11 +1,14 @@
 # Zone model — live zone, undo snapshot, place recipe, scenario zone
 
-**Status**: **a decision note, not a ratified design.** It records the state of the zone-shaped values as of
-`specs/070-scenario-library` and recommends an order of work. Read it before phase 12 grows `ZoneTemplate`, so
-that work starts from a decision rather than re-deriving one. **Two recommendations have since been taken**: 070's
-Phase 6 gave a scenario its own ref-free type (`world/ScenarioZone.fs`) rather than reusing `ZoneContents`, and
-`specs/076-scenario-narrative-only` confined that type to a zone's narrative entities — see "What this decides"
-item 4, and the fourth column of the table below.
+**Status**: **a decision note, not a ratified design — resolved by `specs/079-scenario-owned-zones`.** It recorded
+the state of the zone-shaped values as of `specs/070-scenario-library` and recommended an order of work. Its
+**option 3** (promote a single authored-zone recipe) was taken, together with the retirement of the Zone Registry
+and the closed `Place` union: `ZoneTemplate` **is** a zone's staging, and a scenario carries it per zone
+(`world/ScenarioZone.fs`) — so a fork ensures each zone by name and restages it. Two earlier recommendations were
+also taken: 070's Phase 6 gave a scenario its own ref-free type rather than reusing `ZoneContents`, and
+`specs/076-scenario-narrative-only` confined it to narrative entities before 079 restored the staging to it. The
+types named below have since moved on: `Place` and `ZoneRegistry` are **gone**; `ZoneContents` remains the delete's
+snapshot.
 
 **Evidence**: the types themselves — `world/Zone.fs` (`Zone`, `ZoneContents` and the `capture*`/`occupy*`
 readers), `world/ZoneTemplate.fs`, `world/ScenarioZone.fs`, and `world/Entity.fs` (`Environment`, `PartsSource`).

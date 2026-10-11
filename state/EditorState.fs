@@ -105,6 +105,9 @@ type EditorState =
       // selected node's row on the next one, so ImGui's keyboard-nav position is restored (rather than sent back
       // to the top of the panel, which is what a vanished focused widget and a hidden nav cursor otherwise do).
       CueRefocus : bool
+      // The Outliner's add-zone name field (spec 079): a zone is named rather than chosen from a closed vocabulary,
+      // so the name is typed into a reused buffer.
+      ZoneNameBuffer : byte[]
       // The Inspector's inline trigger-cue editor (spec 058): which node of the selected trigger's cue is
       // selected, the trigger those fields belong to, and the reused buffer for the selected node's text. Kept
       // apart from the Cue panel's fields above so the two editors cannot share a selection or a buffer; the
@@ -147,6 +150,7 @@ let create () : EditorState =
       CueTextEditing2 = false
       ComboFilter = Array.zeroCreate cueTextBufferSize
       CueRefocus = false
+      ZoneNameBuffer = Array.zeroCreate entityNameBufferSize
       TriggerCueSelection = None
       TriggerCueRef = None
       TriggerCueTextBuffer = Array.zeroCreate cueTextBufferSize

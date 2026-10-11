@@ -13,7 +13,6 @@ open Prime
 open Command
 open Cue
 open Entity
-open Place
 open Scenario
 open ScenarioRegistry
 open ScenarioZone
@@ -76,16 +75,17 @@ let private triggerState (name: string) : TriggerState =
 
 /// A scenario zone with an actor, a chained waypoint pair and a trigger.
 let private fullZone () : ScenarioZone =
-    { Actors = [| { Base = entity "pupil"; AssetId = "aiko"; ShowCollider = false } |]
+    { Staging = None
+      Actors = [| { Base = entity "pupil"; AssetId = "aiko"; ShowCollider = false } |]
       Waypoints =
         [| { Base = entity "wp-a"; Next = Some 1 }
            { Base = entity "wp-b"; Next = None } |]
       Triggers = [| triggerState "area" |] }
 
 let private emptyZone : ScenarioZone =
-    { Actors = [||]; Waypoints = [||]; Triggers = [||] }
+    { Staging = None; Actors = [||]; Waypoints = [||]; Triggers = [||] }
 
-let private contents (zones: (Place * ScenarioZone) list) (cue: Cue.Cue) : ScenarioContents =
+let private contents (zones: (string * ScenarioZone) list) (cue: Cue.Cue) : ScenarioContents =
     { Zones = Map.ofList zones; Cue = cue }
 
 /// Register `contents` under a scenario the way the panel's Register control does — one `SetScenario` step.
@@ -109,7 +109,7 @@ let ``the cue op materialises the scenario and forks its cue`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let scenarioCue = Cue.Print "scenario"
-    do register shared &state (contents [ Place.start, fullZone () ] scenarioCue)
+    do register shared &state (contents [ GameplayState.startZone, fullZone () ] scenarioCue)
     let start = GameplayState.activeZone state
     let actorsBefore = start.Actors.Count
     let waypointsBefore = start.Waypoints.Count
@@ -130,7 +130,7 @@ let ``the cue op materialises the scenario and forks its cue`` () =
 let ``a forked waypoint chain links the newly added waypoints`` () =
     let shared = sharedState ()
     let mutable state = newState ()
-    do register shared &state (contents [ Place.start, fullZone () ] Cue.Fin)
+    do register shared &state (contents [ GameplayState.startZone, fullZone () ] Cue.Fin)
 
     state.Cue <- Sequence(ForkScenario Intro, FDeque.ofList [])
     do CueEngine.tick shared &state 0.0
@@ -147,14 +147,14 @@ let ``the cue op creates an absent place without entering it, and detaches its a
     let shared = sharedState ()
     let mutable state = newState ()
     let active = state.ActiveZone
-    do register shared &state (contents [ Place.Island, fullZone () ] Cue.Fin)
+    do register shared &state (contents [ "Island", fullZone () ] Cue.Fin)
 
     state.Cue <- Sequence(ForkScenario Intro, FDeque.ofList [])
     do CueEngine.tick shared &state 0.0
 
-    Assert.True(state.Zones.ContainsKey Place.Island)
+    Assert.True(state.Zones.ContainsKey "Island")
     Assert.Equal(active, state.ActiveZone) // the active place is untouched
-    let island = state.Zones.[Place.Island]
+    let island = state.Zones.["Island"]
     match Zone.tryActorByName island "pupil" with
     | Some ref ->
         let actor = &island.Actors.Get(handleOf ref)
@@ -180,7 +180,7 @@ let ``an unregistered scenario is a diagnostic no-op`` () =
 let ``the cue op adds no step to the history`` () =
     let shared = sharedState ()
     let mutable state = newState ()
-    do register shared &state (contents [ Place.start, fullZone () ] (Cue.Print "scenario"))
+    do register shared &state (contents [ GameplayState.startZone, fullZone () ] (Cue.Print "scenario"))
     let steps = List.length state.Editor.Undo.Applied
 
     state.Cue <- Sequence(ForkScenario Intro, FDeque.ofList [])
@@ -195,7 +195,7 @@ let ``the editor fork is one step, and undo and redo round-trip it`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let scenarioCue = Cue.Print "scenario"
-    do register shared &state (contents [ Place.start, fullZone () ] scenarioCue)
+    do register shared &state (contents [ GameplayState.startZone, fullZone () ] scenarioCue)
     let start = GameplayState.activeZone state
     let actorsBefore = start.Actors.Count
     let stepsBefore = List.length state.Editor.Undo.Applied
@@ -222,14 +222,14 @@ let ``undoing a fork removes the places it created and leaves active place and s
     let active = state.ActiveZone
     let selection = state.Editor.Selection
     let cue = state.Cue
-    do register shared &state (contents [ Place.Island, fullZone () ] Cue.Fin)
+    do register shared &state (contents [ "Island", fullZone () ] Cue.Fin)
 
     do ScenarioPanel.fork shared &state Intro
-    Assert.True(state.Zones.ContainsKey Place.Island)
+    Assert.True(state.Zones.ContainsKey "Island")
     Assert.Equal(cue, state.Cue) // a `Fin` scenario cue leaves the running cue untouched
 
     do History.undoHistory shared &state
-    Assert.False(state.Zones.ContainsKey Place.Island)
+    Assert.False(state.Zones.ContainsKey "Island")
     Assert.Equal(active, state.ActiveZone)
     Assert.Equal(selection, state.Editor.Selection)
     Assert.Equal(cue, state.Cue)
@@ -249,33 +249,32 @@ let ``forking an unregistered scenario does nothing`` () =
 // ── the fork step's history interactions (FR-012) ──
 
 [<Fact>]
-let ``ZonePresent makes a place present from its template, and undo removes it`` () =
+let ``ZonePresent makes a zone present from its staging, and undo removes it`` () =
     let shared = sharedState ()
     let mutable state = newState ()
-    state.ZoneRegistry.Templates.[Place.Island] <- template ()
 
-    do History.apply shared &state (ZonePresent Place.Island)
-    Assert.True(state.Zones.ContainsKey Place.Island)
-    Assert.True(state.Zones.[Place.Island].Environment.IsSome) // its template's environment streamed in
-    Assert.Equal(light, state.Zones.[Place.Island].Light) // and its light
-    Assert.NotEqual(Place.Island, state.ActiveZone) // presence, not entry
+    do History.apply shared &state (ZonePresent ("Island", Some (template ())))
+    Assert.True(state.Zones.ContainsKey "Island")
+    Assert.True(state.Zones.["Island"].Environment.IsSome) // its staging's environment streamed in
+    Assert.Equal(light, state.Zones.["Island"].Light) // and its light
+    Assert.NotEqual<string>("Island", state.ActiveZone) // presence, not entry
 
-    do History.undo shared &state (ZonePresent Place.Island)
-    Assert.False(state.Zones.ContainsKey Place.Island)
+    do History.undo shared &state (ZonePresent ("Island", Some (template ())))
+    Assert.False(state.Zones.ContainsKey "Island")
 
 [<Fact>]
 let ``the zone-level runner refuses a presence step, which is state-level`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let zone = GameplayState.activeZone state
-    Assert.Throws<InvalidOperationException>(fun () -> Command.apply zone state.Physics shared.Assets (ZonePresent Place.Island)) |> ignore
-    Assert.Throws<InvalidOperationException>(fun () -> Command.undo zone state.Physics shared.Assets (ZonePresent Place.Island)) |> ignore
+    Assert.Throws<InvalidOperationException>(fun () -> Command.apply zone state.Physics shared.Assets (ZonePresent ("Island", None))) |> ignore
+    Assert.Throws<InvalidOperationException>(fun () -> Command.undo zone state.Physics shared.Assets (ZonePresent ("Island", None))) |> ignore
 
 [<Fact>]
 let ``pruneCueSteps drops a fork's cue step but keeps its entity commands`` () =
     let shared = sharedState ()
     let mutable state = newState ()
-    do register shared &state (contents [ Place.Island, fullZone () ] (Cue.Print "scenario"))
+    do register shared &state (contents [ "Island", fullZone () ] (Cue.Print "scenario"))
 
     do ScenarioPanel.fork shared &state Intro
     do History.pruneCueSteps &state
@@ -289,26 +288,25 @@ let ``pruneCueSteps drops a fork's cue step but keeps its entity commands`` () =
 // ══════ US3 — footprint and edges (FR-002, FR-005, FR-010; SC-002, SC-003, SC-005) ══════
 
 [<Fact>]
-let ``an absent place is created from its registry template, or empty when none`` () =
+let ``an absent zone is created from the scenario's staging, or empty when it carries none`` () =
     let shared = sharedState ()
     let mutable state = newState ()
-    state.ZoneRegistry.Templates.[Place.Island] <- template ()
-    do register shared &state (contents [ Place.Island, emptyZone ] Cue.Fin)
+    do register shared &state (contents [ "Island", { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
 
     do ScenarioPanel.fork shared &state Intro
-    Assert.True(state.Zones.ContainsKey Place.Island)
-    Assert.True(state.Zones.[Place.Island].Environment.IsSome)
-    Assert.Equal(light, state.Zones.[Place.Island].Light)
+    Assert.True(state.Zones.ContainsKey "Island")
+    Assert.True(state.Zones.["Island"].Environment.IsSome)
+    Assert.Equal(light, state.Zones.["Island"].Light)
 
-    // with no template registered, the place is present and empty but for the scenario's entities
+    // with no staging in the scenario, the zone is present and empty but for its entities
     let mutable state2 = newState ()
-    do register shared &state2 (contents [ Place.Island, fullZone () ] Cue.Fin)
+    do register shared &state2 (contents [ "Island", fullZone () ] Cue.Fin)
     do ScenarioPanel.fork shared &state2 Intro
-    Assert.True(state2.Zones.ContainsKey Place.Island)
-    Assert.Equal(Texture.defaultLight, state2.Zones.[Place.Island].Light)
+    Assert.True(state2.Zones.ContainsKey "Island")
+    Assert.Equal(Texture.defaultLight, state2.Zones.["Island"].Light)
 
 [<Fact>]
-let ``a fork appends into a present place without disturbing its staging`` () =
+let ``a fork restages a present zone and leaves its player alone`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let start = GameplayState.activeZone state
@@ -316,17 +314,18 @@ let ``a fork appends into a present place without disturbing its staging`` () =
     let player = ValueSome (start.Actors.Add({ State = { Base = entity "hero"; AssetId = "aiko"; ShowCollider = false }; Physics = None; Renderer = Unchecked.defaultof<ActorRender.ActorRender> }))
     start.Player <- player
 
-    do register shared &state (contents [ Place.start, fullZone () ] Cue.Fin)
+    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
     do ScenarioPanel.fork shared &state Intro
 
-    Assert.Equal({ Texture.defaultLight with Pitch = 77.0f }, start.Light) // the zone's own light is left as it was
-    Assert.Equal(player, start.Player)
+    Assert.Equal(light, start.Light) // the scenario's staging replaced the zone's look
+    Assert.True(start.Environment.IsSome)
+    Assert.Equal(player, start.Player) // the player is not staging and is untouched
 
 [<Fact>]
 let ``forking twice adds two copies`` () =
     let shared = sharedState ()
     let mutable state = newState ()
-    do register shared &state (contents [ Place.start, fullZone () ] Cue.Fin)
+    do register shared &state (contents [ GameplayState.startZone, fullZone () ] Cue.Fin)
     let start = GameplayState.activeZone state
     let actorsBefore = start.Actors.Count
 
@@ -348,7 +347,7 @@ let ``a full target zone refuses the whole fork and creates no place`` () =
     Assert.Equal(0u, start.Triggers.Capacity - start.Triggers.Count)
 
     // the scenario names an absent place too: a refusal must not create it either
-    let c = contents [ Place.start, fullZone (); Place.Island, fullZone () ] Cue.Fin
+    let c = contents [ GameplayState.startZone, fullZone (); "Island", fullZone () ] Cue.Fin
     do register shared &state c
     let actorsBefore = start.Actors.Count
 
@@ -356,4 +355,114 @@ let ``a full target zone refuses the whole fork and creates no place`` () =
     do ScenarioPanel.fork shared &state Intro
 
     Assert.Equal(actorsBefore, start.Actors.Count) // nothing appended
-    Assert.False(state.Zones.ContainsKey Place.Island) // no place created
+    Assert.False(state.Zones.ContainsKey "Island") // no place created
+
+// ══════ scenario-owned staging (spec 079) ══════
+
+[<Fact>]
+let ``a fork brings a created zone up with its environment and light from the scenario`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    do register shared &state (contents [ "Moon", { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
+
+    do ScenarioPanel.fork shared &state Intro
+
+    let created = state.Zones.["Moon"]
+    Assert.Equal(Some "island-env", created.Environment |> Option.map (fun e -> e.AssetId))
+    Assert.Equal(light, created.Light)
+
+[<Fact>]
+let ``a fork reuses a present zone and replaces its staging, without duplicating it`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    let start = GameplayState.activeZone state
+    start.Light <- { start.Light with Pitch = 90.0f } // a look the scenario will replace
+    let zonesBefore = state.Zones.Count
+    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
+
+    do ScenarioPanel.fork shared &state Intro
+
+    Assert.Equal(zonesBefore, state.Zones.Count) // reused, never duplicated
+    Assert.True(start.Environment.IsSome)
+    Assert.Equal(light, start.Light) // the scenario's staging won
+
+[<Fact>]
+let ``a restage is skipped when the zone's staging already matches`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    let start = GameplayState.activeZone state
+    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
+
+    do ScenarioPanel.fork shared &state Intro
+    let epoch = start.Environment.Value.Epoch // the environment the first fork loaded
+    do ScenarioPanel.fork shared &state Intro
+
+    Assert.Equal(epoch, start.Environment.Value.Epoch) // the second fork did not reload it
+    Assert.Equal(light, start.Light)
+
+[<Fact>]
+let ``the editor fork's one step round-trips a restage`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    let start = GameplayState.activeZone state
+    // A full staging to round-trip: an environment and an authored light. (An environment-less zone keeps its
+    // light only as `defaultLight` — `ZoneTemplate option` cannot encode "no environment but a light".)
+    do ignore (Zone.loadEnvironment start state.Physics shared.Assets "island-env")
+    start.Light <- { start.Light with Pitch = 90.0f }
+    let lightBefore = start.Light
+    do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = Some (template ()) } ] Cue.Fin)
+
+    do ScenarioPanel.fork shared &state Intro
+    Assert.Equal(light, start.Light) // restaged to the scenario's
+
+    do History.undoHistory shared &state
+    Assert.Equal(lightBefore, start.Light) // one step restores the previous staging
+
+    do History.redoHistory shared &state
+    Assert.Equal(light, start.Light)
+
+[<Fact>]
+let ``ZoneStage apply and undo round-trip a restage, detaching an inactive zone's bodies`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    do GameplayState.addZone shared &state "Hall" // present and active
+    do ignore (Zone.spawnActor state.Zones.["Hall"] state.Physics shared.Assets (entity "npc") "aiko")
+    do GameplayState.switchZone shared &state GameplayState.startZone // Hall is now inactive
+
+    let previous = Zone.captureTemplate state.Zones.["Hall"]
+    do History.apply shared &state (ZoneStage ("Hall", previous, Some (template ())))
+
+    let hall = state.Zones.["Hall"]
+    Assert.Equal(light, hall.Light)
+    match Zone.tryActorByName hall "npc" with
+    | Some ref ->
+        let actor = &hall.Actors.Get(handleOf ref)
+        match actor.Physics with
+        | Some ph -> Assert.False(Physics.isAdded state.Physics ph.Body) // built while inactive
+        | None -> Assert.Fail "expected a body"
+    | None -> Assert.Fail "expected the actor"
+
+    do History.undo shared &state (ZoneStage ("Hall", previous, Some (template ())))
+    Assert.Equal(Texture.defaultLight, hall.Light)
+
+[<Fact>]
+let ``the zone-level runner refuses a restage step, which is state-level`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    Assert.Throws<InvalidOperationException>(fun () -> Command.apply zone state.Physics shared.Assets (ZoneStage ("Hall", None, None))) |> ignore
+    Assert.Throws<InvalidOperationException>(fun () -> Command.undo zone state.Physics shared.Assets (ZoneStage ("Hall", None, None))) |> ignore
+
+[<Fact>]
+let ``a fork refuses a target whose props the scenario's staging would not fit`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    let start = GameplayState.activeZone state
+    let bigProps =
+        Array.init (int start.Props.Capacity + 1) (fun i ->
+            { Base = entity (sprintf "p%d" i); AssetId = Some "crate"; SubmeshIndex = 0; SubmeshCount = 1 })
+    let c = contents [ GameplayState.startZone, { emptyZone with Staging = Some ({ (template ()) with Props = bigProps }) } ] Cue.Fin
+    do register shared &state c
+
+    Assert.True((ScenarioFork.materialise shared &state c).IsNone) // the props do not fit
+    Assert.Equal(Texture.defaultLight, start.Light) // nothing changed at all

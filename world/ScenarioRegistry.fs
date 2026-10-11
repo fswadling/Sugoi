@@ -11,7 +11,6 @@ module ScenarioRegistry
 // capture carries.
 
 open System.Collections.Generic
-open Place
 open Scenario
 open ScenarioZone
 open Zone
@@ -21,7 +20,7 @@ open Zone
 /// authored cue (an immutable value, so a reference). Nothing here names a slot in the zone it was captured from,
 /// so a fork can materialise it in a fresh zone.
 type ScenarioContents =
-    { Zones : Map<Place, ScenarioZone>
+    { Zones : Map<string, ScenarioZone>
       Cue : Cue.Cue }
 
 /// The scenario library: the contents registered under each scenario. Sparse deliberately: an entry says a
@@ -53,6 +52,6 @@ let setContents (scenario: Scenario) (contents: ScenarioContents option) (regist
 /// can be asserted with no window. Each zone is read exactly as the author left it (a deleted part is absent, a
 /// duplicate appears twice), and it is de-ref'd, so the value names no live slot. A zone's staging is not captured
 /// (spec 076).
-let capture (zones: Dictionary<Place, Zone>) (cue: Cue.Cue) : ScenarioContents =
+let capture (zones: Dictionary<string, Zone>) (cue: Cue.Cue) : ScenarioContents =
     { Zones = zones |> Seq.map (fun pair -> pair.Key, ScenarioZone.capture pair.Value) |> Map.ofSeq
       Cue = cue }

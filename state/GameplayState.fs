@@ -1,8 +1,8 @@
 module GameplayState
 
 // Per-screen gameplay state. A struct; owns the gameplay world and that world's configuration —
-// the zones (a place-keyed map with exactly one active zone), the zone registry (the recipe table
-// those zones are instantiated from), and the physics world their bodies attach to — beside the
+// the zones (a name-keyed map with exactly one active zone) and the physics world their bodies
+// attach to — beside the
 // screen's own runtime state (camera + render buffers, dialogue, the cue run, editor/play state).
 // The test for what belongs here is readership: a member is the gameplay screen's (and its editor
 // layer's) when nothing else reads it. Device-level render resources (pipelines, formats, depth
@@ -13,7 +13,6 @@ open System.Collections.Generic
 open System.Numerics
 open Command
 open Entity
-open Place
 open ZoneTemplate
 
 [<Struct>]
@@ -27,15 +26,11 @@ type GameplayState =
       // The dialogue state (spec 038): the screen's, not a zone's, so a zone switch does
       // not clear it. Runtime only — never authored, never persisted, never on an entity.
       mutable Dialogue : Dialogue.Dialogue
-      // The gameplay state's zones, keyed by the place they are (spec 061). A place is either present
-      // (it has a zone here) or absent; the active place is always present.
-      Zones : Dictionary<Place, Zone.Zone>
-      // The zone registry (spec 034): the recipe table for those zones — the config `presentZone`/
-      // `populateZone` instantiate a place from. Here rather than on `SharedState` because only the
-      // gameplay screen and its editor read it.
-      ZoneRegistry : ZoneRegistry.Registry
-      // The scenario library (spec 070): the contents captured under each scenario. Here beside the zone registry
-      // for the same reason — only the gameplay screen and its editor read it.
+      // The gameplay state's zones, keyed by their name (spec 079). A zone is either present (it has an
+      // entry here) or absent; the active zone is always present.
+      Zones : Dictionary<string, Zone.Zone>
+      // The scenario library (spec 070): the contents captured under each scenario. Only the gameplay
+      // screen and its editor read it.
       Scenarios : ScenarioRegistry.Registry
       // The physics world: one Jolt world shared by every zone (a zone keeps only its body→entity
       // map), owned here beside the zones because only the gameplay screen simulates. A zone never
@@ -43,7 +38,7 @@ type GameplayState =
       Physics : Physics.World
       // The runtime cast (spec 072): resolving which actor plays a character is a name scan over the present
       // places, not an index (`tryActorByName` below). There is no map to keep exact.
-      mutable ActiveZone : Place
+      mutable ActiveZone : string
       mutable Editor : EditorState.EditorState
       mutable Editing : bool
       mutable Follow : Systems.CameraFollow
@@ -63,19 +58,22 @@ type GameplayState =
       // on the undo history. The cue ops FadeOut/FadeIn will drive it when they arrive.
       mutable Fade : float32 }
 
+/// The name of the zone the game starts in (spec 079; replaces `Place.start`). The runtime world starts
+/// with it present and empty.
+let startZone = "start"
+
 let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) : GameplayState =
-    let zones = Dictionary<Place, Zone.Zone>()
-    zones.[Place.start] <- Zone.create ()
+    let zones = Dictionary<string, Zone.Zone>()
+    zones.[startZone] <- Zone.create ()
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
       DebugDraw = debugDraw
       GizmoDraw = gizmoDraw
       Ui = ui
       Dialogue = Dialogue.empty
       Zones = zones
-      ZoneRegistry = ZoneRegistry.create ()
       Scenarios = ScenarioRegistry.create ()
       Physics = Physics.create ()
-      ActiveZone = Place.start
+      ActiveZone = startZone
       Editor = EditorState.create ()
       Editing = true
       Follow = Systems.createFollow ()
@@ -88,7 +86,7 @@ let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui
 let activeZone (state: GameplayState) : Zone.Zone =
     match state.Zones.TryGetValue state.ActiveZone with
     | true, zone -> zone
-    | false, _ -> invalidOp (sprintf "activeZone: '%s' is not present" (Place.placeName state.ActiveZone))
+    | false, _ -> invalidOp (sprintf "activeZone: '%s' is not present" state.ActiveZone)
 
 // ── The runtime cast (spec 072, spec 075) ──
 
@@ -113,7 +111,7 @@ let private enterZone (state: byref<GameplayState>) : unit =
 
 // Detach the outgoing zone's bodies, make `next` active, attach its bodies, then
 // swap the view state.
-let private swapZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (outgoing: Place) (next: Place) : unit =
+let private swapZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (outgoing: string) (next: string) : unit =
     // Request the incoming environment. This never blocks: the switch completes in-frame and the
     // environment pops in when it lands (FR-004). The pin set is a gameplay-layer concern, refreshed
     // to the active environment every frame (`GameplayScreen.update`), so it is not touched here.
@@ -126,8 +124,8 @@ let private swapZone (shared: SharedState.SharedState) (state: byref<GameplaySta
     enterZone &state
 
 // Make a present place active. A no-op when it already is; an absent place is a bug.
-let switchZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) : unit =
-    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "switchZone: '%s' is not present" (Place.placeName name)) else
+let switchZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
+    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "switchZone: '%s' is not present" (name)) else
     if name = state.ActiveZone then () else
     swapZone shared &state state.ActiveZone name
 
@@ -135,8 +133,8 @@ let switchZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (
 // entity selection (spec 043 — the Inspector shows the active zone's light when no entity is
 // selected). A switch drops the selection on the way (`enterZone`), so the case this adds is the
 // zone already active, where clicking its row is otherwise a no-op.
-let selectZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) : unit =
-    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "selectZone: '%s' is not present" (Place.placeName name)) else
+let selectZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
+    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "selectZone: '%s' is not present" (name)) else
     if name = state.ActiveZone then
         state.Editor <- { state.Editor with Selection = None; Drag = None }
     else
@@ -144,8 +142,8 @@ let selectZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (
 
 // Make an absent declared place present and active. A place already present is a bug — the editor offers
 // only the absent ones (spec 061 FR-003).
-let addZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) : unit =
-    if state.Zones.ContainsKey name then invalidOp (sprintf "addZone: '%s' is already present" (Place.placeName name)) else
+let addZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
+    if state.Zones.ContainsKey name then invalidOp (sprintf "addZone: '%s' is already present" (name)) else
     let outgoing = state.ActiveZone
     state.Zones.[name] <- Zone.create ()
     swapZone shared &state outgoing name
@@ -153,7 +151,7 @@ let addZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (nam
 // Populate a present zone from a registered template: its environment, light and placed props (spec 062).
 // `Physics.createBody` joins the simulation as it runs, so a zone that is not the active one has its built
 // bodies detached at once — the same "alive but detached" state a switch away leaves it in.
-let populateZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) (template: ZoneTemplate) : unit =
+let populateZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) (template: ZoneTemplate) : unit =
     let zone = state.Zones.[name]
     do Zone.loadTemplate zone state.Physics shared.Assets template
     if name <> state.ActiveZone then Zone.deactivatePhysics zone state.Physics
@@ -161,8 +159,8 @@ let populateZone (shared: SharedState.SharedState) (state: byref<GameplayState>)
 // Make an absent declared place present, populated from its registered template when it has one, and leave
 // the active place, the camera and the selection untouched (spec 062): a cue *prepares* a zone here, and
 // `switchZone` is what enters it. A place already present is a bug — the cue guards it — so this raises.
-let presentZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) (template: ZoneTemplate option) : unit =
-    if state.Zones.ContainsKey name then invalidOp (sprintf "presentZone: '%s' is already present" (Place.placeName name)) else
+let presentZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) (template: ZoneTemplate option) : unit =
+    if state.Zones.ContainsKey name then invalidOp (sprintf "presentZone: '%s' is already present" (name)) else
     state.Zones.[name] <- Zone.create ()
     match template with
     | Some template -> do populateZone shared &state name template
@@ -171,9 +169,9 @@ let presentZone (shared: SharedState.SharedState) (state: byref<GameplayState>) 
 // Make a present place absent and release everything it owns, including its environment from the GPU
 // unless another present place still uses that environment (spec 061 FR-010). The active place cannot be
 // made absent — the author switches first (FR-011), which also covers a lone present place.
-let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: Place) : unit =
-    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "deleteZone: '%s' is not present" (Place.placeName name)) else
-    if name = state.ActiveZone then invalidOp (sprintf "deleteZone: '%s' is the active place — switch away first" (Place.placeName name)) else
+let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) : unit =
+    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "deleteZone: '%s' is not present" (name)) else
+    if name = state.ActiveZone then invalidOp (sprintf "deleteZone: '%s' is the active place — switch away first" (name)) else
 
     let zone = state.Zones.[name]
     do Zone.release zone state.Physics shared.Gpu.Device
@@ -184,3 +182,25 @@ let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (
     | Some environment when not (state.Zones.Values |> Seq.exists (fun other -> match other.Environment with Some e -> e.AssetId = environment.AssetId | None -> false)) ->
         do Assets.releaseEnvironment shared.Assets environment.AssetId
     | _ -> ()
+
+// Replace a present zone's staging (spec 079): with a `ZoneTemplate` (`Some`) load its environment, light and
+// placed props; with `None` clear them. The one restager — a fork into an existing zone and the `ZoneStage`
+// command both come through here. The zone's own props are freed first (a template's props replace them
+// wholesale). A zone that is not active has the bodies it built detached at once, so it does not simulate.
+// `Zone.Player` is not staging and is left alone.
+let stageZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) (staging: ZoneTemplate option) : unit =
+    if not (state.Zones.ContainsKey name) then invalidOp (sprintf "stageZone: '%s' is not present" name) else
+
+    let zone = state.Zones.[name]
+    let physics = state.Physics
+
+    for (ref, prop) in Zone.captureProps zone do
+        do Command.apply zone physics shared.Assets (Command.PropDelete (name, ref, prop))
+
+    match staging with
+    | Some template -> do Zone.loadTemplate zone physics shared.Assets template
+    | None ->
+        do Zone.setEnvironment zone physics shared.Assets None
+        zone.Light <- Texture.defaultLight
+
+    if name <> state.ActiveZone then Zone.deactivatePhysics zone physics

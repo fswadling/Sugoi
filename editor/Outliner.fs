@@ -5,6 +5,7 @@ module Outliner
 // triggers. Each entity row selects on click and carries inline Del/Dup buttons.
 
 open System.Numerics
+open System.Collections.Generic
 open Entity
 open Command
 
@@ -13,6 +14,12 @@ open Command
 let private newWaypointAtCamera (camera: Camera.Camera) : Entity =
     let rotation = Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(camera.Position, Camera.forward camera, camera.Up))
     Entity.baseEntity "Waypoint" { transformIdentity with Position = camera.Position; Rotation = rotation }
+
+// Read a NUL-terminated text buffer as a string (the Outliner's add-zone name field, spec 079).
+let private bufferText (buffer: byte[]) : string =
+    let zero = System.Array.IndexOf(buffer, 0uy)
+    let length = if zero < 0 then buffer.Length else zero
+    if length = 0 then "" else System.Text.Encoding.UTF8.GetString(buffer, 0, length)
 
 let private entityRow (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (name: string) (id: string) (ref: EntityRef) : unit =
     if ImGui.button(sprintf "%s##%s" name id, ImGui.ImVec2(0.0f, 0.0f)) then
@@ -32,46 +39,43 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     do ImGui.beginWindow("Outliner", System.IntPtr.Zero, 0) |> ignore
 
     // ── Zones ──
-    // The game's places, the present ones listed in declaration order with the active one marked. Adding
-    // offers the absent places (a place already present cannot be added twice, spec 061 FR-003); removing is
-    // refused for the active place, which the author must switch away from first (FR-011).
+    // The present zones, listed with the active one marked. A zone is named (spec 079), so adding is by typed
+    // name — there is no closed vocabulary to choose from; a name already present is refused, because a zone's
+    // name is its identity. Removing is refused for the active zone, which the author must switch away from first.
     if ImGui.collapsingHeader("Zones", 0) then
-        for place in Place.all do
-            if state.Zones.ContainsKey place then
-                let name = Place.placeName place
-                let marker = if place = state.ActiveZone then "* " else "  "
-                // Environment residency (spec 050; loading/failed states spec 053): `[-]` no environment,
-                // `[ ]` not loaded, `[~]` loading, `[+]` resident, `[x]` failed.
-                let residency =
-                    match state.Zones.[place].Environment with
-                    | None -> "[-]"
-                    | Some environment when Assets.isEnvironmentResident shared.Assets environment.AssetId -> "[+]"
-                    | Some environment when Assets.hasFailed shared.Assets environment.AssetId -> "[x]"
-                    | Some environment when Assets.isLoading shared.Assets environment.AssetId -> "[~]"
-                    | Some _ -> "[ ]"
-                // A click always makes the place the Inspector's subject, whether it switches or is already
-                // active; a click that *changes* the place is a step on the one history (spec 048).
-                if ImGui.button(sprintf "%s%s%s##zone_%s" marker residency name name, ImGui.ImVec2(0.0f, 0.0f)) then
-                    if place = state.ActiveZone then GameplayState.selectZone shared &state place
-                    else History.commit shared &state (ZoneMove (state.ActiveZone, place))
-                do ImGui.sameLine(0.0f, -1.0f)
-                // The active place cannot be made absent (FR-011), so the control is refused rather than hidden.
-                do ImGui.beginDisabled(place = state.ActiveZone)
-                if ImGui.smallButton(sprintf "Del##delzone_%s" name) then
-                    History.commit shared &state (ZoneDelete (state.ActiveZone, place, Zone.captureZone state.Zones.[place]))
-                do ImGui.endDisabled()
+        for KeyValue (name, zone) in state.Zones do
+            let marker = if name = state.ActiveZone then "* " else "  "
+            // Environment residency (spec 050; loading/failed states spec 053): `[-]` no environment,
+            // `[ ]` not loaded, `[~]` loading, `[+]` resident, `[x]` failed.
+            let residency =
+                match zone.Environment with
+                | None -> "[-]"
+                | Some environment when Assets.isEnvironmentResident shared.Assets environment.AssetId -> "[+]"
+                | Some environment when Assets.hasFailed shared.Assets environment.AssetId -> "[x]"
+                | Some environment when Assets.isLoading shared.Assets environment.AssetId -> "[~]"
+                | Some _ -> "[ ]"
+            // A click always makes the zone the Inspector's subject, whether it switches or is already active; a
+            // click that *changes* the zone is a step on the one history (spec 048).
+            if ImGui.button(sprintf "%s%s%s##zone_%s" marker residency name name, ImGui.ImVec2(0.0f, 0.0f)) then
+                if name = state.ActiveZone then GameplayState.selectZone shared &state name
+                else History.commit shared &state (ZoneMove (state.ActiveZone, name))
+            do ImGui.sameLine(0.0f, -1.0f)
+            // The active zone cannot be made absent, so the control is refused rather than hidden.
+            do ImGui.beginDisabled(name = state.ActiveZone)
+            if ImGui.smallButton(sprintf "Del##delzone_%s" name) then
+                History.commit shared &state (ZoneDelete (state.ActiveZone, name, Zone.captureZone zone))
+            do ImGui.endDisabled()
 
         do ImGui.text("")
-        // Adding offers the declared places that are not present — a place already present is not offered.
-        // The zone map is read into a local so the filter closes over the dictionary, not the `byref` state.
-        let zones = state.Zones
-        let absent = Place.all |> List.filter (fun place -> not (zones.ContainsKey place))
-        do ImGui.beginDisabled(absent.IsEmpty)
-        if ImGui.beginCombo("Add place##addzone", "(choose a place)", 0) then
-            for place in absent do
-                if ImGui.selectableBool(Place.placeName place, false, 0, ImGui.ImVec2(0.0f, 0.0f)) then
-                    History.commit shared &state (ZoneAdd (state.ActiveZone, place))
-            do ImGui.endCombo()
+        // Add a zone by name: a name that is not present is brought into existence by naming it (spec 079).
+        let buffer = state.Editor.ZoneNameBuffer
+        do ImGui.inputText("Name##addzone", buffer, unativeint buffer.Length, 0, System.IntPtr.Zero, System.IntPtr.Zero) |> ignore
+        do ImGui.sameLine(0.0f, -1.0f)
+        let newName = bufferText buffer
+        let canAdd = newName <> "" && not (state.Zones.ContainsKey newName)
+        do ImGui.beginDisabled(not canAdd)
+        if ImGui.smallButton("Add##addzone_btn") && canAdd then
+            History.commit shared &state (ZoneAdd (state.ActiveZone, newName))
         do ImGui.endDisabled()
         do ImGui.text("")
 

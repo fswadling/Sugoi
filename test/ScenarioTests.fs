@@ -9,7 +9,6 @@ open System
 open System.Collections.Generic
 open Command
 open Entity
-open Place
 open Scenario
 open ScenarioRegistry
 
@@ -29,7 +28,7 @@ let private actor (name: string) : Actor =
       Physics = None
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 
-/// A headless gameplay state: the single `Place.start` zone, as the app starts.
+/// A headless gameplay state: the single `GameplayState.startZone` zone, as the app starts.
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
 
@@ -62,21 +61,21 @@ let ``the declared set is enumerated in declaration order`` () =
 
 [<Fact>]
 let ``the capture carries every present zone and the cue`` () =
-    let zones = Dictionary<Place, Zone.Zone>()
+    let zones = Dictionary<string, Zone.Zone>()
     let main = Zone.create ()
     do ignore (Zone.spawnWaypoint main (entity "start"))
-    zones.[Place.start] <- main
-    zones.[Place.Island] <- Zone.create ()
+    zones.[GameplayState.startZone] <- main
+    zones.["Island"] <- Zone.create ()
     let cue = Cue.Print "scenario"
 
     let contents = capture zones cue
 
     Assert.Equal(2, contents.Zones.Count)
-    Assert.Equal(ScenarioZone.capture main, Map.find Place.start contents.Zones)
-    Assert.Equal(ScenarioZone.capture zones.[Place.Island], Map.find Place.Island contents.Zones)
+    Assert.Equal(ScenarioZone.capture main, Map.find GameplayState.startZone contents.Zones)
+    Assert.Equal(ScenarioZone.capture zones.["Island"], Map.find "Island" contents.Zones)
     Assert.Equal(cue, contents.Cue)
     // The waypoint it was authored with is in the capture, part for part.
-    let capturedMain = Map.find Place.start contents.Zones
+    let capturedMain = Map.find GameplayState.startZone contents.Zones
     Assert.Equal(1, Array.length capturedMain.Waypoints)
     Assert.Equal("start", capturedMain.Waypoints.[0].Base.Name)
 
@@ -104,14 +103,14 @@ let ``a captured zone is ref-free: waypoint chains become indices`` () =
 
 [<Fact>]
 let ``a place with no narrative entities is captured as an empty scenario zone`` () =
-    let zones = Dictionary<Place, Zone.Zone>()
-    zones.[Place.start] <- Zone.create ()
-    zones.[Place.Island] <- Zone.create ()
+    let zones = Dictionary<string, Zone.Zone>()
+    zones.[GameplayState.startZone] <- Zone.create ()
+    zones.["Island"] <- Zone.create ()
 
     let contents = capture zones Cue.Fin
 
     Assert.Equal(2, contents.Zones.Count)
-    let island = Map.find Place.Island contents.Zones
+    let island = Map.find "Island" contents.Zones
     Assert.Equal(0, Array.length island.Actors)
     Assert.Equal(0, Array.length island.Waypoints)
     Assert.Equal(0, Array.length island.Triggers)
@@ -152,7 +151,7 @@ let ``undo of a re-registration restores the previous contents, not nothing`` ()
     let mutable state = newState ()
     let capturedWaypoints (s: GameplayState.GameplayState) : int =
         match tryContents Intro s.Scenarios with
-        | Some contents -> Array.length (Map.find Place.start contents.Zones).Waypoints
+        | Some contents -> Array.length (Map.find GameplayState.startZone contents.Zones).Waypoints
         | None -> -1
 
     do register shared &state
