@@ -4,7 +4,7 @@ module ScenarioPanel
 // one and a Clear control that empties it. It is the third in-place surface beside Cast and the Zone Registry
 // (`docs/EDITOR_DESIGN.md`), because a scenario is not a selectable item in the scene.
 //
-// Register **captures** rather than edits: it copies every present zone, the active place and the screen's cue
+// Register **captures** rather than edits: it copies every present zone and the screen's cue
 // into one value filed under the scenario, and touches no zone, camera or selection. Unlike the Zone Registry's
 // direct write it rides the one undo history — the capture is immutable data, so a before/after `SetScenario`
 // step makes a registration, an overwrite and a clear all total under undo (the same class as the Advent panel).
@@ -49,7 +49,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         // always present, so there is always something to capture.
         do ImGui.sameLine(0.0f, 8.0f)
         if ImGui.smallButton "Register" then
-            do commit shared &state scenario (Some (capture state.Zones state.ActiveZone state.Cue))
+            do commit shared &state scenario (Some (capture state.Zones state.Cue))
 
         // Clear empties a registered scenario, so it is offered only when there is something to clear: the
         // affordance is drawn where it becomes usable (as Cast's Spawn is), not hidden.

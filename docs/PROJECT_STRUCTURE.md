@@ -139,7 +139,7 @@ fsharp-game/
 │   │                           #     contents a delete carries, `ZoneContents` (spec 048)
 │   ├── ZoneRegistry.fs         #   the game's places, and the zone registered at each
 │   ├── Scenario.fs             #   the game's scenarios, a closed union (spec 070)
-│   ├── ScenarioZone.fs         #   a zone as a scenario holds it: ref-free, arrays, indices (spec 070)
+│   ├── ScenarioZone.fs         #   a zone as a scenario holds it: narrative entities, ref-free, chains by index (specs 070, 076)
 │   ├── ScenarioRegistry.fs     #   the contents captured under each scenario (spec 070)
 │   ├── Assets.fs               #   asset manager + manifests
 │   ├── Actor.fs                #   IQM model + morphs

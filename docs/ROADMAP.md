@@ -332,9 +332,10 @@ the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`. The ca
 
 **Deliverables**
 - `world/Scenario.fs` — the scenarios, a closed union; `world/ScenarioZone.fs` — a zone as a scenario holds it
-  (ref-free: arrays of authored states, waypoint chains and the player by index); `world/ScenarioRegistry.fs` — the
-  contents captured under each: a scenario = every present zone (each a `ScenarioZone`) + the active place + the
-  cue (immutable at runtime). *(the library and its panel are `specs/070-scenario-library`)*
+  (ref-free: the narrative entities — arrays of authored actor/waypoint/trigger states, with waypoint chains by
+  index); `world/ScenarioRegistry.fs` — the contents captured under each: a scenario = every present zone (each a
+  `ScenarioZone`) + the cue (immutable at runtime). *(the library and its panel are `specs/070-scenario-library`;
+  the zone's staging and the active place are not captured, `specs/076-scenario-narrative-only`)*
 - `editor/ScenarioPanel.fs` — the scenarios, one row each, with **Register** (file the current scene) and
   **Clear**, both steps on the one undo history. *(complete — `specs/070-scenario-library`)*
 

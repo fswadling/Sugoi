@@ -175,11 +175,13 @@ parsed from s-syntax manifests, keyed by `id`.
   `cue_root`. Scenarios are immutable at runtime (heap maps, off hot path). It lives on the
   **gameplay screen** (`specs/070-scenario-library`): the vocabulary is a closed union
   (`world/Scenario.fs`), and the captured contents are keyed by it in `world/ScenarioRegistry.fs`.
-  A scenario holds every present zone as a ref-free `ScenarioZone` (`world/ScenarioZone.fs` — arrays of authored
-  states, with waypoint chains and the player by index, and **no placed props**; deliberately **not** the
-  `ZoneContents` a delete carries, which keeps zone-scoped refs), the
-  active place, and the cue; registering or clearing one is a step on the one undo history.
-  **Running** a scenario — forking it into the cue — is a later increment, so no cue op names one yet.
+  A scenario holds every present zone as a ref-free `ScenarioZone` (`world/ScenarioZone.fs` — a zone's **narrative
+  entities** as arrays of authored states: actors, waypoints with their chains by index, and triggers; deliberately
+  **not** the `ZoneContents` a delete carries, which keeps zone-scoped refs) and the cue. Its zones carry no
+  **staging** — no environment, light, player designation or placed props (`specs/076-scenario-narrative-only`), and
+  the contents carry no active place: those are the place's (the Zone Registry's template) or the runtime state's.
+  Registering or clearing one is a step on the one undo history. **Running** a scenario — forking it into the cue —
+  is a later increment, so no cue op names one yet.
 - `Cue` (`world/Cue.fs`) is **one type that is both the vocabulary and the run** —
   the control flow (`Sequence`/`Parallel`/`Fork`), the leaves, and the terminal
   `Fin`. It is an immutable value, and advancing it returns the next value, so the

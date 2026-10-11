@@ -41,7 +41,7 @@ let private sharedState () : SharedState.SharedState =
 
 /// Register the current scene under `Intro`, the way the panel's Register control does.
 let private register (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    do ScenarioPanel.commit shared &state Intro (Some (capture state.Zones state.ActiveZone state.Cue))
+    do ScenarioPanel.commit shared &state Intro (Some (capture state.Zones state.Cue))
 
 let private raises (f: unit -> unit) : bool =
     try
@@ -61,7 +61,7 @@ let ``the declared set is enumerated in declaration order`` () =
 // ══════ the capture (FR-002, FR-009, SC-003) ══════
 
 [<Fact>]
-let ``the capture carries every present zone, the active place and the cue`` () =
+let ``the capture carries every present zone and the cue`` () =
     let zones = Dictionary<Place, Zone.Zone>()
     let main = Zone.create ()
     do ignore (Zone.spawnWaypoint main (entity "start"))
@@ -69,12 +69,11 @@ let ``the capture carries every present zone, the active place and the cue`` () 
     zones.[Place.Island] <- Zone.create ()
     let cue = Cue.Print "scenario"
 
-    let contents = capture zones Place.Island cue
+    let contents = capture zones cue
 
     Assert.Equal(2, contents.Zones.Count)
     Assert.Equal(ScenarioZone.capture main, Map.find Place.start contents.Zones)
     Assert.Equal(ScenarioZone.capture zones.[Place.Island], Map.find Place.Island contents.Zones)
-    Assert.Equal(Place.Island, contents.Active)
     Assert.Equal(cue, contents.Cue)
     // The waypoint it was authored with is in the capture, part for part.
     let capturedMain = Map.find Place.start contents.Zones
@@ -82,26 +81,40 @@ let ``the capture carries every present zone, the active place and the cue`` () 
     Assert.Equal("start", capturedMain.Waypoints.[0].Base.Name)
 
 [<Fact>]
-let ``a captured zone is ref-free: waypoint chains and the player become indices`` () =
+let ``a captured zone is ref-free: waypoint chains become indices`` () =
     let zone = Zone.create ()
     let first = Zone.spawnWaypoint zone (entity "a")
     let second = Zone.spawnWaypoint zone (entity "b")
     do Zone.setWaypointNext zone first (Some second)
-    let handle = zone.Actors.Add(actor "pupil")
-    zone.Player <- ValueSome handle
+    do ignore (zone.Actors.Add(actor "pupil"))
+    do ignore (zone.Triggers.Add({ State = { Base = entity "area"; Radius = 1.0f; Height = 2.0f; Interactable = false; Prompt = ""; Cue = Cue.Fin }; Triggered = false }))
 
     let captured = ScenarioZone.capture zone
 
     // A chain is an index into the captured waypoints, not an `EntityRef` into a live zone.
-    Assert.Equal(2, Array.length captured.Waypoints)
-    Assert.Equal(Some 1, captured.Waypoints.[0].Next)
-    Assert.Equal(None, captured.Waypoints.[1].Next)
-    // The player is an index into the captured actors, not a slot handle.
+    let expected : ScenarioZone.ScenarioWaypoint array =
+        [| { Base = entity "a"; Next = Some 1 }
+           { Base = entity "b"; Next = None } |]
+    Assert.Equal<ScenarioZone.ScenarioWaypoint>(expected, captured.Waypoints)
+    // The narrative entities are captured; the zone's staging (environment, light, player) is not.
     Assert.Equal(1, Array.length captured.Actors)
-    Assert.Equal(Some 0, captured.Player)
-    // Nothing names a live slot: the record's own values are the authored ones.
-    Assert.Equal("a", captured.Waypoints.[0].Base.Name)
     Assert.Equal("pupil", captured.Actors.[0].Base.Name)
+    Assert.Equal(1, Array.length captured.Triggers)
+    Assert.Equal("area", captured.Triggers.[0].Base.Name)
+
+[<Fact>]
+let ``a place with no narrative entities is captured as an empty scenario zone`` () =
+    let zones = Dictionary<Place, Zone.Zone>()
+    zones.[Place.start] <- Zone.create ()
+    zones.[Place.Island] <- Zone.create ()
+
+    let contents = capture zones Cue.Fin
+
+    Assert.Equal(2, contents.Zones.Count)
+    let island = Map.find Place.Island contents.Zones
+    Assert.Equal(0, Array.length island.Actors)
+    Assert.Equal(0, Array.length island.Waypoints)
+    Assert.Equal(0, Array.length island.Triggers)
 
 [<Fact>]
 let ``register files the scene and clear empties it`` () =
@@ -185,6 +198,25 @@ let ``registering disturbs nothing in the scene`` () =
     Assert.Equal(position, state.Camera.Position)
     Assert.Equal(target, state.Camera.Target)
     Assert.Equal(selection, state.Editor.Selection)
+
+[<Fact>]
+let ``a registration is unaffected by the zone's light and player`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    let handle = zone.Actors.Add(actor "pupil")
+
+    do register shared &state
+    let first = tryContents Intro state.Scenarios
+
+    // Change only staging: the light, and which actor is the player. Neither is part of a scenario (FR-009).
+    zone.Light <- { zone.Light with Pitch = 90.0f }
+    zone.Player <- ValueSome handle
+
+    do register shared &state
+    let second = tryContents Intro state.Scenarios
+
+    Assert.Equal<ScenarioContents option>(first, second)
 
 [<Fact>]
 let ``the zone-level runner refuses a scenario step, which is state-level`` () =
