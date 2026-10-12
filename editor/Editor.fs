@@ -422,6 +422,14 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                 do redoStep shared &state
             do ImGui.endMenu()
 
+        // The error tally, always visible in the menu bar when non-zero, so it shows regardless of the
+        // Debug panel. Clicking it brings the Debug window's de-duplicated detail forward.
+        let errors = Diagnostics.errorCount()
+        if errors > 0 then
+            do ImGui.sameLine(0.0f, -1.0f)
+            if ImGui.menuItem(sprintf "(!) %d error(s)" errors, null, false, true) then
+                ImGui.setWindowFocus "Debug"
+
         do ImGui.endMainMenuBar()
 
     // The right node's panels (Inspector, Cue, Advent) are submitted in that order: a dock node's tab order

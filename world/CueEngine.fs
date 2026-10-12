@@ -119,15 +119,15 @@ let private poseTransform (position: Vector3) (rotation: Quaternion) : Transform
 /// forgiving — a no-op is the right outcome for state the op cannot act on — but a silent one cannot be told from
 /// a working op in the editor, so the reason is named. Called once, where the op begins.
 let private noOp (op: string) (actor: string) (reason: string) : unit =
-    eprintfn "cue: %s(%s) performs nothing: %s" op actor reason
+    Diagnostics.reportf "cue: %s(%s) performs nothing: %s" op actor reason
 
 /// The non-actor counterpart of `noOp` (spec 067): a trigger toggle names a place and a trigger, not an actor.
 let private noOpTrigger (op: string) (place: string) (trigger: string) (reason: string) : unit =
-    eprintfn "cue: %s(%s/%s) performs nothing: %s" op (place) trigger reason
+    Diagnostics.reportf "cue: %s(%s/%s) performs nothing: %s" op (place) trigger reason
 
 /// The place-targeted counterpart of `noOp` (spec 080): a camera op names a place and a waypoint or a path.
 let private noOpPlace (op: string) (place: string) (reason: string) : unit =
-    eprintfn "cue: %s(%s) performs nothing: %s" op (place) reason
+    Diagnostics.reportf "cue: %s(%s) performs nothing: %s" op (place) reason
 
 /// Detach the actor body at `ref` when the member's place is not the active one, so a member built into an
 /// inactive place does not simulate (research D5). Only the body just built is touched: `removeBody` is safe

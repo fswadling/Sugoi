@@ -22,7 +22,7 @@ open Command
 // reported, not fatal (spec 080, US4): a runtime cue op mutates the scene without a history step, so a
 // recorded step can outlive the place it names. The state mutators stay fail-fast for direct misuse.
 let private skip (phase: string) (cmd: Command) (reason: string) : unit =
-    do eprintfn "History.%s: skipping %A: %s" phase cmd reason
+    do Diagnostics.reportf "History.%s: skipping %A: %s" phase cmd reason
 
 /// Apply one command to the gameplay state. A content command names its place (spec 077), so it is carried out on
 /// **that place's zone**, not the active one — a `Batch` may therefore span places. A state-level step (a zone

@@ -28,7 +28,7 @@ let private commit (state: byref<GameplayState.GameplayState>) (cmd: Command) (r
 let private hasRoom (kind: string) (place: string) (map: SlotMap.SlotMap<'T>) : bool =
     if map.Count < map.Capacity then true
     else
-    do eprintfn "editor: cannot add %s to '%s': at capacity (%d)" kind place map.Capacity
+    do Diagnostics.reportf "editor: cannot add %s to '%s': at capacity (%d)" kind place map.Capacity
     false
 
 // Spawn a whole actor into the active zone. A name is a label, not an identity (spec 072), so this places an

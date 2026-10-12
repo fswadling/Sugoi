@@ -31,6 +31,7 @@
     <Compile Include="narrative/Harness.fs" />
 
     <Compile Include="core/SlotMap.fs" />
+    <Compile Include="core/Diagnostics.fs" />
     <Compile Include="core/Lru.fs" />
     <Compile Include="core/Iqm.fs" />
     <Compile Include="core/Gltf.fs" />

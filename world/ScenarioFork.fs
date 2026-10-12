@@ -65,7 +65,7 @@ let materialise
             if not ok then fits <- false
 
     if not fits then
-        eprintfn "scenario fork: a target zone lacks room for the scenario's entities or props"
+        Diagnostics.reportf "scenario fork: a target zone lacks room for the scenario's entities or props"
         None
     else
 

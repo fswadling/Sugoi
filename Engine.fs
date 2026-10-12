@@ -18,14 +18,14 @@ open Screen
 let run () : int =
     // ── Initialise SDL and create the window ──
     if not (SDL.Init(SDL.InitFlags.Video)) then
-        do eprintfn "SDL_Init failed: %s" (SDL.GetError())
+        do Diagnostics.reportf "SDL_Init failed: %s" (SDL.GetError())
         1
     else
 
     let window = SDL.CreateWindow("fsharp-game", 1280, 720, SDL.WindowFlags.Resizable)
 
     if window = IntPtr.Zero then
-        do eprintfn "SDL_CreateWindow failed: %s" (SDL.GetError())
+        do Diagnostics.reportf "SDL_CreateWindow failed: %s" (SDL.GetError())
         do SDL.Quit()
         1
     else
@@ -39,12 +39,12 @@ let run () : int =
     let device = SDL.CreateGPUDevice(shaderFormats, true, null)
 
     if device = IntPtr.Zero then
-        do eprintfn "SDL_CreateGPUDevice failed: %s" (SDL.GetError())
+        do Diagnostics.reportf "SDL_CreateGPUDevice failed: %s" (SDL.GetError())
         do SDL.DestroyWindow(window)
         do SDL.Quit()
         1
     else if not (SDL.ClaimWindowForGPUDevice(device, window)) then
-        do eprintfn "SDL_ClaimWindowForGPUDevice failed: %s" (SDL.GetError())
+        do Diagnostics.reportf "SDL_ClaimWindowForGPUDevice failed: %s" (SDL.GetError())
         do SDL.DestroyGPUDevice(device)
         do SDL.DestroyWindow(window)
         do SDL.Quit()
@@ -67,7 +67,7 @@ let run () : int =
     do ImGui.enableDocking()
 
     if not (ImGuiSdl3.init(window, device)) then
-        do eprintfn "ImGui backend init failed: %s" (SDL.GetError())
+        do Diagnostics.reportf "ImGui backend init failed: %s" (SDL.GetError())
         do ImGui.destroyContext(IntPtr.Zero)
         do SDL.ReleaseWindowFromGPUDevice(device, window)
         do SDL.DestroyGPUDevice(device)
@@ -252,7 +252,7 @@ let run () : int =
             if sleepNs > 0.0 then
                 do SDL.DelayNS(uint64 sleepNs) |> ignore
     with ex ->
-        do eprintfn "frame failed in phase '%s': %s" phaseNames.[currentPhase] ex.Message
+        do Diagnostics.reportf "frame failed in phase '%s': %s" phaseNames.[currentPhase] ex.Message
 
     // ── Shut down ──
     do SDL.WaitForGPUIdle(device) |> ignore

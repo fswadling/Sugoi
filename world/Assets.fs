@@ -315,7 +315,7 @@ let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<AssetI
         let loaded =
             try Some (loadActorAsset loader root id name modelPath morphsPath portraitPaths)
             with e ->
-                do eprintfn "asset '%s': %s (skipped)" id e.Message
+                do Diagnostics.reportf "asset '%s': %s (skipped)" id e.Message
                 None
         match loaded with
         | Some asset -> actors.[id] <- asset
@@ -591,7 +591,7 @@ let pump (manager: AssetManager) (budgetMs: float) : unit =
         match outcome with
         | LoadFailed (assetId, message) ->
             if AssetLoad.isPendingOutcome pool assetId then
-                do eprintfn "environment load failed: %s: %s" assetId message
+                do Diagnostics.reportf "environment load failed: %s: %s" assetId message
                 do failAsset manager assetId message
             // The claim is released here (the id leaves the wanted set whether it failed or was
             // dropped). `makeResident` clears the claim, `Pending` and `Uploading`.
@@ -605,7 +605,7 @@ let pump (manager: AssetManager) (budgetMs: float) : unit =
                 // Defensive: a second payload for an id already uploading. The claim is held
                 // from claim until resident, so this cannot normally happen; discard it rather
                 // than overwrite (and leak) the cursor in progress.
-                do eprintfn "environment load: duplicate payload for '%s' discarded" payload.AssetId
+                do Diagnostics.reportf "environment load: duplicate payload for '%s' discarded" payload.AssetId
                 do AssetLoad.releaseSlot pool
             else
                 // The payload becomes a cursor, which holds its slot until it settles; the
@@ -688,7 +688,7 @@ let scan (root: string) (device: Gpu.Device) : AssetManager =
             asset.Residency <- Resident loaded
             props.[id] <- asset
         with e ->
-            do eprintfn "asset '%s': %s (skipped)" id e.Message
+            do Diagnostics.reportf "asset '%s': %s (skipped)" id e.Message
 
     let environments = Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>()
     for (id, name, modelPath, _, _) in scanDir root "environments" do
@@ -697,7 +697,7 @@ let scan (root: string) (device: Gpu.Device) : AssetManager =
                 failwithf "asset manager: environment asset '%s' has no model path" id
             environments.[id] <- metadataOnly id name (Path.Combine(root, modelPath))
         with e ->
-            do eprintfn "asset '%s': %s (skipped)" id e.Message
+            do Diagnostics.reportf "asset '%s': %s (skipped)" id e.Message
 
     let actors = loadActors loader root
     let actorsByName = indexByName actors

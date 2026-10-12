@@ -269,7 +269,7 @@ let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFo
     // still draws its rectangles, so the frame is usable without any glyphs.
     let font = TTF.OpenFont(fontPath, float32 initialFontSize)
     if font = IntPtr.Zero then
-        do eprintfn "ui: failed to open the font '%s': %s; text disabled" fontPath (SDL.GetError())
+        do Diagnostics.reportf "ui: failed to open the font '%s': %s; text disabled" fontPath (SDL.GetError())
 
     let textEngine =
         if font = IntPtr.Zero then IntPtr.Zero

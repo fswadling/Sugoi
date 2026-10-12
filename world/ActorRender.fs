@@ -204,7 +204,7 @@ let playClip (r: byref<ActorRender>) (name: string) : unit =
     | ValueNone ->
         if r.LastMissing <> name then
             r.LastMissing <- name
-            do eprintfn "animation: actor asset '%s' has no clip '%s'; holding the pose" r.Asset.Id name
+            do Diagnostics.reportf "animation: actor asset '%s' has no clip '%s'; holding the pose" r.Asset.Id name
     | ValueSome index ->
 
     r.LastMissing <- ""

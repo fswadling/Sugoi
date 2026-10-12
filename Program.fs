@@ -7,5 +7,5 @@ let main _argv =
     // stack trace (spec 080, US8). A failure inside the loop is caught and torn down there; this is the backstop.
     try Engine.run ()
     with ex ->
-        do eprintfn "engine failed: %s" ex.Message
+        do Diagnostics.reportf "engine failed: %s" ex.Message
         1

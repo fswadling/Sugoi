@@ -100,6 +100,14 @@ extern bool wantTextInput()
 [<DllImport("cimgui", EntryPoint = "cimgui_set_window_focus", CallingConvention = CallingConvention.Cdecl)>]
 extern void setWindowFocus(string name)
 
+// Push a style colour, packed as an `ImU32` (cimgui's igPushStyleColor_U32). `ImGuiCol_Text` is 0.
+[<DllImport("cimgui", EntryPoint = "igPushStyleColor_U32", CallingConvention = CallingConvention.Cdecl)>]
+extern void pushStyleColorU32(int idx, uint32 col)
+
+// Pop `count` pushed style colours (cimgui's igPopStyleColor).
+[<DllImport("cimgui", EntryPoint = "igPopStyleColor", CallingConvention = CallingConvention.Cdecl)>]
+extern void popStyleColor(int count)
+
 [<DllImport("cimgui", EntryPoint = "cimgui_is_window_active", CallingConvention = CallingConvention.Cdecl)>]
 extern bool isWindowActive(string name)
 
