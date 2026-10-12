@@ -338,6 +338,32 @@ let ``withoutAt removes exactly the node a path names`` () =
     // queue empties (`Sequence(current, empty)` is a value it produces, not a degenerate one)
     Assert.Equal("Seq[Wait 1]", describe (withoutAt [ 1 ] (Sequence(Wait 1.0, FDeque.ofList [ Exposit("a", Dialogue.Kind.Dialogue) ]))))
 
+// ── a conditional's branches are editable (spec 080, US3) ──
+
+[<Fact>]
+let ``withAt edits either branch of a conditional`` () =
+    let cue = If(MetAiko, Wait 1.0, Wait 2.0)
+    let thenEdited = withAt [ 0 ] (Exposit("t", Dialogue.Kind.Dialogue)) cue
+    Assert.Equal("Exposit(t)", describe (Option.defaultValue Fin (tryAt [ 0 ] thenEdited)))
+    Assert.Equal("Wait 2", describe (Option.defaultValue Fin (tryAt [ 1 ] thenEdited)))
+    let elseEdited = withAt [ 1 ] (Exposit("e", Dialogue.Kind.Dialogue)) cue
+    Assert.Equal("Wait 1", describe (Option.defaultValue Fin (tryAt [ 0 ] elseEdited)))
+    Assert.Equal("Exposit(e)", describe (Option.defaultValue Fin (tryAt [ 1 ] elseEdited)))
+
+[<Fact>]
+let ``withoutAt removes a branch of a conditional`` () =
+    // removing the `else` leaves the `then` as the surviving branch (spec 080, US3)
+    let removed = withoutAt [ 1 ] (If(MetAiko, Wait 1.0, Wait 2.0))
+    Assert.Equal("Wait 1", describe (Option.defaultValue Fin (tryAt [ 0 ] removed)))
+    Assert.Equal("Fin", describe (Option.defaultValue Fin (tryAt [ 1 ] removed)))
+
+[<Fact>]
+let ``withAppendedChild adds under a conditional's branch`` () =
+    let cue = If(MetAiko, seqOf [ Wait 1.0; Wait 3.0 ], Wait 2.0)
+    let node, childPath = withAppendedChild [ 0 ] (Exposit("x", Dialogue.Kind.Dialogue)) cue
+    Assert.Equal<int list>([ 0; 2 ], childPath)
+    Assert.Equal("Exposit(x)", describe (Option.defaultValue Fin (tryAt [ 2 ] node)))
+
 [<Fact>]
 let ``a path that names nothing raises from every write`` () =
     let cue = seqOf [ Wait 1.0 ]

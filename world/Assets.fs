@@ -203,112 +203,123 @@ let private resolveMaterial (loader: Loader) (batch: Gpu.UploadBatch) (imageOf: 
 
 // ── actor asset loading / resolution ──
 
-// Scan the actors directory and eagerly load (parse + upload) each asset, keyed by id. Raises
-// on an actor asset with no model path, or a model exceeding the GPU bone palette. The actor's
-// IQM meshes each name an albedo texture (their `Material` string); these become per-submesh
-// PBR materials sharing one combined vertex/index buffer. The loader is lazy so a headless
-// scan (no actors) never touches the GPU.
+// Load one actor asset (parse + upload). Raises on a malformed or unsupported asset or a model exceeding
+// the GPU bone palette; the caller reports and skips (spec 080, US7). The actor's IQM meshes each name an
+// albedo texture (their `Material` string); these become per-submesh PBR materials sharing one combined
+// vertex/index buffer.
+let private loadActorAsset (loader: Lazy<Loader>) (root: string) (id: string) (name: string) (modelPath: string) (morphsPath: string) (portraitPaths: ActorAsset.PortraitPaths) : ActorAsset.ActorAsset =
+    if String.IsNullOrEmpty modelPath then
+        failwithf "asset manager: actor asset '%s' has no model path" id
+
+    let loader' = loader.Value
+    let actorDir = Path.GetDirectoryName(Path.Combine(root, modelPath))
+    let fallback = Texture.defaultMaterial loader'.White (Vector4(0.85f, 0.75f, 0.65f, 1.0f))
+    let model = Iqm.load (Path.Combine(root, modelPath))
+    if model.Joints.Length > Gpu.BonesMax then
+        failwithf "iqm: model has %d joints, exceeding BonesMax %d" model.Joints.Length Gpu.BonesMax
+
+    let actorModel = Actor.createModel model
+    let vertexCount = model.Positions.Length / 3
+    let normals = Option.defaultWith (fun () -> Array.zeroCreate<float32> (vertexCount * 3)) model.Normals
+    let uvs = Option.defaultWith (fun () -> Array.zeroCreate<float32> (vertexCount * 2)) model.Uvs
+    let boneIds = Option.defaultWith (fun () -> Array.zeroCreate<byte> (vertexCount * 4)) model.BlendIndices
+    let boneWeights = Option.defaultWith (fun () -> Array.zeroCreate<byte> (vertexCount * 4)) model.BlendWeights
+
+    let submeshes : Mesh.Submesh array =
+        if model.Meshes.Length = 0 then
+            [| { FirstIndex = 0
+                 IndexCount = model.Triangles.Length
+                 Material = fallback
+                 IsFace = false } |]
+        else
+
+        model.Meshes
+        |> Array.map (fun mesh ->
+            let albedo =
+                if String.IsNullOrEmpty mesh.Material then None
+                else Some (loadTexture loader' (Path.Combine(actorDir, "akane", mesh.Material)))
+            { FirstIndex = mesh.FirstTriangle * 3
+              IndexCount = mesh.NumTriangles * 3
+              Material = Texture.makeMaterial loader'.White (Vector4(1.0f, 1.0f, 1.0f, 1.0f)) 0.0f 0.8f Vector3.Zero albedo None None None
+              IsFace = Mesh.isFaceMeshName mesh.Name })
+
+    // Actor bounds from the model's positions, for the capsule collider.
+    if model.Positions.Length = 0 then failwithf "iqm: actor '%s' has no positions" id
+    let mutable minV = Vector3(Single.PositiveInfinity, Single.PositiveInfinity, Single.PositiveInfinity)
+    let mutable maxV = Vector3(Single.NegativeInfinity, Single.NegativeInfinity, Single.NegativeInfinity)
+    for i in 0 .. model.Positions.Length / 3 - 1 do
+        let x = model.Positions.[i * 3]
+        let y = model.Positions.[i * 3 + 1]
+        let z = model.Positions.[i * 3 + 2]
+        minV <- Vector3(min minV.X x, min minV.Y y, min minV.Z z)
+        maxV <- Vector3(max maxV.X x, max maxV.Y y, max maxV.Z z)
+    let actorBounds : Gltf.Bounds = { Min = minV; Max = maxV }
+
+    // The outline's averaged extrusion directions, derived once from the geometry (spec 041).
+    let smoothNormals = Iqm.smoothNormals model.Positions normals
+    let mesh = Mesh.create loader'.Device model.Positions normals uvs boneIds boneWeights smoothNormals model.Triangles submeshes
+
+    // Morph targets, when the actor manifest names a sidecar: parse the manifest, read its
+    // data file, and pack the offsets into the dense per-vertex layout the vertex shader
+    // reads. Uploaded once and shared by every instance of the asset.
+    let morphs =
+        if String.IsNullOrEmpty morphsPath then None else
+
+        let manifestPath = Path.Combine(root, morphsPath)
+        let manifest = File.ReadAllText manifestPath |> ActorAsset.parseMorphManifest
+        let dataPath = Path.Combine(Path.GetDirectoryName manifestPath, manifest.Data)
+        let bytes = File.ReadAllBytes dataPath
+        if bytes.Length % 4 <> 0 then
+            failwithf "morph data '%s' is not a multiple of four bytes" dataPath
+        else
+
+        let data = Array.init (bytes.Length / 4) (fun i -> BitConverter.ToSingle(bytes, i * 4))
+        let usable = ActorAsset.usableMorphs manifest
+        if usable.Length = 0 then None else
+
+        let deltas = ActorAsset.buildMorphDeltas usable data vertexCount
+        let deltaBytes = Array.zeroCreate<byte> (deltas.Length * 4)
+        do Buffer.BlockCopy(deltas, 0, deltaBytes, 0, deltaBytes.Length)
+        let buffer = Gpu.createStorageBuffer loader'.Device deltaBytes
+        let actorMorphs : ActorAsset.ActorMorphs =
+            { Names = usable |> Array.map (fun m -> m.Name)
+              Count = usable.Length
+              Buffer = buffer }
+        Some actorMorphs
+
+    // Portraits: a declared set must be complete (a partial set is a broken asset, FR-006);
+    // declaring none is legal and simply means the character cannot speak a portrait line.
+    // Loaded once through the shared texture cache, so nothing is re-read per line (FR-010).
+    let portraits =
+        let declared = ActorAsset.portraitValues portraitPaths
+        let isUnset (_, path: string) = String.IsNullOrEmpty path
+        if declared |> List.forall isUnset then None else
+
+        do ActorAsset.requireComplete portraitPaths
+        let loadPortrait (path: string) = loadTexture loader' (Path.Combine(root, path))
+        let loaded : ActorAsset.ActorPortraits =
+            { Neutral = loadPortrait portraitPaths.Neutral
+              Happy = loadPortrait portraitPaths.Happy
+              Sad = loadPortrait portraitPaths.Sad
+              Angry = loadPortrait portraitPaths.Angry
+              Surprised = loadPortrait portraitPaths.Surprised }
+        Some loaded
+
+    { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel; Morphs = morphs; Portraits = portraits }
+
+// Scan the actors directory, loading each asset through `loadActorAsset`; a failure is reported and the asset
+// skipped, so one bad file does not deny the rest (spec 080, US7).
 let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<AssetId, ActorAsset.ActorAsset> =
     let actors = Dictionary<AssetId, ActorAsset.ActorAsset>()
     for (id, name, modelPath, morphsPath, portraitPaths) in scanDir root "actors" do
-        if String.IsNullOrEmpty modelPath then
-            failwithf "asset manager: actor asset '%s' has no model path" id
-
-        let loader' = loader.Value
-        let actorDir = Path.GetDirectoryName(Path.Combine(root, modelPath))
-        let fallback = Texture.defaultMaterial loader'.White (Vector4(0.85f, 0.75f, 0.65f, 1.0f))
-        let model = Iqm.load (Path.Combine(root, modelPath))
-        if model.Joints.Length > Gpu.BonesMax then
-            failwithf "iqm: model has %d joints, exceeding BonesMax %d" model.Joints.Length Gpu.BonesMax
-
-        let actorModel = Actor.createModel model
-        let vertexCount = model.Positions.Length / 3
-        let normals = Option.defaultWith (fun () -> Array.zeroCreate<float32> (vertexCount * 3)) model.Normals
-        let uvs = Option.defaultWith (fun () -> Array.zeroCreate<float32> (vertexCount * 2)) model.Uvs
-        let boneIds = Option.defaultWith (fun () -> Array.zeroCreate<byte> (vertexCount * 4)) model.BlendIndices
-        let boneWeights = Option.defaultWith (fun () -> Array.zeroCreate<byte> (vertexCount * 4)) model.BlendWeights
-
-        let submeshes : Mesh.Submesh array =
-            if model.Meshes.Length = 0 then
-                [| { FirstIndex = 0
-                     IndexCount = model.Triangles.Length
-                     Material = fallback
-                     IsFace = false } |]
-            else
-
-            model.Meshes
-            |> Array.map (fun mesh ->
-                let albedo =
-                    if String.IsNullOrEmpty mesh.Material then None
-                    else Some (loadTexture loader' (Path.Combine(actorDir, "akane", mesh.Material)))
-                { FirstIndex = mesh.FirstTriangle * 3
-                  IndexCount = mesh.NumTriangles * 3
-                  Material = Texture.makeMaterial loader'.White (Vector4(1.0f, 1.0f, 1.0f, 1.0f)) 0.0f 0.8f Vector3.Zero albedo None None None
-                  IsFace = Mesh.isFaceMeshName mesh.Name })
-
-        // Actor bounds from the model's positions, for the capsule collider.
-        if model.Positions.Length = 0 then failwithf "iqm: actor '%s' has no positions" id
-        let mutable minV = Vector3(Single.PositiveInfinity, Single.PositiveInfinity, Single.PositiveInfinity)
-        let mutable maxV = Vector3(Single.NegativeInfinity, Single.NegativeInfinity, Single.NegativeInfinity)
-        for i in 0 .. model.Positions.Length / 3 - 1 do
-            let x = model.Positions.[i * 3]
-            let y = model.Positions.[i * 3 + 1]
-            let z = model.Positions.[i * 3 + 2]
-            minV <- Vector3(min minV.X x, min minV.Y y, min minV.Z z)
-            maxV <- Vector3(max maxV.X x, max maxV.Y y, max maxV.Z z)
-        let actorBounds : Gltf.Bounds = { Min = minV; Max = maxV }
-
-        // The outline's averaged extrusion directions, derived once from the geometry (spec 041).
-        let smoothNormals = Iqm.smoothNormals model.Positions normals
-        let mesh = Mesh.create loader'.Device model.Positions normals uvs boneIds boneWeights smoothNormals model.Triangles submeshes
-
-        // Morph targets, when the actor manifest names a sidecar: parse the manifest, read its
-        // data file, and pack the offsets into the dense per-vertex layout the vertex shader
-        // reads. Uploaded once and shared by every instance of the asset.
-        let morphs =
-            if String.IsNullOrEmpty morphsPath then None else
-
-            let manifestPath = Path.Combine(root, morphsPath)
-            let manifest = File.ReadAllText manifestPath |> ActorAsset.parseMorphManifest
-            let dataPath = Path.Combine(Path.GetDirectoryName manifestPath, manifest.Data)
-            let bytes = File.ReadAllBytes dataPath
-            if bytes.Length % 4 <> 0 then
-                failwithf "morph data '%s' is not a multiple of four bytes" dataPath
-            else
-
-            let data = Array.init (bytes.Length / 4) (fun i -> BitConverter.ToSingle(bytes, i * 4))
-            let usable = ActorAsset.usableMorphs manifest
-            if usable.Length = 0 then None else
-
-            let deltas = ActorAsset.buildMorphDeltas usable data vertexCount
-            let deltaBytes = Array.zeroCreate<byte> (deltas.Length * 4)
-            do Buffer.BlockCopy(deltas, 0, deltaBytes, 0, deltaBytes.Length)
-            let buffer = Gpu.createStorageBuffer loader'.Device deltaBytes
-            let actorMorphs : ActorAsset.ActorMorphs =
-                { Names = usable |> Array.map (fun m -> m.Name)
-                  Count = usable.Length
-                  Buffer = buffer }
-            Some actorMorphs
-
-        // Portraits: a declared set must be complete (a partial set is a broken asset, FR-006);
-        // declaring none is legal and simply means the character cannot speak a portrait line.
-        // Loaded once through the shared texture cache, so nothing is re-read per line (FR-010).
-        let portraits =
-            let declared = ActorAsset.portraitValues portraitPaths
-            let isUnset (_, path: string) = String.IsNullOrEmpty path
-            if declared |> List.forall isUnset then None else
-
-            do ActorAsset.requireComplete portraitPaths
-            let loadPortrait (path: string) = loadTexture loader' (Path.Combine(root, path))
-            let loaded : ActorAsset.ActorPortraits =
-                { Neutral = loadPortrait portraitPaths.Neutral
-                  Happy = loadPortrait portraitPaths.Happy
-                  Sad = loadPortrait portraitPaths.Sad
-                  Angry = loadPortrait portraitPaths.Angry
-                  Surprised = loadPortrait portraitPaths.Surprised }
-            Some loaded
-
-        actors.[id] <- { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel; Morphs = morphs; Portraits = portraits }
+        let loaded =
+            try Some (loadActorAsset loader root id name modelPath morphsPath portraitPaths)
+            with e ->
+                do eprintfn "asset '%s': %s (skipped)" id e.Message
+                None
+        match loaded with
+        | Some asset -> actors.[id] <- asset
+        | None -> ()
     actors
 
 // The name index (`specs/074`): each declared `Name` to the actor asset that answers it. Built once, so a
@@ -669,18 +680,24 @@ let scan (root: string) (device: Gpu.Device) : AssetManager =
 
     let props = Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>()
     for (id, name, modelPath, _, _) in scanDir root "props" do
-        if String.IsNullOrEmpty modelPath then
-            failwithf "asset manager: prop asset '%s' has no model path" id
-        let asset = metadataOnly id name (Path.Combine(root, modelPath))
-        let loaded, _ = buildSync loader.Value device asset.ModelPath false
-        asset.Residency <- Resident loaded
-        props.[id] <- asset
+        try
+            if String.IsNullOrEmpty modelPath then
+                failwithf "asset manager: prop asset '%s' has no model path" id
+            let asset = metadataOnly id name (Path.Combine(root, modelPath))
+            let loaded, _ = buildSync loader.Value device asset.ModelPath false
+            asset.Residency <- Resident loaded
+            props.[id] <- asset
+        with e ->
+            do eprintfn "asset '%s': %s (skipped)" id e.Message
 
     let environments = Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>()
     for (id, name, modelPath, _, _) in scanDir root "environments" do
-        if String.IsNullOrEmpty modelPath then
-            failwithf "asset manager: environment asset '%s' has no model path" id
-        environments.[id] <- metadataOnly id name (Path.Combine(root, modelPath))
+        try
+            if String.IsNullOrEmpty modelPath then
+                failwithf "asset manager: environment asset '%s' has no model path" id
+            environments.[id] <- metadataOnly id name (Path.Combine(root, modelPath))
+        with e ->
+            do eprintfn "asset '%s': %s (skipped)" id e.Message
 
     let actors = loadActors loader root
     let actorsByName = indexByName actors

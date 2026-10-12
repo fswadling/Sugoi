@@ -689,3 +689,51 @@ let ``packMorphWeights places each weight at its morph index and the count after
     Assert.Equal(0.5f, floats.[2])
     Assert.Equal(0.0f, floats.[3])
     Assert.Equal(4.0f, floats.[Gpu.MorphsMax])
+
+// ── playClip fallback (spec 080, US1) ──
+
+// An actor asset carrying `m`'s clips but no GPU mesh: `playClip` reads only the model and the id.
+let private assetOf (id: string) (m: Iqm.Model) : ActorAsset.ActorAsset =
+    { Id = id
+      Name = id
+      ModelPath = ""
+      Bounds = { Min = Vector3.Zero; Max = Vector3.One }
+      Mesh = Unchecked.defaultof<Mesh.Mesh>
+      Model = Actor.createModel m
+      Morphs = None
+      Portraits = None }
+
+let private renderOf (asset: ActorAsset.ActorAsset) (slots: SlotMap<AnimationSlot>) : ActorRender.ActorRender =
+    { Unchecked.defaultof<ActorRender.ActorRender> with Asset = asset; AnimationSlots = slots }
+
+let private weightOf (r: ActorRender.ActorRender) (animIndex: int) : float32 =
+    let slots = r.AnimationSlots.Slots
+    let mutable w = 0.0f
+    for i in 0 .. slots.Length - 1 do
+        let slot = slots.[i]
+        if slot.Alive && slot.Value.AnimIndex = animIndex then w <- slot.Value.Weight
+    w
+
+[<Fact>]
+let ``playClip holds the pose and does not raise when the asset lacks the clip`` () =
+    let mutable r = renderOf (assetOf "poor" (twoClipModel ())) (slotMap [ slotOf 0 0.0f 1.0f 24.0f ])
+    // "Jog"/"Idle" are not among the asset's clips ("a", "b"): the held clip stays put rather than raising.
+    do ActorRender.playClip &r "Jog"
+    Assert.Equal(1.0f, weightOf r 0)
+
+[<Fact>]
+let ``playClip switches to a clip the asset defines`` () =
+    let mutable r = renderOf (assetOf "ok" (twoClipModel ())) (slotMap [ slotOf 0 0.0f 1.0f 24.0f ])
+    do ActorRender.playClip &r "b"
+    Assert.Equal(1.0f, weightOf r 1)
+    Assert.Equal(0.0f, weightOf r 0)
+
+[<Fact>]
+let ``playClip reports a missing clip once per distinct name`` () =
+    let mutable r = renderOf (assetOf "poor" (twoClipModel ())) (slotMap [ slotOf 0 0.0f 1.0f 24.0f ])
+    do ActorRender.playClip &r "Jog"
+    Assert.Equal("Jog", r.LastMissing)   // the first miss is remembered ...
+    do ActorRender.playClip &r "Jog"
+    Assert.Equal("Jog", r.LastMissing)   // ... so a repeat does not report again (FR-013)
+    do ActorRender.playClip &r "a"
+    Assert.Equal("", r.LastMissing)      // a clip the asset has clears the guard

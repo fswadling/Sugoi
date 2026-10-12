@@ -42,39 +42,43 @@ let private setCamera (state: byref<GameplayState.GameplayState>) (position: Vec
     state.Camera.Position <- position
     state.Camera.Target <- position + facing rotation * cameraLookDistance
 
-/// The first live waypoint named `name` in the zone; raises when there is none (FR-009). `place` names the
-/// zone for the diagnostic.
-let private namedWaypoint (place: string) (zone: Zone.Zone) (name: string) : EntityRef =
-    match Zone.tryWaypointByName zone name with
-    | Some r -> r
-    | None -> invalidOp (sprintf "cue camera: no waypoint named '%s' in '%s'" name (place))
+/// Resolve the pose a camera op should snap to, or the reason it cannot: an absent place, a waypoint
+/// name that does not resolve, or a waypoint no longer alive. A missing target is a no-op, not a fault
+/// (spec 080, US2): the op performs nothing and reports the reason, as every other op does.
+let private trySnapPose (state: byref<GameplayState.GameplayState>) (place: string) (waypoint: string) : Result<Vector3 * Quaternion, string> =
+    if not (state.Zones.ContainsKey place) then Error (sprintf "place '%s' is not present" place) else
 
-/// A waypoint's position and facing. Raises if the resolved waypoint is no longer alive.
-let private poseAt (zone: Zone.Zone) (ref: EntityRef) (name: string) : Vector3 * Quaternion =
+    let zone = state.Zones.[place]
+    match Zone.tryWaypointByName zone waypoint with
+    | None -> Error (sprintf "no waypoint named '%s' in '%s'" waypoint place)
+    | Some ref ->
     match Zone.tryEntityAt zone ref with
-    | Some e -> e.Transform.Position, e.Transform.Rotation
-    | None -> invalidOp (sprintf "cue camera: waypoint '%s' is not alive" name)
+    | Some e -> Ok (e.Transform.Position, e.Transform.Rotation)
+    | None -> Error (sprintf "waypoint '%s' is not alive" waypoint)
 
-/// Resolve a waypoint's pose for a snap, raising when the name does not resolve (FR-009).
-let private snapPose (place: string) (zone: Zone.Zone) (name: string) : Vector3 * Quaternion =
-    poseAt zone (namedWaypoint place zone name) name
+/// Resolve a flight path into positions and facings, or the reason it cannot run: an absent place, an
+/// unknown start waypoint, a chain of fewer than two waypoints, or a waypoint no longer alive.
+let private tryResolvedPath (state: byref<GameplayState.GameplayState>) (place: string) (name: string) : Result<Vector3[] * Quaternion[], string> =
+    if not (state.Zones.ContainsKey place) then Error (sprintf "place '%s' is not present" place) else
 
-/// Resolve the chain starting at `name` into positions and facings. Raises for an unknown name or a
-/// chain of fewer than two waypoints (FR-010).
-let private resolvedPath (place: string) (zone: Zone.Zone) (name: string) : Vector3[] * Quaternion[] =
-    let start = namedWaypoint place zone name
+    let zone = state.Zones.[place]
+    match Zone.tryWaypointByName zone name with
+    | None -> Error (sprintf "no waypoint named '%s' in '%s'" name place)
+    | Some start ->
     let chain = Zone.waypointChain zone start
-    if List.length chain < 2 then
-        invalidOp (sprintf "cue camera: path '%s' has fewer than two waypoints" name)
-    else
+    if List.length chain < 2 then Error (sprintf "path '%s' has fewer than two waypoints" name) else
 
     let points = Array.zeroCreate chain.Length
     let rotations = Array.zeroCreate chain.Length
+    let mutable alive = true
     for i in 0 .. chain.Length - 1 do
-        let (position, rotation) = poseAt zone chain.[i] name
-        points.[i] <- position
-        rotations.[i] <- rotation
-    points, rotations
+        if alive then
+            match Zone.tryEntityAt zone chain.[i] with
+            | Some e ->
+                points.[i] <- e.Transform.Position
+                rotations.[i] <- e.Transform.Rotation
+            | None -> alive <- false
+    if alive then Ok (points, rotations) else Error (sprintf "a waypoint in path '%s' is not alive" name)
 
 /// Begin a timed op. A duration of zero (or less) is over before it begins.
 let private beginWait (now: float) (seconds: float) : Cue =
@@ -121,6 +125,10 @@ let private noOp (op: string) (actor: string) (reason: string) : unit =
 let private noOpTrigger (op: string) (place: string) (trigger: string) (reason: string) : unit =
     eprintfn "cue: %s(%s/%s) performs nothing: %s" op (place) trigger reason
 
+/// The place-targeted counterpart of `noOp` (spec 080): a camera op names a place and a waypoint or a path.
+let private noOpPlace (op: string) (place: string) (reason: string) : unit =
+    eprintfn "cue: %s(%s) performs nothing: %s" op (place) reason
+
 /// Detach the actor body at `ref` when the member's place is not the active one, so a member built into an
 /// inactive place does not simulate (research D5). Only the body just built is touched: `removeBody` is safe
 /// for an attached body, which is what `spawnActor`/`setTransform` always leave behind.
@@ -157,6 +165,10 @@ let private addActor
     else
 
     let zone = state.Zones.[place]
+    if zone.Actors.Count >= zone.Actors.Capacity then
+        do noOp "AddActor" actor (sprintf "the place '%s' is at capacity" place)
+    else
+
     let entity = baseEntity actor transform
     let ref = Zone.spawnActor zone state.Physics shared.Assets entity asset
     do detachIfInactive state.Physics place state.ActiveZone zone ref
@@ -558,22 +570,22 @@ let rec advance
     | FadeInState (initial, duration, endsAt) ->
         if stepFade &state initial 0.0f duration endsAt now then ValueSome Fin else ValueNone
     | SetCamera (place, waypoint) ->
-        if not (state.Zones.ContainsKey place) then
-            invalidOp (sprintf "cue camera: place '%s' is not present" (place))
-        else
-        let zone = state.Zones.[place]
-        let (position, rotation) = snapPose place zone waypoint
-        do setCamera &state position rotation
+        match trySnapPose &state place waypoint with
+        | Ok (position, rotation) -> do setCamera &state position rotation
+        | Error reason -> do noOpPlace "SetCamera" place reason
         ValueSome Fin // no progress of its own: performed here and gone
 
     | FlyCamera (place, path, speed) ->
-        if speed <= 0.0 then invalidOp (sprintf "cue camera: speed must be positive (was %g)" speed) else
-        if not (state.Zones.ContainsKey place) then
-            invalidOp (sprintf "cue camera: place '%s' is not present" (place))
+        if speed <= 0.0 then
+            do noOpPlace "FlyCamera" place (sprintf "speed must be positive (was %g)" speed)
+            ValueSome Fin
         else
+        match tryResolvedPath &state place path with
+        | Error reason ->
+            do noOpPlace "FlyCamera" place reason
+            ValueSome Fin
+        | Ok (points, rotations) ->
 
-        let zone = state.Zones.[place]
-        let (points, rotations) = resolvedPath place zone path
         let duration = pathLength points 10 / speed
         if duration <= 0.0 then
             // over before it begins: land on the last waypoint and hold no state
@@ -613,7 +625,11 @@ let rec advance
         // the flag is read where the op is reached, and the chosen branch runs in the `If`'s place
         advance shared &state now (if Set.contains advent shared.Advents then thenCue else elseCue)
 
-    | Fork _ -> invalidOp "a Fork is only meaningful at a Sequence's current op"
+    | Fork inner ->
+        // A `Fork` with nothing beside it runs its inner cue (spec 080, US2). The `ForkScenario` op returns
+        // `Fork cue`; when it is not at a sequence front this is where that fork runs. It mirrors
+        // `stepSequenceNext`'s own empty-remainder case.
+        advance shared &state now inner
     | Parallel (left, right) -> stepParallel shared &state now left right
     | Sequence (current, rest) -> stepSequence shared &state now current rest
 

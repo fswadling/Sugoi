@@ -3,4 +3,9 @@
 
 [<EntryPoint>]
 let main _argv =
-    Engine.run ()
+    // A failure before the loop (startup) is reported and returns a failure code rather than escaping with a
+    // stack trace (spec 080, US8). A failure inside the loop is caught and torn down there; this is the backstop.
+    try Engine.run ()
+    with ex ->
+        do eprintfn "engine failed: %s" ex.Message
+        1

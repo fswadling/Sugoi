@@ -325,6 +325,41 @@ let ``a play with no cue edits leaves the history exactly as it was`` () =
     | [ SetLight _ ], [ ZoneMove (classroomPlace, mainPlace) ] -> ()
     | applied, redo -> Assert.Fail(sprintf "expected the history untouched, got applied %A, redo %A" applied redo)
 
+// ── The runner skips a step it cannot carry out (spec 080, US4) ──
+
+[<Fact>]
+let ``undo and redo skip a step whose place a runtime change removed`` () =
+    // A play session's cue changes places with no history step, so a recorded step can name a place that is
+    // now absent. The runner skips it and reports, rather than ending the run.
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    GameplayState.addZone shared &state classroomPlace // classroom is active and present
+    let cmd = Command.Transform (classroomPlace, actorRef 0u 0u, transformIdentity, { transformIdentity with Position = Vector3.One })
+    state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo cmd }
+
+    // The effect a cue's `RemoveZone` has: leave the place, then make it absent.
+    GameplayState.switchZone shared &state mainPlace
+    GameplayState.deleteZone shared &state classroomPlace
+    Assert.False(state.Zones.ContainsKey classroomPlace)
+
+    // Both steppers walk past the stale step without throwing.
+    do History.undoHistory shared &state
+    Assert.Equal(1, List.length state.Editor.Undo.Redo)
+    do History.redoHistory shared &state
+    Assert.Equal(1, List.length state.Editor.Undo.Applied)
+
+[<Fact>]
+let ``undo of a zone move skips when its place is gone`` () =
+    let shared = sharedState (propAssets ())
+    let mutable state = newState ()
+    GameplayState.addZone shared &state classroomPlace
+    do History.commit shared &state (ZoneMove (classroomPlace, mainPlace)) // now active is main
+    GameplayState.deleteZone shared &state classroomPlace
+
+    // Undoing the move would switch back to classroom, which is gone: skip it rather than abort.
+    do History.undoHistory shared &state
+    Assert.Equal(mainPlace, state.ActiveZone)
+
 // ── Per-zone player designation ──
 
 [<Fact>]

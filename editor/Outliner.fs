@@ -116,7 +116,11 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                     entityRow shared &state slot.Value.State.Base.Name (sprintf "part%d" i) (partRef environment.Epoch (uint32 i) slot.Generation)
 
     if ImGui.collapsingHeader("Triggers", 0) then
-        if ImGui.button("Add Trigger", ImGui.ImVec2(0.0f, 0.0f)) then
+        let triggerRoom = zone.Triggers.Count < zone.Triggers.Capacity
+        do ImGui.beginDisabled(not triggerRoom)
+        let addTrigger = ImGui.button("Add Trigger", ImGui.ImVec2(0.0f, 0.0f))
+        do ImGui.endDisabled()
+        if addTrigger then
             Spawning.spawnTrigger &state (Entity.baseEntity "Trigger" transformIdentity)
 
         if zone.Triggers.Count = 0u then
@@ -135,20 +139,27 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             match state.Editor.Selection with
             | Some ref when ref.Kind = EntityKind.Waypoint && Zone.isAlive zone ref -> Some ref
             | _ -> None
+        let waypointRoom = zone.Waypoints.Count < zone.Waypoints.Capacity
 
-        if ImGui.button("Add Waypoint", ImGui.ImVec2(0.0f, 0.0f)) then
+        do ImGui.beginDisabled(not waypointRoom)
+        let addWaypoint = ImGui.button("Add Waypoint", ImGui.ImVec2(0.0f, 0.0f))
+        do ImGui.endDisabled()
+        if addWaypoint then
             Spawning.spawnWaypoint &state (Entity.baseEntity "Waypoint" transformIdentity)
 
         do ImGui.sameLine(0.0f, -1.0f)
 
-        if ImGui.button("Add at Camera", ImGui.ImVec2(0.0f, 0.0f)) then
+        do ImGui.beginDisabled(not waypointRoom)
+        let addAtCamera = ImGui.button("Add at Camera", ImGui.ImVec2(0.0f, 0.0f))
+        do ImGui.endDisabled()
+        if addAtCamera then
             Spawning.spawnWaypoint &state (newWaypointAtCamera state.Camera)
 
         do ImGui.sameLine(0.0f, -1.0f)
 
         // Extend the selected waypoint: a new waypoint at the camera, linked as its next,
         // which becomes the selection so a chain can be walked out one link at a time.
-        do ImGui.beginDisabled(Option.isNone selected)
+        do ImGui.beginDisabled(Option.isNone selected || not waypointRoom)
         let extend = ImGui.button("Add Next at Camera", ImGui.ImVec2(0.0f, 0.0f))
         do ImGui.endDisabled()
         if extend then

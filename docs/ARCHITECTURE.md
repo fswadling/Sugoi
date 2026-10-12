@@ -334,3 +334,24 @@ the narrative engine today.
 
 The locality to preserve is the slot maps and fixed-size struct arrays — not
 inlined strings.
+
+## Failure routing (programmer error vs user-reachable state)
+
+`specs/080-user-path-hardening` draws the line the *Fail Loudly* principle implies but did not spell out. Every
+failure is routed by one question: **can only a programming error produce this state?**
+
+- **Yes** → fail fast. Stale slot handles, a double free, `Occupy` on a taken slot, and a broken internal
+  invariant keep their `failwith`/`invalidOp`/`assert`. These are bugs, and the failure is the point.
+- **No** — authored content, a scene, an asset file, or a play session can reach it → handle it without ending
+  the run, in one of three ways:
+  - **perform nothing + report** — the cue engine's existing contract, extended to the camera ops, the history
+    runner (a recorded step whose place a runtime cue has since removed is skipped and reported), and the
+    creation surfaces (a create at a fixed capacity is refused and reported).
+  - **skip or degrade + report** — the asynchronous asset path's contract, extended to the eager asset scan (a
+    malformed asset is omitted and the scan continues) and to a missing font (text is disabled).
+  - **report + controlled teardown** — the frame loop and the entry point: an unexpected failure names the
+    operation that failed and ends the run through the normal teardown, rather than aborting silently.
+
+Reports use the one-line `eprintfn` convention (see `world/CueEngine.fs`), emitted once per event and never per
+frame. **Cue undoability** — whether a cue's runtime effects become history steps — is deliberately *not* part
+of this boundary and remains a separate design question.

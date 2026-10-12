@@ -191,6 +191,11 @@ let private withChildren (cue: Cue) (items: Cue list) : Cue =
     | Parallel _, [] -> Fin
     | Fork _, [ inner ] -> Fork inner
     | Fork _, [] -> Fin
+    // A conditional rebuilds with the engine's own branch rule: two children are `then`/`else` as they
+    // stand; a single child left takes the `then` slot and the `else` collapses to `Fin` (spec 080, US3).
+    | If (advent, _, _), [ thenCue; elseCue ] -> If(advent, thenCue, elseCue)
+    | If (advent, _, _), [ only ] -> If(advent, only, Fin)
+    | If _, [] -> Fin
     | _ -> invalidOp (sprintf "CueTree: cannot rebuild %s around %d children" (label cue) (List.length items))
 
 /// The cue with the node at `path` replaced by `replacement`, rebuilding only the spine from the root to it.

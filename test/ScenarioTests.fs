@@ -102,6 +102,22 @@ let ``a captured zone is ref-free: waypoint chains become indices`` () =
     Assert.Equal("area", captured.Triggers.[0].Base.Name)
 
 [<Fact>]
+let ``a dangling waypoint link is captured as absent`` () =
+    // spec 080, US6: the runtime reads a link whose target is gone as a chain end; the capture must agree
+    // rather than raise, so a scene the runtime accepts can be registered.
+    let zone = Zone.create ()
+    let a = Zone.spawnWaypoint zone (entity "a")
+    let b = Zone.spawnWaypoint zone (entity "b")
+    do Zone.setWaypointNext zone a (Some b)
+    do Zone.removeWaypoint zone b
+
+    let captured = ScenarioZone.capture zone
+
+    Assert.Equal(1, Array.length captured.Waypoints)
+    Assert.Equal("a", captured.Waypoints.[0].Base.Name)
+    Assert.True(captured.Waypoints.[0].Next.IsNone, "the dangling link is captured as no next")
+
+[<Fact>]
 let ``a place with no narrative entities is captured as an empty scenario zone`` () =
     let zones = Dictionary<string, Zone.Zone>()
     zones.[GameplayState.startZone] <- Zone.create ()

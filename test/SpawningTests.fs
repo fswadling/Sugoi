@@ -100,6 +100,23 @@ let ``a create carries the authored value it was given, and redo rebuilds the re
     Assert.Equal(live, (zone.Props.Get(handleOf ref)).State)
     Assert.True(Option.isSome (zone.Props.Get(handleOf ref)).Physics)
 
+[<Fact>]
+let ``a create is refused when the kind's map is at capacity`` () =
+    // spec 080, US5: filling a kind to its fixed capacity must refuse the next create rather than let
+    // `SlotMap.Add` raise. Triggers cap at 32; fill the map directly, then create through `Spawning`.
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let mutable state = gameplayState zone
+    for i in 1 .. int zone.Triggers.Capacity do
+        do ignore (Zone.spawnTrigger zone (entity (sprintf "t%d" i)))
+
+    let before = zone.Triggers.Count
+    Spawning.spawnTrigger &state (entity "overflow")
+
+    Assert.Equal(before, zone.Triggers.Count)                 // nothing was created
+    Assert.Equal(0, List.length state.Editor.Undo.Applied)    // and nothing was recorded
+
 // ── Duplicate ──
 
 [<Fact>]

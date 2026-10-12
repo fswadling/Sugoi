@@ -33,6 +33,19 @@ let ``load parses the Island environment`` () =
     Assert.Empty(m.Materials)
 
 [<Fact>]
+let ``load reports a cyclic node graph rather than overflowing the stack`` () =
+    // spec 080, US7: a node that is its own ancestor is a reported error, not an uncatchable stack overflow.
+    let tmp = Path.Combine(Path.GetTempPath(), sprintf "fsharp-game-gltf-%s.gltf" (Guid.NewGuid().ToString("N")))
+    File.WriteAllText(tmp, """{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"name":"a","children":[1]},{"name":"b","children":[0]}]}""")
+    try
+        let raised =
+            try Gltf.load tmp |> ignore; false
+            with _ -> true
+        Assert.True(raised)
+    finally
+        File.Delete tmp
+
+[<Fact>]
 let ``load parses the multi-primitive Beech prop`` () =
     let m = Gltf.load (findAsset "assets/props/Beech/Beech.gltf")
     Assert.Equal(2, m.Submeshes.Length)

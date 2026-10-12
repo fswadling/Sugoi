@@ -18,22 +18,48 @@ open Command
 
 // ── The runner — a command in, carried out on the state ──
 
+// A step the history cannot carry out — its place or target is not in the state it names — is skipped and
+// reported, not fatal (spec 080, US4): a runtime cue op mutates the scene without a history step, so a
+// recorded step can outlive the place it names. The state mutators stay fail-fast for direct misuse.
+let private skip (phase: string) (cmd: Command) (reason: string) : unit =
+    do eprintfn "History.%s: skipping %A: %s" phase cmd reason
+
 /// Apply one command to the gameplay state. A content command names its place (spec 077), so it is carried out on
 /// **that place's zone**, not the active one — a `Batch` may therefore span places. A state-level step (a zone
 /// move/add/delete, the cue, the flags, the scenario library) is carried out here.
 let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
     match cmd with
-    | ZoneMove (_, next) -> GameplayState.switchZone shared &state next
-    | ZoneAdd (_, name) -> GameplayState.addZone shared &state name
-    | ZoneDelete (_, name, _) -> GameplayState.deleteZone shared &state name
+    | ZoneMove (_, next) ->
+        if state.Zones.ContainsKey next then
+            GameplayState.switchZone shared &state next
+        else
+            skip "apply" cmd (sprintf "the place '%s' is not present" next)
+    | ZoneAdd (_, name) ->
+        if state.Zones.ContainsKey name then
+            skip "apply" cmd (sprintf "the place '%s' is already present" name)
+        else
+            GameplayState.addZone shared &state name
+    | ZoneDelete (_, name, _) ->
+        if not (state.Zones.ContainsKey name) then
+            skip "apply" cmd (sprintf "the place '%s' is not present" name)
+        elif name = state.ActiveZone then
+            skip "apply" cmd (sprintf "the place '%s' is the active place" name)
+        else
+            GameplayState.deleteZone shared &state name
     // Make a zone present **without** entering it, staged from the command's `Staging` (spec 079). The active zone
     // is unchanged — the command only ever names an absent zone.
     | ZonePresent (name, staging) ->
-        GameplayState.presentZone shared &state name staging
+        if state.Zones.ContainsKey name then
+            skip "apply" cmd (sprintf "the place '%s' is already present" name)
+        else
+            GameplayState.presentZone shared &state name staging
     // Replace a present zone's staging (spec 079); the state-level runner knows the active zone, so an inactive
     // zone's built bodies are detached inside `stageZone`.
     | ZoneStage (name, _, next) ->
-        GameplayState.stageZone shared &state name next
+        if state.Zones.ContainsKey name then
+            GameplayState.stageZone shared &state name next
+        else
+            skip "apply" cmd (sprintf "the place '%s' is not present" name)
     // A batch may mix state-level and zone-level steps (spec 061: Instantiate is a presence/active change
     // and a template load as one step), so it is dispatched here, through the state-level runner, rather
     // than delegated whole to `Command.apply` (which refuses state-level steps).
@@ -59,30 +85,52 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
             | None -> failwith "History.apply: a step that names no place reached the zone-level runner"
         match state.Zones.TryGetValue place with
         | true, zone -> Command.apply zone state.Physics shared.Assets cmd
-        | false, _ -> failwithf "History.apply: the step names an absent place '%s'" place
+        | false, _ -> skip "apply" cmd (sprintf "the place '%s' is not present" place)
 
 /// The inverse of `apply`.
 let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
     match cmd with
-    | ZoneMove (previous, _) -> GameplayState.switchZone shared &state previous
+    | ZoneMove (previous, _) ->
+        if state.Zones.ContainsKey previous then
+            GameplayState.switchZone shared &state previous
+        else
+            skip "undo" cmd (sprintf "the place '%s' is not present" previous)
     | ZoneAdd (previous, name) ->
         // Leave the added zone first (it is the active one, and only an inactive zone may be released), then take
         // it away. It is empty by now: every edit made to it came later on the history and has been undone first.
-        GameplayState.switchZone shared &state previous
-        GameplayState.deleteZone shared &state name
+        // A place a runtime cue has since removed makes the step un-carryable: skip it rather than abort (spec 080).
+        if state.Zones.ContainsKey previous && state.Zones.ContainsKey name then
+            GameplayState.switchZone shared &state previous
+            GameplayState.deleteZone shared &state name
+        else
+            skip "undo" cmd (sprintf "the place '%s' is not present" (if state.Zones.ContainsKey previous then name else previous))
     | ZoneDelete (_, name, contents) ->
         // Rebuild the zone **in place**, without switching (spec 077 FR-014). `Zone.occupy*` builds bodies that
         // join the simulation as they are created, so a zone that is not active has them detached right after —
         // the same build-then-detach `populateZone` uses for a place that is not active. The active place, the
         // camera and the selection are undisturbed.
+        if state.Zones.ContainsKey name then
+            skip "undo" cmd (sprintf "the place '%s' is already present" name)
+        else
+
         state.Zones.[name] <- Zone.create ()
         Zone.occupyZone state.Zones.[name] state.Physics shared.Assets contents
         Zone.deactivatePhysics state.Zones.[name] state.Physics
     // Undo a presence step by removing the zone (spec 078). It is not the active one: a fork's created zone is
     // never active, and a later switch onto it was undone first (LIFO) — the same invariant `ZoneDelete` relies on.
-    | ZonePresent (name, _) -> GameplayState.deleteZone shared &state name
+    | ZonePresent (name, _) ->
+        if not (state.Zones.ContainsKey name) then
+            skip "undo" cmd (sprintf "the place '%s' is not present" name)
+        elif name = state.ActiveZone then
+            skip "undo" cmd (sprintf "the place '%s' is the active place" name)
+        else
+            GameplayState.deleteZone shared &state name
     // Undo a restage by staging back to the zone's previous staging (spec 079).
-    | ZoneStage (name, previous, _) -> GameplayState.stageZone shared &state name previous
+    | ZoneStage (name, previous, _) ->
+        if state.Zones.ContainsKey name then
+            GameplayState.stageZone shared &state name previous
+        else
+            skip "undo" cmd (sprintf "the place '%s' is not present" name)
     | SetCue (previous, _) -> state.Cue <- previous
     | Advent (previous, _) -> shared.Advents <- previous
     | SetScenario (name, previous, _) -> ScenarioRegistry.setContents name previous state.Scenarios
@@ -97,7 +145,7 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
             | None -> failwith "History.undo: a step that names no place reached the zone-level runner"
         match state.Zones.TryGetValue place with
         | true, zone -> Command.undo zone state.Physics shared.Assets cmd
-        | false, _ -> failwithf "History.undo: the step names an absent place '%s'" place
+        | false, _ -> skip "undo" cmd (sprintf "the place '%s' is not present" place)
 
 /// Apply a command and push it onto the one history, clearing the redo side. The editor's write path for a zone
 /// step and for an entity **delete** — a delete routes through the state-level runner where undo/redo do, so the

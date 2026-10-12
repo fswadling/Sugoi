@@ -19,28 +19,38 @@ let ``scan with no asset directories returns empty collections`` () =
         tmp.Delete(recursive = true)
 
 [<Fact>]
-let ``scan raises when a prop manifest has no model path`` () =
+let ``scan skips a prop manifest with no model path`` () =
+    // spec 080, US7: a bad asset is reported and skipped, not fatal — the scan continues.
     let tmp = Directory.CreateTempSubdirectory "fsharp-game-assets-"
     try
         Directory.CreateDirectory(Path.Combine(tmp.FullName, "props")) |> ignore
         File.WriteAllText(Path.Combine(tmp.FullName, "props", "crate.manifest"), "[[Id \"crate\"] [Name \"Crate\"]]")
-        let raised =
-            try Assets.scan tmp.FullName 0n |> ignore; false
-            with _ -> true
-        Assert.True(raised)
+        let manager = Assets.scan tmp.FullName 0n
+        Assert.Equal(0, manager.Props.Count)
     finally
         tmp.Delete(recursive = true)
 
 [<Fact>]
-let ``scan raises when an environment manifest has no model path`` () =
+let ``scan skips an environment manifest with no model path`` () =
     let tmp = Directory.CreateTempSubdirectory "fsharp-game-assets-"
     try
         Directory.CreateDirectory(Path.Combine(tmp.FullName, "environments")) |> ignore
         File.WriteAllText(Path.Combine(tmp.FullName, "environments", "art-room.manifest"), "[[Id \"art-room\"] [Name \"Art Room\"]]")
-        let raised =
-            try Assets.scan tmp.FullName 0n |> ignore; false
-            with _ -> true
-        Assert.True(raised)
+        let manager = Assets.scan tmp.FullName 0n
+        Assert.Equal(0, manager.Environments.Count)
+    finally
+        tmp.Delete(recursive = true)
+
+[<Fact>]
+let ``scan skips an actor manifest with no model path`` () =
+    // spec 080, US7: the eager actor load is per-asset too — a bad actor is skipped, not fatal. The
+    // model path is checked before the loader is forced, so this stays device-free.
+    let tmp = Directory.CreateTempSubdirectory "fsharp-game-assets-"
+    try
+        Directory.CreateDirectory(Path.Combine(tmp.FullName, "actors")) |> ignore
+        File.WriteAllText(Path.Combine(tmp.FullName, "actors", "aiko.manifest"), "[[Id \"aiko\"] [Name \"Aiko\"]]")
+        let manager = Assets.scan tmp.FullName 0n
+        Assert.Equal(0, manager.Actors.Count)
     finally
         tmp.Delete(recursive = true)
 

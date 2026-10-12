@@ -326,10 +326,14 @@ let load (path: string) : Model =
     // Walk the scene node tree, emitting one part per node that references a mesh.
     // A part's World is the accumulated node transform (applied at spawn/draw time,
     // not baked into the vertices), so each part can become an independently-
-    // transformable prop.
+    // transformable prop. `onPath` is the set of ancestors on the current branch, so a node graph that is
+    // its own ancestor is reported rather than recursing until the stack overflows (spec 080, US7).
     let parts = ResizeArray<Part>()
 
-    let rec bake (nodeIndex: int) (parentWorld: Matrix4x4) (parentPath: string) : unit =
+    let rec bake (onPath: Set<int>) (nodeIndex: int) (parentWorld: Matrix4x4) (parentPath: string) : unit =
+        if Set.contains nodeIndex onPath then
+            failwithf "gltf: node %d is its own ancestor (a cycle in the node graph)" nodeIndex
+        let onPath = Set.add nodeIndex onPath
         let n = nodes.[nodeIndex]
         let local =
             Matrix4x4.CreateScale(n.Scale) * Matrix4x4.CreateFromQuaternion(n.Rotation) * Matrix4x4.CreateTranslation(n.Translation)
@@ -352,7 +356,7 @@ let load (path: string) : Model =
         | None -> ()
 
         for child in n.Children do
-            bake child world path
+            bake onPath child world path
 
     let sceneIndex = defaultArg (optInt root "scene") 0
     let scenes = optArray root "scenes"
@@ -363,7 +367,7 @@ let load (path: string) : Model =
             [||]
 
     for r in roots do
-        bake r Matrix4x4.Identity ""
+        bake Set.empty r Matrix4x4.Identity ""
 
     // bounds over all local-space positions (informational; drawn via parts).
     let mutable minX = Single.PositiveInfinity

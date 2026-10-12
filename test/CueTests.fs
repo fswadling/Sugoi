@@ -294,15 +294,16 @@ let ``a set camera op frames from its waypoint and costs no time`` () =
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
-let ``a set camera op with no such waypoint raises`` () =
+let ``a set camera op with no such waypoint performs nothing`` () =
     let mutable state = newState ()
-    let raises (cue: Cue) =
+    let before = state.Camera.Position
+    let performsNothing (cue: Cue) =
         state.Cue <- cue
-        let mutable raised = false
-        try tick shared &state 0.0 with _ -> raised <- true
-        raised
-    Assert.True(raises (SetCamera(mainPlace, "nope")))
-    Assert.True(raises (SetCamera(mainPlace, "")))
+        do tick shared &state 0.0
+        Assert.Equal(before, state.Camera.Position)
+        Assert.True(state.Cue.IsFin, "the op costs no time, so the cue finishes")
+    do performsNothing (SetCamera(mainPlace, "nope"))
+    do performsNothing (SetCamera(mainPlace, ""))
 
 [<Fact>]
 let ``a set camera op resolves names only in the named place`` () =
@@ -311,11 +312,11 @@ let ``a set camera op resolves names only in the named place`` () =
     do ignore (placeWaypoint state "arch" Vector3.Zero Quaternion.Identity)
     GameplayState.switchZone shared &state mainPlace
 
-    // naming the active place, which holds no 'arch', raises
+    // naming the active place, which holds no 'arch', performs nothing
+    let before = state.Camera.Position
     state.Cue <- SetCamera(mainPlace, "arch")
-    let mutable raised = false
-    try tick shared &state 0.0 with _ -> raised <- true
-    Assert.True raised
+    do tick shared &state 0.0
+    Assert.Equal(before, state.Camera.Position)
 
     // naming the place that holds it frames from it (spec 075)
     state.Cue <- SetCamera(atriumPlace, "arch")
@@ -362,18 +363,18 @@ let ``a flight is pinned to the path it resolved`` () =
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
-let ``a fly camera op with a bad path or speed raises`` () =
+let ``a fly camera op with a bad path or speed performs nothing`` () =
     let mutable state = newState ()
     do ignore (placeWaypoint state "solo" Vector3.Zero Quaternion.Identity)
-    let raises (cue: Cue) =
+    let before = state.Camera.Position
+    let performsNothing (cue: Cue) =
         state.Cue <- cue
-        let mutable raised = false
-        try tick shared &state 0.0 with _ -> raised <- true
-        raised
-    Assert.True(raises (FlyCamera(mainPlace, "nope", 1.0)))    // no such waypoint
-    Assert.True(raises (FlyCamera(mainPlace, "solo", 1.0)))    // a chain of one
-    Assert.True(raises (FlyCamera(mainPlace, "solo", 0.0)))    // speed is not positive
-    Assert.True(raises (FlyCamera(mainPlace, "solo", -1.0)))
+        do tick shared &state 0.0
+        Assert.Equal(before, state.Camera.Position)
+    do performsNothing (FlyCamera(mainPlace, "nope", 1.0))    // no such waypoint
+    do performsNothing (FlyCamera(mainPlace, "solo", 1.0))    // a chain of one
+    do performsNothing (FlyCamera(mainPlace, "solo", 0.0))    // speed is not positive
+    do performsNothing (FlyCamera(mainPlace, "solo", -1.0))
 
 [<Fact>]
 let ``a cyclic chain terminates`` () =
@@ -664,11 +665,12 @@ let ``past forks do not accumulate in the cue`` () =
     Assert.Equal(2, liveCount state.Cue)
 
 [<Fact>]
-let ``a Fork outside a sequence raises`` () =
+let ``a Fork outside a sequence runs its inner cue`` () =
     let mutable state = withCue (Fork(Wait 1.0))
-    let mutable raised = false
-    try tick shared &state 0.0 with _ -> raised <- true
-    Assert.True raised
+    do tick shared &state 0.0
+    Assert.False(state.Cue.IsFin, "the fork's inner cue began")
+    do tick shared &state 1.0
+    Assert.True(state.Cue.IsFin, "and completed")
 
 // ══════ Story 3 — the cue is the screen's, frozen while editing ══════
 
@@ -863,6 +865,23 @@ let ``an add op builds an actor from the named asset, with the typed name, in th
     Assert.Equal("Aiko", actor.State.Base.Name)
     Assert.Equal("aiko", actor.State.AssetId)
     Assert.Equal(Vector3(1.0f, 0.0f, 2.0f), actor.State.Base.Transform.Position)
+
+[<Fact>]
+let ``an add op performs nothing when the place is at capacity`` () =
+    // spec 080, US5/FR-008: a cue `AddActor` into a full place must refuse and report, not raise on `SlotMap.Add`.
+    let shared = actorShared ()
+    let mutable state = newState ()
+    let zone = GameplayState.activeZone state
+    do ignore (waypointIn zone "door" Vector3.Zero Quaternion.Identity)
+    while zone.Actors.Count < zone.Actors.Capacity do
+        do ignore (Zone.spawnActor zone state.Physics shared.Assets (Entity.baseEntity "filler" transformIdentity) "aiko")
+
+    state.Cue <- AddActor(mainPlace, "Late", "aiko", "door")
+    tick shared &state 0.0
+
+    Assert.Equal("Fin", describe state.Cue)              // the op performed nothing and the cue finished
+    Assert.Equal(zone.Actors.Capacity, zone.Actors.Count)  // nothing was added
+    Assert.Equal(None, resolve state "Late")
 
 [<Fact>]
 let ``an add op always creates a new actor, so a re-run places a second of the same name`` () =
@@ -1628,3 +1647,26 @@ let ``a print op is not a step on the undo history`` () =
     tick shared &state 0.0
     Assert.Equal("Fin", describe state.Cue)
     Assert.Equal(undoBefore, List.length state.Editor.Undo.Applied)
+
+// A composite of the op kinds, deliberately naming targets that are absent: each must perform nothing or
+// complete, and the whole cue must still reach `Fin` without throwing (spec 080, US2; SC-003).
+[<Fact>]
+let ``a cue of many op kinds reaches Fin without throwing`` () =
+    let mutable state = newState ()
+    state.Cue <-
+        seqOf
+            [ SetZone "no-such-place"
+              RemoveZone "no-such-place"
+              SetCamera(mainPlace, "no-such-waypoint")
+              FlyCamera(mainPlace, "no-such-waypoint", 1.0)
+              FlyCamera(mainPlace, "no-such-waypoint", 0.0)
+              AddActor(mainPlace, "nobody", "no-asset", "no-waypoint")
+              RemoveActor(mainPlace, "nobody")
+              EnableTrigger(mainPlace, "no-trigger")
+              Print "hi"
+              Exposit("x", Dialogue.Kind.Dialogue)
+              AddAdvent MetAiko
+              Await MetAiko
+              RemoveAdvent MetAiko ]
+    tick shared &state 0.0
+    Assert.True(state.Cue.IsFin, "every op no-oped or completed and the cue finished")

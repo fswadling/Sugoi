@@ -43,8 +43,9 @@ let private captureActors (zone: Zone) : ActorState array =
     actors.ToArray()
 
 // A zone's waypoints, their chains re-expressed as indices into the returned array. Two passes: collect the live
-// refs and their authored values, then resolve each `Next` to the position of the waypoint it names. A `Next`
-// that names a waypoint not in this zone is a bug, so it raises rather than being silently dropped.
+// refs and their authored values, then resolve each `Next` to the position of the waypoint it names, through the
+// runtime's own tolerant accessor (`Zone.waypointNext`). A `Next` whose target is gone is recorded as absent —
+// exactly the value the runtime already reads — rather than raising (spec 080, US6).
 let private captureWaypoints (zone: Zone) : ScenarioWaypoint array =
     let live = ResizeArray<EntityRef * Waypoint>(int zone.Waypoints.Count)
     zone.Waypoints.IteriAlive (fun index generation waypoint -> live.Add(waypointRef index generation, waypoint))
@@ -53,14 +54,13 @@ let private captureWaypoints (zone: Zone) : ScenarioWaypoint array =
     live |> Seq.iteri (fun i (ref, _) -> position.[ref] <- i)
 
     live
-    |> Seq.map (fun (_, waypoint) ->
+    |> Seq.map (fun (ref, waypoint) ->
         let next =
-            match waypoint.Next with
-            | None -> None
-            | Some ref ->
-            match position.TryGetValue ref with
-            | true, i -> Some i
-            | false, _ -> failwith "ScenarioZone.capture: a waypoint's next is not a live waypoint"
+            Zone.waypointNext zone ref
+            |> Option.bind (fun target ->
+                match position.TryGetValue target with
+                | true, i -> Some i
+                | false, _ -> None)
         { Base = waypoint.Base; Next = next })
     |> Seq.toArray
 

@@ -23,16 +23,28 @@ let private commit (state: byref<GameplayState.GameplayState>) (cmd: Command) (r
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Selection = Some ref; Undo = undo }
 
+// Refuse a create that would exceed a kind's fixed capacity, reporting why (spec 080, US5). The creation
+// surfaces gate on room first; `SlotMap.Add` would otherwise raise on a full map.
+let private hasRoom (kind: string) (place: string) (map: SlotMap.SlotMap<'T>) : bool =
+    if map.Count < map.Capacity then true
+    else
+    do eprintfn "editor: cannot add %s to '%s': at capacity (%d)" kind place map.Capacity
+    false
+
 // Spawn a whole actor into the active zone. A name is a label, not an identity (spec 072), so this places an
 // actor named by `entity` and records nothing else: a duplicate name is a legitimate scene, and the Asset
 // Browser is the one surface that places an actor, so there is only this one rule.
 let spawnActor (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) : unit =
     let zone = GameplayState.activeZone state
+    if not (hasRoom "actor" state.ActiveZone zone.Actors) then () else
+
     let ref = Zone.spawnActor zone state.Physics shared.Assets entity assetId
     do commit &state (ActorCreate (state.ActiveZone, ref, Zone.captureActor zone ref)) ref
 
 let spawnProp (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) : unit =
     let zone = GameplayState.activeZone state
+    if not (hasRoom "prop" state.ActiveZone zone.Props) then () else
+
     let ref = Zone.spawnProp zone state.Physics shared.Assets entity assetId
     do commit &state (PropCreate (state.ActiveZone, ref, Zone.captureProp zone ref)) ref
 
@@ -40,6 +52,8 @@ let spawnProp (shared: SharedState.SharedState) (state: byref<GameplayState.Game
 // needed.
 let spawnWaypoint (state: byref<GameplayState.GameplayState>) (entity: Entity) : unit =
     let zone = GameplayState.activeZone state
+    if not (hasRoom "waypoint" state.ActiveZone zone.Waypoints) then () else
+
     let ref = Zone.spawnWaypoint zone entity
     do commit &state (WaypointCreate (state.ActiveZone, ref, Zone.captureWaypoint zone ref)) ref
 
@@ -47,6 +61,8 @@ let spawnWaypoint (state: byref<GameplayState.GameplayState>) (entity: Entity) :
 // state is needed.
 let spawnTrigger (state: byref<GameplayState.GameplayState>) (entity: Entity) : unit =
     let zone = GameplayState.activeZone state
+    if not (hasRoom "trigger" state.ActiveZone zone.Triggers) then () else
+
     let ref = Zone.spawnTrigger zone entity
     do commit &state (TriggerCreate (state.ActiveZone, ref, Zone.captureTrigger zone ref)) ref
 
@@ -55,6 +71,8 @@ let spawnTrigger (state: byref<GameplayState.GameplayState>) (entity: Entity) : 
 // restores the chain end it extended.
 let spawnLinkedWaypoint (state: byref<GameplayState.GameplayState>) (from: EntityRef) (entity: Entity) : unit =
     let zone = GameplayState.activeZone state
+    if not (hasRoom "waypoint" state.ActiveZone zone.Waypoints) then () else
+
     let before = Zone.waypointNext zone from
     let ref = Zone.spawnWaypoint zone entity
     do Zone.setWaypointNext zone from (Some ref)
@@ -68,6 +86,19 @@ let spawnLinkedWaypoint (state: byref<GameplayState.GameplayState>) (from: Entit
 // Dispatching on kind first makes an unsupported kind fail loudly.
 let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (source: EntityRef) (entity: Entity) : unit =
     let zone = GameplayState.activeZone state
+    let fits =
+        match source.Kind with
+        | EntityKind.Actor -> hasRoom "actor" state.ActiveZone zone.Actors
+        | EntityKind.Prop -> hasRoom "prop" state.ActiveZone zone.Props
+        | EntityKind.Part ->
+            match zone.Environment with
+            | Some environment -> hasRoom "part" state.ActiveZone environment.Parts
+            | None -> false
+        | EntityKind.Waypoint -> hasRoom "waypoint" state.ActiveZone zone.Waypoints
+        | EntityKind.Trigger -> hasRoom "trigger" state.ActiveZone zone.Triggers
+        | EntityKind.Environment -> true // not duplicable: falls to the `invalidOp` below
+    if not fits then () else
+
     match source.Kind with
     | EntityKind.Actor ->
         let original = Zone.captureActor zone source

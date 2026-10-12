@@ -34,7 +34,8 @@ type ActorRender =
       MorphStorageBuffers : Gpu.Buffer array // [| the asset's morph buffer, or BoneBuffer when it has none |]
       BoneTransfer : Gpu.TransferBuffer // upload transfer buffer, same size
       BoneBytes : byte array        // BonesMax * 64, reused
-      MorphWeightBytes : byte array } // the pushed morph weights + count, reused
+      MorphWeightBytes : byte array // the pushed morph weights + count, reused
+      mutable LastMissing : string }        // the last clip name reported absent, so the report is once per event (spec 080, FR-013)
 
 // The animation slot capacity, re-exported for the editor's "at maximum" report
 // (FR-017): the Inspector opens `Entity`, which also declares a module `Actor`, so the
@@ -94,7 +95,8 @@ let create (device: Gpu.Device) (asset: ActorAsset.ActorAsset) : ActorRender =
       MorphStorageBuffers = [| (match asset.Morphs with Some morphs -> morphs.Buffer | None -> boneBuffer) |]
       BoneTransfer = Gpu.createTransferBuffer device (uint32 (Gpu.BonesMax * 64))
       BoneBytes = Array.zeroCreate<byte> (Gpu.BonesMax * 64)
-      MorphWeightBytes = Array.zeroCreate<byte> 48 }
+      MorphWeightBytes = Array.zeroCreate<byte> 48
+      LastMissing = "" }
 
 // Advance every held clip's own clock in place through the renderer field. The
 // per-frame hot path calls this so no ActorRender/Actor records are rebuilt.
@@ -191,13 +193,21 @@ let tryMorphWeight (r: byref<ActorRender>) (name: string) : float32 option =
 // full weight and zero every other slot's weight, leaving the other clips held.
 // `Systems.animate` drives the player through this, unchanged; the idle↔walk cross-fade
 // that would replace it is deferred (FR-013).
+//
+// A clip the asset does not define is not fatal (spec 080, US1): the current pose is held
+// and the substitution is reported once per request, not once per frame (FR-013), because
+// `Systems.animate` calls this every play frame with `"Idle"`/`"Jog"`.
 let playClip (r: byref<ActorRender>) (name: string) : unit =
     let model = r.Asset.Model
 
     match Actor.tryFindAnimIndex model name with
-    | ValueNone -> failwithf "actor asset '%s' has no animation clip '%s'" r.Asset.Id name
+    | ValueNone ->
+        if r.LastMissing <> name then
+            r.LastMissing <- name
+            do eprintfn "animation: actor asset '%s' has no clip '%s'; holding the pose" r.Asset.Id name
     | ValueSome index ->
 
+    r.LastMissing <- ""
     let slots = r.AnimationSlots
     let span = slots.Slots
     for i in 0 .. span.Length - 1 do

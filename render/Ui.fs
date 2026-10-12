@@ -265,15 +265,25 @@ let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFo
     let indexTransfer = Gpu.createTransferBuffer device (uint32 (indexCapacity * 4))
 
     // ── font, text engine and text slots ──
+    // A font that will not open is reported and text is disabled, not fatal (spec 080, US7c): the layer
+    // still draws its rectangles, so the frame is usable without any glyphs.
     let font = TTF.OpenFont(fontPath, float32 initialFontSize)
     if font = IntPtr.Zero then
-        failwithf "ui: failed to open the font '%s': %s" fontPath (SDL.GetError())
+        do eprintfn "ui: failed to open the font '%s': %s; text disabled" fontPath (SDL.GetError())
 
-    let textEngine = TTF.CreateGPUTextEngine(device)
-    if textEngine = IntPtr.Zero then
-        failwithf "ui: failed to create the GPU text engine: %s" (SDL.GetError())
+    let textEngine =
+        if font = IntPtr.Zero then IntPtr.Zero
+        else
+
+        let engine = TTF.CreateGPUTextEngine(device)
+        if engine = IntPtr.Zero then
+            failwithf "ui: failed to create the GPU text engine: %s" (SDL.GetError())
+        engine
 
     let textObjects =
+        if font = IntPtr.Zero then [||]
+        else
+
         Array.init textSlots (fun _ ->
             let textObject = TTF.CreateText(textEngine, font, "", UIntPtr.Zero)
             if textObject = IntPtr.Zero then failwithf "ui: failed to create a text object: %s" (SDL.GetError())
@@ -375,7 +385,8 @@ let private rebuild (ui: byref<Ui>) (slot: int) (textObject: TextObject) (text: 
 /// only on a line change. Returns the measured (width, height) at that wrap width — the one
 /// impure step the panel layout needs.
 let setLine (ui: byref<Ui>) (slot: int) (text: string) (wrapWidth: int) : int * int =
-    if ui.TextGeoms.[slot].Source <> text || ui.TextGeoms.[slot].WrapWidth <> wrapWidth then
+    // With no font the layer has no glyphs: skip the rebuild and report an empty measurement (spec 080, US7c).
+    if ui.Font <> IntPtr.Zero && (ui.TextGeoms.[slot].Source <> text || ui.TextGeoms.[slot].WrapWidth <> wrapWidth) then
         rebuild &ui slot ui.TextObjects.[slot] text wrapWidth
     (ui.TextW.[slot], ui.TextH.[slot])
 
@@ -392,7 +403,7 @@ let beginBatch (ui: byref<Ui>) (viewportW: float32) (viewportH: float32) : unit 
     // and the slots must be rebuilt at the new size. Guarded on the viewport having a height,
     // so a minimised window does not churn the font.
     let desired = fontSizeFor viewportH
-    if viewportH > 0.0f && desired <> ui.FontSize then
+    if ui.Font <> IntPtr.Zero && viewportH > 0.0f && desired <> ui.FontSize then
         if not (TTF.SetFontSize(ui.Font, float32 desired)) then
             failwithf "ui: failed to set the font to %d px: %s" desired (SDL.GetError())
         ui.FontSize <- desired

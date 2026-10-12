@@ -126,6 +126,20 @@ let ``the cue op materialises the scenario and forks its cue`` () =
     | Sequence(Fork inner, _) -> Assert.Equal(scenarioCue, inner)
     | other -> Assert.Fail(sprintf "expected a sequence forking the scenario cue, got %A" other)
 
+// A bare `ForkScenario` — not at a sequence front — still runs the scenario's cue to completion (spec 080,
+// US2): the op returns `Fork cue`, and the engine runs a fork with nothing beside it.
+[<Fact>]
+let ``a bare scenario-fork op runs the scenario's cue to completion`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    do register shared &state (contents [ GameplayState.startZone, emptyZone ] (Cue.Print "scenario"))
+
+    state.Cue <- ForkScenario Intro
+    do CueEngine.tick shared &state 0.0
+    do CueEngine.tick shared &state 0.0
+
+    Assert.True(state.Cue.IsFin, "the scenario's cue ran and the fork completed")
+
 [<Fact>]
 let ``a forked waypoint chain links the newly added waypoints`` () =
     let shared = sharedState ()
