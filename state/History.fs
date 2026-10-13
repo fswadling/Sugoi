@@ -60,6 +60,11 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
             GameplayState.stageZone shared &state name next
         else
             skip "apply" cmd (sprintf "the place '%s' is not present" name)
+    // Retire every zone and install the fresh start (spec 084). A whole-world step: it needs the physics world, the GPU
+    // device and the active place, so only this runner can carry it. The target is fixed, so the payload is only for
+    // undo; the running cue is reset by a sibling `SetCue` in the same batch.
+    | ZonesClear _ ->
+        GameplayState.replaceZones shared &state [ (GameplayState.startZone, Zone.emptyContents) ] GameplayState.startZone
     // A batch may mix state-level and zone-level steps (spec 061: Instantiate is a presence/active change
     // and a template load as one step), so it is dispatched here, through the state-level runner, rather
     // than delegated whole to `Command.apply` (which refuses state-level steps).
@@ -131,6 +136,8 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
             GameplayState.stageZone shared &state name previous
         else
             skip "undo" cmd (sprintf "the place '%s' is not present" name)
+    | ZonesClear (zones, active) ->
+        GameplayState.replaceZones shared &state zones active
     | SetCue (previous, _) -> state.Cue <- previous
     | Advent (previous, _) -> shared.Advents <- previous
     | SetScenario (previous, _) -> state.Scenarios <- previous
@@ -154,6 +161,18 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
 let commit (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (cmd: Command) : unit =
     do apply shared &state cmd
     state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo cmd }
+
+// ── Clearing the world (spec 084) ──
+
+/// Retire every present zone and reset the running cue, as one step on the one history (spec 084). The Edit-menu item
+/// and its shortcut both call this, so the zones and the cue are captured once, here. The cue reset rides the existing
+/// `SetCue` step in the same `Batch` (skipped when the cue is already empty), so `ZonesClear` stays zones-only and one
+/// clear is one step; `pruneCueSteps` already reaches into a batch on Play and keeps the zone step undoable.
+let clearZones (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
+    let zones = state.Zones
+    let previous = [ for KeyValue (name, zone) in zones -> name, Zone.captureZone zone ]
+    let cueSteps = if state.Cue.IsFin then [] else [ SetCue (state.Cue, Cue.Fin) ]
+    do commit shared &state (Batch (ZonesClear (previous, state.ActiveZone) :: cueSteps))
 
 // ── Pruning the cue's steps ──
 

@@ -290,6 +290,11 @@ let handleShortcuts (shared: SharedState.SharedState) (input: Input.Input) (stat
                 do undoStep shared &state
             if Input.isCtrl input && Input.isPressed Input.Key.Y input then
                 do redoStep shared &state
+            // clear the world (Ctrl+Shift+C): retire every zone and reset the cue, one undoable step (spec 084).
+            // Shift is required, so this does not shadow the conventional `Ctrl+C`; a focused text field never
+            // reaches here (the `wantTextInput` early return above), and a mid-drag gesture is not corrupted.
+            if Input.isCtrl input && Input.isShift input && Input.isPressed Input.Key.C input then
+                History.clearZones shared &state
 
     // Escape returns to the main menu
     if Input.isPressed Input.Key.Escape input then
@@ -420,6 +425,10 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                 do undoStep shared &state
             if ImGui.menuItem("Redo", "Ctrl+Y", false, idle && not (List.isEmpty state.Editor.Undo.Redo)) then
                 do redoStep shared &state
+            // Retire every zone and reset the cue, as one step on the one history (spec 084). Gated like Undo/Redo: not
+            // mid-drag and not while a field is focused.
+            if ImGui.menuItem("Clear World", "Ctrl+Shift+C", false, idle) then
+                do History.clearZones shared &state
             do ImGui.endMenu()
 
         // The error tally, always visible in the menu bar when non-zero, so it shows regardless of the

@@ -83,6 +83,12 @@ type Command =
     // like `ZonePresent`, because only the state-level runner knows the active place and can detach an inactive
     // zone's built bodies. Apply stages to `Next`; undo stages back to `Previous`.
     | ZoneStage of Name : string * Previous : ZoneStaging * Next : ZoneStaging
+    // Every zone was retired and the world returned to its start (spec 084). The payload is the whole previous
+    // world — each present zone's name and authored contents, and which was active — so undo rebuilds it in place.
+    // State-level like `ZoneDelete`: only the state knows the physics world, the GPU device and the active place,
+    // and a `Batch` cannot express it (a delete may not name the active zone, and the step must also install the
+    // fresh start). The running cue is reset by a sibling `SetCue` in the same batch, so this case stays zones-only.
+    | ZonesClear of Previous : (string * ZoneContents) list * PreviousActive : string
     // The screen's cue was edited (spec 049). It is not a zone's — a cue spans zones (spec 046 FR-013) — so, like
     // a zone step, it is carried out against the gameplay state and not by the zone-level runner. The payload is
     // the two cue values: a cue is immutable, so a snapshot is a reference, and that is exactly what the cue's
@@ -133,6 +139,7 @@ let placeOf (cmd: Command) : string option =
     | ZoneDelete _
     | ZonePresent _
     | ZoneStage _
+    | ZonesClear _
     | SetCue _
     | Advent _
     | SetScenario _ ->
@@ -187,6 +194,7 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
     | ZoneDelete _
     | ZonePresent _
     | ZoneStage _
+    | ZonesClear _
     | SetCue _
     | Advent _
     | SetScenario _ ->
@@ -238,6 +246,7 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
     | ZoneDelete _
     | ZonePresent _
     | ZoneStage _
+    | ZonesClear _
     | SetCue _
     | Advent _
     | SetScenario _ ->

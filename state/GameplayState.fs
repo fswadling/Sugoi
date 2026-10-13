@@ -205,3 +205,33 @@ let deleteZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (
 let stageZone (shared: SharedState.SharedState) (state: byref<GameplayState>) (name: string) (staging: ZoneStaging) : unit =
     if not (state.Zones.ContainsKey name) then invalidOp (sprintf "stageZone: '%s' is not present" name) else
     do applyStaging shared &state name staging
+
+// Replace the whole present world with `zones` (each name paired with its authored contents), making `active` the
+// active place (spec 084). Every present zone is retired — its bodies destroyed, its renderers and batch freed, and
+// its environment unloaded once no zone still references it — and the given set is brought up through the one
+// `Zone.occupy*` path. The retired zones are then simply dropped: they are managed objects, so the GC reclaims them;
+// only the native bodies and GPU handles need this explicit teardown. State-level, because only this layer knows the
+// physics world, the GPU device and the active place. `Zone.release` is safe on the active zone (it removes a body
+// from the simulation before destroying it), unlike `deleteZone`, which requires an inactive one.
+let replaceZones (shared: SharedState.SharedState) (state: byref<GameplayState>) (zones: (string * Zone.ZoneContents) list) (active: string) : unit =
+    // ── retire the present world ──
+    let environments = HashSet<string>()
+    for KeyValue (_, zone) in state.Zones do
+        match zone.Environment with
+        | Some environment -> environments.Add environment.AssetId |> ignore
+        | None -> ()
+        do Zone.release zone state.Physics shared.Gpu.Device
+    // Nothing references them any more, so unload each distinct environment once.
+    for assetId in environments do do Assets.releaseEnvironment shared.Assets assetId
+    state.Zones.Clear()
+
+    // ── bring the new world up ──
+    for (name, contents) in zones do
+        state.Zones.[name] <- Zone.create ()
+        do Zone.occupyZone state.Zones.[name] state.Physics shared.Assets contents
+        if name <> active then do Zone.deactivatePhysics state.Zones.[name] state.Physics
+
+    if not (state.Zones.ContainsKey active) then invalidOp (sprintf "replaceZones: '%s' is not among the zones it installs" active)
+    state.ActiveZone <- active
+    state.InteractableTrigger <- ValueNone
+    state.Editor <- { state.Editor with Selection = None; Drag = None; NudgeBefore = None }

@@ -728,3 +728,95 @@ let ``a batch may span places, applied and reversed as one step`` () =
     Assert.Equal(mainAfter, main.Light)
     Assert.Equal(classroomAfter, classroom.Light)
     Assert.Equal(mainPlace, state.ActiveZone)
+
+// ── Clearing the world (spec 084) ──
+
+[<Fact>]
+let ``clearing the world retires every zone and resets the cue, to one empty active start zone`` () =
+    let assets = roomAssets ()
+    assets.Props.["crate"] <- residentAsset "crate" [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |] [||]
+    let shared = sharedState assets
+    let mutable state = newState ()
+
+    // A second zone with an environment, a placed prop, a waypoint, a trigger and a non-default light.
+    GameplayState.addZone shared &state classroomPlace
+    let classroom = GameplayState.activeZone state
+    let environment = Zone.loadEnvironment classroom state.Physics shared.Assets "room"
+    let partRef' = partRef environment.Epoch 0u 0u
+    let propRef' = Zone.spawnProp classroom state.Physics shared.Assets (entity "crate") "crate"
+    let waypointRef' = Zone.spawnWaypoint classroom (entity "path")
+    let triggerRef' = Zone.spawnTrigger classroom (entity "area")
+    classroom.Light <- { classroom.Light with Pitch = 33.0f }
+
+    // A running (non-empty) cue, a selection, and a camera to be left alone.
+    state.Cue <- Cue.Wait 1.0
+    state.Editor <- { state.Editor with Selection = Some propRef' }
+    let cameraBefore = state.Camera
+
+    do History.clearZones shared &state
+
+    // One empty start zone, active, with the default light and no player.
+    Assert.Equal(1, state.Zones.Count)
+    Assert.Equal(GameplayState.startZone, state.ActiveZone)
+    let fresh = GameplayState.activeZone state
+    Assert.Equal(0u, fresh.Actors.Count)
+    Assert.Equal(0u, fresh.Props.Count)
+    Assert.Equal(0u, fresh.Waypoints.Count)
+    Assert.Equal(0u, fresh.Triggers.Count)
+    Assert.True(Option.isNone fresh.Environment)
+    Assert.Equal(Texture.defaultLight, fresh.Light)
+    Assert.True(ValueOption.isNone fresh.Player)
+
+    // The cue is reset, the camera left where it is, the selection dropped, and the environment released.
+    Assert.True(state.Cue.IsFin)
+    Assert.Equal(cameraBefore, state.Camera)
+    Assert.Equal(None, state.Editor.Selection)
+    Assert.False(Assets.isEnvironmentResident shared.Assets "room")
+
+    // Exactly one step on the history.
+    Assert.Equal(1, List.length state.Editor.Undo.Applied)
+
+[<Fact>]
+let ``undoing a clear restores every zone and the cue, and redo clears again`` () =
+    let assets = roomAssets ()
+    assets.Props.["crate"] <- residentAsset "crate" [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |] [||]
+    let shared = sharedState assets
+    let mutable state = newState ()
+
+    GameplayState.addZone shared &state classroomPlace
+    let classroom = GameplayState.activeZone state
+    let environment = Zone.loadEnvironment classroom state.Physics shared.Assets "room"
+    let partRef' = partRef environment.Epoch 0u 0u
+    let propRef' = Zone.spawnProp classroom state.Physics shared.Assets (entity "crate") "crate"
+    let waypointRef' = Zone.spawnWaypoint classroom (entity "path")
+    let triggerRef' = Zone.spawnTrigger classroom (entity "area")
+    let light = { classroom.Light with Pitch = 33.0f }
+    classroom.Light <- light
+    state.Cue <- Cue.Wait 1.0
+
+    let zonesBefore = state.Zones.Count
+    Assert.Equal(classroomPlace, state.ActiveZone)
+
+    // One clear = one step (a `Batch` of `ZonesClear` and `SetCue`).
+    do History.clearZones shared &state
+    Assert.Equal(1, List.length state.Editor.Undo.Applied)
+    Assert.Equal(1, state.Zones.Count)
+    Assert.True(state.Cue.IsFin)
+
+    // Undo restores both zones with contents at the same refs, the previous active place, and the cue.
+    do History.undoHistory shared &state
+    Assert.Equal(zonesBefore, state.Zones.Count)
+    Assert.Equal(classroomPlace, state.ActiveZone)
+    let restored = state.Zones.[classroomPlace]
+    Assert.True(Zone.isAlive restored partRef')
+    Assert.True(Zone.isAlive restored propRef')
+    Assert.True(Zone.isAlive restored waypointRef')
+    Assert.True(Zone.isAlive restored triggerRef')
+    Assert.Equal(light, restored.Light)
+    Assert.False(state.Cue.IsFin)
+
+    // Redo clears again.
+    do History.redoHistory shared &state
+    Assert.Equal(1, state.Zones.Count)
+    Assert.Equal(GameplayState.startZone, state.ActiveZone)
+    Assert.True(state.Cue.IsFin)

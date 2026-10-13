@@ -913,6 +913,11 @@ let occupyZone (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManage
     zone.Light <- contents.Light
     zone.Player <- contents.Player
 
+/// The contents of a fresh, empty zone — what a reset installs as the new `start` place (spec 084).
+let emptyContents : ZoneContents =
+    { Actors = []; Props = []; Waypoints = []; Triggers = []
+      Environment = None; Light = Texture.defaultLight; Player = ValueNone }
+
 // Load an environment asset, replacing any previous one, and return the built value
 // so the caller's `SetEnvironment` command can retain it. Each load takes a fresh
 // epoch, so refs from a previously loaded environment never resolve against this one.

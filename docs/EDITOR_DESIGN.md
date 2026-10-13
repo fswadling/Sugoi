@@ -101,7 +101,7 @@ every member, one for every variant of every zone, and one for every declared sc
 - Keyboard nudge: `Shift` + `W`/`A`/`S`/`D`/`Q`/`E` (camera-relative move/rotate/
   scale, held to repeat).
 - `F` focus on selection, `Del` delete, `Ctrl+D` duplicate,
-  `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo.
+  `Ctrl+Z` / `Ctrl+Shift+Z` undo/redo, `Ctrl+Shift+C` clear the world (**Edit → Clear World**).
 
 ## Ownership (D-020, D-021)
 
@@ -161,6 +161,11 @@ undo stack. Commands store **values** (not closures):
   It is not a transaction: the commands inside carry their own payloads and are commands that
   already exist, so a batch says nothing a sequence of commands could not — only that they
   were one action.
+- One step can span the whole world: **Clear World** (`specs/084`) retires every zone and installs a fresh **start**
+  place, and resets the running cue, as one `Batch` — a state-level `ZonesClear` (carrying each zone's name and
+  `ZoneContents`, and the active place) paired with a `SetCue` to empty. Like a zone add/delete or a cue edit it is
+  carried by `History`, not the zone-level runner, and it reuses the delete-time teardown (`Zone.release` plus the
+  environment unload). The camera and the scenario library are untouched.
 - Non-entity surfaces (scenario, advent flags, cue root) store
   **name-keyed before/after snapshots** of the immutable map/set entry. The cue's has landed
   (`specs/049-cue-on-one-history`): its edits are `SetCue` steps — before/after cue values — on the one history,

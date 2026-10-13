@@ -16,7 +16,7 @@ type Key =
     | Tab
     | Backtick
     | Delete
-    | W | A | S | D | Q | E | F | Z | Y
+    | W | A | S | D | Q | E | F | Z | Y | C
     | Digit of int
     | LeftCtrl | RightCtrl
     | LeftShift | RightShift
@@ -53,6 +53,7 @@ module Key =
         | F -> 1u <<< 10
         | Z -> 1u <<< 11
         | Y -> 1u <<< 12
+        | C -> 1u <<< 22
         | Digit n -> 1u <<< (13 + (n - 1))
         | LeftCtrl -> 1u <<< 17
         | RightCtrl -> 1u <<< 18
@@ -112,6 +113,7 @@ let private keyMap : (int * KeyMask) array =
        int SDL.Scancode.F, Key.mask Key.F
        int SDL.Scancode.Z, Key.mask Key.Z
        int SDL.Scancode.Y, Key.mask Key.Y
+       int SDL.Scancode.C, Key.mask Key.C
        int SDL.Scancode.Alpha1, Key.mask (Key.Digit 1)
        int SDL.Scancode.Alpha2, Key.mask (Key.Digit 2)
        int SDL.Scancode.Alpha3, Key.mask (Key.Digit 3)
