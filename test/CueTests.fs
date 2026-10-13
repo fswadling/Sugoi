@@ -27,7 +27,7 @@ let private classroomPlace : string = "Island"
 let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = Set.empty }
+      Advents = Advent.empty }
 
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
@@ -70,7 +70,7 @@ let private residentShared () : SharedState.SharedState =
     environments.["room"] <- TestSupport.residentAsset "room" [| submesh |] [| TestSupport.part "wall" 0 1 |]
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) environments
-      Advents = Set.empty }
+      Advents = Advent.empty }
 
 /// The cue as a person (or the editor's panel) reads it. The in-flight `WaitState` renders as the `Wait`
 /// it came from: the view is what is left to run, and its front is the running op.
@@ -109,10 +109,10 @@ let rec private describe (cue: Cue) : string =
     | SetCamera (p, w) -> sprintf "SetCamera(%s,%s)" (p) w
     | FlyCamera (p, path, _) -> sprintf "FlyCamera(%s,%s)" (p) path
     | FlyCameraState (path, _, _, _, _) -> sprintf "FlyCamera(%s)" path
-    | AddAdvent m -> sprintf "Add(%s)" (Advent.name m)
-    | RemoveAdvent m -> sprintf "Remove(%s)" (Advent.name m)
-    | Await m | AwaitState m -> sprintf "Await(%s)" (Advent.name m)
-    | If (m, t, e) -> sprintf "If(%s, %s, %s)" (Advent.name m) (describe t) (describe e)
+    | AddAdvent m -> sprintf "Add(%s)" m
+    | RemoveAdvent m -> sprintf "Remove(%s)" m
+    | Await m | AwaitState m -> sprintf "Await(%s)" m
+    | If (m, t, e) -> sprintf "If(%s, %s, %s)" m (describe t) (describe e)
     | ForkScenario scenario -> sprintf "ForkScenario(%s)" (Scenario.scenarioName scenario)
 
 /// The nodes actually in flight. The queue behind a sequence's current op is data, not live nodes, so a
@@ -478,43 +478,43 @@ let ``a fade in flight allocates nothing per tick`` () =
     let bytes = GC.GetAllocatedBytesForCurrentThread() - before
     Assert.Equal(0L, bytes)
 
-// ══════ The advent ops (spec 056) — milestones drive a cue ══════
+// ══════ The advent ops (spec 056; a string set, spec 082) — milestones drive a cue ══════
 
 [<Fact>]
 let ``an add advent op sets the flag and costs no time`` () =
-    shared.Advents <- Set.empty
+    shared.Advents <- Advent.empty
     let mutable state = newState ()
-    state.Cue <- seqOf [ AddAdvent MetAiko; Exposit("after", Dialogue.Kind.Dialogue) ]
+    state.Cue <- seqOf [ AddAdvent "MetAiko"; Exposit("after", Dialogue.Kind.Dialogue) ]
     tick shared &state 0.0
-    Assert.True(Set.contains MetAiko shared.Advents)
+    Assert.True(Advent.contains "MetAiko" shared.Advents)
     Assert.True state.Dialogue.Shown // the next op ran in the same step
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
 let ``a remove advent op clears the flag, and both writes are idempotent`` () =
-    shared.Advents <- Set.ofList [ MetAiko ]
+    shared.Advents <- Advent.ofList [ "MetAiko" ]
     let mutable state = newState ()
-    state.Cue <- seqOf [ RemoveAdvent MetAiko; AddAdvent MetAkane ]
+    state.Cue <- seqOf [ RemoveAdvent "MetAiko"; AddAdvent "MetAkane" ]
     tick shared &state 0.0
-    Assert.False(Set.contains MetAiko shared.Advents)
-    Assert.True(Set.contains MetAkane shared.Advents)
+    Assert.False(Advent.contains "MetAiko" shared.Advents)
+    Assert.True(Advent.contains "MetAkane" shared.Advents)
 
     // adding a set flag and removing a clear one are no-ops, not errors
-    state.Cue <- seqOf [ AddAdvent MetAkane; RemoveAdvent MetAiko ]
+    state.Cue <- seqOf [ AddAdvent "MetAkane"; RemoveAdvent "MetAiko" ]
     tick shared &state 1.0
-    Assert.True(Set.contains MetAkane shared.Advents)
+    Assert.True(Advent.contains "MetAkane" shared.Advents)
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
 let ``an await op waits until its flag is set, then continues`` () =
-    shared.Advents <- Set.empty
+    shared.Advents <- Advent.empty
     let mutable state = newState ()
-    state.Cue <- seqOf [ Await MetAkane; Exposit("after", Dialogue.Kind.Dialogue) ]
+    state.Cue <- seqOf [ Await "MetAkane"; Exposit("after", Dialogue.Kind.Dialogue) ]
     tick shared &state 0.0
     Assert.Equal("Seq[Await(MetAkane), Exposit(after)]", describe state.Cue)
     Assert.False state.Dialogue.Shown
 
-    shared.Advents <- Set.add MetAkane shared.Advents
+    shared.Advents <- Advent.add "MetAkane" shared.Advents
     tick shared &state 1.0
     Assert.True state.Dialogue.Shown
     Assert.Equal("after", state.Dialogue.Text)
@@ -522,41 +522,41 @@ let ``an await op waits until its flag is set, then continues`` () =
 
 [<Fact>]
 let ``an await of an already-set flag costs no time`` () =
-    shared.Advents <- Set.ofList [ MetAiko ]
+    shared.Advents <- Advent.ofList [ "MetAiko" ]
     let mutable state = newState ()
-    state.Cue <- seqOf [ Await MetAiko; Exposit("after", Dialogue.Kind.Dialogue) ]
+    state.Cue <- seqOf [ Await "MetAiko"; Exposit("after", Dialogue.Kind.Dialogue) ]
     tick shared &state 0.0
     Assert.True state.Dialogue.Shown
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
 let ``an add earlier in the same cue satisfies a later await in the same step`` () =
-    shared.Advents <- Set.empty
+    shared.Advents <- Advent.empty
     let mutable state = newState ()
-    state.Cue <- seqOf [ AddAdvent MetAiko; Await MetAiko; Exposit("after", Dialogue.Kind.Dialogue) ]
+    state.Cue <- seqOf [ AddAdvent "MetAiko"; Await "MetAiko"; Exposit("after", Dialogue.Kind.Dialogue) ]
     tick shared &state 0.0
     Assert.True state.Dialogue.Shown
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
 let ``clearing the flag while waiting leaves the await waiting`` () =
-    shared.Advents <- Set.empty
+    shared.Advents <- Advent.empty
     let mutable state = newState ()
-    state.Cue <- Await MetAiko
+    state.Cue <- Await "MetAiko"
     tick shared &state 0.0
     Assert.Equal("Await(MetAiko)", describe state.Cue)
 
     // set then clear between steps: membership is re-read, clearing is not remembered
-    shared.Advents <- Set.add MetAiko shared.Advents
-    shared.Advents <- Set.remove MetAiko shared.Advents
+    shared.Advents <- Advent.add "MetAiko" shared.Advents
+    shared.Advents <- Advent.remove "MetAiko" shared.Advents
     tick shared &state 1.0
     Assert.Equal("Await(MetAiko)", describe state.Cue)
 
 [<Fact>]
 let ``a waiting await allocates nothing per step`` () =
-    shared.Advents <- Set.empty
+    shared.Advents <- Advent.empty
     let mutable state = newState ()
-    state.Cue <- Await MetAiko
+    state.Cue <- Await "MetAiko"
     tick shared &state 0.0
     for _ in 1 .. 50 do tick shared &state 1.0
 
@@ -567,29 +567,29 @@ let ``a waiting await allocates nothing per step`` () =
 
 [<Fact>]
 let ``an if runs the branch its flag selects`` () =
-    shared.Advents <- Set.empty
+    shared.Advents <- Advent.empty
     let mutable state = newState ()
-    state.Cue <- If(MetAiko, Exposit("then", Dialogue.Kind.Dialogue), Exposit("else", Dialogue.Kind.Dialogue))
+    state.Cue <- If("MetAiko", Exposit("then", Dialogue.Kind.Dialogue), Exposit("else", Dialogue.Kind.Dialogue))
     tick shared &state 0.0
     Assert.Equal("else", state.Dialogue.Text) // flag clear: the else branch
     Assert.Equal("Fin", describe state.Cue)
 
-    shared.Advents <- Set.add MetAiko shared.Advents
-    state.Cue <- If(MetAiko, Exposit("then", Dialogue.Kind.Dialogue), Exposit("else", Dialogue.Kind.Dialogue))
+    shared.Advents <- Advent.add "MetAiko" shared.Advents
+    state.Cue <- If("MetAiko", Exposit("then", Dialogue.Kind.Dialogue), Exposit("else", Dialogue.Kind.Dialogue))
     tick shared &state 1.0
     Assert.Equal("then", state.Dialogue.Text)
 
 [<Fact>]
 let ``an if's Fin branch costs no time and a timed branch begins in its place`` () =
-    shared.Advents <- Set.ofList [ MetAiko ]
+    shared.Advents <- Advent.ofList [ "MetAiko" ]
     let mutable state = newState ()
-    state.Cue <- seqOf [ If(MetAiko, Fin, Exposit("nefarious", Dialogue.Kind.Dialogue)); Wait 1.0 ]
+    state.Cue <- seqOf [ If("MetAiko", Fin, Exposit("nefarious", Dialogue.Kind.Dialogue)); Wait 1.0 ]
     tick shared &state 0.0
     Assert.Equal("Seq[Wait 1]", describe state.Cue) // the `Fin` branch was over at once; the wait is the run
     Assert.False state.Dialogue.Shown // the untaken branch never ran
 
     let mutable state2 = newState ()
-    state2.Cue <- If(MetAiko, Wait 2.0, Fin)
+    state2.Cue <- If("MetAiko", Wait 2.0, Fin)
     tick shared &state2 0.0
     Assert.Equal("Wait 2", describe state2.Cue)
     tick shared &state2 2.0
@@ -597,9 +597,9 @@ let ``an if's Fin branch costs no time and a timed branch begins in its place`` 
 
 [<Fact>]
 let ``an if nests inside a sequence and the untaken branch never runs`` () =
-    shared.Advents <- Set.ofList [ MetAiko ]
+    shared.Advents <- Advent.ofList [ "MetAiko" ]
     let mutable state = newState ()
-    state.Cue <- seqOf [ If(MetAiko, Exposit("then", Dialogue.Kind.Dialogue), Exposit("nefarious", Dialogue.Kind.Dialogue)); Exposit("after", Dialogue.Kind.Dialogue) ]
+    state.Cue <- seqOf [ If("MetAiko", Exposit("then", Dialogue.Kind.Dialogue), Exposit("nefarious", Dialogue.Kind.Dialogue)); Exposit("after", Dialogue.Kind.Dialogue) ]
     tick shared &state 0.0
     Assert.Equal("after", state.Dialogue.Text)
     Assert.Equal("Fin", describe state.Cue)
@@ -795,7 +795,7 @@ let private actorShared () : SharedState.SharedState =
     actors.["aiko"] <- asset
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero actors (Dictionary()) (Dictionary())
-      Advents = Set.empty }
+      Advents = Advent.empty }
 
 /// A waypoint named `name` at `position`, facing `rotation`, in `zone`.
 let private waypointIn (zone: Zone.Zone) (name: string) (position: Vector3) (rotation: Quaternion) : EntityRef =
@@ -1665,8 +1665,8 @@ let ``a cue of many op kinds reaches Fin without throwing`` () =
               EnableTrigger(mainPlace, "no-trigger")
               Print "hi"
               Exposit("x", Dialogue.Kind.Dialogue)
-              AddAdvent MetAiko
-              Await MetAiko
-              RemoveAdvent MetAiko ]
+              AddAdvent "MetAiko"
+              Await "MetAiko"
+              RemoveAdvent "MetAiko" ]
     tick shared &state 0.0
     Assert.True(state.Cue.IsFin, "every op no-oped or completed and the cue finished")

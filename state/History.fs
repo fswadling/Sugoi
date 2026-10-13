@@ -69,7 +69,7 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     // `shared.Assets`.
     | SetCue (_, next) -> state.Cue <- next
     // The adventure flags are not a zone's either: the step writes `SharedState.Advents`, so the state-level
-    // runner carries it as it carries `SetCue` (spec 055 FR-007).
+    // runner carries it as it carries `SetCue` (spec 055 FR-007; the set is a set of names since spec 082).
     | Advent (_, next) -> shared.Advents <- next
     // The scenario library is not a zone's either: the step files or removes one entry (spec 070), so the
     // state-level runner carries it as it carries the adventure flags. The library lives on the gameplay state,

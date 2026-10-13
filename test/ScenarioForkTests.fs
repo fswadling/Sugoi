@@ -57,7 +57,7 @@ let private sharedState () : SharedState.SharedState =
     environments.["island-env"] <- TestSupport.residentAsset "island-env" [||] [||]
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero actors (Dictionary()) environments
-      Advents = Set.empty }
+      Advents = Advent.empty }
 
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)

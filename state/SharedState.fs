@@ -22,12 +22,12 @@ open Advent
 type SharedState =
     { mutable Gpu : Gpu.Gpu
       Assets : Assets.AssetManager
-      // The named adventure flags (spec 055): story milestones a screen other than the world may
-      // present or gate on, for the same reason. Mutable because the one undo history writes it in
-      // place — a flag edit is a state-level step, as the cue's `SetCue` is (specs/048, specs/049).
-      mutable Advents : Set<Advent> }
+      // The named adventure flags (spec 055; a string set since spec 082): story milestones a screen other
+      // than the world may present or gate on, for the same reason. Mutable because the one undo history
+      // writes it in place — a flag edit is a state-level step, as the cue's `SetCue` is (specs/048, 049).
+      mutable Advents : Advent.Set }
 
 let create (gpu: Gpu.Gpu) : SharedState =
     { Gpu = gpu
       Assets = Assets.scan "assets" gpu.Device
-      Advents = Set.empty }
+      Advents = Advent.empty }

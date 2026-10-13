@@ -51,7 +51,7 @@ let private headlessAssets () : Assets.AssetManager =
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = assets
-      Advents = Set.empty }
+      Advents = Advent.empty }
 
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)

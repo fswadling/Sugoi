@@ -17,7 +17,6 @@ open System
 open System.Numerics
 open Prime
 open Cue
-open Advent
 open Scenario
 
 // ── what the cue looks like ──
@@ -68,6 +67,11 @@ let private blendLabel (morph: bool) (fromName: string) (toName: string) : strin
     if fromName = toName then sprintf "%s: %s" (blendOpName morph fromName toName) fromName
     else sprintf "%s: %s -> %s" (blendOpName morph fromName toName) fromName toName
 
+/// An advent op's row: the op and its milestone name, or the op alone when no name is set yet (an unnamed op
+/// reads `Add` rather than a dangling `Add: `).
+let private adventLabel (verb: string) (advent: string) : string =
+    if advent = "" then verb else verb + ": " + advent
+
 /// What a row says. A leaf in flight is shown as the op it came from — a `WaitState` as its `Wait` — because
 /// the view is what is left to run, never an internal state's name (`FR-004`).
 let private label (cue: Cue) : string =
@@ -104,10 +108,10 @@ let private label (cue: Cue) : string =
     | SetCamera (place, waypoint) -> sprintf "Camera: %s in %s" waypoint (place)
     | FlyCamera (place, path, _) -> sprintf "Fly: %s in %s" path (place)
     | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
-    | AddAdvent advent -> "Add: " + Advent.name advent
-    | RemoveAdvent advent -> "Remove: " + Advent.name advent
-    | Await advent | AwaitState advent -> "Await: " + Advent.name advent
-    | If (advent, _, _) -> "If: " + Advent.name advent
+    | AddAdvent advent -> adventLabel "Add" advent
+    | RemoveAdvent advent -> adventLabel "Remove" advent
+    | Await advent | AwaitState advent -> adventLabel "Await" advent
+    | If (advent, _, _) -> adventLabel "If" advent
 
 /// A `Sequence`'s children in index order: the op in flight first, then the queue behind it.
 let private sequenceChildren (current: Cue) (rest: Cue FDeque) : Cue list =
@@ -307,7 +311,6 @@ let private kindName (cue: Cue) : string =
 /// (the walk pulls the queue's front into the front in the same step, so the author can add to it and it).
 /// A `Set zone` defaults to the given zone name; an `Exposit` defaults to an empty line and a plain dialogue kind.
 let defaultOfKind (place: string) (kind: string) : Cue =
-    let defaultAdvent = List.head Advent.all
     match kind with
     | "Fin" -> Fin
     | "Sequence" -> Sequence(Fin, FDeque.ofList [])
@@ -333,10 +336,10 @@ let defaultOfKind (place: string) (kind: string) : Cue =
     | "Morph" -> Morph(place, "", "", 1.0f, 1.0)
     | "Cross morph" -> CrossMorph(place, "", "", "", 1.0f, 1.0)
     | "Set camera" -> SetCamera(place, "")
-    | "Add advent" -> AddAdvent defaultAdvent
-    | "Remove advent" -> RemoveAdvent defaultAdvent
-    | "Await" -> Await defaultAdvent
-    | "If" -> If(defaultAdvent, Fin, Fin)
+    | "Add advent" -> AddAdvent ""
+    | "Remove advent" -> RemoveAdvent ""
+    | "Await" -> Await ""
+    | "If" -> If("", Fin, Fin)
     | "Fork scenario" -> ForkScenario (List.head Scenario.all)
     | _ -> FlyCamera(place, "", 1.0)
 
@@ -423,7 +426,7 @@ let withExpositKind (kind: Dialogue.Kind) (cue: Cue) : Cue =
     | _ -> invalidOp (sprintf "CueTree: a %s carries no presentation" (label cue))
 
 /// The node with its milestone replaced — the write the chooser commits. Only the advent ops carry one.
-let private withAdvent (advent: Advent) (cue: Cue) : Cue =
+let private withAdvent (advent: string) (cue: Cue) : Cue =
     match cue with
     | AddAdvent _ -> AddAdvent advent
     | RemoveAdvent _ -> RemoveAdvent advent
@@ -600,6 +603,7 @@ let drawEditor
     (zones: string list)
     (filter: byte[])
     (names: string list)
+    (advents: string list)
     (cue: Cue)
     (selection: int list)
     (commit: Cue -> unit)
@@ -689,10 +693,11 @@ let drawEditor
             dragNumber idBase "Speed" (float32 speed) (fun v -> commit (withAt selection (FlyCamera(place, path, float v)) cue))
 
         | AddAdvent advent | RemoveAdvent advent | Await advent | AwaitState advent | If (advent, _, _) ->
-            // the milestone, chosen from the closed list — a milestone needs no zone or registry, so the
-            // control can offer it where it could not offer a zone or waypoint name (FR-006).
-            filteredCombo filter ("Advent##" + idBase) (Advent.name advent) Advent.all Advent.name advent (fun candidate ->
-                do commit (withAt selection (withAdvent candidate node) cue))
+            // the milestone, chosen from the current advents or typed — a name may be authored before it is added
+            // to the set, so the combo commits a typed fallback and adds nothing to the set itself (`specs/074`'s
+            // speaker rule, `specs/082` FR-007).
+            filteredNameCombo filter ("Advent##" + idBase) advent advents advent (fun candidate ->
+                do commit (withAt selection (withAdvent (Advent.normalise candidate) node) cue))
 
         | Exposit (_, kind) ->
             // the presentation, chosen from the closed vocabularies: the expression is closed, and the speaker

@@ -11,18 +11,17 @@ module Cue
 // captured weights, `MoveActorState`'s spline, `RotateActorState`'s turn). So a case suffixed `State` appears
 // exactly where the run form holds something the authored form does not — the convention the reference lineage
 // uses (`wait` / `waitstate`), and FR-017's "a leaf op and its own state case". (`AwaitState` is the one
-// exception: it carries the same `Advent`, existing only to mark a blocking op as begun — spec 056.)
+// exception: it carries the same milestone name, existing only to mark a blocking op as begun — spec 056.)
 //
 // Neither names a zone, a screen, an asset or a device: this module depends on `Prime` (for
-// `FDeque`), `System.Numerics`, `Advent` (the closed milestone union), `Dialogue` (the closed
-// presentation union), `Place` (a closed vocabulary) and `SlotMap` (its `Handle`, which the actor
-// `…State` cases carry) only, so it loads on its own. The engine that walks it
-// (`world/CueEngine.fs`) is compiled *after* `state/GameplayState.fs`, because the ops perform
+// `FDeque`), `System.Numerics`, `Dialogue` (the closed presentation union), `Scenario` (a closed
+// vocabulary), `Place` (a closed vocabulary) and `SlotMap` (its `Handle`, which the actor
+// `…State` cases carry) only, so it loads on its own. A milestone is a plain string (spec 082). The engine
+// that walks it (`world/CueEngine.fs`) is compiled *after* `state/GameplayState.fs`, because the ops perform
 // their effects on the gameplay state where the walk reaches them (research D3).
 
 open System.Numerics
 open Prime
-open Advent
 open Scenario
 open SlotMap
 
@@ -108,11 +107,11 @@ type Cue =
     | SetCamera of place: string * waypoint: string
     | FlyCamera of place: string * path: string * speed: float
     | FlyCameraState of path: string * points: Vector3[] * rotations: Quaternion[] * duration: float * endsAt: float
-    | AddAdvent of advent: Advent
-    | RemoveAdvent of advent: Advent
-    | Await of advent: Advent
-    | AwaitState of advent: Advent
-    | If of advent: Advent * thenCue: Cue * elseCue: Cue
+    | AddAdvent of advent: string
+    | RemoveAdvent of advent: string
+    | Await of advent: string
+    | AwaitState of advent: string
+    | If of advent: string * thenCue: Cue * elseCue: Cue
     // Fork a registered scenario into the scene (spec 078): materialise its entities and run its cue **beside** the
     // rest, which is `Fork`'s construct. It names a scenario from the closed vocabulary — the store that resolves
     // it (`world/ScenarioRegistry.fs`) is compiled after this file, exactly as `SetZone` names a place before

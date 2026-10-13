@@ -144,7 +144,7 @@ archetypes.
 ## State management
 
 - `Shared_State` holds state the engine itself, or more than one screen, may read: the GPU
-  context, the asset manager and the named `advents`. The test is
+  context, the asset manager and the named `advents` (the recorded milestone names, a string set). The test is
   **readership** — a member is here because something outside the gameplay screen needs it (the
   engine reads the GPU context; a journal or inventory screen may present a character and the flags),
   not because it is authored or persisted.

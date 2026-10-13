@@ -1,48 +1,46 @@
 module Advent
 
-// The named adventure flags (spec 055): story milestones — "the opening is complete", "the player has
-// met Akane". A cue or trigger will branch on membership; the flags are a `Set<Advent>` on
+// The named adventure flags (spec 055; a string set since spec 082): story milestones — "the opening is
+// complete", "the player has met Akane". A cue or trigger branches on membership; the flags are a set on
 // `SharedState`, the fact those branches read.
 //
-// A milestone is a **closed union**, not a string, for the reasons `Roster` gives for its
-// cast: a milestone cannot be misspelled, matching on one is exhaustive, and nothing about a
-// milestone's identity is decided by a string comparison. The game's own declaration grows by adding
-// a case, which the build reports every match of — `name` below is an explicit match for that reason.
+// A milestone is a **plain string**, not a closed union (spec 082). The union could not be misspelled and
+// matching on one was exhaustive, but it was compiled in: adding a milestone was a code change, and the
+// panel could only offer the cases the build already knew. A string set lets the author name milestones in
+// the editor. The trade is that spelling is unchecked and nothing cross-references a cue's name against the
+// set — that is the author's responsibility.
 //
-// The flags are F#'s `Set`: immutable, and ordered by a union value's case tag (declaration order),
-// so iterating them is deterministic, and a change produces a new set — which is what makes an edit a
-// before/after snapshot on the one undo history (`docs/EDITOR_DESIGN.md`, D-011). They are `Set<Advent>`
-// and are manipulated with the standard `Set` functions; this module adds only the two things `Set`
-// cannot know: the cases' enumeration (`all`) and their display names (`name`).
-//
-// It names no zone, screen, asset or device, so it loads on its own. It lives on `SharedState` rather
-// than a zone because a flag outlives every zone (spec 055 FR-002).
+// The set is `Prime`'s `OSet<string>`: an ordered, persistent set. It iterates in the order names were
+// added (the authored order, which is what makes the panel's list stable), de-duplicates, and a change
+// produces a new set — which is what makes an edit a before/after snapshot on the one undo history
+// (`docs/EDITOR_DESIGN.md`, D-011). F#'s `Set<string>` would order alphabetically and lose the authored
+// order; a list would admit duplicates. This module names no zone, screen, asset or device, so it loads on
+// its own. It lives on `SharedState` rather than a zone because a flag outlives every zone (spec 055 FR-002).
 
-open Microsoft.FSharp.Reflection
+open Prime
 
-/// A story milestone. The game's own declaration, like `Roster.Character`: add a case to add a
-/// milestone, and the build reports every match that must account for it.
-type Advent =
-    | OpeningComplete
-    | MetAiko
-    | MetAkane
-    | MetShinji
-    | MetYuki
+/// The story milestones that have happened — an ordered set of names, read in the order they were added.
+type Set = OSet<string>
 
-/// Every milestone, in declaration order — enumerated from the type rather than listed again, so a
-/// case cannot be left out of the panel (the way `Roster.characters` is enumerated).
-let all : Advent list =
-    FSharpType.GetUnionCases typeof<Advent>
-    |> Array.toList
-    |> List.map (fun case -> unbox<Advent> (FSharpValue.MakeUnion(case, [||])))
+/// The empty set.
+let empty : Set = OSet.ofSeq1 []
 
-/// The renderable name of a milestone — the case name, so the panel and any future report spell it
-/// the same way. An explicit match rather than `%A`: adding a case fails the build here until it is
-/// named, and it stays off F#'s formatting path.
-let name (advent: Advent) : string =
-    match advent with
-    | OpeningComplete -> nameof OpeningComplete
-    | MetAiko -> nameof MetAiko
-    | MetAkane -> nameof MetAkane
-    | MetShinji -> nameof MetShinji
-    | MetYuki -> nameof MetYuki
+/// The set holding `names`, in order — how a caller builds one outright (a fixture, a test).
+let ofList (names: string list) : Set = OSet.ofSeq1 names
+
+/// Whether `name` is recorded.
+let contains (name: string) (set: Set) : bool = OSet.contains name set
+
+/// The set with `name` recorded.
+let add (name: string) (set: Set) : Set = OSet.add name set
+
+/// The set without `name`.
+let remove (name: string) (set: Set) : Set = OSet.remove name set
+
+/// The recorded names, in the order they were added — what the panel lists and a cue chooser offers.
+let names (set: Set) : string list = OSet.toSeq set |> List.ofSeq
+
+/// The name a panel or a cue stores: surrounding whitespace trimmed, so `" x "` and `"x"` are the same
+/// milestone. Matching is otherwise exact (ordinal — `"MetAiko"` and `"metAiko"` differ), the by-name rule
+/// `specs/074` set for speakers.
+let normalise (name: string) : string = name.Trim()

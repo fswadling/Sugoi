@@ -25,7 +25,6 @@ open Entity
 open Zone
 open Texture
 open SlotMap
-open Advent
 open Scenario
 open ZoneTemplate
 
@@ -91,11 +90,11 @@ type Command =
     // own history stored before this feature. `Cue.Cue` is module-qualified because the module and the type share
     // the name; `state/EditorState.fs` writes it the same way.
     | SetCue of Previous : Cue.Cue * Next : Cue.Cue
-    // The named adventure flags were edited (spec 055). Like `SetCue`, it is not a zone's — the set is project state on
-    // `SharedState` (`specs/055` FR-002) — so it is a state-level step carried by `History` and never by the zone-level
-    // runner. The payload is the two set values: the set is immutable, so a snapshot is the set itself, and a before/after
-    // pair makes undo total (an add and a remove are the same shape).
-    | Advent of Previous : Set<Advent> * Next : Set<Advent>
+    // The named adventure flags were edited (spec 055; a string set since spec 082). Like `SetCue`, it is not a
+    // zone's — the set is project state on `SharedState` (`specs/055` FR-002) — so it is a state-level step carried
+    // by `History` and never by the zone-level runner. The payload is the two set values: the set is immutable, so a
+    // snapshot is the set itself, and a before/after pair makes undo total (an add and a remove are the same shape).
+    | Advent of Previous : Advent.Set * Next : Advent.Set
     // The scenario library was edited (spec 070): a registration, a re-registration or a clear, as a before/after
     // pair of the entry (`ScenarioContents option`). Like `SetCue` and `Advent`, it is not a zone's — a scenario
     // spans zones — so it is a state-level step carried by `History` and never by the zone-level runner. The payload

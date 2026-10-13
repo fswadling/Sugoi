@@ -375,7 +375,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         // be captured by the callback it draws through, so the write is staged here and applied in one
         // place, as one step.
         let mutable pending : Cue option = None
-        selection <- CueTree.drawEditor idPrefix state.ActiveZone zoneNames state.Editor.ComboFilter (Assets.actorNames shared.Assets) cue path (fun next -> pending <- Some next)
+        selection <- CueTree.drawEditor idPrefix state.ActiveZone zoneNames state.Editor.ComboFilter (Assets.actorNames shared.Assets) (Advent.names shared.Advents) cue path (fun next -> pending <- Some next)
         // Add Child (a new selection) and Remove (no selection) are the structural edits; record one so the next
         // frame re-focuses the tree.
         structural <- selection <> Some path
@@ -454,7 +454,7 @@ let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.Ga
     | Some path ->
 
         let mutable pending : Cue option = None
-        selection <- CueTree.drawEditor idPrefix state.ActiveZone zoneNames state.Editor.ComboFilter (Assets.actorNames shared.Assets) cue path (fun next -> pending <- Some next)
+        selection <- CueTree.drawEditor idPrefix state.ActiveZone zoneNames state.Editor.ComboFilter (Assets.actorNames shared.Assets) (Advent.names shared.Advents) cue path (fun next -> pending <- Some next)
         match pending with
         | Some next -> do Selection.updateTriggerRef shared &state ref (fun t -> { t with Cue = next })
         | None -> ()

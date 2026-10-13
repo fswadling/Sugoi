@@ -20,8 +20,8 @@ open Microsoft.FSharp.Reflection
 type Scenario =
     | Intro
 
-/// The renderable name of a scenario — the case name, matched over the cases as `Advent.name` is, so adding a
-/// case is a case here and the compiler reports the match.
+/// The renderable name of a scenario — the case name, matched over the cases so adding a case is a case
+/// here and the compiler reports the match.
 let scenarioName (scenario: Scenario) : string =
     match scenario with
     | Intro -> nameof Intro

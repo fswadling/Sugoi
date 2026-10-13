@@ -36,7 +36,7 @@ let private newState () : GameplayState.GameplayState =
 let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = Set.empty }
+      Advents = Advent.empty }
 
 /// Register the current scene under `Intro`, the way the panel's Register control does.
 let private register (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =

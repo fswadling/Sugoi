@@ -48,7 +48,7 @@ The sub-editors are dockable windows/tabs opened from a **Window** menu, not
 separate screens. Scenario and Zone Registry dock as tabs in
 the **left** panel (alongside the Outliner) and are shown by default:
 
-- **Advent** — the story milestones as a checklist (a typed union; spec 055), docked on the **right**.
+- **Advent** — the story milestones as an ordered **string set** (spec 082), edited by naming one and adding it or removing it (spec 055), docked on the **right**.
 - **Scenario** — the game's scenarios, one row each: **Register** files the current scene's zones (each with
   its staging and its narrative entities) and the cue under the scenario, **Clear** empties it, and **Fork** runs
   it — ensuring and restaging the scenario's zones, appending its entities and forking its cue, as one step on the
@@ -63,8 +63,9 @@ left, because what the Cue edits is a cue rather than a place in the scene and w
 is a set of story facts rather than a place, and the right column is where the editing surfaces are.
 The Cue presents the cue as a recursive tree list (D-013): nothing that is executing can be retuned,
 replaced or removed, everything ahead of it can be edited, an addition is always taken, and its edits
-are steps on the one undo history (D-010, `specs/049`). The Advent presents the milestones as one
-checkbox each, and a toggle is likewise a step on the one history (D-011, `specs/055`).
+are steps on the one undo history (D-010, `specs/049`). The Advent presents the milestones as a text field, an
+**Add** and a list with a **Remove** per row, and an add or a removal is likewise a step on the one history
+(D-011, `specs/055`, `specs/082`).
 
 The **Miscellaneous** panel (spec 059) docks on the **right** too: it is the home for **game-wide runtime
 tuning** — values that belong to no zone and no selection, so they cannot live in the Inspector. Its first
@@ -234,7 +235,9 @@ addition to make next.
 Every dropdown in the cue editor — the op **kind**, the character, place, advent, waypoint, trigger and
 clip/morph choosers — is **filterable** (`specs/068-autocomplete-cue-combos`): open it and type, and the list
 narrows to names containing the text (case-insensitively); **Enter** takes the top match and dismisses the
-dropdown. The grouped kind list shows **flat** while a filter is entered and its groups when it is cleared. A
+dropdown. The advent chooser (`specs/082`) also accepts a name that matches no current milestone, so a cue may
+name an advent before it is added; typing it does not add it to the set. The grouped kind list shows **flat**
+while a filter is entered and its groups when it is cleared. A
 pick is the same edit as before — one step on the one history — so this changes how an option is *found*, not
 what choosing it writes.
 

@@ -62,8 +62,8 @@
     <Compile Include="world/ActorRender.fs" />
     <Compile Include="world/EnvironmentAsset.fs" />
     <Compile Include="world/EnvironmentRender.fs" />
-    <!-- The named adventure flags (spec 055): story milestones as a closed union, recorded in an
-         immutable, ordered set — project state that belongs to no zone. Pure data — it names no zone,
+    <!-- The named adventure flags (spec 055; milestones are plain strings since spec 082), recorded in
+         an immutable, ordered set — project state that belongs to no zone. Pure data — it names no zone,
          screen, asset or device — so it sits before the state that holds it. -->
     <Compile Include="world/Advent.fs" />
     <!-- The async load substrate (spec 053): the decoded payload, the bounded recency queue and the
