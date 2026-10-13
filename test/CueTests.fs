@@ -113,7 +113,7 @@ let rec private describe (cue: Cue) : string =
     | RemoveAdvent m -> sprintf "Remove(%s)" m
     | Await m | AwaitState m -> sprintf "Await(%s)" m
     | If (m, t, e) -> sprintf "If(%s, %s, %s)" m (describe t) (describe e)
-    | ForkScenario scenario -> sprintf "ForkScenario(%s)" (Scenario.scenarioName scenario)
+    | ForkScenario scenario -> sprintf "ForkScenario(%s)" scenario
 
 /// The nodes actually in flight. The queue behind a sequence's current op is data, not live nodes, so a
 /// long cue costs no more than a short one.

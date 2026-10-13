@@ -21,7 +21,6 @@ open System.Text
 open Entity
 open Cue
 open Command
-open Scenario
 
 // ── the text field's NUL-terminated buffer ──
 
@@ -206,6 +205,7 @@ let private drawNodeText
     (activeZone: Zone.Zone)
     (zoneOfPlace: string -> Zone.Zone option)
     (namesOf: Zone.Zone -> string -> string list * string list)
+    (scenarios: string list)
     (filter: byte[])
     (buffer: byte[])
     (textPath: int list option)
@@ -324,10 +324,11 @@ let private drawNodeText
         do drawActorField actor
         (textPath, editing), (textPath2, editing2)
     | ForkScenario scenario ->
-        // the scenario is chosen from the closed declared set (spec 078 FR-011); a scenario needs no zone or
-        // registry read, so the control can offer it where it could not offer a zone name.
-        CueTree.filteredCombo filter ("Scenario##" + CueTree.rowId idPrefix path) (Scenario.scenarioName scenario) Scenario.all Scenario.scenarioName scenario (fun candidate ->
-            onCommit (CueTree.withAt path (CueTree.withScenario candidate node) cue))
+        // the scenario is chosen from the current library or typed — a name may be authored before it is added, so
+        // the combo commits a typed fallback and adds nothing to the library itself (`specs/074`'s speaker rule,
+        // `specs/083` FR-009). A scenario needs no zone read, so it is offered where a zone name could not be.
+        CueTree.filteredNameCombo filter ("Scenario##" + CueTree.rowId idPrefix path) scenario scenarios scenario (fun candidate ->
+            onCommit (CueTree.withAt path (CueTree.withScenario (ScenarioRegistry.normalise candidate) node) cue))
         (textPath, editing), (textPath2, editing2)
     | _ -> drawGenericFields ()
 
@@ -347,6 +348,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         match zones.TryGetValue place with
         | true, z -> Some z
         | false, _ -> None
+    let scenarioNames = ScenarioRegistry.names state.Scenarios
     // The clip/morph choosers read the placed actor's asset — the actor of that name in the op's own place.
     let assetNamesOf (zone: Zone.Zone) (actor: string) : string list * string list =
         match Zone.tryActorByName zone actor with
@@ -389,7 +391,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             | Some node ->
                 let mutable textPending : Cue option = None
                 let (path'', editing), (path2', editing2) =
-                    drawNodeText shared.Assets activeZone zoneOfPlace assetNamesOf state.Editor.ComboFilter state.Editor.CueTextBuffer state.Editor.CueTextPath state.Editor.CueTextEditing state.Editor.CueTextBuffer2 state.Editor.CueTextPath2 state.Editor.CueTextEditing2 idPrefix path' node state.Cue (fun next -> textPending <- Some next)
+                    drawNodeText shared.Assets activeZone zoneOfPlace assetNamesOf scenarioNames state.Editor.ComboFilter state.Editor.CueTextBuffer state.Editor.CueTextPath state.Editor.CueTextEditing state.Editor.CueTextBuffer2 state.Editor.CueTextPath2 state.Editor.CueTextEditing2 idPrefix path' node state.Cue (fun next -> textPending <- Some next)
                 state.Editor <- { state.Editor with CueTextPath = path''; CueTextEditing = editing; CueTextPath2 = path2'; CueTextEditing2 = editing2 }
                 match textPending with
                 | Some next -> do commit &state next
@@ -430,6 +432,7 @@ let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.Ga
         match zones.TryGetValue place with
         | true, z -> Some z
         | false, _ -> None
+    let scenarioNames = ScenarioRegistry.names state.Scenarios
     let assetNamesOf (zone: Zone.Zone) (actor: string) : string list * string list =
         match Zone.tryActorByName zone actor with
         | Some ref when zone.Actors.IsAlive(handleOf ref) ->
@@ -465,7 +468,7 @@ let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.Ga
             | Some node ->
                 let mutable textPending : Cue option = None
                 let (path'', editing), (path2', editing2) =
-                    drawNodeText shared.Assets activeZone zoneOfPlace assetNamesOf state.Editor.ComboFilter state.Editor.TriggerCueTextBuffer state.Editor.TriggerCueTextPath state.Editor.TriggerCueEditing state.Editor.TriggerCueTextBuffer2 state.Editor.TriggerCueTextPath2 state.Editor.TriggerCueTextEditing2 idPrefix path' node cue (fun next -> textPending <- Some next)
+                    drawNodeText shared.Assets activeZone zoneOfPlace assetNamesOf scenarioNames state.Editor.ComboFilter state.Editor.TriggerCueTextBuffer state.Editor.TriggerCueTextPath state.Editor.TriggerCueEditing state.Editor.TriggerCueTextBuffer2 state.Editor.TriggerCueTextPath2 state.Editor.TriggerCueTextEditing2 idPrefix path' node cue (fun next -> textPending <- Some next)
                 state.Editor <- { state.Editor with TriggerCueTextPath = path''; TriggerCueEditing = editing; TriggerCueTextPath2 = path2'; TriggerCueTextEditing2 = editing2 }
                 match textPending with
                 | Some next -> do Selection.updateTriggerRef shared &state ref (fun t -> { t with Cue = next })

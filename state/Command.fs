@@ -25,7 +25,6 @@ open Entity
 open Zone
 open Texture
 open SlotMap
-open Scenario
 open ZoneTemplate
 
 type Command =
@@ -95,11 +94,11 @@ type Command =
     // by `History` and never by the zone-level runner. The payload is the two set values: the set is immutable, so a
     // snapshot is the set itself, and a before/after pair makes undo total (an add and a remove are the same shape).
     | Advent of Previous : Advent.Set * Next : Advent.Set
-    // The scenario library was edited (spec 070): a registration, a re-registration or a clear, as a before/after
-    // pair of the entry (`ScenarioContents option`). Like `SetCue` and `Advent`, it is not a zone's — a scenario
-    // spans zones — so it is a state-level step carried by `History` and never by the zone-level runner. The payload
-    // is a `ScenarioContents`, whose zones are an immutable `Map`, so a snapshot is a value the step can hold.
-    | SetScenario of Name : Scenario * Previous : ScenarioRegistry.ScenarioContents option * Next : ScenarioRegistry.ScenarioContents option
+    // The scenario library was edited (spec 070; string-keyed since spec 083): an add, delete, clear or register,
+    // as a before/after pair of the whole library. Like `SetCue` and `Advent`, it is not a zone's — a scenario spans
+    // zones — so it is a state-level step carried by `History` and never by the zone-level runner. The library is a
+    // persistent ordered map, so the pair is a reference snapshot, and one shape covers every kind of edit.
+    | SetScenario of Previous : ScenarioRegistry.Registry * Next : ScenarioRegistry.Registry
 
 // ── the place a command acts on ──
 

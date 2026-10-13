@@ -111,6 +111,9 @@ type EditorState =
       // The Advent panel's name field (spec 082): a milestone is named rather than chosen from a closed vocabulary,
       // so it is typed into a reused buffer, as the add-zone field is.
       AdventNameBuffer : byte[]
+      // The Scenario panel's name field (spec 083): a scenario is named rather than chosen from a closed vocabulary,
+      // so it is typed into a reused buffer, as the advent field is.
+      ScenarioNameBuffer : byte[]
       // The Inspector's inline trigger-cue editor (spec 058): which node of the selected trigger's cue is
       // selected, the trigger those fields belong to, and the reused buffer for the selected node's text. Kept
       // apart from the Cue panel's fields above so the two editors cannot share a selection or a buffer; the
@@ -155,6 +158,7 @@ let create () : EditorState =
       CueRefocus = false
       ZoneNameBuffer = Array.zeroCreate entityNameBufferSize
       AdventNameBuffer = Array.zeroCreate entityNameBufferSize
+      ScenarioNameBuffer = Array.zeroCreate entityNameBufferSize
       TriggerCueSelection = None
       TriggerCueRef = None
       TriggerCueTextBuffer = Array.zeroCreate cueTextBufferSize

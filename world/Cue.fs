@@ -14,15 +14,14 @@ module Cue
 // exception: it carries the same milestone name, existing only to mark a blocking op as begun — spec 056.)
 //
 // Neither names a zone, a screen, an asset or a device: this module depends on `Prime` (for
-// `FDeque`), `System.Numerics`, `Dialogue` (the closed presentation union), `Scenario` (a closed
-// vocabulary), `Place` (a closed vocabulary) and `SlotMap` (its `Handle`, which the actor
-// `…State` cases carry) only, so it loads on its own. A milestone is a plain string (spec 082). The engine
+// `FDeque`), `System.Numerics`, `Dialogue` (the closed presentation union) and `SlotMap` (its
+// `Handle`, which the actor `…State` cases carry) only, so it loads on its own. A milestone and a
+// scenario are plain strings (specs 082, 083). The engine
 // that walks it (`world/CueEngine.fs`) is compiled *after* `state/GameplayState.fs`, because the ops perform
 // their effects on the gameplay state where the walk reaches them (research D3).
 
 open System.Numerics
 open Prime
-open Scenario
 open SlotMap
 
 // ── The cue — and therefore the run ──
@@ -112,11 +111,11 @@ type Cue =
     | Await of advent: string
     | AwaitState of advent: string
     | If of advent: string * thenCue: Cue * elseCue: Cue
-    // Fork a registered scenario into the scene (spec 078): materialise its entities and run its cue **beside** the
-    // rest, which is `Fork`'s construct. It names a scenario from the closed vocabulary — the store that resolves
-    // it (`world/ScenarioRegistry.fs`) is compiled after this file, exactly as `SetZone` names a place before
-    // `ZoneRegistry` exists — and it is a runtime effect, like every cue op.
-    | ForkScenario of scenario: Scenario
+    // Fork a registered scenario into the scene (spec 078; a string name since spec 083): materialise its entities
+    // and run its cue **beside** the rest, which is `Fork`'s construct. It names a scenario as a plain string — the
+    // library that resolves it (`world/ScenarioRegistry.fs`) is compiled after this file, exactly as `SetZone` names
+    // a place before `ZoneRegistry` exists — and it is a runtime effect, like every cue op.
+    | ForkScenario of scenario: string
 
 // ── Forking ──
 

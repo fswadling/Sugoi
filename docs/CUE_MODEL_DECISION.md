@@ -322,7 +322,8 @@ carries its own ↶ ↷ so the shortcut is not the only way in. The cost, stated
 chronology** across scopes. That is accepted, because a merged history would break "an undo applies in the zone
 it was made in".
 
-The same rule then serves **advents and the scenario library** (phases 10–11), which are non-zone-scoped for the
+The same rule then serves **advents and the scenario library** (phases 10–11; the library became a string-keyed
+ordered map in `specs/083-scenario-strings`), which are non-zone-scoped for the
 same reason.
 
 ## Invariants

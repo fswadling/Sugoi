@@ -17,7 +17,6 @@ open System
 open System.Numerics
 open Prime
 open Cue
-open Scenario
 
 // ── what the cue looks like ──
 
@@ -87,7 +86,7 @@ let private label (cue: Cue) : string =
     | Exposit (text, _) -> "Exposit: " + text
     | SetZone place -> "Zone: " + place
     | RemoveZone place -> "Remove zone: " + place
-    | ForkScenario scenario -> "Fork scenario: " + Scenario.scenarioName scenario
+    | ForkScenario scenario -> if scenario = "" then "Fork scenario" else "Fork scenario: " + scenario
     | AddActor (place, actor, asset, waypoint) ->
         sprintf "Add actor: %s/%s in %s @ %s" actor asset (place) waypoint
     | RemoveActor (place, actor) -> sprintf "Remove actor: %s in %s" actor (place)
@@ -340,7 +339,7 @@ let defaultOfKind (place: string) (kind: string) : Cue =
     | "Remove advent" -> RemoveAdvent ""
     | "Await" -> Await ""
     | "If" -> If("", Fin, Fin)
-    | "Fork scenario" -> ForkScenario (List.head Scenario.all)
+    | "Fork scenario" -> ForkScenario ""
     | _ -> FlyCamera(place, "", 1.0)
 
 /// The node's editable text, or `ValueNone` when it has none. The field that edits it belongs to the caller
@@ -456,7 +455,7 @@ let withPlace (place: string) (cue: Cue) : Cue =
     | _ -> invalidOp (sprintf "CueTree: a %s carries no place" (label cue))
 
 /// The node with its scenario replaced — the write the scenario chooser commits. Only `ForkScenario` carries one.
-let withScenario (scenario: Scenario) (cue: Cue) : Cue =
+let withScenario (scenario: string) (cue: Cue) : Cue =
     match cue with
     | ForkScenario _ -> ForkScenario scenario
     | _ -> invalidOp (sprintf "CueTree: a %s carries no scenario" (label cue))

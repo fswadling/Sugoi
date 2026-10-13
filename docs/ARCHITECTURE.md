@@ -175,14 +175,15 @@ parsed from s-syntax manifests, keyed by `id`.
 
 - `Scenario_Library` → `Scenario` = fixed zones of authoring data plus a
   `cue_root`. Scenarios are immutable at runtime (heap maps, off hot path). It lives on the
-  **gameplay screen** (`specs/070-scenario-library`): the vocabulary is a closed union
-  (`world/Scenario.fs`), and the captured contents are keyed by it in `world/ScenarioRegistry.fs`.
-  A scenario holds every present zone as a ref-free `ScenarioZone` (`world/ScenarioZone.fs` — a zone's **narrative
-  entities** as arrays of authored states: actors, waypoints with their chains by index, and triggers; deliberately
-  **not** the `ZoneContents` a delete carries, which keeps zone-scoped refs) and the cue. Its zones carry no
-  **staging** — no environment, light, player designation or placed props (`specs/076-scenario-narrative-only`), and
-  the contents carry no active place: those are the place's (the Zone Registry's template) or the runtime state's.
-  Registering or clearing one is a step on the one undo history. **Running** one is **forking** it into the scene
+  **gameplay screen** (`specs/070-scenario-library`): a scenario is a plain **string name** and the contents are
+  keyed by it in `world/ScenarioRegistry.fs`, an ordered map (Prime's `OMap`) iterating in the order names were
+  added — there is **no closed vocabulary**, so `world/Scenario.fs` is retired (`specs/083-scenario-strings`).
+  A scenario holds every present zone as a ref-free `ScenarioZone` (`world/ScenarioZone.fs` — a zone's **staging**
+  and its **narrative entities** as arrays of authored states: actors, waypoints with their chains by index, and
+  triggers; deliberately **not** the `ZoneContents` a delete carries, which keeps zone-scoped refs) and the cue. Its
+  zones carry their staging (`specs/079-scenario-owned-zones`), and the contents carry no active place: that is the
+  place's or the runtime state's.
+  Adding, deleting, registering or clearing one is a step on the one undo history. **Running** one is **forking** it into the scene
   (`specs/078-fork-scenario`): `world/ScenarioFork.fs` appends the scenario's entities into its places (creating
   absent ones from the Zone Registry's template, without entering them) and returns the commands that reverse them,
   so the **Scenario** panel's **Fork** control is one undoable step while the `ForkScenario` cue op is a runtime

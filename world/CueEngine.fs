@@ -465,7 +465,7 @@ let rec advance
         // scenario, or one whose target zone lacks room, performs nothing and reports why.
         match ScenarioRegistry.tryContents scenario state.Scenarios with
         | None ->
-            do noOp "ForkScenario" (Scenario.scenarioName scenario) "it is not registered"
+            do noOp "ForkScenario" scenario "it is not registered"
             ValueSome Fin
         | Some contents ->
         match ScenarioFork.materialise shared &state contents with

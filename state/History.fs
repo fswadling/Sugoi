@@ -71,10 +71,10 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     // The adventure flags are not a zone's either: the step writes `SharedState.Advents`, so the state-level
     // runner carries it as it carries `SetCue` (spec 055 FR-007; the set is a set of names since spec 082).
     | Advent (_, next) -> shared.Advents <- next
-    // The scenario library is not a zone's either: the step files or removes one entry (spec 070), so the
-    // state-level runner carries it as it carries the adventure flags. The library lives on the gameplay state,
-    // beside the zones.
-    | SetScenario (name, _, next) -> ScenarioRegistry.setContents name next state.Scenarios
+    // The scenario library is not a zone's either: the step writes the whole library (spec 070; string-keyed
+    // since spec 083), so the state-level runner carries it as it carries the adventure flags. The library lives on
+    // the gameplay state, beside the zones.
+    | SetScenario (_, next) -> state.Scenarios <- next
     // A content command names its own place: resolve it to its zone so the step acts on its own place rather
     // than the active one (spec 077). A step that names no place cannot reach here; an absent place is a broken
     // invariant, because LIFO reaches a step while its place is still present.
@@ -133,7 +133,7 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
             skip "undo" cmd (sprintf "the place '%s' is not present" name)
     | SetCue (previous, _) -> state.Cue <- previous
     | Advent (previous, _) -> shared.Advents <- previous
-    | SetScenario (name, previous, _) -> ScenarioRegistry.setContents name previous state.Scenarios
+    | SetScenario (previous, _) -> state.Scenarios <- previous
     | Batch commands ->
         // Backwards, through the state-level runner, so a mixed batch reverses in dependency order.
         for cmd in List.rev commands do undo shared &state cmd

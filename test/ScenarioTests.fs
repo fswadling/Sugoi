@@ -1,15 +1,15 @@
 module ScenarioTests
 
-// The scenario library (spec 070), asserted headlessly: the vocabulary, the capture, and the registration step
-// on the one history. Nothing here opens a window, a GPU or a device — the capture is pure over the zones it is
-// handed, and the step writes the state-level library, so both are checkable with no device.
+// The scenario library (spec 070; string-keyed since spec 083), asserted headlessly: the ordered library, the
+// capture, add/delete/clear/register, and the one step on the one history. Nothing here opens a window, a GPU or a
+// device — the capture is pure over the zones it is handed, and the step writes the state-level library, so both are
+// checkable with no device.
 
 open Xunit
 open System
 open System.Collections.Generic
 open Command
 open Entity
-open Scenario
 open ScenarioRegistry
 
 // ── fixtures ──
@@ -38,9 +38,9 @@ let private sharedState () : SharedState.SharedState =
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
       Advents = Advent.empty }
 
-/// Register the current scene under `Intro`, the way the panel's Register control does.
+/// Register the current scene under `"Intro"`, the way the panel's Register control does — one `SetScenario` step.
 let private register (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    do ScenarioPanel.commit shared &state Intro (Some (capture state.Zones state.Cue))
+    do ScenarioPanel.commit shared &state (setContents "Intro" (Some (capture state.Zones state.Cue)) state.Scenarios)
 
 let private raises (f: unit -> unit) : bool =
     try
@@ -49,13 +49,47 @@ let private raises (f: unit -> unit) : bool =
     with _ ->
         true
 
-// A scenario zone carrying just its actors (an empty zone otherwise).
-
-// ══════ the vocabulary (FR-003) ══════
+// ══════ the library (FR-001, FR-007) ══════
 
 [<Fact>]
-let ``the declared set is enumerated in declaration order`` () =
-    Assert.Equal<string list>([ "Intro" ], all |> List.map scenarioName)
+let ``a fresh library is empty, and names reads insertion order`` () =
+    Assert.Empty(names (create ()))
+    let lib = add "A" (add "B" (add "C" (create ())))
+    Assert.Equal<string list>([ "C"; "B"; "A" ], names lib)
+
+[<Fact>]
+let ``adding records a name; a duplicate add is a no-op and never clears registered contents`` () =
+    let lib = add "Intro" (create ())
+    Assert.True(exists "Intro" lib)
+    Assert.True((tryContents "Intro" lib).IsNone) // named, not yet registered
+
+    // a repeated add of an unregistered name changes nothing
+    Assert.Equal<string list>([ "Intro" ], names (add "Intro" lib))
+
+    // a repeated add of a *registered* name leaves its contents alone (FR-007, edge case)
+    let contents = { Zones = Map.empty; Cue = Cue.Fin }
+    let registered = setContents "Intro" (Some contents) lib
+    let afterDup = add "Intro" registered
+    Assert.Equal<string list>([ "Intro" ], names afterDup)
+    Assert.Equal<ScenarioContents option>(Some contents, tryContents "Intro" afterDup)
+
+[<Fact>]
+let ``a name is trimmed, and case is exact`` () =
+    Assert.Equal("MetAiko", normalise " MetAiko ")
+    // "intro" and "Intro" are different scenarios
+    let lib = add "intro" (add "Intro" (create ()))
+    Assert.Equal<string list>([ "Intro"; "intro" ], names lib)
+
+[<Fact>]
+let ``canAdd refuses a blank name and one already present`` () =
+    let empty = create ()
+    Assert.False(canAdd "" empty)
+    Assert.False(canAdd "   " empty) // blank after trimming
+    Assert.True(canAdd "Intro" empty)
+    Assert.True(canAdd "  Intro  " empty) // trimmed to a valid name
+    // a name already present (registered or merely named) cannot be added again
+    Assert.False(canAdd "Intro" (add "Intro" empty))
+    Assert.False(canAdd "  Intro  " (add "Intro" empty))
 
 // ══════ the capture (FR-002, FR-009, SC-003) ══════
 
@@ -95,7 +129,7 @@ let ``a captured zone is ref-free: waypoint chains become indices`` () =
         [| { Base = entity "a"; Next = Some 1 }
            { Base = entity "b"; Next = None } |]
     Assert.Equal<ScenarioZone.ScenarioWaypoint>(expected, captured.Waypoints)
-    // The narrative entities are captured; the zone's staging (environment, light, player) is not.
+    // The narrative entities are captured; the zone's staging is not part of the narrative test here.
     Assert.Equal(1, Array.length captured.Actors)
     Assert.Equal("pupil", captured.Actors.[0].Base.Name)
     Assert.Equal(1, Array.length captured.Triggers)
@@ -131,19 +165,45 @@ let ``a place with no narrative entities is captured as an empty scenario zone``
     Assert.Equal(0, Array.length island.Waypoints)
     Assert.Equal(0, Array.length island.Triggers)
 
+// ══════ register / clear / delete (FR-003, FR-004, FR-005) ══════
+
 [<Fact>]
-let ``register files the scene and clear empties it`` () =
+let ``register files the scene; clear empties it but keeps the name; delete removes the name`` () =
     let shared = sharedState ()
     let mutable state = newState ()
-    Assert.True(Option.isNone (tryContents Intro state.Scenarios))
+    Assert.True((tryContents "Intro" state.Scenarios).IsNone)
 
+    // panel Add: name a scenario with no contents
+    do ScenarioPanel.commit shared &state (add (normalise " Intro ") state.Scenarios)
+    Assert.Equal<string list>([ "Intro" ], names state.Scenarios)
+
+    // panel Register: file the current scene under it
     do register shared &state
-    Assert.True(Option.isSome (tryContents Intro state.Scenarios))
+    Assert.True((tryContents "Intro" state.Scenarios).IsSome)
 
-    do ScenarioPanel.commit shared &state Intro None
-    Assert.True(Option.isNone (tryContents Intro state.Scenarios))
+    // panel Clear: empty the contents, keep the name
+    do ScenarioPanel.commit shared &state (setContents "Intro" None state.Scenarios)
+    Assert.True((tryContents "Intro" state.Scenarios).IsNone)
+    Assert.Equal<string list>([ "Intro" ], names state.Scenarios)
 
-// ══════ the step on one history (FR-004, FR-005, FR-011) ══════
+    // panel Delete: remove the name and any contents
+    do ScenarioPanel.commit shared &state (remove "Intro" state.Scenarios)
+    Assert.Empty(names state.Scenarios)
+
+[<Fact>]
+let ``a registration survives a zone switch`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    do register shared &state
+    let filed = tryContents "Intro" state.Scenarios
+    Assert.True(filed.IsSome)
+
+    // make a second place present and active; the library is the gameplay state's, not a zone's
+    do GameplayState.addZone shared &state "Island"
+    Assert.Equal("Island", state.ActiveZone)
+    Assert.Equal(filed, tryContents "Intro" state.Scenarios)
+
+// ══════ the step on one history (FR-010, FR-011) ══════
 
 [<Fact>]
 let ``register records one step, and undo and redo round-trip it`` () =
@@ -154,19 +214,34 @@ let ``register records one step, and undo and redo round-trip it`` () =
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
 
     do History.undoHistory shared &state
-    Assert.True(Option.isNone (tryContents Intro state.Scenarios))
+    Assert.True((tryContents "Intro" state.Scenarios).IsNone)
     Assert.Equal(0, List.length state.Editor.Undo.Applied)
 
     do History.redoHistory shared &state
-    Assert.True(Option.isSome (tryContents Intro state.Scenarios))
+    Assert.True((tryContents "Intro" state.Scenarios).IsSome)
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
+
+[<Fact>]
+let ``an add and a delete are each one step`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+
+    do ScenarioPanel.commit shared &state (add "Intro" state.Scenarios)
+    Assert.Equal(1, List.length state.Editor.Undo.Applied)
+    do ScenarioPanel.commit shared &state (remove "Intro" state.Scenarios)
+    Assert.Equal(2, List.length state.Editor.Undo.Applied)
+
+    do History.undoHistory shared &state
+    Assert.Equal<string list>([ "Intro" ], names state.Scenarios)
+    do History.undoHistory shared &state
+    Assert.Empty(names state.Scenarios)
 
 [<Fact>]
 let ``undo of a re-registration restores the previous contents, not nothing`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let capturedWaypoints (s: GameplayState.GameplayState) : int =
-        match tryContents Intro s.Scenarios with
+        match tryContents "Intro" s.Scenarios with
         | Some contents -> Array.length (Map.find GameplayState.startZone contents.Zones).Waypoints
         | None -> -1
 
@@ -185,13 +260,13 @@ let ``undo of a clear restores the contents it held`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     do register shared &state
-    let filed = tryContents Intro state.Scenarios
+    let filed = tryContents "Intro" state.Scenarios
 
-    do ScenarioPanel.commit shared &state Intro None
-    Assert.True(Option.isNone (tryContents Intro state.Scenarios))
+    do ScenarioPanel.commit shared &state (setContents "Intro" None state.Scenarios)
+    Assert.True((tryContents "Intro" state.Scenarios).IsNone)
 
     do History.undoHistory shared &state
-    Assert.Equal(filed, tryContents Intro state.Scenarios)
+    Assert.Equal(filed, tryContents "Intro" state.Scenarios)
 
 [<Fact>]
 let ``registering disturbs nothing in the scene`` () =
@@ -222,18 +297,18 @@ let ``a registration carries the zone's light but not its player`` () =
     let handle = zone.Actors.Add(actor "pupil")
 
     do register shared &state
-    let first = tryContents Intro state.Scenarios
+    let first = tryContents "Intro" state.Scenarios
 
     // The player designation is not staging: changing it alone leaves the capture as it was (spec 079).
     zone.Player <- ValueSome handle
     do register shared &state
-    let afterPlayer = tryContents Intro state.Scenarios
+    let afterPlayer = tryContents "Intro" state.Scenarios
     Assert.Equal<ScenarioContents option>(first, afterPlayer)
 
     // The light IS staging now (spec 079): changing it changes the capture.
     zone.Light <- { zone.Light with Pitch = 90.0f }
     do register shared &state
-    let afterLight = tryContents Intro state.Scenarios
+    let afterLight = tryContents "Intro" state.Scenarios
     Assert.NotEqual<ScenarioContents option>(afterPlayer, afterLight)
 
 [<Fact>]
@@ -241,7 +316,6 @@ let ``the zone-level runner refuses a scenario step, which is state-level`` () =
     let shared = sharedState ()
     let mutable state = newState ()
     let zone = GameplayState.activeZone state
-    let step = SetScenario (Intro, None, None)
+    let step = SetScenario (create (), create ())
     Assert.True(raises (fun () -> Command.apply zone state.Physics shared.Assets step))
     Assert.True(raises (fun () -> Command.undo zone state.Physics shared.Assets step))
-

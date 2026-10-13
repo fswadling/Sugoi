@@ -138,9 +138,8 @@ fsharp-game/
 │   ├── Zone.fs                 #   zone + an Environment owning its parts map; owns its batch; the authored
 │   │                           #     contents a delete carries, `ZoneContents` (spec 048)
 │   ├── ZoneRegistry.fs         #   the game's places, and the zone registered at each
-│   ├── Scenario.fs             #   the game's scenarios, a closed union (spec 070)
-│   ├── ScenarioZone.fs         #   a zone as a scenario holds it: narrative entities, ref-free, chains by index (specs 070, 076)
-│   ├── ScenarioRegistry.fs     #   the contents captured under each scenario (spec 070)
+│   ├── ScenarioZone.fs         #   a zone as a scenario holds it: staging + narrative entities, ref-free, chains by index (specs 070, 079)
+│   ├── ScenarioRegistry.fs     #   the scenario library: an ordered map keyed by name (spec 070/083)
 │   ├── Assets.fs               #   asset manager + manifests
 │   ├── Actor.fs                #   IQM model + morphs
 │   ├── ActorAsset.fs           #   actor asset record
@@ -153,7 +152,6 @@ fsharp-game/
 │   ├── PromptRender.fs         #   the interact prompt view + its layout (pure)
 │   ├── Cue.fs                  #   the cue: one type, the vocabulary, its run and forkInto (spec 046/058)
 │   ├── CueEngine.fs            #   advance / tick (spec 046; compiled after state/)
-│   ├── Scenario.fs             #   the game's scenarios, a closed union (spec 070)
 │   ├── Systems.fs              #   named play-mode systems
 │   └── Project.fs              #   DTO persistence (project.json) (planned)
 ├── state/                      # app/screen + editor-command state
@@ -179,7 +177,7 @@ fsharp-game/
 │   ├── Inspector.fs            #   single editing surface for the selection
 │   ├── AssetBrowser.fs
 │   ├── ZoneRegistryPanel.fs    #   the places tree: register a zone against one, instantiate one
-│   ├── ScenarioPanel.fs        #   the scenarios: register the current scene under one, clear it (spec 070)
+│   ├── ScenarioPanel.fs        #   the scenarios: a name field + Add, and register/clear/fork/delete per row (spec 070/083)
 │   ├── DialoguePanel.fs        #   the dialogue authoring surface (direct write)
 │   ├── AdventPanel.fs          #   the milestone list editor (spec 055/082), docked right: a name + Add, and a Remove per row; one Advent step each
 │   ├── MiscPanel.fs            #   the Miscellaneous panel (spec 059), docked right: game-wide runtime tuning (the fade level)

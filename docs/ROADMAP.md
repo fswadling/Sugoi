@@ -331,15 +331,16 @@ the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`. The ca
 **Goal**: assemble scenarios from zones + cast + cues.
 
 **Deliverables**
-- `world/Scenario.fs` — the scenarios, a closed union; `world/ScenarioZone.fs` — a zone as a scenario holds it
-  (its **staging** — environment, light and placed props — plus its narrative entities as arrays of authored
-  actor/waypoint/trigger states, with waypoint chains by index); `world/ScenarioRegistry.fs` — the contents captured
-  under each: a scenario = every present zone (each a `ScenarioZone`) + the cue (immutable at runtime). *(the library
-  and its panel are `specs/070-scenario-library`; the staging was restored to the scenario by
-  `specs/079-scenario-owned-zones`)*
-- `editor/ScenarioPanel.fs` — the scenarios, one row each, with **Register** (file the current scene), **Clear**
-  and **Fork** (run it), all steps on the one undo history. *(complete — `specs/070-scenario-library`,
-  `specs/078-fork-scenario`)*
+- `world/ScenarioRegistry.fs` — the scenario library: an ordered map (Prime's `OMap`) keyed by scenario **name**, from
+  name to its captured contents (a scenario = every present zone, each a `ScenarioZone`, + the cue; immutable at
+  runtime). `world/ScenarioZone.fs` — a zone as a scenario holds it (its **staging** — environment, light and placed
+  props — plus its narrative entities as arrays of authored actor/waypoint/trigger states, with waypoint chains by
+  index). `world/Scenario.fs`, the closed vocabulary union, is **retired**. *(the library and its panel are
+  `specs/070-scenario-library`; string-keyed since `specs/083-scenario-strings`; the staging was restored to the
+  scenario by `specs/079-scenario-owned-zones`)*
+- `editor/ScenarioPanel.fs` — the scenarios, one row each, named by hand: a text field + **Add**, and each row's
+  **Register** (file the current scene), **Clear**, **Fork** (run it) and **Delete**, all steps on the one undo
+  history. *(complete — `specs/070-scenario-library`, `specs/078-fork-scenario`, `specs/083-scenario-strings`)*
 - `world/ScenarioFork.fs` — the materialiser both entry points call (the `ForkScenario` cue op and the panel's Fork
   control): it ensures each zone by name (creating and staging an absent one, restaging a present one), appends its
   entities, and returns the commands that reverse it. *(`specs/078-fork-scenario`, `specs/079-scenario-owned-zones`)*
@@ -487,11 +488,12 @@ PBR → physics → walk around). After that, the content-authoring path is
 
 ## Next step
 
-**Phase 11 — scenarios own their zones**: a **scenario** is the primary unit of authoring. It carries each of its
-zones' **staging** (environment, light and placed props) as well as their narrative entities, and a zone is
-addressed by a **name** (`specs/079-scenario-owned-zones`). The **Scenario** panel files the current scene, clears
-it and **forks** it — ensuring each zone by name (creating and staging, or restaging a present one), appending its
-entities and forking its cue — each a step on the one undo history (`specs/070`, `specs/078`, `specs/079`). The Zone
-Registry and the closed `Place` union are **retired**. What remains of the deferred cue families is odin's other
-scenario ops (`InlineScenario`/`ClearScenario`) and the camera-follow / interaction toggles. (Phase 10 is complete;
-phase 12 is retired by 079.)
+**Phase 11 — scenarios own their zones**: a **scenario** is the primary unit of authoring. It is a plain **string
+name** and it carries each of its zones' **staging** (environment, light and placed props) as well as their narrative
+entities; a zone is addressed by a **name** (`specs/079-scenario-owned-zones`, `specs/083-scenario-strings`). The
+**Scenario** panel names scenarios by hand (Add/Delete) and files the current scene, clears it and **forks** it —
+ensuring each zone by name (creating and staging, or restaging a present one), appending its entities and forking its
+cue — each a step on the one undo history (`specs/070`, `specs/078`, `specs/079`, `specs/083`). The Zone Registry and
+the closed `Place` union are **retired**, and the scenario library is a string-keyed ordered map with no closed
+vocabulary. What remains of the deferred cue families is odin's other scenario ops (`InlineScenario`/`ClearScenario`)
+and the camera-follow / interaction toggles. (Phase 10 is complete; phase 12 is retired by 079.)

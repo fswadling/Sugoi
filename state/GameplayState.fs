@@ -29,9 +29,10 @@ type GameplayState =
       // The gameplay state's zones, keyed by their name (spec 079). A zone is either present (it has an
       // entry here) or absent; the active zone is always present.
       Zones : Dictionary<string, Zone.Zone>
-      // The scenario library (spec 070): the contents captured under each scenario. Only the gameplay
-      // screen and its editor read it.
-      Scenarios : ScenarioRegistry.Registry
+      // The scenario library (spec 070; a string-keyed ordered library since spec 083): the contents captured
+      // under each scenario, keyed by its name. Only the gameplay screen and its editor read it. Mutable because
+      // a change produces a new library value.
+      mutable Scenarios : ScenarioRegistry.Registry
       // The physics world: one Jolt world shared by every zone (a zone keeps only its body→entity
       // map), owned here beside the zones because only the gameplay screen simulates. A zone never
       // holds it — `Zone.*` receives it as a parameter, so there is one world for the whole game.

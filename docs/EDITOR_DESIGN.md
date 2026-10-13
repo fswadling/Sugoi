@@ -49,10 +49,11 @@ separate screens. Scenario and Zone Registry dock as tabs in
 the **left** panel (alongside the Outliner) and are shown by default:
 
 - **Advent** — the story milestones as an ordered **string set** (spec 082), edited by naming one and adding it or removing it (spec 055), docked on the **right**.
-- **Scenario** — the game's scenarios, one row each: **Register** files the current scene's zones (each with
-  its staging and its narrative entities) and the cue under the scenario, **Clear** empties it, and **Fork** runs
-  it — ensuring and restaging the scenario's zones, appending its entities and forking its cue, as one step on the
-  one history (specs 070, 078, 079).
+- **Scenario** — the game's scenarios, one row each, named by hand: a text field + **Add** names one, **Delete**
+  removes it, **Register** files the current scene's zones (each with its staging and its narrative entities) and the
+  cue under it, **Clear** empties it but keeps the name, and **Fork** runs it — ensuring and restaging the
+  scenario's zones, appending its entities and forking its cue, as one step on the one history (specs 070, 078, 079;
+  a scenario is a plain string and the library is an ordered map since `specs/083-scenario-strings`).
 - **Zone Registry** — **retired** (`specs/079-scenario-owned-zones`): a scenario owns its zones' staging, zones are
   addressed by **name**, and the store and its panel are gone. The active zone's environment is set in the Asset
   Browser (a `SetEnvironment` step) and its light in the Inspector.
@@ -413,6 +414,6 @@ rest are in `editor/`.
 | `AdventPanel` / `AssetBrowser` | docked list panels |
 | `MiscPanel` | the right-docked Miscellaneous panel: game-wide runtime tuning (the fade level is its first control) |
 | `CueEditor` / `CueTree` | the cue panel (right column, beside the Inspector) + the shared recursive cue-tree control |
-| `ScenarioPanel` | the scenario panel (register / clear / fork) |
+| `ScenarioPanel` | the scenario panel (add/delete · register / clear / fork) |
 | `Command` | undoable editor commands |
 | `Raycast` | screen-ray picking math |

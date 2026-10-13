@@ -26,7 +26,6 @@ open CueEditor
 open Entity
 open Physics
 open Advent
-open Scenario
 
 // ── fixtures ──
 
@@ -75,7 +74,7 @@ let rec private describe (cue: Cue) : string =
     | RemoveAdvent m -> sprintf "Remove(%s)" m
     | Await m | AwaitState m -> sprintf "Await(%s)" m
     | If (m, _, _) -> sprintf "If(%s)" m
-    | ForkScenario scenario -> sprintf "ForkScenario(%s)" (Scenario.scenarioName scenario)
+    | ForkScenario scenario -> sprintf "ForkScenario(%s)" scenario
 
 let private raises (f: unit -> unit) : bool =
     try
@@ -191,7 +190,7 @@ let ``every kind's row says what it is, and a leaf in flight as the op it came f
     Assert.Equal("Await: MetAiko", labelOf (Await "MetAiko"))
     Assert.Equal("Await: MetAiko", labelOf (AwaitState "MetAiko"))
     Assert.Equal("If: MetAiko", labelOf (If("MetAiko", Fin, Fin)))
-    Assert.Equal("Fork scenario: Intro", labelOf (ForkScenario Intro))
+    Assert.Equal("Fork scenario: Intro", labelOf (ForkScenario "Intro"))
     // an unnamed op drops the colon: its label is the op alone (a name need not be chosen yet)
     Assert.Equal("Add", labelOf (AddAdvent ""))
     Assert.Equal("Await", labelOf (Await ""))
@@ -213,19 +212,19 @@ let ``a chosen advent kind defaults to an empty milestone`` () =
 
 [<Fact>]
 let ``the scenario op carries no children or place, and its authoring round-trips`` () =
-    Assert.Equal<Cue list>([], children (ForkScenario Intro))
-    Assert.True((placeOf (ForkScenario Intro)).IsNone)
+    Assert.Equal<Cue list>([], children (ForkScenario "Intro"))
+    Assert.True((placeOf (ForkScenario "Intro")).IsNone)
 
-    // a chosen scenario defaults to the first declared one
+    // a chosen scenario defaults to an empty name (there is no vocabulary to default from)
     match defaultOfKind GameplayState.startZone "Fork scenario" with
-    | ForkScenario s -> Assert.Equal(Intro, s)
+    | ForkScenario s -> Assert.Equal("", s)
     | other -> Assert.Fail(sprintf "expected a ForkScenario, got %A" other)
 
     // the chooser's write replaces the scenario, and refuses any other node
-    match withScenario Intro (ForkScenario Intro) with
-    | ForkScenario s -> Assert.Equal(Intro, s)
+    match withScenario "Intro" (ForkScenario "Intro") with
+    | ForkScenario s -> Assert.Equal("Intro", s)
     | _ -> Assert.Fail "withScenario should rebuild a ForkScenario"
-    Assert.True(raises (fun () -> withScenario Intro (Wait 1.0) |> ignore))
+    Assert.True(raises (fun () -> withScenario "Intro" (Wait 1.0) |> ignore))
 
 [<Fact>]
 let ``a sequence inside a sequence is indented one deeper again, and a container's sides are siblings`` () =
