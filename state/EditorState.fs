@@ -126,7 +126,10 @@ type EditorState =
       TriggerCueEditing : bool
       TriggerCueTextBuffer2 : byte[]
       TriggerCueTextPath2 : int list option
-      TriggerCueTextEditing2 : bool }
+      TriggerCueTextEditing2 : bool
+      // The Songs panel's picker (spec 087): the music asset chosen in the dropdown but not yet added to the
+      // mix. Transient UI scaffolding for the widget; the mix it edits is a `SetMix` step on `Undo` above.
+      SongPick : string }
 
 let create () : EditorState =
     { Selection = None
@@ -166,4 +169,5 @@ let create () : EditorState =
       TriggerCueEditing = false
       TriggerCueTextBuffer2 = Array.zeroCreate cueTextBufferSize
       TriggerCueTextPath2 = None
-      TriggerCueTextEditing2 = false }
+      TriggerCueTextEditing2 = false
+      SongPick = "" }

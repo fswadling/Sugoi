@@ -747,6 +747,12 @@ let hasAudioFailed (manager: AssetManager) (assetId: AssetId) : bool =
     | true, asset -> (match asset.Residency with AudioAsset.Failed _ -> true | _ -> false)
     | false, _ -> false
 
+/// The discovered music assets' ids, sorted — the song panel's picker (spec 087): `Kind = Music`
+/// (spec 086). A failed music asset is still listed: it is a row the author may fix later.
+let musicNames (manager: AssetManager) : string list =
+    [ for KeyValue (id, asset) in manager.AudioAssets do if asset.Class = AudioAsset.Music then id ]
+    |> List.sort
+
 // Scan all asset kinds into the manager. Actors and props load eagerly; environments are recorded
 // from their manifests only, their models loaded on request (spec 053); audio loads eagerly (sounds
 // into memory, music as a probed reference, spec 086).

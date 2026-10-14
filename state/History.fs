@@ -80,6 +80,12 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     // since spec 083), so the state-level runner carries it as it carries the adventure flags. The library lives on
     // the gameplay state, beside the zones.
     | SetScenario (_, next) -> state.Scenarios <- next
+    // The music mix is not a zone's either: the step writes `SharedState.Mix` and brings the runtime decks
+    // in line with the new authored value (spec 087 D9), so a weight, loop, master or row-set change — or
+    // undoing one — is heard immediately on a playing row.
+    | SetMix (_, next) ->
+        shared.Mix <- next
+        Music.reconcile shared.Assets.Audio shared.Rack shared.Mix
     // A content command names its own place: resolve it to its zone so the step acts on its own place rather
     // than the active one (spec 077). A step that names no place cannot reach here; an absent place is a broken
     // invariant, because LIFO reaches a step while its place is still present.
@@ -141,6 +147,9 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
     | SetCue (previous, _) -> state.Cue <- previous
     | Advent (previous, _) -> shared.Advents <- previous
     | SetScenario (previous, _) -> state.Scenarios <- previous
+    | SetMix (previous, _) ->
+        shared.Mix <- previous
+        Music.reconcile shared.Assets.Audio shared.Rack shared.Mix
     | Batch commands ->
         // Backwards, through the state-level runner, so a mixed batch reverses in dependency order.
         for cmd in List.rev commands do undo shared &state cmd

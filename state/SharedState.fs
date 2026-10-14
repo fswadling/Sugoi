@@ -25,7 +25,12 @@ type SharedState =
       // The named adventure flags (spec 055; a string set since spec 082): story milestones a screen other
       // than the world may present or gate on, for the same reason. Mutable because the one undo history
       // writes it in place — a flag edit is a state-level step, as the cue's `SetCue` is (specs/048, 049).
-      mutable Advents : Advent.Set }
+      mutable Advents : Advent.Set
+      // The music bed (spec 087): the authored mix (rows, weights, loop flags, master) and the runtime
+      // decks. Game-wide, so music plays across a screen change; the decks are reconciled on every
+      // `SetMix` (specs/087 History) and freed in `Music.release` before the mixer (specs/087 Engine).
+      mutable Mix : Music.Mix
+      mutable Rack : Music.Rack }
 
 let create (gpu: Gpu.Gpu) : SharedState =
     // The mixer is brought up once and handed to the asset manager, which owns it (freed in
@@ -33,4 +38,6 @@ let create (gpu: Gpu.Gpu) : SharedState =
     let audio = Audio.create ()
     { Gpu = gpu
       Assets = Assets.scan "assets" gpu.Device audio
-      Advents = Advent.empty }
+      Advents = Advent.empty
+      Mix = Music.empty
+      Rack = Music.newRack () }

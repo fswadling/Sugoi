@@ -161,6 +161,10 @@ void cimgui_setup_dock_layout(ImGuiID dockspace_id)
     // The Dialogue authoring surface (spec 038): a tab beside the Asset Browser at the bottom,
     // next to the other authoring surfaces rather than in the left column.
     ImGui::DockBuilderDockWindow("Dialogue", bottom);
+    // The Songs panel (spec 087): the global music bed, a tab beside the Asset Browser and Dialogue at
+    // the bottom — a per-scene editing surface, neither a left-column place list nor a right-column
+    // single-selection editor.
+    ImGui::DockBuilderDockWindow("Songs", bottom);
     ImGui::DockBuilderFinish(dockspace_id);
 }
 

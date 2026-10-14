@@ -105,6 +105,11 @@ type Command =
     // zones — so it is a state-level step carried by `History` and never by the zone-level runner. The library is a
     // persistent ordered map, so the pair is a reference snapshot, and one shape covers every kind of edit.
     | SetScenario of Previous : ScenarioRegistry.Registry * Next : ScenarioRegistry.Registry
+    // The music mix was edited (spec 087): a weight, loop, master or row-set change, as a before/after pair
+    // of the whole mix — the mix is immutable, so the pair is a reference snapshot. Like `SetCue`, `Advent`
+    // and `SetScenario`, it is not a zone's (the mix is project-wide), so it is a state-level step carried by
+    // `History` and never by the zone-level runner.
+    | SetMix of Previous : Music.Mix * Next : Music.Mix
 
 // ── the place a command acts on ──
 
@@ -142,7 +147,8 @@ let placeOf (cmd: Command) : string option =
     | ZonesClear _
     | SetCue _
     | Advent _
-    | SetScenario _ ->
+    | SetScenario _
+    | SetMix _ ->
         None
 
 // ── apply / undo a single command ──
@@ -197,7 +203,8 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
     | ZonesClear _
     | SetCue _
     | Advent _
-    | SetScenario _ ->
+    | SetScenario _
+    | SetMix _ ->
         invalidOp "Command.apply: a state-level step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         for cmd in commands do apply zone physics assets cmd
@@ -249,7 +256,8 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
     | ZonesClear _
     | SetCue _
     | Advent _
-    | SetScenario _ ->
+    | SetScenario _
+    | SetMix _ ->
         invalidOp "Command.undo: a state-level step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         // Backwards, so the reversal of a mutation happens before the reversal of what it depended on.

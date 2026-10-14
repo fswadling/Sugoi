@@ -43,6 +43,7 @@ A single editor workspace with a menu bar and dockable panels (ImGui docking):
 | **Inspector** | right | the single editing surface: the selected item's properties (entity / scenario / zone entry); tabs with Cue, Advent and Miscellaneous |
 | **Asset Browser** | bottom | actors/environments/props; drag into the viewport to spawn |
 | **Dialogue** | bottom | the dialogue state put on screen by hand — shown, kind, speaker, expression, text (spec 038) |
+| **Songs** | bottom | the global music bed — add music assets, a row each with transport, a scrub, a weight and a loop toggle over one master (spec 087) |
 
 The sub-editors are dockable windows/tabs opened from a **Window** menu, not
 separate screens. Scenario and Zone Registry dock as tabs in
@@ -80,6 +81,12 @@ The **Dialogue** panel (spec 038) docks by exception as a tab beside the **Asset
 the 20 % left column would wrap it. Like Cast and the Zone Registry it writes the state it edits
 directly rather than through the Inspector (D-011), since the dialogue state is runtime screen state
 rather than a selection.
+
+The **Songs** panel (spec 087) docks at the **bottom** too, a tab beside the Asset Browser and the
+Dialogue: it is a wide, list-shaped surface — a picker and a row per song — rather than one selection,
+so the right column (and certainly the 20 % left column) would wrap it. Its weight, master, loop and
+row-set edits are `SetMix` steps on the one history (D-011); its transport and scrub are runtime and
+record nothing.
 
 The **Inspector** is the single editing surface (one selection → one Inspector):
 list panels navigate/select/add/delete, and the Inspector shows the selected

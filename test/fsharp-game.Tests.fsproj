@@ -18,6 +18,9 @@
     <!-- The audio-load logic (spec 086): discovery, the sound/music residency split, failure marking
          and release, asserted against a fake context (no device). -->
     <Compile Include="AudioTests.fs" />
+    <!-- The music mix logic (spec 087): gain composition, add/remove, the setters and the start rule,
+         plus the `SetMix` step on the one history — all device-free. -->
+    <Compile Include="MusicTests.fs" />
     <!-- The actor name index (spec 074): the speaker -> asset resolution, pure and device-free. -->
     <Compile Include="AssetNameIndexTests.fs" />
     <Compile Include="InputTests.fs" />

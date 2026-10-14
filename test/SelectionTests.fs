@@ -25,7 +25,9 @@ let private entity (name: string) : Entity =
 let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = Advent.empty }
+      Advents = Advent.empty
+      Mix = Music.empty
+      Rack = Music.newRack () }
 
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
     let zones = Dictionary<string, Zone.Zone>()

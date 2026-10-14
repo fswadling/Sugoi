@@ -58,6 +58,10 @@
          the mixer context; consumed by `world/`, so it sits below it (render -> audio -> world). -->
     <Compile Include="audio/AudioAsset.fs" />
     <Compile Include="audio/Audio.fs" />
+    <!-- The music model and deck rack (spec 087): the authored `Mix` and its pure edits, and the runtime
+         `Rack` of streaming decks. Names `Audio` only (never `Assets`/`SharedState`), so `state/` and
+         `editor/` resolve paths; listed after `Audio` for its deck handles. -->
+    <Compile Include="audio/Music.fs" />
     <!-- The dialogue state and its closed vocabulary (spec 038; the speaker became a string in spec 074).
          Pure — no GPU, no asset, no cast — so it sits before the actor and systems modules. -->
     <Compile Include="world/Dialogue.fs" />
@@ -147,6 +151,10 @@
     <!-- The dialogue authoring surface (spec 038): a panel of its own, because the dialogue
          state is not a selection and so cannot live in the Inspector. -->
     <Compile Include="editor/DialoguePanel.fs" />
+    <!-- The Songs panel (spec 087): the editor's music bed — add music assets to a global mix, one row
+         per song with transport, a scrub, a weight and a loop toggle over one master. Weight/master/loop
+         and the row set are `SetMix` steps on the one history; transport and scrub are runtime. -->
+    <Compile Include="editor/SongPanel.fs" />
     <Compile Include="editor/Editor.fs" />
     <Compile Include="screen/MainMenuScreen.fs" />
     <Compile Include="screen/GameplayScreen.fs" />

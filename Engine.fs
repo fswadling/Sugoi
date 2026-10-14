@@ -257,6 +257,9 @@ let run () : int =
     // ── Shut down ──
     do SDL.WaitForGPUIdle(device) |> ignore
     do Ui.release ui
+    // Free every music deck before the mixer they belong to (spec 087 FR-014): a `MIX_Track`/`MIX_Audio`
+    // must not outlive the `MIX_Mixer` that owns it.
+    do Music.release manager.Shared.Assets.Audio manager.Shared.Rack
     do Assets.release manager.Shared.Assets
     do DebugDraw.release gizmoDraw
     do DebugDraw.release debugDraw

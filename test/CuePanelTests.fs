@@ -100,7 +100,9 @@ let private sharedState () : SharedState.SharedState =
 
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = assets
-      Advents = Advent.empty }
+      Advents = Advent.empty
+      Mix = Music.empty
+      Rack = Music.newRack () }
 
 /// An actor placed directly in a zone, its renderer left default: enough for a `Transform` step, which rebuilds
 /// only the physics body and the authored state.

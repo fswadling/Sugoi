@@ -460,5 +460,9 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     // under one and a Clear control that empties it — each a `SetScenario` step on the one history.
     do ScenarioPanel.draw shared &state
     do DialoguePanel.draw shared &state
+    // The Songs panel (spec 087): the global music bed — add music assets, one row each with transport, a
+    // scrub, a weight and a loop toggle over one master. Docks at the bottom, beside the Asset Browser and
+    // Dialogue (`native/cimgui_sdl3.cpp`).
+    do SongPanel.draw shared &state
 
     transition
