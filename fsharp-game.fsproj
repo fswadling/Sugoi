@@ -54,6 +54,10 @@
          pipeline, one quad batch, and SDL_ttf text. Technology-only — it knows Gpu,
          Texture and the font, and nothing of characters or dialogue. -->
     <Compile Include="render/Ui.fs" />
+    <!-- Audio (spec 086): device/CPU, no GPU. The model first (`Residency` names `SoundHandle`), then
+         the mixer context; consumed by `world/`, so it sits below it (render -> audio -> world). -->
+    <Compile Include="audio/AudioAsset.fs" />
+    <Compile Include="audio/Audio.fs" />
     <!-- The dialogue state and its closed vocabulary (spec 038; the speaker became a string in spec 074).
          Pure — no GPU, no asset, no cast — so it sits before the actor and systems modules. -->
     <Compile Include="world/Dialogue.fs" />
@@ -171,6 +175,13 @@
        a single file. `DllImport("SDL3_ttf")` resolves it from the app dir. -->
   <Target Name="CopySdl3TtfLibrary" AfterTargets="Build" Condition="Exists('native/libSDL3_ttf.so')">
     <Copy SourceFiles="native/libSDL3_ttf.so" DestinationFolder="$(OutDir)" />
+  </Target>
+
+  <!-- Vendored SDL3_mixer native library (from ppy.sdl3_mixer-cs), matching the image/ttf pattern.
+       `DllImport("SDL3_mixer")` resolves libSDL3_mixer.so from the app dir; it links against the
+       system libSDL3.so.0, which is already how the core engine resolves SDL3. -->
+  <Target Name="CopySdl3MixerLibrary" AfterTargets="Build" Condition="Exists('native/libSDL3_mixer.so')">
+    <Copy SourceFiles="native/libSDL3_mixer.so" DestinationFolder="$(OutDir)" />
   </Target>
 
   <!-- Compiled line shader SPIR-V, loaded from disk at startup. Copied to the

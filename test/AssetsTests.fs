@@ -11,7 +11,7 @@ open TestSupport
 let ``scan with no asset directories returns empty collections`` () =
     let tmp = Directory.CreateTempSubdirectory "fsharp-game-assets-"
     try
-        let manager = Assets.scan tmp.FullName 0n
+        let manager = Assets.scan tmp.FullName 0n Audio.unavailable
         Assert.Equal(0, manager.Actors.Count)
         Assert.Equal(0, manager.Props.Count)
         Assert.Equal(0, manager.Environments.Count)
@@ -25,7 +25,7 @@ let ``scan skips a prop manifest with no model path`` () =
     try
         Directory.CreateDirectory(Path.Combine(tmp.FullName, "props")) |> ignore
         File.WriteAllText(Path.Combine(tmp.FullName, "props", "crate.manifest"), "[[Id \"crate\"] [Name \"Crate\"]]")
-        let manager = Assets.scan tmp.FullName 0n
+        let manager = Assets.scan tmp.FullName 0n Audio.unavailable
         Assert.Equal(0, manager.Props.Count)
     finally
         tmp.Delete(recursive = true)
@@ -36,7 +36,7 @@ let ``scan skips an environment manifest with no model path`` () =
     try
         Directory.CreateDirectory(Path.Combine(tmp.FullName, "environments")) |> ignore
         File.WriteAllText(Path.Combine(tmp.FullName, "environments", "art-room.manifest"), "[[Id \"art-room\"] [Name \"Art Room\"]]")
-        let manager = Assets.scan tmp.FullName 0n
+        let manager = Assets.scan tmp.FullName 0n Audio.unavailable
         Assert.Equal(0, manager.Environments.Count)
     finally
         tmp.Delete(recursive = true)
@@ -49,7 +49,7 @@ let ``scan skips an actor manifest with no model path`` () =
     try
         Directory.CreateDirectory(Path.Combine(tmp.FullName, "actors")) |> ignore
         File.WriteAllText(Path.Combine(tmp.FullName, "actors", "aiko.manifest"), "[[Id \"aiko\"] [Name \"Aiko\"]]")
-        let manager = Assets.scan tmp.FullName 0n
+        let manager = Assets.scan tmp.FullName 0n Audio.unavailable
         Assert.Equal(0, manager.Actors.Count)
     finally
         tmp.Delete(recursive = true)
@@ -102,7 +102,7 @@ let ``scan records an environment without parsing its model`` () =
         Directory.CreateDirectory(Path.Combine(tmp.FullName, "environments")) |> ignore
         File.WriteAllText(Path.Combine(tmp.FullName, "environments", "hall.manifest"), "[[Id \"hall\"] [Name \"Hall\"] [Model \"environments/hall/hall.gltf\"]]")
         // The model file deliberately does not exist: a metadata-only scan never reads it.
-        let manager = Assets.scan tmp.FullName 0n
+        let manager = Assets.scan tmp.FullName 0n Audio.unavailable
         Assert.Equal(1, manager.Environments.Count)
         Assert.True(manager.Environments.["hall"].Residency = NotLoaded)
         Assert.Equal(0, Lru.count manager.Cache)

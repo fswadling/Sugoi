@@ -57,6 +57,9 @@ The `.fsproj` compile list is ordered like this (abridged):
   <Compile Include="render/Mesh.fs" />
   <Compile Include="render/Camera.fs" />
   ...
+  <!-- audio (device/CPU, no GPU): consumed by world/, so it sits below it -->
+  <Compile Include="audio/AudioAsset.fs" />
+  <Compile Include="audio/Audio.fs" />
   <!-- world (the game domain: entities, zones, assets) -->
   <!-- the cue is listed before Entity.fs: a trigger owns a cue (spec 058) -->
   <Compile Include="world/Cue.fs" />
@@ -131,6 +134,9 @@ fsharp-game/
 │   ├── Shadow.fs               #   (planned)
 │   ├── SceneTarget.fs          #   offscreen FBO (planned)
 │   └── Exr.fs                  #   OpenEXR support (planned)
+├── audio/                      # device/CPU audio, no GPU: the mixer seam + the audio asset model
+│   ├── AudioAsset.fs           #   the audio asset: class (music/sound), residency, sound handle (spec 086)
+│   └── Audio.fs                #   the mixer context: load a sound / probe a track, and its lifecycle (spec 086)
 ├── world/                      # the game domain: entities, zones, assets
 │   ├── Entity.fs               #   entity kinds, EntityRef, transform, base
 │   ├── EnvironmentBatch.fs     #   per-zone static-scene instancing batch
@@ -210,6 +216,10 @@ fsharp-game/
   package and is copied into `runtimes/<rid>/native/` automatically.
 - **`render/`** — generic GPU/visual modules (device, buffers, camera, ImGui,
   debug-draw). Consumes `core/`.
+- **`audio/`** — device/CPU audio, no GPU: the `Audio.Context` mixer seam (bring up SDL audio +
+  SDL_mixer, load a sound into memory, probe a track) and the `AudioAsset` model (class, residency,
+  `SoundHandle`). Consumes `core/` and SDL3; consumed by `world/` (`Assets.scan`). Compiled after
+  `render/` and before `world/` (spec 086).
 - **`world/`** — the game domain: entities, zones, assets, and their domain
   renderers. Consumes `core/`, `physics/`, and `render/`.
 - **`state/`** — app/screen state and the undoable editor-command model. Consumes
@@ -222,7 +232,8 @@ fsharp-game/
 
 Dependency direction is strictly downward, matching the compile order:
 `Program`/`Engine` → `screen` → `editor` → `state` → `world` → `render` →
-`physics` → `core` → `SlotMap`. One cluster sits below that chain: `narrative/`
+`physics` → `core` → `SlotMap`. `audio/` sits beside `render/` (both consumed by `world/`):
+`world` → `audio` → `core`. One cluster sits below that chain: `narrative/`
 (below `core/`, and consumed by no other cluster yet), which holds the closed `Character` roster
 and consumes nothing.
 

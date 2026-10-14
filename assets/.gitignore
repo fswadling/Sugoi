@@ -1,0 +1,74 @@
+# The `assets/` tree is not versioned here: models, textures, audio, fonts and
+# video are large payloads, and the `*.manifest` files that describe them sit
+# beside them and are authored/generated locally too. Copy both from the source
+# distribution. Only docs (`*.md`) and text stay tracked, to describe the layout.
+#
+# This only filters *untracked* paths; already-committed assets stay tracked.
+# To stop tracking a payload that is already committed: `git rm --cached <path>`.
+
+# ── audio ──
+*.wav
+*.ogg
+*.oga
+*.mp3
+*.flac
+*.opus
+*.aif
+*.aiff
+*.m4a
+*.wma
+*.mod
+*.xm
+*.s3m
+*.it
+*.mid
+*.midi
+
+# ── models ──
+*.iqm
+*.gltf
+*.glb
+*.fbx
+*.obj
+*.mtl
+*.dae
+*.blend
+*.morphs
+*.bin
+
+# ── textures / images ──
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.bmp
+*.tga
+*.dds
+*.ktx
+*.ktx2
+*.webp
+*.psd
+*.exr
+*.hdr
+*.raw
+*.cbm
+*.cur
+
+# ── fonts ──
+*.ttf
+*.otf
+*.woff
+*.woff2
+
+# ── video ──
+*.mp4
+*.webm
+*.mov
+
+# ── asset metadata ──
+*.manifest
+
+# ── keep docs ──
+!*.md
+!*.txt

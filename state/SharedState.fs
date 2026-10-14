@@ -28,6 +28,9 @@ type SharedState =
       mutable Advents : Advent.Set }
 
 let create (gpu: Gpu.Gpu) : SharedState =
+    // The mixer is brought up once and handed to the asset manager, which owns it (freed in
+    // `Assets.release`). If audio is unavailable, scanning still runs and audio assets load failed.
+    let audio = Audio.create ()
     { Gpu = gpu
-      Assets = Assets.scan "assets" gpu.Device
+      Assets = Assets.scan "assets" gpu.Device audio
       Advents = Advent.empty }

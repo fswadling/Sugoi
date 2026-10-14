@@ -68,4 +68,6 @@ let manager
       ResidentBytes = 0L
       Pool = None
       Uploads = Dictionary<string, Assets.PendingUpload>()
-      PinnedIds = HashSet<string>() }
+      PinnedIds = HashSet<string>()
+      AudioAssets = Dictionary<string, AudioAsset.AudioAsset>()
+      Audio = Audio.unavailable }

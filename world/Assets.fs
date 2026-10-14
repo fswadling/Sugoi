@@ -80,6 +80,10 @@ type AssetManager =
       ActorsByName : Dictionary<string, ActorAsset.ActorAsset>
       Props : Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>
       Environments : Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>
+      // Audio (spec 086): the discovered audio assets, and the mixer context they load/probe through.
+      // The context is released in `release`, after every resident sound has been freed (FR-010).
+      AudioAssets : Dictionary<AssetId, AudioAsset.AudioAsset>
+      Audio : Audio.Context
       // Created on first use, so a headless scan (no assets, or no GPU) never allocates a texture.
       Loader : Lazy<Loader>
       // Residency of environment assets: the LRU order (head = most recently used) and the
@@ -673,9 +677,80 @@ let hasFailed (manager: AssetManager) (assetId: AssetId) : bool =
 let submeshes (manager: AssetManager) (assetId: AssetId) : EnvironmentAsset.LoadedSubmesh array =
     EnvironmentAsset.submeshes manager.Environments.[assetId]
 
-// Scan all asset kinds into the manager. Actors and props load eagerly; environments are
-// recorded from their manifests only, their models loaded on request (spec 053).
-let scan (root: string) (device: Gpu.Device) : AssetManager =
+// ── audio (spec 086) ──
+
+// The opt-in per-asset line (`FFS_AUDIO_DEBUG=1`), mirroring `FFS_LOAD_TIMING` (spec 053).
+let private audioDebug =
+    match Environment.GetEnvironmentVariable "FFS_AUDIO_DEBUG" with
+    | null -> false
+    | v -> v <> "" && v <> "0"
+
+let private audioManifestPaths (root: string) : string array =
+    let dir = Path.Combine(root, "audio")
+    if not (Directory.Exists dir) then Array.empty
+    else Directory.EnumerateFiles(dir, "*.manifest", SearchOption.AllDirectories) |> Seq.toArray
+
+// Load or probe one audio asset from its manifest. A malformed manifest, a missing source file or an
+// unknown class is an **authoring error** and raises, so the caller reports and skips (the asset is
+// not added). A source that cannot be decoded is a runtime failure: it is caught here, reported, and
+// the asset is built `Failed` so it still appears (FR-008).
+let private loadAudioAsset (audio: Audio.Context) (root: string) (manifestPath: string) : AudioAsset.AudioAsset =
+    let stem = Path.GetFileNameWithoutExtension manifestPath
+    let manifest = File.ReadAllText manifestPath |> scvalue<AudioAsset.Manifest>
+    let id = if String.IsNullOrEmpty manifest.Id then stem else manifest.Id
+    let name = if String.IsNullOrEmpty manifest.Name then id else manifest.Name
+    if String.IsNullOrEmpty manifest.File then
+        failwithf "audio asset '%s' names no source file" id
+    let classOf =
+        match manifest.Kind with
+        | "Music" -> AudioAsset.Music
+        | "Sound" -> AudioAsset.Sound
+        | other -> failwithf "audio asset '%s' has an invalid class '%s' (expected Music or Sound)" id other
+    let sourcePath = Path.GetFullPath(Path.Combine(root, manifest.File))
+    let residency =
+        try
+            match classOf with
+            | AudioAsset.Sound -> AudioAsset.Resident (audio.LoadSound sourcePath)
+            | AudioAsset.Music ->
+                do audio.Probe sourcePath
+                AudioAsset.Reference
+        with e ->
+            do Diagnostics.reportf "audio asset '%s': %s" id e.Message
+            AudioAsset.Failed e.Message
+    { Id = id; Name = name; Path = sourcePath; Class = classOf; Residency = residency }
+
+// One opt-in line per audio asset: id, class, resulting residency.
+let private reportAudio (asset: AudioAsset.AudioAsset) : unit =
+    let classText = match asset.Class with AudioAsset.Music -> "Music" | AudioAsset.Sound -> "Sound"
+    let residencyText =
+        match asset.Residency with
+        | AudioAsset.Resident _ -> "resident"
+        | AudioAsset.Reference -> "reference"
+        | AudioAsset.Failed message -> "failed: " + message
+    do printfn "audio %-14s | %-5s | %s" asset.Id classText residencyText
+
+// ── audio readouts (spec 086) ──
+
+/// The audio asset for an id (asserts presence).
+let audioAsset (manager: AssetManager) (assetId: AssetId) : AudioAsset.AudioAsset =
+    manager.AudioAssets.[assetId]
+
+/// Whether the asset's sound is decoded into memory (`Resident`). Absent ids are false.
+let isAudioResident (manager: AssetManager) (assetId: AssetId) : bool =
+    match manager.AudioAssets.TryGetValue assetId with
+    | true, asset -> AudioAsset.isResident asset
+    | false, _ -> false
+
+/// Whether the asset's load/probe failed.
+let hasAudioFailed (manager: AssetManager) (assetId: AssetId) : bool =
+    match manager.AudioAssets.TryGetValue assetId with
+    | true, asset -> (match asset.Residency with AudioAsset.Failed _ -> true | _ -> false)
+    | false, _ -> false
+
+// Scan all asset kinds into the manager. Actors and props load eagerly; environments are recorded
+// from their manifests only, their models loaded on request (spec 053); audio loads eagerly (sounds
+// into memory, music as a probed reference, spec 086).
+let scan (root: string) (device: Gpu.Device) (audio: Audio.Context) : AssetManager =
     let loader = lazy (createLoader device)
 
     let props = Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>()
@@ -702,12 +777,29 @@ let scan (root: string) (device: Gpu.Device) : AssetManager =
     let actors = loadActors loader root
     let actorsByName = indexByName actors
 
+    // Audio (spec 086): sounds decode into memory, music is probed and kept as a path. A malformed
+    // manifest or an authoring error is reported and skipped; a decode failure marks the asset failed.
+    let audioAssets = Dictionary<AssetId, AudioAsset.AudioAsset>()
+    for manifestPath in audioManifestPaths root do
+        let loaded =
+            try Some (loadAudioAsset audio root manifestPath)
+            with e ->
+                do Diagnostics.reportf "audio asset '%s': %s (skipped)" (Path.GetFileNameWithoutExtension manifestPath) e.Message
+                None
+        match loaded with
+        | Some asset ->
+            audioAssets.[asset.Id] <- asset
+            if audioDebug then do reportAudio asset
+        | None -> ()
+
     { Device = device
       Root = root
       Actors = actors
       ActorsByName = actorsByName
       Props = props
       Environments = environments
+      AudioAssets = audioAssets
+      Audio = audio
       Loader = loader
       Cache = Lru.create ()
       ResidentBytes = 0L
@@ -746,6 +838,14 @@ let release (manager: AssetManager) : unit =
         | None -> ()
         | Some morphs ->
         do Gpu.releaseBuffer actor.Mesh.Device morphs.Buffer
+
+    // Audio (spec 086): free every resident sound before releasing the mixer it belongs to (FR-010).
+    for KeyValue (_, asset) in manager.AudioAssets do
+        match asset.Residency with
+        | AudioAsset.Resident handle -> manager.Audio.FreeSound handle
+        | AudioAsset.Reference | AudioAsset.Failed _ -> ()
+    do manager.AudioAssets.Clear()
+    do Audio.release manager.Audio
 
 // Create the per-instance renderer for an actor asset id (the asset is already loaded at
 // startup).

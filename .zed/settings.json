@@ -3,5 +3,9 @@
     "F#": {
       "format_on_save": "off"
     }
-  }
+  },
+  // The `assets/` tree is gitignored (assets/.gitignore) but must stay visible in the project
+  // panel and file finder. `file_scan_inclusions` includes paths even when Git ignores them;
+  // `...` keeps Zed's defaults.
+  "file_scan_inclusions": ["assets/**", "..."]
 }

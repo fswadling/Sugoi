@@ -15,6 +15,9 @@
     <Compile Include="AssetLoadTests.fs" />
     <Compile Include="EntityTests.fs" />
     <Compile Include="AssetsTests.fs" />
+    <!-- The audio-load logic (spec 086): discovery, the sound/music residency split, failure marking
+         and release, asserted against a fake context (no device). -->
+    <Compile Include="AudioTests.fs" />
     <!-- The actor name index (spec 074): the speaker -> asset resolution, pure and device-free. -->
     <Compile Include="AssetNameIndexTests.fs" />
     <Compile Include="InputTests.fs" />
