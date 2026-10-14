@@ -285,6 +285,15 @@ unchanged, so the vertex path and the pose are untouched.
   horizontal facing (local `+Z` under the model matrix, flattened and normalized) plus the reference's
   `0.25` elevation — instead of the scene sun, so the face keeps constant banding as the actor turns.
   Only the band *direction* is idealized; the colours still come from the scene.
+- **The face switches as it turns away from the sun (spec 085).** A face that kept full brightness with
+  the sun behind it read as flatly lit, so the shader switches the face's band on the sun's azimuth:
+  with `toward` the azimuthal dot of the face's heading and the sun's horizontal direction, it
+  multiplies `band` by `smoothstep(-FACE_FADE_SOFTNESS, FACE_FADE_SOFTNESS, toward)` (`0.05` half-width).
+  Facing the sun the lit band is untouched; facing away it drops to the shadow band's ambient-only
+  brightness, so the whole face sits in shade — a two-tone switch at the 90° crossing, like the band
+  ramp, not a slow gradient. Both headings are compared with `Y` dropped (a zenith sun, or a face
+  pointing straight up/down, has no azimuth and keeps the full front light). The band *boundary* stays
+  fixed relative to the face throughout.
 - **One sampler, a lean 80-byte uniform.** Cel reads only the albedo map (`set = 2, binding = 0`);
   its fragment uniform (`set = 3, binding = 0`) is base colour, light dir/colour/ambient and the face
   vector — no normal/metallic-roughness/emissive factors and no camera position. Alpha is a test
