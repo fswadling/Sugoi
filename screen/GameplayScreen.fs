@@ -134,17 +134,18 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     if state.Editing then
         do Viewport.buildLines &state
     else
-        // Markers/gizmos only accumulate while editing; clear them so a
-        // switch to play mode doesn't linger the previous frame's overlay.
+        // Editor overlays only accumulate while editing; clear the markers/gizmo so a
+        // switch to play mode doesn't linger them. (The grid's own accumulator is
+        // emptied by `Viewport.drawGrid` on the same switch, spec 093.)
         state.GizmoDraw <- DebugDraw.clear state.GizmoDraw
 
     transition
 
-// Render the 3D scene: upload the grid + gizmo line vertices (copy passes),
-// then begin the scene render pass (clearing color + depth), draw the grid, the
-// props (placed assets + imported environment parts), the actors, and finally
-// the gizmo/marker lines (depth-tested so they are occluded by geometry in
-// front of them).
+// Render the 3D scene: upload the grid + gizmo line vertices (copy passes; the
+// grid's accumulator is empty while playing, spec 093), then begin the scene render
+// pass (clearing color + depth), draw the grid, the props (placed assets + imported
+// environment parts), the actors, and finally the gizmo/marker lines (depth-tested so
+// they are occluded by geometry in front of them).
 let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.GameplayState>) (pass: ScenePass) : unit =
     // ── per-frame buffers ──
     // Gather the static instances (CPU), then upload every per-frame buffer in copy

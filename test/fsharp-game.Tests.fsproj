@@ -61,6 +61,10 @@
          full-view coverage), asserted with no device. -->
     <Compile Include="FadeTests.fs" />
 
+    <!-- The reference grid's visibility (spec 093): the editor-only gate on the viewport's grid
+         accumulator — built while editing, emptied while playing — asserted with no device. -->
+    <Compile Include="ViewportTests.fs" />
+
     <!-- A zone's authored light (spec 043): the pitch/yaw -> direction derivation and the defaults
          that keep an unedited scene identical to the constant they replace. -->
     <Compile Include="LightTests.fs" />

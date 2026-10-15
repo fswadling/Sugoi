@@ -1,9 +1,10 @@
 module Viewport
 
-// The 3D viewport: renders entity markers and the active transform gizmo via
-// DebugDraw, and provides screen-ray picking for selection and gizmo handles
-// (ported from ocaml-game's lib/editor/viewport.ml). The reference grid is
-// drawn separately and always visible; markers/gizmo only while editing.
+// The 3D viewport: renders the reference grid and the entity markers / active
+// transform gizmo via DebugDraw, and provides screen-ray picking for selection and
+// gizmo handles (ported from ocaml-game's lib/editor/viewport.ml). All of it is
+// editor-only: the grid and the markers/gizmo are drawn while editing, and emptied
+// while playing.
 
 open System
 open System.Numerics
@@ -107,11 +108,14 @@ let gizmoCenter (state: GameplayState.GameplayState) : Vector3 option =
     Option.map (fun e -> e.Transform.Position) entity
     | None -> None
 
-// ── Reference grid (always visible) ──
+// ── Reference grid (editor only) ──
 
+// The grid is an editor-only aid (spec 093): rebuilt into its accumulator while editing, emptied while
+// playing, so neither the grid nor the previous editing frame's vertices draw in play (FR-001, FR-002).
 let drawGrid (state: byref<GameplayState.GameplayState>) : unit =
-    let dd = DebugDraw.clear state.DebugDraw |> DebugDraw.drawGrid
-    state.DebugDraw <- dd
+    state.DebugDraw <-
+        if state.Editing then DebugDraw.clear state.DebugDraw |> DebugDraw.drawGrid
+        else DebugDraw.clear state.DebugDraw
 
 // ── Chain links ──
 
