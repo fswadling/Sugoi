@@ -27,7 +27,8 @@ let private sharedState () : SharedState.SharedState =
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
       Advents = Advent.empty
       Mix = Music.empty
-      Rack = Music.newRack () }
+      Rack = Music.newRack ()
+      Voices = Sound.newVoices Audio.unavailable }
 
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
     let zones = Dictionary<string, Zone.Zone>()

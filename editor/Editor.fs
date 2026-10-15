@@ -17,7 +17,7 @@ open Command
 
 // The docked panels in focus order. The viewport is a passthru node, not an
 // ImGui window, so it is intentionally absent from this list.
-let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Advent"; "Miscellaneous"; "Zone Registry"; "Scenario"; "Dialogue"; "Cue" |]
+let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Advent"; "Miscellaneous"; "Zone Registry"; "Scenario"; "Dialogue"; "Cue"; "Sounds" |]
 
 // Compute the index the focus should move to (forward/backward, wrapping).
 let private nextPanelIndex (forward: bool) : int =
@@ -464,5 +464,9 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     // scrub, a weight and a loop toggle over one master. Docks at the bottom, beside the Asset Browser and
     // Dialogue (`native/cimgui_sdl3.cpp`).
     do SongPanel.draw shared &state
+    // The Sounds panel (spec 089): the editor's sound-effect tester — one row per discovered sound with
+    // Play/Stop and one Stop all. Docks at the bottom, beside Songs/Asset Browser/Dialogue
+    // (`native/cimgui_sdl3.cpp`). A runtime audition surface: it records no history step.
+    do SoundPanel.draw shared &state
 
     transition

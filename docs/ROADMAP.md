@@ -322,8 +322,13 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
   palette (`AddMusic`/`RemoveMusic`), transports it (`PlayMusic`/`StopMusic`, and whole-bed `PlayBed`/`StopBed`)
   and shapes it (`SetMusicLevel`, `SetMusicMaster`, `CrossFadeMusic`) against the mix `specs/087-song-mixing`
   authored. Every music op is a runtime effect that never lands on the one history (the `AddAdvent` pattern),
-  and the engine composes `audio/Music.fs` as-is. One-shot sounds, start/loop points, ducking and
-  spatialisation remain the deferred audio families.
+  and the engine composes `audio/Music.fs` as-is.
+- `audio/Sound.fs` + `editor/SoundPanel.fs` — the **one-shot sound playback** (`specs/089-sound-effects`):
+  a fixed pool of playback tracks reused round-robin (`Sound.Voices`) plays a resident sound once, so
+  effects overlap up to a bound and the oldest is cut, and the **Sounds** panel lists the discovered
+  sounds with Play/Stop and a Stop all — a runtime audition surface that authors nothing. Triggering a
+  sound from a cue (a sound cue op), start/loop points, ducking and spatialisation remain the deferred
+  audio families.
 - Trigger→cue wiring inline in the Inspector: a trigger owns an authored cue, drawn and edited inline, and
   forked into the screen's running cue when the trigger fires on entry (or on the interact key, when
   interactable). *(complete — `specs/058-trigger-cue`)*

@@ -43,7 +43,7 @@ let private headlessAssets () : Assets.AssetManager =
     TestSupport.manager IntPtr.Zero (Dictionary()) props environments
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Advents = Advent.empty; Mix = Music.empty; Rack = Music.newRack () }
+    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Advents = Advent.empty; Mix = Music.empty; Rack = Music.newRack (); Voices = Sound.newVoices Audio.unavailable }
 
 // A minimal gameplay state: the fake draws are never touched on these paths. The
 // zone is installed under a name with exactly one active zone.

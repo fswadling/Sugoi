@@ -38,7 +38,8 @@ let private sharedState () : SharedState.SharedState =
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
       Advents = Advent.empty
       Mix = Music.empty
-      Rack = Music.newRack () }
+      Rack = Music.newRack ()
+      Voices = Sound.newVoices Audio.unavailable }
 
 /// Register the current scene under `"Intro"`, the way the panel's Register control does — one `SetScenario` step.
 let private register (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =

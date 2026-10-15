@@ -26,7 +26,8 @@ let private sharedState () : SharedState.SharedState =
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
       Advents = Advent.empty
       Mix = Music.empty
-      Rack = Music.newRack () }
+      Rack = Music.newRack ()
+      Voices = Sound.newVoices Audio.unavailable }
 
 /// A shared state with the named songs already palette rows.
 let private withPalette (songs: string list) : SharedState.SharedState =

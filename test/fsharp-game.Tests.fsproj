@@ -21,6 +21,9 @@
     <!-- The music mix logic (spec 087): gain composition, add/remove, the setters and the start rule,
          plus the `SetMix` step on the one history — all device-free. -->
     <Compile Include="MusicTests.fs" />
+    <!-- The one-shot sound pool (spec 089): round-robin reuse, the per-asset Stop, Stop all, release
+         and the `soundAssets` readout — all device-free (against `Audio.unavailable`). -->
+    <Compile Include="SoundTests.fs" />
     <!-- The music cue ops (spec 088): each op's effect on the mix/rack, the ramps' `…State` transitions,
          the no-op rules and the 0-step property — all device-free. -->
     <Compile Include="MusicCueTests.fs" />

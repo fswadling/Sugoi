@@ -62,6 +62,8 @@ The `.fsproj` compile list is ordered like this (abridged):
   <Compile Include="audio/Audio.fs" />
   <!-- Music is below Audio (its deck handles) and above world/ (state/ holds the mix) (spec 087) -->
   <Compile Include="audio/Music.fs" />
+  <!-- Sound is below Music (its track handles) and above world/ (state/ holds the pool) (spec 089) -->
+  <Compile Include="audio/Sound.fs" />
   <!-- world (the game domain: entities, zones, assets) -->
   <!-- the cue is listed before Entity.fs: a trigger owns a cue (spec 058) -->
   <Compile Include="world/Cue.fs" />
@@ -83,6 +85,8 @@ The `.fsproj` compile list is ordered like this (abridged):
   <Compile Include="editor/MiscPanel.fs" />
   <!-- SongPanel is listed before Editor.fs: Editor.draw submits it (spec 087) -->
   <Compile Include="editor/SongPanel.fs" />
+  <!-- SoundPanel is listed after SongPanel and before Editor.fs: Editor.draw submits it (spec 089) -->
+  <Compile Include="editor/SoundPanel.fs" />
   <Compile Include="editor/Editor.fs" />
   ...
   <!-- screen (composed last; consumes editor) -->
@@ -141,7 +145,8 @@ fsharp-game/
 ├── audio/                      # device/CPU audio, no GPU: the mixer seam, the audio asset model + the mix
 │   ├── AudioAsset.fs           #   the audio asset: class (music/sound), residency, sound handle (spec 086)
 │   ├── Audio.fs                #   the mixer context: load a sound / probe a track, the deck ops + its lifecycle (spec 086/087)
-│   └── Music.fs                #   the mix model (rows/weights/loop/master) + its pure edits + the deck rack (spec 087)
+│   ├── Music.fs                #   the mix model (rows/weights/loop/master) + its pure edits + the deck rack (spec 087)
+│   └── Sound.fs                #   the one-shot voice pool (fixed tracks reused round-robin) + play/stop/release (spec 089)
 ├── world/                      # the game domain: entities, zones, assets
 │   ├── Entity.fs               #   entity kinds, EntityRef, transform, base
 │   ├── EnvironmentBatch.fs     #   per-zone static-scene instancing batch
@@ -193,6 +198,7 @@ fsharp-game/
 │   ├── AdventPanel.fs          #   the milestone list editor (spec 055/082), docked right: a name + Add, and a Remove per row; one Advent step each
 │   ├── MiscPanel.fs            #   the Miscellaneous panel (spec 059), docked right: game-wide runtime tuning (the fade level)
 │   ├── SongPanel.fs            #   the Songs panel (spec 087), docked bottom: add music assets to a global mix, a row each with transport/scrub/weight/loop over one master; a SetMix step each
+│   ├── SoundPanel.fs           #   the Sounds panel (spec 089), docked bottom: the discovered sounds, a Play/Stop row each + Stop all; a runtime audition surface (no history)
 │   ├── CueEditor.fs            #   the cue panel (spec 047) + the inline trigger-cue editor (spec 058); a SetCue/TriggerSet step on the one history
 │   └── CueTree.fs              #   shared recursive cue-tree control (spec 047)
 ├── native/                     # native libs (ImGui + cimgui + backends)
@@ -224,9 +230,10 @@ fsharp-game/
   debug-draw). Consumes `core/`.
 - **`audio/`** — device/CPU audio, no GPU: the `Audio.Context` mixer seam (bring up SDL audio +
   SDL_mixer, load a sound into memory, probe a track, and the playback deck ops — open/play/seek/gain/loop),
-  the `AudioAsset` model (class, residency, `SoundHandle`), and `Music` (the authored mix + its pure edits
-  and the runtime deck rack). Consumes `core/` and SDL3; consumed by `world/` (`Assets.scan`) and `state/`
-  (the mix on `SharedState`). Compiled after `render/` and before `world/` (spec 086/087).
+  the `AudioAsset` model (class, residency, `SoundHandle`), `Music` (the authored mix + its pure edits
+  and the runtime deck rack), and `Sound` (the one-shot voice pool + its play/stop/release ops). Consumes
+  `core/` and SDL3; consumed by `world/` (`Assets.scan`) and `state/` (the mix and the pool on
+  `SharedState`). Compiled after `render/` and before `world/` (spec 086/087/089).
 - **`world/`** — the game domain: entities, zones, assets, and their domain
   renderers. Consumes `core/`, `physics/`, and `render/`.
 - **`state/`** — app/screen state and the undoable editor-command model. Consumes

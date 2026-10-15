@@ -30,7 +30,10 @@ type SharedState =
       // decks. Game-wide, so music plays across a screen change; the decks are reconciled on every
       // `SetMix` (specs/087 History) and freed in `Music.release` before the mixer (specs/087 Engine).
       mutable Mix : Music.Mix
-      mutable Rack : Music.Rack }
+      mutable Rack : Music.Rack
+      // The one-shot sound pool (spec 089): a fixed set of playback tracks reused round-robin, game-wide
+      // like the mix's rack and freed before the mixer. Runtime only — nothing authors it.
+      Voices : Sound.Voices }
 
 let create (gpu: Gpu.Gpu) : SharedState =
     // The mixer is brought up once and handed to the asset manager, which owns it (freed in
@@ -40,4 +43,5 @@ let create (gpu: Gpu.Gpu) : SharedState =
       Assets = Assets.scan "assets" gpu.Device audio
       Advents = Advent.empty
       Mix = Music.empty
-      Rack = Music.newRack () }
+      Rack = Music.newRack ()
+      Voices = Sound.newVoices audio }

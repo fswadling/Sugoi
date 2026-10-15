@@ -29,7 +29,8 @@ let private sharedState () : SharedState.SharedState =
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
       Advents = Advent.empty
       Mix = Music.empty
-      Rack = Music.newRack () }
+      Rack = Music.newRack ()
+      Voices = Sound.newVoices Audio.unavailable }
 
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
@@ -74,7 +75,8 @@ let private residentShared () : SharedState.SharedState =
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) environments
       Advents = Advent.empty
       Mix = Music.empty
-      Rack = Music.newRack () }
+      Rack = Music.newRack ()
+      Voices = Sound.newVoices Audio.unavailable }
 
 /// The cue as a person (or the editor's panel) reads it. The in-flight `WaitState` renders as the `Wait`
 /// it came from: the view is what is left to run, and its front is the running op.
@@ -813,7 +815,8 @@ let private actorShared () : SharedState.SharedState =
       Assets = TestSupport.manager IntPtr.Zero actors (Dictionary()) (Dictionary())
       Advents = Advent.empty
       Mix = Music.empty
-      Rack = Music.newRack () }
+      Rack = Music.newRack ()
+      Voices = Sound.newVoices Audio.unavailable }
 
 /// A waypoint named `name` at `position`, facing `rotation`, in `zone`.
 let private waypointIn (zone: Zone.Zone) (name: string) (position: Vector3) (rotation: Quaternion) : EntityRef =

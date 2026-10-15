@@ -753,6 +753,14 @@ let musicNames (manager: AssetManager) : string list =
     [ for KeyValue (id, asset) in manager.AudioAssets do if asset.Class = AudioAsset.Music then id ]
     |> List.sort
 
+/// The discovered sound assets (spec 089), sorted by name — the sound panel's rows: `Kind = Sound`
+/// (spec 086). Each carries its id (to play), its name (to show) and its residency (resident =
+/// playable, failed = listed and marked). A failed sound is still listed: it is a row the author may
+/// fix later.
+let soundAssets (manager: AssetManager) : AudioAsset.AudioAsset list =
+    [ for KeyValue (_, asset) in manager.AudioAssets do if asset.Class = AudioAsset.Sound then asset ]
+    |> List.sortBy (fun asset -> asset.Name)
+
 // Scan all asset kinds into the manager. Actors and props load eagerly; environments are recorded
 // from their manifests only, their models loaded on request (spec 053); audio loads eagerly (sounds
 // into memory, music as a probed reference, spec 086).

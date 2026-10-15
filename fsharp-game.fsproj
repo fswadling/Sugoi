@@ -62,6 +62,11 @@
          `Rack` of streaming decks. Names `Audio` only (never `Assets`/`SharedState`), so `state/` and
          `editor/` resolve paths; listed after `Audio` for its deck handles. -->
     <Compile Include="audio/Music.fs" />
+    <!-- The one-shot sound pool (spec 089): a fixed set of playback tracks reused round-robin, so a
+         sound may overlap an earlier instance up to a bound and the oldest is cut. Names
+         `Audio`/`AudioAsset` only (never `Assets`/`SharedState`), so the panel resolves each sound's
+         handle; listed after `Audio`/`Music` for their track/handle types. -->
+    <Compile Include="audio/Sound.fs" />
     <!-- The dialogue state and its closed vocabulary (spec 038; the speaker became a string in spec 074).
          Pure — no GPU, no asset, no cast — so it sits before the actor and systems modules. -->
     <Compile Include="world/Dialogue.fs" />
@@ -155,6 +160,10 @@
          per song with transport, a scrub, a weight and a loop toggle over one master. Weight/master/loop
          and the row set are `SetMix` steps on the one history; transport and scrub are runtime. -->
     <Compile Include="editor/SongPanel.fs" />
+    <!-- The Sounds panel (spec 089): the editor's sound-effect tester — one row per discovered sound
+         (Play/Stop) and one Stop all. A runtime audition surface: it records no history step and
+         writes no authored state. -->
+    <Compile Include="editor/SoundPanel.fs" />
     <Compile Include="editor/Editor.fs" />
     <Compile Include="screen/MainMenuScreen.fs" />
     <Compile Include="screen/GameplayScreen.fs" />

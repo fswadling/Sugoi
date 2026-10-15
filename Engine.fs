@@ -260,6 +260,9 @@ let run () : int =
     // Free every music deck before the mixer they belong to (spec 087 FR-014): a `MIX_Track`/`MIX_Audio`
     // must not outlive the `MIX_Mixer` that owns it.
     do Music.release manager.Shared.Assets.Audio manager.Shared.Rack
+    // Free the one-shot voices before the mixer too (spec 089 FR-009): a `MIX_Track` must not outlive
+    // the `MIX_Mixer` that owns it.
+    do Sound.release manager.Shared.Assets.Audio manager.Shared.Voices
     do Assets.release manager.Shared.Assets
     do DebugDraw.release gizmoDraw
     do DebugDraw.release debugDraw

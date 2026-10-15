@@ -165,6 +165,8 @@ void cimgui_setup_dock_layout(ImGuiID dockspace_id)
     // the bottom — a per-scene editing surface, neither a left-column place list nor a right-column
     // single-selection editor.
     ImGui::DockBuilderDockWindow("Songs", bottom);
+    // The Sounds panel (spec 089): the sound-effect tester, a tab beside the Songs panel at the bottom.
+    ImGui::DockBuilderDockWindow("Sounds", bottom);
     ImGui::DockBuilderFinish(dockspace_id);
 }
 

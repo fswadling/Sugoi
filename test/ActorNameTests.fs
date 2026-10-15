@@ -53,7 +53,8 @@ let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState 
       Assets = assets
       Advents = Advent.empty
       Mix = Music.empty
-      Rack = Music.newRack () }
+      Rack = Music.newRack ()
+      Voices = Sound.newVoices Audio.unavailable }
 
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)

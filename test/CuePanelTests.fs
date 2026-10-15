@@ -114,7 +114,8 @@ let private sharedState () : SharedState.SharedState =
       Assets = assets
       Advents = Advent.empty
       Mix = Music.empty
-      Rack = Music.newRack () }
+      Rack = Music.newRack ()
+      Voices = Sound.newVoices Audio.unavailable }
 
 /// An actor placed directly in a zone, its renderer left default: enough for a `Transform` step, which rebuilds
 /// only the physics body and the authored state.
