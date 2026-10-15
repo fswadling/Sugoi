@@ -132,6 +132,10 @@ let private noOpPlace (op: string) (place: string) (reason: string) : unit =
 let private noOpMusic (op: string) (song: string) (reason: string) : unit =
     Diagnostics.reportf "cue: %s(%s) performs nothing: %s" op song reason
 
+/// The sound counterpart of `noOpMusic` (spec 090): a sound op names a sound.
+let private noOpSound (op: string) (sound: string) (reason: string) : unit =
+    Diagnostics.reportf "cue: %s(%s) performs nothing: %s" op sound reason
+
 // ── Music ops (spec 088) ──
 
 /// A song's playable asset, or `None` — an id no manifest declared, or a `Failed` asset, is not playable
@@ -153,6 +157,24 @@ let private playMusic (op: string) (shared: SharedState.SharedState) (song: stri
     match tryMusicAsset shared song with
     | None -> do noOpMusic op song "its asset is unavailable"
     | Some asset -> do Music.play shared.Assets.Audio shared.Mix shared.Rack song asset.Path
+
+// ── Sound ops (spec 090) ──
+
+/// A playable sound asset (a resident `Kind = Sound`), or `None` — an id no manifest declared, a music-class
+/// asset, or a `Failed` sound is not playable (spec 086/089). Read directly from the manager's dictionary, as
+/// `tryMusicAsset` does, so `Assets` is unchanged (FR-005).
+let private trySoundAsset (shared: SharedState.SharedState) (sound: string) : AudioAsset.AudioAsset option =
+    match shared.Assets.AudioAssets.TryGetValue sound with
+    | true, asset when AudioAsset.isResident asset -> Some asset
+    | _ -> None
+
+/// Play a named sound one-shot on the voice pool (spec 089): an unresolvable id is a reported no-op (FR-005),
+/// and a resident sound plays from its decoded buffer (FR-002). Non-blocking — the one-shot is not awaited
+/// (FR-003).
+let private playSound (op: string) (shared: SharedState.SharedState) (sound: string) : unit =
+    match trySoundAsset shared sound with
+    | None -> do noOpSound op sound "its asset is unavailable"
+    | Some asset -> do Sound.play shared.Voices sound (AudioAsset.sound asset)
 
 /// The value a ramp has reached at `now`, from `initial` to `target` over `duration` ending at `endsAt`:
 /// exactly `target` at the deadline, else the linear fraction elapsed — the `stepFade`/`stepBlend` formula.
@@ -631,6 +653,11 @@ let rec advance
     | CrossFadeMusicState (fromSong, toSong, initialFrom, initialTo, duration, endsAt) ->
         if stepCrossFadeMusic shared fromSong toSong initialFrom initialTo duration endsAt now then ValueSome Fin
         else ValueNone
+
+    | PlaySound sound ->
+        // a no-progress leaf: the one-shot is not awaited, and the mix/history are untouched (FR-003/FR-004)
+        do playSound "PlaySound" shared sound
+        ValueSome Fin
 
     | AddActor (place, actor, asset, waypoint) ->
         // a place that is not present, or a waypoint the place does not hold, is a no-op (spec 073 FR-003)

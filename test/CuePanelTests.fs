@@ -87,6 +87,7 @@ let rec private describe (cue: Cue) : string =
     | MusicMasterState (_, target, d, _) -> sprintf "MusicMasterState(%g,%g)" target d
     | CrossFadeMusic (fromSong, toSong, d) -> sprintf "CrossFadeMusic(%s,%s,%g)" fromSong toSong d
     | CrossFadeMusicState (fromSong, toSong, _, _, d, _) -> sprintf "CrossFadeMusicState(%s,%s,%g)" fromSong toSong d
+    | PlaySound sound -> sprintf "PlaySound(%s)" sound
 
 let private raises (f: unit -> unit) : bool =
     try

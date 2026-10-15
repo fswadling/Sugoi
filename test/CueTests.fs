@@ -132,6 +132,7 @@ let rec private describe (cue: Cue) : string =
     | MusicMasterState (_, target, d, _) -> sprintf "MusicMasterState(%g,%g)" target d
     | CrossFadeMusic (fromSong, toSong, d) -> sprintf "CrossFadeMusic(%s,%s,%g)" fromSong toSong d
     | CrossFadeMusicState (fromSong, toSong, _, _, d, _) -> sprintf "CrossFadeMusicState(%s,%s,%g)" fromSong toSong d
+    | PlaySound sound -> sprintf "PlaySound(%s)" sound
 
 /// The nodes actually in flight. The queue behind a sequence's current op is data, not live nodes, so a
 /// long cue costs no more than a short one.
@@ -1691,3 +1692,89 @@ let ``a cue of many op kinds reaches Fin without throwing`` () =
               RemoveAdvent "MetAiko" ]
     tick shared &state 0.0
     Assert.True(state.Cue.IsFin, "every op no-oped or completed and the cue finished")
+
+// ══════ The sound cue (spec 090) — play a sound from the story ══════
+
+/// A sound asset in a given class and residency: the pool plays a resident `Sound` and no-ops on any other
+/// (a music-class asset is not a sound; a failed sound holds no buffer).
+let private audioAsset (id: string) (classOf: AudioAsset.Class) (residency: AudioAsset.Residency) : AudioAsset.AudioAsset =
+    { Id = id; Name = id; Path = ""; Class = classOf; Residency = residency }
+
+/// Insert a resident sound asset under `id` (the pool records an id on play, a data move needing no device).
+let private addResidentSound (sh: SharedState.SharedState) (id: string) : unit =
+    sh.Assets.AudioAssets.[id] <- audioAsset id AudioAsset.Sound (AudioAsset.Resident 42n)
+
+[<Fact>]
+let ``a play-sound op plays the named sound on the voice pool and reaches Fin`` () =
+    let sh = sharedState ()
+    do addResidentSound sh "beep"
+    let mutable state = newState ()
+    state.Cue <- seqOf [ PlaySound "beep" ]
+    tick sh &state 0.0
+    Assert.Equal("beep", sh.Voices.Playing.[0]) // played from the resident handle (FR-002)
+    Assert.Equal("Fin", describe state.Cue)      // a no-progress leaf (FR-003)
+    Assert.Empty state.Editor.Undo.Applied        // 0 steps on the one history (FR-004)
+
+[<Fact>]
+let ``a second play-sound op overlaps the first on the next voice`` () =
+    let sh = sharedState ()
+    do addResidentSound sh "beep"
+    let mutable state = newState ()
+    state.Cue <- seqOf [ PlaySound "beep"; PlaySound "beep" ]
+    tick sh &state 0.0
+    Assert.Equal("beep", sh.Voices.Playing.[0])
+    Assert.Equal("beep", sh.Voices.Playing.[1]) // a fresh, overlapping one-shot (FR-007)
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a play-sound op naming an unresolvable sound is a quiet no-op`` () =
+    // the mixer is unavailable and no sound is resident, so the op names nothing playable (US3/AC1-2)
+    let sh = sharedState ()
+    let mutable state = newState ()
+    state.Cue <- seqOf [ PlaySound "ghost" ]
+    tick sh &state 0.0
+    Assert.True(Array.forall ((=) "") sh.Voices.Playing)
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a play-sound op naming a music-class or failed asset is a quiet no-op`` () =
+    let sh = sharedState ()
+    sh.Assets.AudioAssets.["theme"] <- audioAsset "theme" AudioAsset.Music AudioAsset.Reference
+    sh.Assets.AudioAssets.["bad"] <- audioAsset "bad" AudioAsset.Sound (AudioAsset.Failed "corrupt")
+    let mutable state = newState ()
+    state.Cue <- seqOf [ PlaySound "theme"; PlaySound "bad" ]
+    tick sh &state 0.0
+    Assert.True(Array.forall ((=) "") sh.Voices.Playing)
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``the sound op renders, defaults, and carries no place`` () =
+    let labelOf (cue: Cue) : string = (List.head (CueTree.rows cue)).Label
+    Assert.Equal("Play sound: beep", labelOf (PlaySound "beep"))
+    Assert.Equal("Play sound", labelOf (PlaySound "")) // unnamed: no dangling colon
+    Assert.Equal(PlaySound "", CueTree.defaultOfKind "Island" "Play sound")
+    Assert.Equal(PlaySound "x", CueTree.withSong "x" (PlaySound "beep")) // the chooser's write
+    Assert.True((CueTree.placeOf (PlaySound "beep")).IsNone)               // a sound is global
+
+[<Fact>]
+let ``a play-sound op plays the resident handle and never re-decodes`` () =
+    // The sound has no file path at all, yet it plays: the op reads the decoded handle (spec 086/089), never
+    // the file. Were it to load from disk, the empty path — and `Audio.unavailable.LoadSound`, which raises —
+    // would fail the tick, so a clean `Fin` here is the no-re-decode guarantee (FR-002/T007).
+    let sh = sharedState ()
+    sh.Assets.AudioAssets.["beep"] <- audioAsset "beep" AudioAsset.Sound (AudioAsset.Resident 42n)
+    let mutable state = newState ()
+    state.Cue <- seqOf [ PlaySound "beep" ]
+    tick sh &state 0.0
+    Assert.Equal("", sh.Assets.AudioAssets.["beep"].Path) // nothing on disk to read
+    Assert.Equal("beep", sh.Voices.Playing.[0])            // played from the resident buffer
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``the cue chooser's source lists the sound-class assets and no music`` () =
+    // `Assets.soundAssets` is the source the cue editor's sound chooser offers (T008/SC-004): a music-class
+    // asset is not a sound and is excluded.
+    let sh = sharedState ()
+    sh.Assets.AudioAssets.["beep"] <- audioAsset "beep" AudioAsset.Sound (AudioAsset.Resident 42n)
+    sh.Assets.AudioAssets.["theme"] <- audioAsset "theme" AudioAsset.Music AudioAsset.Reference
+    Assert.Equal<string list>([ "beep" ], Assets.soundAssets sh.Assets |> List.map (fun a -> a.Id))

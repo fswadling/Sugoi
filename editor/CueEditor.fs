@@ -193,12 +193,13 @@ let private drawAssetCombo
     CueTree.filteredCombo buffer ("Asset##" + comboId) preview ids id current (fun id ->
         onCommit (CueTree.withAt nodePath (CueTree.withAsset id node) cue))
 
-/// The music asset a music op names, chosen from the discovered music assets (`Assets.musicNames`). A song is a
-/// discovered asset — an op naming an undiscovered one could only no-op — so the chooser is pick-only, the
-/// `drawAssetCombo` pattern. `suffix` keeps a two-song op's fields off each other's ImGui ids; `write` is the
-/// field's writer (`CueTree.withSong` or `withSong2`).
-let private drawSongCombo
-    (assets: Assets.AssetManager)
+/// A named op's pick-only chooser: choose one name from `names` (a discovered song's id, or a sound's). The op
+/// names a discovered asset — an op naming an undiscovered one could only no-op — so there is no typed fallback,
+/// the `drawAssetCombo` pattern. `label` titles the combo; `suffix` keeps a two-field op's fields off each
+/// other's ImGui ids; `write` is the field's writer (`CueTree.withSong` or `withSong2`).
+let private drawPickCombo
+    (names: string list)
+    (label: string)
     (suffix: string)
     (buffer: byte[])
     (idPrefix: string)
@@ -212,8 +213,8 @@ let private drawSongCombo
 
     let comboId = CueTree.rowId idPrefix nodePath + suffix
     let preview = if current = "" then "(none)" else current
-    CueTree.filteredCombo buffer ("Song##" + comboId) preview (Assets.musicNames assets) id current (fun song ->
-        onCommit (CueTree.withAt nodePath (write song node) cue))
+    CueTree.filteredCombo buffer (label + "##" + comboId) preview names id current (fun picked ->
+        onCommit (CueTree.withAt nodePath (write picked node) cue))
 
 // ── the selected node's text or waypoint, whichever it carries ──
 
@@ -355,12 +356,17 @@ let private drawNodeText
     | AddMusic song | RemoveMusic song | PlayMusic song | StopMusic song | SetMusicLevel (song, _, _) ->
         // the song is chosen from the discovered music assets (pick-only — a music op is meaningless until the
         // asset exists, so there is no typed fallback; `spec 088` research D6). Music is global, so no zone read.
-        do drawSongCombo assets "" filter idPrefix path node cue CueTree.withSong song onCommit
+        do drawPickCombo (Assets.musicNames assets) "Song" "" filter idPrefix path node cue CueTree.withSong song onCommit
+        (textPath, editing), (textPath2, editing2)
+    | PlaySound sound ->
+        // the sound is chosen from the discovered sound assets (pick-only, as a song is). A sound is global, so
+        // no zone read; the op names the asset id the voice pool plays (`spec 090`).
+        do drawPickCombo (Assets.soundAssets assets |> List.map (fun a -> a.Id)) "Sound" "" filter idPrefix path node cue CueTree.withSong sound onCommit
         (textPath, editing), (textPath2, editing2)
     | CrossFadeMusic (fromSong, toSong, _) ->
         // two choosers — the outgoing song and the incoming one (the `CrossFadeAnimation` two-field pattern)
-        do drawSongCombo assets "" filter idPrefix path node cue CueTree.withSong fromSong onCommit
-        do drawSongCombo assets "/to" filter idPrefix path node cue CueTree.withSong2 toSong onCommit
+        do drawPickCombo (Assets.musicNames assets) "Song" "" filter idPrefix path node cue CueTree.withSong fromSong onCommit
+        do drawPickCombo (Assets.musicNames assets) "Song" "/to" filter idPrefix path node cue CueTree.withSong2 toSong onCommit
         (textPath, editing), (textPath2, editing2)
     | _ -> drawGenericFields ()
 

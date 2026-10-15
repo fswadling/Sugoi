@@ -55,7 +55,7 @@ let rec executing (cue: Cue) : bool =
     | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
     | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ | ForkScenario _
     | AddMusic _ | RemoveMusic _ | PlayMusic _ | StopMusic _ | PlayBed | StopBed
-    | SetMusicLevel _ | SetMusicMaster _ | CrossFadeMusic _ -> false
+    | SetMusicLevel _ | SetMusicMaster _ | CrossFadeMusic _ | PlaySound _ -> false
 
 /// The name a blend shows as: `from = to` is the single-slot op, otherwise the cross-fade, and `morph` picks the
 /// morph family. One rule, so an op and its in-flight `BlendState` read the same.
@@ -122,6 +122,7 @@ let private label (cue: Cue) : string =
     | SetMusicLevel (song, _, _) | MusicLevelState (song, _, _, _, _) -> namedLabel "Music level" song
     | SetMusicMaster _ | MusicMasterState _ -> "Music master"
     | CrossFadeMusic (fromSong, toSong, _) | CrossFadeMusicState (fromSong, toSong, _, _, _, _) -> sprintf "Cross fade music: %s -> %s" fromSong toSong
+    | PlaySound sound -> namedLabel "Play sound" sound
 
 /// A `Sequence`'s children in index order: the op in flight first, then the queue behind it.
 let private sequenceChildren (current: Cue) (rest: Cue FDeque) : Cue list =
@@ -141,7 +142,7 @@ let children (cue: Cue) : Cue list =
     | Print _
     | FlyCamera _ | FlyCameraState _ | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ | ForkScenario _
     | AddMusic _ | RemoveMusic _ | PlayMusic _ | StopMusic _ | PlayBed | StopBed
-    | SetMusicLevel _ | SetMusicMaster _ | MusicLevelState _ | MusicMasterState _ | CrossFadeMusic _ | CrossFadeMusicState _ -> []
+    | SetMusicLevel _ | SetMusicMaster _ | MusicLevelState _ | MusicMasterState _ | CrossFadeMusic _ | CrossFadeMusicState _ | PlaySound _ -> []
 
 /// Every row of the cue as the panel shows it, in display order: a row per container with its children
 /// indented beneath it, the queue behind a running op in its own order, and `Fin` its own row. An `If`'s two
@@ -278,6 +279,7 @@ let private kinds : (string * string list) array = [|
     "Advent",    [ "Add advent"; "Remove advent"; "Await"; "If" ]
     "Triggers",  [ "Enable trigger"; "Disable trigger" ]
     "Music",     [ "Add music"; "Remove music"; "Play music"; "Stop music"; "Play bed"; "Stop bed"; "Music level"; "Music master"; "Cross fade music" ]
+    "Sound",     [ "Play sound" ]
     "Scenarios", [ "Fork scenario" ]
     "Debug",     [ "Print" ]
 |]
@@ -326,6 +328,7 @@ let private kindName (cue: Cue) : string =
     | SetMusicLevel _ | MusicLevelState _ -> "Music level"
     | SetMusicMaster _ | MusicMasterState _ -> "Music master"
     | CrossFadeMusic _ | CrossFadeMusicState _ -> "Cross fade music"
+    | PlaySound _ -> "Play sound"
 
 /// What choosing a kind replaces the node with. Every op is reachable without an editor per op.
 ///
@@ -372,6 +375,7 @@ let defaultOfKind (place: string) (kind: string) : Cue =
     | "Music level" -> SetMusicLevel("", 1.0f, 1.0)
     | "Music master" -> SetMusicMaster(1.0f, 1.0)
     | "Cross fade music" -> CrossFadeMusic("", "", 1.0)
+    | "Play sound" -> PlaySound ""
     | _ -> FlyCamera(place, "", 1.0)
 
 /// The node's editable text, or `ValueNone` when it has none. The field that edits it belongs to the caller
@@ -513,17 +517,18 @@ let withAsset (asset: string) (cue: Cue) : Cue =
     | AddActor (place, actor, _, waypoint) -> AddActor(place, actor, asset, waypoint)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no asset" (label cue))
 
-/// The node with its song replaced — the write the music song chooser commits. Every song-bearing music op
-/// carries one.
-let withSong (song: string) (cue: Cue) : Cue =
+/// The node with its one name replaced — the write a name chooser commits (a music op's song, or a sound op's
+/// sound). Every single-name op carries one.
+let withSong (name: string) (cue: Cue) : Cue =
     match cue with
-    | AddMusic _ -> AddMusic song
-    | RemoveMusic _ -> RemoveMusic song
-    | PlayMusic _ -> PlayMusic song
-    | StopMusic _ -> StopMusic song
-    | SetMusicLevel (_, level, duration) -> SetMusicLevel(song, level, duration)
-    | CrossFadeMusic (_, toSong, duration) -> CrossFadeMusic(song, toSong, duration)
-    | _ -> invalidOp (sprintf "CueTree: a %s carries no song" (label cue))
+    | AddMusic _ -> AddMusic name
+    | RemoveMusic _ -> RemoveMusic name
+    | PlayMusic _ -> PlayMusic name
+    | StopMusic _ -> StopMusic name
+    | SetMusicLevel (_, level, duration) -> SetMusicLevel(name, level, duration)
+    | CrossFadeMusic (_, toSong, duration) -> CrossFadeMusic(name, toSong, duration)
+    | PlaySound _ -> PlaySound name
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no name" (label cue))
 
 /// The node with its **second** song replaced — the write a cross-fade's incoming-song chooser commits.
 let withSong2 (song: string) (cue: Cue) : Cue =
@@ -837,7 +842,7 @@ let drawEditor
             ()
 
         | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | Print _ | FlyCameraState _ | BlendState _ | MoveActorState _ | RotateActorState _ | ForkScenario _
-        | AddMusic _ | RemoveMusic _ | PlayMusic _ | StopMusic _ | PlayBed | StopBed ->
+        | AddMusic _ | RemoveMusic _ | PlayMusic _ | StopMusic _ | PlayBed | StopBed | PlaySound _ ->
             // no numbers of their own. `SetCamera` and `Print` carry text (the caller's field edits it) and a
             // `FlyCamera` carries its path and speed above; a place-carrying op's place is chosen above; a
             // `ForkScenario`'s scenario and a music op's song are chosen by the caller's combo (`CueEditor`).

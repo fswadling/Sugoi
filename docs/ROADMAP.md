@@ -323,12 +323,16 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
   and shapes it (`SetMusicLevel`, `SetMusicMaster`, `CrossFadeMusic`) against the mix `specs/087-song-mixing`
   authored. Every music op is a runtime effect that never lands on the one history (the `AddAdvent` pattern),
   and the engine composes `audio/Music.fs` as-is.
+- The **sound cue op** (`specs/090-sound-cues`): `world/Cue.fs` gains `PlaySound` — a no-progress leaf that
+  plays a named sound one-shot on the voice pool `specs/089` built, authored from the cue editor's sound
+  chooser. Like every cue op it is a runtime effect that never lands on the one history; it is the runtime
+  counterpart of the Sounds panel's Play.
 - `audio/Sound.fs` + `editor/SoundPanel.fs` — the **one-shot sound playback** (`specs/089-sound-effects`):
   a fixed pool of playback tracks reused round-robin (`Sound.Voices`) plays a resident sound once, so
   effects overlap up to a bound and the oldest is cut, and the **Sounds** panel lists the discovered
-  sounds with Play/Stop and a Stop all — a runtime audition surface that authors nothing. Triggering a
-  sound from a cue (a sound cue op), start/loop points, ducking and spatialisation remain the deferred
-  audio families.
+  sounds with Play/Stop and a Stop all — a runtime audition surface that authors nothing. A sound palette,
+  per-sound volume, looping, start/loop points, ducking and spatialisation remain the deferred audio
+  families.
 - Trigger→cue wiring inline in the Inspector: a trigger owns an authored cue, drawn and edited inline, and
   forked into the screen's running cue when the trigger fires on entry (or on the interact key, when
   interactable). *(complete — `specs/058-trigger-cue`)*

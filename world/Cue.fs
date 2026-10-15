@@ -6,7 +6,7 @@ module Cue
 //
 // The ops with no progress of their own (`Exposit`, `Print`, `SetZone`, `AddZone`, `RemoveZone`, `PreloadZone`,
 // `AddActor`, `RemoveActor`, `EnablePlayer`, `DisablePlayer`, `EnableTrigger`, `DisableTrigger`, `SetCamera`,
-// `AddAdvent`, `RemoveAdvent`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
+// `AddAdvent`, `RemoveAdvent`, `PlaySound`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
 // (`WaitState`'s deadline, `FlyCameraState`'s resolved path, the fade states' captured level, `BlendState`'s
 // captured weights, `MoveActorState`'s spline, `RotateActorState`'s turn). So a case suffixed `State` appears
 // exactly where the run form holds something the authored form does not — the convention the reference lineage
@@ -142,6 +142,11 @@ type Cue =
     // other side still moves.
     | CrossFadeMusic of fromSong: string * toSong: string * duration: float
     | CrossFadeMusicState of fromSong: string * toSong: string * initialFrom: float32 * initialTo: float32 * duration: float * endsAt: float
+    // The sound cue (spec 090): play a named sound one-shot where the run reaches it — the runtime counterpart
+    // of the Sounds panel's Play (spec 089). A one-shot is not held, so it is a **no-progress leaf** (no state
+    // case) that composes `audio/Sound.fs` as-is over the shared voice pool. Like every cue op it is a runtime
+    // effect that never lands on the one history (FR-004), and a sound is global, so it names no place.
+    | PlaySound of sound: string
 
 // ── Forking ──
 
