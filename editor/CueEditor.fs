@@ -193,6 +193,28 @@ let private drawAssetCombo
     CueTree.filteredCombo buffer ("Asset##" + comboId) preview ids id current (fun id ->
         onCommit (CueTree.withAt nodePath (CueTree.withAsset id node) cue))
 
+/// The music asset a music op names, chosen from the discovered music assets (`Assets.musicNames`). A song is a
+/// discovered asset — an op naming an undiscovered one could only no-op — so the chooser is pick-only, the
+/// `drawAssetCombo` pattern. `suffix` keeps a two-song op's fields off each other's ImGui ids; `write` is the
+/// field's writer (`CueTree.withSong` or `withSong2`).
+let private drawSongCombo
+    (assets: Assets.AssetManager)
+    (suffix: string)
+    (buffer: byte[])
+    (idPrefix: string)
+    (nodePath: int list)
+    (node: Cue)
+    (cue: Cue)
+    (write: string -> Cue -> Cue)
+    (current: string)
+    (onCommit: Cue -> unit)
+    : unit =
+
+    let comboId = CueTree.rowId idPrefix nodePath + suffix
+    let preview = if current = "" then "(none)" else current
+    CueTree.filteredCombo buffer ("Song##" + comboId) preview (Assets.musicNames assets) id current (fun song ->
+        onCommit (CueTree.withAt nodePath (write song node) cue))
+
 // ── the selected node's text or waypoint, whichever it carries ──
 
 /// Draw the editor for `path`'s node after `drawEditor`: the waypoint/path ops choose from the active zone's
@@ -291,10 +313,10 @@ let private drawNodeText
         let clips, morphs = namesFor actor
         let names = match node with Animate _ -> clips | _ -> morphs
         drawName "clip0" buffer textPath editing names CueTree.textOf CueTree.withText, (textPath2, editing2)
-    | CrossFade (_, actor, _, _, _, _) | CrossMorph (_, actor, _, _, _, _) ->
+    | CrossFadeAnimation (_, actor, _, _, _, _) | CrossFadeMorph (_, actor, _, _, _, _) ->
         do drawActorField actor
         let clips, morphs = namesFor actor
-        let names = match node with CrossFade _ -> clips | _ -> morphs
+        let names = match node with CrossFadeAnimation _ -> clips | _ -> morphs
         drawName "clip0" buffer textPath editing names CueTree.textOf CueTree.withText,
         drawName "clip1" buffer2 textPath2 editing2 names CueTree.textOf2 CueTree.withText2
     | AddActor (place, actor, asset, waypoint) ->
@@ -329,6 +351,16 @@ let private drawNodeText
         // `specs/083` FR-009). A scenario needs no zone read, so it is offered where a zone name could not be.
         CueTree.filteredNameCombo filter ("Scenario##" + CueTree.rowId idPrefix path) scenario scenarios scenario (fun candidate ->
             onCommit (CueTree.withAt path (CueTree.withScenario (ScenarioRegistry.normalise candidate) node) cue))
+        (textPath, editing), (textPath2, editing2)
+    | AddMusic song | RemoveMusic song | PlayMusic song | StopMusic song | SetMusicLevel (song, _, _) ->
+        // the song is chosen from the discovered music assets (pick-only — a music op is meaningless until the
+        // asset exists, so there is no typed fallback; `spec 088` research D6). Music is global, so no zone read.
+        do drawSongCombo assets "" filter idPrefix path node cue CueTree.withSong song onCommit
+        (textPath, editing), (textPath2, editing2)
+    | CrossFadeMusic (fromSong, toSong, _) ->
+        // two choosers — the outgoing song and the incoming one (the `CrossFadeAnimation` two-field pattern)
+        do drawSongCombo assets "" filter idPrefix path node cue CueTree.withSong fromSong onCommit
+        do drawSongCombo assets "/to" filter idPrefix path node cue CueTree.withSong2 toSong onCommit
         (textPath, editing), (textPath2, editing2)
     | _ -> drawGenericFields ()
 

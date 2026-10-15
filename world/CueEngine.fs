@@ -128,6 +128,114 @@ let private noOpTrigger (op: string) (place: string) (trigger: string) (reason: 
 let private noOpPlace (op: string) (place: string) (reason: string) : unit =
     Diagnostics.reportf "cue: %s(%s) performs nothing: %s" op (place) reason
 
+/// The music counterpart of `noOp` (spec 088): a music op names a song, not an actor or a place.
+let private noOpMusic (op: string) (song: string) (reason: string) : unit =
+    Diagnostics.reportf "cue: %s(%s) performs nothing: %s" op song reason
+
+// ── Music ops (spec 088) ──
+
+/// A song's playable asset, or `None` — an id no manifest declared, or a `Failed` asset, is not playable
+/// (spec 086). The manager's dictionary is read directly, so `Assets` is unchanged and `Assets.audioAsset`'s
+/// key-not-found is avoided (FR-010).
+let private tryMusicAsset (shared: SharedState.SharedState) (song: string) : AudioAsset.AudioAsset option =
+    match shared.Assets.AudioAssets.TryGetValue song with
+    | true, asset when AudioAsset.isReference asset -> Some asset
+    | _ -> None
+
+/// Play one palette row: resolve its asset and `Music.play`, which opens the deck on first use, applies the
+/// row's gain, and resumes a paused row else seeks to 0 and plays (spec 087 D5). A song that is not a palette
+/// row, or whose asset is unavailable, is a reported no-op (FR-010) — `Music.play` raises on a non-row, so
+/// membership is checked first.
+let private playMusic (op: string) (shared: SharedState.SharedState) (song: string) : unit =
+    if not (Music.contains song shared.Mix)
+    then do noOpMusic op song "it is not in the palette"
+    else
+    match tryMusicAsset shared song with
+    | None -> do noOpMusic op song "its asset is unavailable"
+    | Some asset -> do Music.play shared.Assets.Audio shared.Mix shared.Rack song asset.Path
+
+/// The value a ramp has reached at `now`, from `initial` to `target` over `duration` ending at `endsAt`:
+/// exactly `target` at the deadline, else the linear fraction elapsed — the `stepFade`/`stepBlend` formula.
+let private rampAt (initial: float32) (target: float32) (duration: float) (endsAt: float) (now: float) : float32 =
+    if now >= endsAt then target
+    else initial + float32 ((now - (endsAt - duration)) / duration) * (target - initial)
+
+/// Begin a row-level ramp: capture the row's current level where the op is reached (so a ramp from part-way
+/// is correct, FR-012) and hold a `MusicLevelState`. A song that is not a palette row is a reported no-op
+/// (FR-010); a duration of zero (or less) is over before it begins, landing on the target.
+let private beginMusicLevel (shared: SharedState.SharedState) (song: string) (level: float32) (duration: float) (now: float) : Cue =
+    match Music.rowOf song shared.Mix with
+    | None ->
+        do noOpMusic "SetMusicLevel" song "it is not in the palette"
+        Fin
+    | Some row ->
+    let endsAt = now + duration
+    if now >= endsAt then
+        shared.Mix <- Music.setWeight song level shared.Mix
+        do Music.reconcile shared.Assets.Audio shared.Rack shared.Mix
+        Fin
+    else MusicLevelState(song, row.Weight, level, duration, endsAt)
+
+/// Step a row-level ramp at `now`: write the level toward the target and answer whether it is over (exactly
+/// on the target at the deadline). A row that has left the palette ends the ramp — nothing to write.
+let private stepMusicLevel (shared: SharedState.SharedState) (song: string) (initial: float32) (target: float32) (duration: float) (endsAt: float) (now: float) : bool =
+    if not (Music.contains song shared.Mix) then true
+    else
+    shared.Mix <- Music.setWeight song (rampAt initial target duration endsAt now) shared.Mix
+    do Music.reconcile shared.Assets.Audio shared.Rack shared.Mix
+    now >= endsAt
+
+/// Begin a master ramp: capture the palette's master where the op is reached and hold a `MusicMasterState`.
+/// A duration of zero (or less) is over before it begins.
+let private beginMusicMaster (shared: SharedState.SharedState) (level: float32) (duration: float) (now: float) : Cue =
+    let initial = shared.Mix.Master
+    let endsAt = now + duration
+    if now >= endsAt then
+        shared.Mix <- Music.setMaster level shared.Mix
+        do Music.reconcile shared.Assets.Audio shared.Rack shared.Mix
+        Fin
+    else MusicMasterState(initial, level, duration, endsAt)
+
+/// Step a master ramp at `now`: write the master toward the target and answer whether it is over.
+let private stepMusicMaster (shared: SharedState.SharedState) (initial: float32) (target: float32) (duration: float) (endsAt: float) (now: float) : bool =
+    shared.Mix <- Music.setMaster (rampAt initial target duration endsAt now) shared.Mix
+    do Music.reconcile shared.Assets.Audio shared.Rack shared.Mix
+    now >= endsAt
+
+/// Begin a cross-fade: capture both rows' current weights where the op is reached (an absent row captures 0
+/// and is reported once) and hold a `CrossFadeMusicState`. With both sides absent the op is a no-op — two
+/// reports and `Fin` (US3/AC3). A duration of zero (or less) is over before it begins, landing the endpoints.
+let private beginCrossFadeMusic (shared: SharedState.SharedState) (fromSong: string) (toSong: string) (duration: float) (now: float) : Cue =
+    let outgoing = Music.rowOf fromSong shared.Mix
+    let incoming = Music.rowOf toSong shared.Mix
+    if outgoing.IsNone && incoming.IsNone then
+        do noOpMusic "CrossFadeMusic" fromSong "it is not in the palette"
+        do noOpMusic "CrossFadeMusic" toSong "it is not in the palette"
+        Fin
+    else
+    if outgoing.IsNone then do noOpMusic "CrossFadeMusic" fromSong "it is not in the palette"
+    if incoming.IsNone then do noOpMusic "CrossFadeMusic" toSong "it is not in the palette"
+    let initialFrom = match outgoing with Some row -> row.Weight | None -> 0.0f
+    let initialTo = match incoming with Some row -> row.Weight | None -> 0.0f
+    let endsAt = now + duration
+    if now >= endsAt then
+        // over before it begins: the outgoing silent, the incoming full (each write a no-op on an absent row)
+        shared.Mix <- Music.setWeight fromSong 0.0f shared.Mix
+        shared.Mix <- Music.setWeight toSong 1.0f shared.Mix
+        do Music.reconcile shared.Assets.Audio shared.Rack shared.Mix
+        Fin
+    else CrossFadeMusicState(fromSong, toSong, initialFrom, initialTo, duration, endsAt)
+
+/// Step a cross-fade at `now`: the outgoing falls to silence and the incoming rises to full together, each
+/// written to the mix (`setWeight` is a no-op on an absent row, so a missing side is simply untouched) and the
+/// rack reconciled once. Exactly on the endpoints at the deadline.
+let private stepCrossFadeMusic (shared: SharedState.SharedState) (fromSong: string) (toSong: string) (initialFrom: float32) (initialTo: float32) (duration: float) (endsAt: float) (now: float) : bool =
+    let t = if now >= endsAt then 1.0f else float32 ((now - (endsAt - duration)) / duration)
+    shared.Mix <- Music.setWeight fromSong (initialFrom * (1.0f - t)) shared.Mix
+    shared.Mix <- Music.setWeight toSong (initialTo + (1.0f - initialTo) * t) shared.Mix
+    do Music.reconcile shared.Assets.Audio shared.Rack shared.Mix
+    now >= endsAt
+
 /// Detach the actor body at `ref` when the member's place is not the active one, so a member built into an
 /// inactive place does not simulate (research D5). Only the body just built is touched: `removeBody` is safe
 /// for an attached body, which is what `spawnActor`/`setTransform` always leave behind.
@@ -233,20 +341,20 @@ let private writeBlend (renderer: byref<ActorRender.ActorRender>) (morph: bool) 
         let weight = initialFrom + (target - initialFrom) * t
         if morph then ActorRender.setMorphWeight &renderer fromName weight else ActorRender.setClipWeight &renderer fromName weight
     else
-        let outgoing = initialFrom * (1.0f - t)
-        let incoming = initialTo + (target - initialTo) * t
-        if morph then
-            do ActorRender.setMorphWeight &renderer fromName outgoing
-            do ActorRender.setMorphWeight &renderer toName incoming
-        else
-            do ActorRender.setClipWeight &renderer fromName outgoing
-            do ActorRender.setClipWeight &renderer toName incoming
+    let outgoing = initialFrom * (1.0f - t)
+    let incoming = initialTo + (target - initialTo) * t
+    if morph then
+        do ActorRender.setMorphWeight &renderer fromName outgoing
+        do ActorRender.setMorphWeight &renderer toName incoming
+    else
+    do ActorRender.setClipWeight &renderer fromName outgoing
+    do ActorRender.setClipWeight &renderer toName incoming
 
 /// Begin a blend: capture the starting weights of the slots the op names and hold a `BlendState`. `Fin` at once
 /// when the actor is not in the scene, or her asset does not define a named clip/morph — a blend no-ops, so a
 /// cue re-runs safely. A duration of zero (or less) is over before it begins, landing on the endpoints.
 let private beginBlend (state: byref<GameplayState.GameplayState>) (place: string) (actor: string) (morph: bool) (fromName: string) (toName: string) (target: float32) (duration: float) (now: float) : Cue =
-    let opName = if fromName = toName then (if morph then "Morph" else "Animate") else (if morph then "CrossMorph" else "CrossFade")
+    let opName = if fromName = toName then (if morph then "Morph" else "Animate") else (if morph then "CrossFadeMorph" else "CrossFadeAnimation")
     let no reason =
         do noOp opName actor reason
         Fin
@@ -261,14 +369,15 @@ let private beginBlend (state: byref<GameplayState.GameplayState>) (place: strin
         if morph then ActorRender.tryMorphWeight &live.Renderer toName
         else ActorRender.tryClipWeight &live.Renderer toName
     match initialFrom, initialTo with
-    | Some from, Some to' ->
-        let endsAt = now + duration
-        if now >= endsAt then
-            do writeBlend &live.Renderer morph fromName toName from to' target 1.0f
-            Fin
-        else BlendState(actor, place, handleOf ref, morph, fromName, toName, from, to', target, duration, endsAt)
     | None, _ -> no (sprintf "her asset has no %s '%s'" (if morph then "morph" else "clip") fromName)
     | _, None -> no (sprintf "her asset has no %s '%s'" (if morph then "morph" else "clip") toName)
+    | Some from, Some to' ->
+    let endsAt = now + duration
+    if now >= endsAt then
+        do writeBlend &live.Renderer morph fromName toName from to' target 1.0f
+        Fin
+    else
+    BlendState(actor, place, handleOf ref, morph, fromName, toName, from, to', target, duration, endsAt)
 
 /// Step a blend at `now`, writing toward the target and answering whether it is over (exactly on the endpoints
 /// at the deadline). An actor that has left the scene ends the blend.
@@ -281,9 +390,9 @@ let private stepBlend (state: byref<GameplayState.GameplayState>) (actor: string
         do writeBlend &live.Renderer morph fromName toName initialFrom initialTo target 1.0f
         true
     else
-        let t = float32 ((now - (endsAt - duration)) / duration)
-        do writeBlend &live.Renderer morph fromName toName initialFrom initialTo target t
-        false
+    let t = float32 ((now - (endsAt - duration)) / duration)
+    do writeBlend &live.Renderer morph fromName toName initialFrom initialTo target t
+    false
 
 /// Begin a move: resolve the actor (her zone must be the **active** one — motion is active-zone only), her body
 /// and the named path (a single waypoint is a straight walk to it; positive speed). Build the spline from her
@@ -364,21 +473,21 @@ let private stepMove (state: byref<GameplayState.GameplayState>) (actor: string)
         do ActorRender.setClipWeight &live.Renderer idleClip 1.0f
         true
     else
-        let t = (now - (endsAt - duration)) / duration
-        let struct (bodyPosition, _) = Physics.getBodyTransform state.Physics body
-        let target = evalSpline points t + offset
-        let toward = Vector3(target.X - bodyPosition.X, 0.0f, target.Z - bodyPosition.Z)
-        let velocity =
-            if toward.LengthSquared() < 1e-6f then Vector3(0.0f, vertical, 0.0f) else
-            let v = Vector3.Normalize toward * float32 speed
-            Vector3(v.X, vertical, v.Z)
-        do Physics.setBodyVelocity state.Physics body velocity
-        do Physics.setBodyRotation state.Physics body (Quaternion.Slerp(initialRotation, finalRotation, float32 t))
-        let remaining = endsAt - now
-        let arrival = if blend <= 0.0 then 0.0f else float32 (max 0.0 (1.0 - remaining / blend))
-        do ActorRender.setClipWeight &live.Renderer movingClip (1.0f - arrival)
-        do ActorRender.setClipWeight &live.Renderer idleClip arrival
-        false
+    let t = (now - (endsAt - duration)) / duration
+    let struct (bodyPosition, _) = Physics.getBodyTransform state.Physics body
+    let target = evalSpline points t + offset
+    let toward = Vector3(target.X - bodyPosition.X, 0.0f, target.Z - bodyPosition.Z)
+    let velocity =
+        if toward.LengthSquared() < 1e-6f then Vector3(0.0f, vertical, 0.0f) else
+        let v = Vector3.Normalize toward * float32 speed
+        Vector3(v.X, vertical, v.Z)
+    do Physics.setBodyVelocity state.Physics body velocity
+    do Physics.setBodyRotation state.Physics body (Quaternion.Slerp(initialRotation, finalRotation, float32 t))
+    let remaining = endsAt - now
+    let arrival = if blend <= 0.0 then 0.0f else float32 (max 0.0 (1.0 - remaining / blend))
+    do ActorRender.setClipWeight &live.Renderer movingClip (1.0f - arrival)
+    do ActorRender.setClipWeight &live.Renderer idleClip arrival
+    false
 
 /// Begin an in-place turn: resolve the actor (her zone must be active) and the named waypoint, capture her
 /// current facing and the waypoint's, and hold a `RotateActorState`. Anything unresolved is `Fin`.
@@ -472,6 +581,57 @@ let rec advance
         | None -> ValueSome Fin // no capacity in a target zone: logged already, nothing forked (FR-010)
         | Some _ -> ValueSome (Fork contents.Cue)
 
+    | AddMusic song ->
+        // membership is authored state mutated at runtime, never a step on the history (FR-009); `addRow` is
+        // already a no-op when the song is a row (FR-001)
+        shared.Mix <- Music.addRow song shared.Mix
+        ValueSome Fin
+
+    | RemoveMusic song ->
+        // leaving the palette stops the song and frees its deck: `reconcile` closes the removed row's deck (FR-002)
+        shared.Mix <- Music.removeRow song shared.Mix
+        do Music.reconcile shared.Assets.Audio shared.Rack shared.Mix
+        ValueSome Fin
+
+    | PlayMusic song ->
+        do playMusic "PlayMusic" shared song
+        ValueSome Fin
+
+    | StopMusic song ->
+        if Music.contains song shared.Mix then do Music.stop shared.Rack song
+        else do noOpMusic "StopMusic" song "it is not in the palette"
+        ValueSome Fin
+
+    | PlayBed ->
+        // start each palette row per its own rule, so a running row keeps its position (FR-005)
+        for row in shared.Mix.Rows do do playMusic "PlayBed" shared row.Asset
+        ValueSome Fin
+
+    | StopBed ->
+        for row in shared.Mix.Rows do do Music.stop shared.Rack row.Asset
+        ValueSome Fin
+
+    | SetMusicLevel (song, level, duration) ->
+        ValueSome(beginMusicLevel shared song level duration now)
+
+    | MusicLevelState (song, initial, target, duration, endsAt) ->
+        if stepMusicLevel shared song initial target duration endsAt now then ValueSome Fin
+        else ValueNone
+
+    | SetMusicMaster (level, duration) ->
+        ValueSome(beginMusicMaster shared level duration now)
+
+    | MusicMasterState (initial, target, duration, endsAt) ->
+        if stepMusicMaster shared initial target duration endsAt now then ValueSome Fin
+        else ValueNone
+
+    | CrossFadeMusic (fromSong, toSong, duration) ->
+        ValueSome(beginCrossFadeMusic shared fromSong toSong duration now)
+
+    | CrossFadeMusicState (fromSong, toSong, initialFrom, initialTo, duration, endsAt) ->
+        if stepCrossFadeMusic shared fromSong toSong initialFrom initialTo duration endsAt now then ValueSome Fin
+        else ValueNone
+
     | AddActor (place, actor, asset, waypoint) ->
         // a place that is not present, or a waypoint the place does not hold, is a no-op (spec 073 FR-003)
         if not (state.Zones.ContainsKey place) then
@@ -499,13 +659,13 @@ let rec advance
     | Animate (place, actor, clip, weight, duration) ->
         ValueSome(beginBlend &state place actor false clip clip weight duration now)
 
-    | CrossFade (place, actor, fromClip, toClip, weight, duration) ->
+    | CrossFadeAnimation (place, actor, fromClip, toClip, weight, duration) ->
         ValueSome(beginBlend &state place actor false fromClip toClip weight duration now)
 
     | Morph (place, actor, morph, weight, duration) ->
         ValueSome(beginBlend &state place actor true morph morph weight duration now)
 
-    | CrossMorph (place, actor, fromMorph, toMorph, weight, duration) ->
+    | CrossFadeMorph (place, actor, fromMorph, toMorph, weight, duration) ->
         ValueSome(beginBlend &state place actor true fromMorph toMorph weight duration now)
 
     | BlendState (actor, place, handle, morph, fromName, toName, initialFrom, initialTo, target, duration, endsAt) ->

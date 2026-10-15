@@ -55,9 +55,9 @@ let rec private describe (cue: Cue) : string =
     | AddActor (p, a, asset, w) -> sprintf "AddActor(%s,%s,%s,%s)" (p) a asset w
     | RemoveActor (p, a) -> sprintf "RemoveActor(%s,%s)" (p) a
     | Animate (p, a, clip, _, d) -> sprintf "Animate(%s,%s,%s,%g)" (p) a clip d
-    | CrossFade (p, a, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%s,%g)" (p) a f t d
+    | CrossFadeAnimation (p, a, f, t, _, d) -> sprintf "CrossFadeAnimation(%s,%s,%s,%s,%g)" (p) a f t d
     | Morph (p, a, m, _, d) -> sprintf "Morph(%s,%s,%s,%g)" (p) a m d
-    | CrossMorph (p, a, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%s,%g)" (p) a f t d
+    | CrossFadeMorph (p, a, f, t, _, d) -> sprintf "CrossFadeMorph(%s,%s,%s,%s,%g)" (p) a f t d
     | BlendState (a, _, _, morph, f, t, _, _, _, _, _) -> sprintf "Blend(%s,%b,%s,%s)" a morph f t
     | MoveActor (a, p, _, mv, idl) -> sprintf "MoveActor(%s,%s,%s,%s)" a p mv idl
     | MoveActorState (a, _, _, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" a
@@ -75,6 +75,18 @@ let rec private describe (cue: Cue) : string =
     | Await m | AwaitState m -> sprintf "Await(%s)" m
     | If (m, _, _) -> sprintf "If(%s)" m
     | ForkScenario scenario -> sprintf "ForkScenario(%s)" scenario
+    | AddMusic song -> sprintf "AddMusic(%s)" song
+    | RemoveMusic song -> sprintf "RemoveMusic(%s)" song
+    | PlayMusic song -> sprintf "PlayMusic(%s)" song
+    | StopMusic song -> sprintf "StopMusic(%s)" song
+    | PlayBed -> "PlayBed"
+    | StopBed -> "StopBed"
+    | SetMusicLevel (song, level, d) -> sprintf "SetMusicLevel(%s,%g,%g)" song level d
+    | SetMusicMaster (level, d) -> sprintf "SetMusicMaster(%g,%g)" level d
+    | MusicLevelState (song, _, target, d, _) -> sprintf "MusicLevelState(%s,%g,%g)" song target d
+    | MusicMasterState (_, target, d, _) -> sprintf "MusicMasterState(%g,%g)" target d
+    | CrossFadeMusic (fromSong, toSong, d) -> sprintf "CrossFadeMusic(%s,%s,%g)" fromSong toSong d
+    | CrossFadeMusicState (fromSong, toSong, _, _, d, _) -> sprintf "CrossFadeMusicState(%s,%s,%g)" fromSong toSong d
 
 let private raises (f: unit -> unit) : bool =
     try
@@ -733,9 +745,9 @@ let ``the trigger inline editor keeps its own selection and text buffer`` () =
 let ``the blend, motion and player ops render, and their writes replace their fields`` () =
     let labelOf (cue: Cue) : string = (List.head (rows cue)).Label
     Assert.Equal("Animate: Jog in Island", labelOf (Animate("Island", "Aiko", "Jog", 1.0f, 1.0)))
-    Assert.Equal("Cross fade: Idle -> Jog in Island", labelOf (CrossFade("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal("Cross fade animation: Idle -> Jog in Island", labelOf (CrossFadeAnimation("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
     Assert.Equal("Morph: Smile in Island", labelOf (Morph("Island", "Aiko", "Smile", 1.0f, 1.0)))
-    Assert.Equal("Cross morph: A -> B in Island", labelOf (CrossMorph("Island", "Aiko", "A", "B", 1.0f, 1.0)))
+    Assert.Equal("Cross fade morph: A -> B in Island", labelOf (CrossFadeMorph("Island", "Aiko", "A", "B", 1.0f, 1.0)))
     Assert.Equal("Move actor: Aiko", labelOf (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")))
     Assert.Equal("Rotate actor: Aiko", labelOf (RotateActor("Aiko", "door", 1.0)))
     Assert.Equal("Enable player: Aiko in Island", labelOf (EnablePlayer("Island", "Aiko")))
@@ -747,10 +759,10 @@ let ``the blend, motion and player ops render, and their writes replace their fi
     // the zone selector writes the place, keeping the actor and the rest (spec 075)
     Assert.Equal("Animate(start,Aiko,Jog,1)", describe (withPlace GameplayState.startZone (Animate("Island", "Aiko", "Jog", 1.0f, 1.0))))
     // two-field ops: the first text field and the second write independently
-    Assert.Equal("CrossFade(Island,Aiko,Walk,Jog,1)", describe (withText (CrossFade("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)) "Walk"))
-    Assert.Equal("CrossFade(Island,Aiko,Idle,Walk,1)", describe (withText2 (CrossFade("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)) "Walk"))
-    Assert.Equal(ValueSome "Idle", textOf (CrossFade("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
-    Assert.Equal(ValueSome "Jog", textOf2 (CrossFade("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal("CrossFadeAnimation(Island,Aiko,Walk,Jog,1)", describe (withText (CrossFadeAnimation("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)) "Walk"))
+    Assert.Equal("CrossFadeAnimation(Island,Aiko,Idle,Walk,1)", describe (withText2 (CrossFadeAnimation("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)) "Walk"))
+    Assert.Equal(ValueSome "Idle", textOf (CrossFadeAnimation("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
+    Assert.Equal(ValueSome "Jog", textOf2 (CrossFadeAnimation("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
     // the move's path is the waypoint writer's, and its two clips are the two text fields
     Assert.Equal("MoveActor(Aiko,atrium,Jog,Idle)", describe (withWaypoint "atrium" (MoveActor("Aiko", "route", 3.5, "Jog", "Idle"))))
     Assert.Equal(ValueSome "Jog", textOf (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")))
@@ -796,7 +808,7 @@ let ``a chosen kind defaults its place to the given default place`` () =
     // every place-carrying kind takes the place the panel passes (the active zone, spec 075 FR-007)
     for kind in [ "Set zone"; "Remove zone"; "Add actor"; "Remove actor"
                   "Enable player"; "Disable player"; "Enable trigger"; "Disable trigger"
-                  "Animate"; "Cross fade"; "Morph"; "Cross morph"; "Set camera"; "Fly camera" ] do
+                  "Animate"; "Cross fade animation"; "Morph"; "Cross fade morph"; "Set camera"; "Fly camera" ] do
         match placeOf (defaultOfKind "Island" kind) with
         | ValueSome place -> Assert.Equal("Island", place)
         | ValueNone -> Assert.Fail (sprintf "kind '%s' should carry the default place" kind)

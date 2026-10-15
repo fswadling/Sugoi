@@ -71,15 +71,16 @@ type Cue =
     | AddActor of place: string * actor: string * asset: string * waypoint: string
     | RemoveActor of place: string * actor: string
     // The actor's animation/morph blends (spec 066, spec 075): drive a slot's weight over a duration.
-    // `Animate`/`Morph` move one slot from its current weight to the target; `CrossFade`/`CrossMorph` take one
-    // out while another comes in. They act in the **named place's** zone, active or not — slot weights are
+    // `Animate`/`Morph` move one slot from its current weight to the target; `CrossFadeAnimation`/`CrossFadeMorph`
+    // take one out while another comes in (the suffixes added by spec 088 so the actor, morph and music
+    // cross-fades read alike). They act in the **named place's** zone, active or not — slot weights are
     // renderer state, not part of the simulation. `BlendState` is the in-flight form, holding the captured
     // start weights so a blend that begins part-way is correct; it also carries the actor's resolved slot
     // (`place` + `handle`), so the step reuses her instead of scanning by name each tick (`specs/074`).
     | Animate of place: string * actor: string * clip: string * weight: float32 * duration: float
-    | CrossFade of place: string * actor: string * fromClip: string * toClip: string * weight: float32 * duration: float
+    | CrossFadeAnimation of place: string * actor: string * fromClip: string * toClip: string * weight: float32 * duration: float
     | Morph of place: string * actor: string * morph: string * weight: float32 * duration: float
-    | CrossMorph of place: string * actor: string * fromMorph: string * toMorph: string * weight: float32 * duration: float
+    | CrossFadeMorph of place: string * actor: string * fromMorph: string * toMorph: string * weight: float32 * duration: float
     | BlendState of actor: string * place: string * handle: Handle * morph: bool * fromName: string * toName: string * initialFrom: float32 * initialTo: float32 * target: float32 * duration: float * endsAt: float
     // The actor's movement (spec 066): drive her body along a waypoint chain (`MoveActor`, turning to face the
     // path and blending a moving clip to an idle clip as she arrives), or turn her in place to face a waypoint
@@ -116,6 +117,31 @@ type Cue =
     // library that resolves it (`world/ScenarioRegistry.fs`) is compiled after this file, exactly as `SetZone` names
     // a place before `ZoneRegistry` exists — and it is a runtime effect, like every cue op.
     | ForkScenario of scenario: string
+    // The music cues (spec 088): set up the palette (membership), start and stop it (transport), and shape it
+    // (a level, the master, a cross-fade) as the run reaches them. The mix is the authored state `SharedState`
+    // holds (spec 087); a cue mutates that same mix directly and never lands on the one history (FR-009), the
+    // `AddAdvent` pattern. Membership and transport are no-progress leaves; a shaping op carries its numbers in
+    // a `…State` (added with each shaping story), the `FadeOut`/`Animate` convention.
+    | AddMusic of song: string
+    | RemoveMusic of song: string
+    | PlayMusic of song: string
+    | StopMusic of song: string
+    // The whole bed (FR-005): one op starts or stops every palette song, so a scene needs no song enumeration.
+    | PlayBed
+    | StopBed
+    // Shaping (FR-006..FR-008): move a row's level, or the palette master, to a target over a duration (or at
+    // once when it is zero). The captured level in each `…State` is what makes a ramp begun part-way correct
+    // and a retarget continue from the current level (FR-012).
+    | SetMusicLevel of song: string * level: float32 * duration: float
+    | SetMusicMaster of level: float32 * duration: float
+    | MusicLevelState of song: string * initial: float32 * target: float32 * duration: float * endsAt: float
+    | MusicMasterState of initial: float32 * target: float32 * duration: float * endsAt: float
+    // Swap one palette song for another with one op: `fromSong` falls to silence and `toSong` rises to full,
+    // together over the duration (FR-008). The music counterpart of `CrossFadeAnimation`; the captured weights
+    // make a cross-fade begun part-way correct. A side that is not a palette row is a reported no-op and the
+    // other side still moves.
+    | CrossFadeMusic of fromSong: string * toSong: string * duration: float
+    | CrossFadeMusicState of fromSong: string * toSong: string * initialFrom: float32 * initialTo: float32 * duration: float * endsAt: float
 
 // ── Forking ──
 

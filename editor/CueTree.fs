@@ -46,30 +46,32 @@ type Row =
 /// structure or an op that has not begun. A suite can therefore assert the lock with no device.
 let rec executing (cue: Cue) : bool =
     match cue with
-    | WaitState _ | FlyCameraState _ | FadeOutState _ | FadeInState _ | AwaitState _ | BlendState _ | MoveActorState _ | RotateActorState _ -> true
+    | WaitState _ | FlyCameraState _ | FadeOutState _ | FadeInState _ | AwaitState _ | BlendState _ | MoveActorState _ | RotateActorState _ | MusicLevelState _ | MusicMasterState _ | CrossFadeMusicState _ -> true
     | Sequence (current, _) -> executing current
     | Parallel (left, right) -> executing left || executing right
     | Fork inner -> executing inner
     | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | Print _ | SetZone _ | RemoveZone _
-    | AddActor _ | RemoveActor _ | Animate _ | CrossFade _ | Morph _ | CrossMorph _ | MoveActor _ | RotateActor _
+    | AddActor _ | RemoveActor _ | Animate _ | CrossFadeAnimation _ | Morph _ | CrossFadeMorph _ | MoveActor _ | RotateActor _
     | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
-    | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ | ForkScenario _ -> false
+    | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ | ForkScenario _
+    | AddMusic _ | RemoveMusic _ | PlayMusic _ | StopMusic _ | PlayBed | StopBed
+    | SetMusicLevel _ | SetMusicMaster _ | CrossFadeMusic _ -> false
 
 /// The name a blend shows as: `from = to` is the single-slot op, otherwise the cross-fade, and `morph` picks the
 /// morph family. One rule, so an op and its in-flight `BlendState` read the same.
 let private blendOpName (morph: bool) (fromName: string) (toName: string) : string =
     if fromName = toName then (if morph then "Morph" else "Animate")
-    else (if morph then "Cross morph" else "Cross fade")
+    else (if morph then "Cross fade morph" else "Cross fade animation")
 
 /// A blend's row label: the op and the slot(s) it drives.
 let private blendLabel (morph: bool) (fromName: string) (toName: string) : string =
     if fromName = toName then sprintf "%s: %s" (blendOpName morph fromName toName) fromName
     else sprintf "%s: %s -> %s" (blendOpName morph fromName toName) fromName toName
 
-/// An advent op's row: the op and its milestone name, or the op alone when no name is set yet (an unnamed op
-/// reads `Add` rather than a dangling `Add: `).
-let private adventLabel (verb: string) (advent: string) : string =
-    if advent = "" then verb else verb + ": " + advent
+/// A named op's row: the op and its name (a milestone or a song), or the op alone when no name is set yet (an
+/// unnamed op reads `Add` rather than a dangling `Add: `). The advent and music ops share this rule.
+let private namedLabel (verb: string) (name: string) : string =
+    if name = "" then verb else verb + ": " + name
 
 /// What a row says. A leaf in flight is shown as the op it came from — a `WaitState` as its `Wait` — because
 /// the view is what is left to run, never an internal state's name (`FR-004`).
@@ -91,9 +93,9 @@ let private label (cue: Cue) : string =
         sprintf "Add actor: %s/%s in %s @ %s" actor asset (place) waypoint
     | RemoveActor (place, actor) -> sprintf "Remove actor: %s in %s" actor (place)
     | Animate (place, _, clip, _, _) -> sprintf "%s in %s" (blendLabel false clip clip) (place)
-    | CrossFade (place, _, fromClip, toClip, _, _) -> sprintf "%s in %s" (blendLabel false fromClip toClip) (place)
+    | CrossFadeAnimation (place, _, fromClip, toClip, _, _) -> sprintf "%s in %s" (blendLabel false fromClip toClip) (place)
     | Morph (place, _, morph, _, _) -> sprintf "%s in %s" (blendLabel true morph morph) (place)
-    | CrossMorph (place, _, fromMorph, toMorph, _, _) -> sprintf "%s in %s" (blendLabel true fromMorph toMorph) (place)
+    | CrossFadeMorph (place, _, fromMorph, toMorph, _, _) -> sprintf "%s in %s" (blendLabel true fromMorph toMorph) (place)
     | BlendState (_, place, _, morph, fromName, toName, _, _, _, _, _) -> sprintf "%s in %s" (blendLabel morph fromName toName) (place)
     | MoveActor (actor, _, _, _, _) | MoveActorState (actor, _, _, _, _, _, _, _, _, _, _, _) ->
         "Move actor: " + actor
@@ -107,10 +109,19 @@ let private label (cue: Cue) : string =
     | SetCamera (place, waypoint) -> sprintf "Camera: %s in %s" waypoint (place)
     | FlyCamera (place, path, _) -> sprintf "Fly: %s in %s" path (place)
     | FlyCameraState (path, _, _, _, _) -> "Fly: " + path
-    | AddAdvent advent -> adventLabel "Add" advent
-    | RemoveAdvent advent -> adventLabel "Remove" advent
-    | Await advent | AwaitState advent -> adventLabel "Await" advent
-    | If (advent, _, _) -> adventLabel "If" advent
+    | AddAdvent advent -> namedLabel "Add" advent
+    | RemoveAdvent advent -> namedLabel "Remove" advent
+    | Await advent | AwaitState advent -> namedLabel "Await" advent
+    | If (advent, _, _) -> namedLabel "If" advent
+    | AddMusic song -> namedLabel "Add music" song
+    | RemoveMusic song -> namedLabel "Remove music" song
+    | PlayMusic song -> namedLabel "Play music" song
+    | StopMusic song -> namedLabel "Stop music" song
+    | PlayBed -> "Play bed"
+    | StopBed -> "Stop bed"
+    | SetMusicLevel (song, _, _) | MusicLevelState (song, _, _, _, _) -> namedLabel "Music level" song
+    | SetMusicMaster _ | MusicMasterState _ -> "Music master"
+    | CrossFadeMusic (fromSong, toSong, _) | CrossFadeMusicState (fromSong, toSong, _, _, _, _) -> sprintf "Cross fade music: %s -> %s" fromSong toSong
 
 /// A `Sequence`'s children in index order: the op in flight first, then the queue behind it.
 let private sequenceChildren (current: Cue) (rest: Cue FDeque) : Cue list =
@@ -125,10 +136,12 @@ let children (cue: Cue) : Cue list =
     | If (_, thenCue, elseCue) -> [ thenCue; elseCue ]
     | Fin | Wait _ | WaitState _ | FadeOut _ | FadeIn _ | FadeOutState _ | FadeInState _ | Exposit _
     | SetZone _ | RemoveZone _ | AddActor _ | RemoveActor _ | SetCamera _
-    | Animate _ | CrossFade _ | Morph _ | CrossMorph _ | BlendState _ | MoveActor _ | MoveActorState _
+    | Animate _ | CrossFadeAnimation _ | Morph _ | CrossFadeMorph _ | BlendState _ | MoveActor _ | MoveActorState _
     | RotateActor _ | RotateActorState _ | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
     | Print _
-    | FlyCamera _ | FlyCameraState _ | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ | ForkScenario _ -> []
+    | FlyCamera _ | FlyCameraState _ | AddAdvent _ | RemoveAdvent _ | Await _ | AwaitState _ | ForkScenario _
+    | AddMusic _ | RemoveMusic _ | PlayMusic _ | StopMusic _ | PlayBed | StopBed
+    | SetMusicLevel _ | SetMusicMaster _ | MusicLevelState _ | MusicMasterState _ | CrossFadeMusic _ | CrossFadeMusicState _ -> []
 
 /// Every row of the cue as the panel shows it, in display order: a row per container with its children
 /// indented beneath it, the queue behind a running op in its own order, and `Fin` its own row. An `If`'s two
@@ -260,10 +273,11 @@ let private kinds : (string * string list) array = [|
     "Dialogue",  [ "Exposit" ]
     "Zones",     [ "Set zone"; "Remove zone" ]
     "Actors",    [ "Add actor"; "Remove actor"; "Move actor"; "Rotate actor"; "Enable player"; "Disable player" ]
-    "Animation", [ "Animate"; "Cross fade"; "Morph"; "Cross morph" ]
+    "Animation", [ "Animate"; "Cross fade animation"; "Morph"; "Cross fade morph" ]
     "Camera",    [ "Set camera"; "Fly camera" ]
     "Advent",    [ "Add advent"; "Remove advent"; "Await"; "If" ]
     "Triggers",  [ "Enable trigger"; "Disable trigger" ]
+    "Music",     [ "Add music"; "Remove music"; "Play music"; "Stop music"; "Play bed"; "Stop bed"; "Music level"; "Music master"; "Cross fade music" ]
     "Scenarios", [ "Fork scenario" ]
     "Debug",     [ "Print" ]
 |]
@@ -286,9 +300,9 @@ let private kindName (cue: Cue) : string =
     | AddActor _ -> "Add actor"
     | RemoveActor _ -> "Remove actor"
     | Animate (_, _, clip, _, _) -> blendOpName false clip clip
-    | CrossFade (_, _, fromClip, toClip, _, _) -> blendOpName false fromClip toClip
+    | CrossFadeAnimation (_, _, fromClip, toClip, _, _) -> blendOpName false fromClip toClip
     | Morph (_, _, morph, _, _) -> blendOpName true morph morph
-    | CrossMorph (_, _, fromMorph, toMorph, _, _) -> blendOpName true fromMorph toMorph
+    | CrossFadeMorph (_, _, fromMorph, toMorph, _, _) -> blendOpName true fromMorph toMorph
     | BlendState (_, _, _, morph, fromName, toName, _, _, _, _, _) -> blendOpName morph fromName toName
     | MoveActor _ | MoveActorState _ -> "Move actor"
     | RotateActor _ | RotateActorState _ -> "Rotate actor"
@@ -303,6 +317,15 @@ let private kindName (cue: Cue) : string =
     | Await _ | AwaitState _ -> "Await"
     | If _ -> "If"
     | ForkScenario _ -> "Fork scenario"
+    | AddMusic _ -> "Add music"
+    | RemoveMusic _ -> "Remove music"
+    | PlayMusic _ -> "Play music"
+    | StopMusic _ -> "Stop music"
+    | PlayBed -> "Play bed"
+    | StopBed -> "Stop bed"
+    | SetMusicLevel _ | MusicLevelState _ -> "Music level"
+    | SetMusicMaster _ | MusicMasterState _ -> "Music master"
+    | CrossFadeMusic _ | CrossFadeMusicState _ -> "Cross fade music"
 
 /// What choosing a kind replaces the node with. Every op is reachable without an editor per op.
 ///
@@ -331,15 +354,24 @@ let defaultOfKind (place: string) (kind: string) : Cue =
     | "Enable trigger" -> EnableTrigger(place, "")
     | "Disable trigger" -> DisableTrigger(place, "")
     | "Animate" -> Animate(place, "", "Idle", 1.0f, 1.0)
-    | "Cross fade" -> CrossFade(place, "", "Idle", "Jog", 1.0f, 1.0)
+    | "Cross fade animation" -> CrossFadeAnimation(place, "", "Idle", "Jog", 1.0f, 1.0)
     | "Morph" -> Morph(place, "", "", 1.0f, 1.0)
-    | "Cross morph" -> CrossMorph(place, "", "", "", 1.0f, 1.0)
+    | "Cross fade morph" -> CrossFadeMorph(place, "", "", "", 1.0f, 1.0)
     | "Set camera" -> SetCamera(place, "")
     | "Add advent" -> AddAdvent ""
     | "Remove advent" -> RemoveAdvent ""
     | "Await" -> Await ""
     | "If" -> If("", Fin, Fin)
     | "Fork scenario" -> ForkScenario ""
+    | "Add music" -> AddMusic ""
+    | "Remove music" -> RemoveMusic ""
+    | "Play music" -> PlayMusic ""
+    | "Stop music" -> StopMusic ""
+    | "Play bed" -> PlayBed
+    | "Stop bed" -> StopBed
+    | "Music level" -> SetMusicLevel("", 1.0f, 1.0)
+    | "Music master" -> SetMusicMaster(1.0f, 1.0)
+    | "Cross fade music" -> CrossFadeMusic("", "", 1.0)
     | _ -> FlyCamera(place, "", 1.0)
 
 /// The node's editable text, or `ValueNone` when it has none. The field that edits it belongs to the caller
@@ -355,9 +387,9 @@ let textOf (cue: Cue) : string voption =
     | Print text -> ValueSome text
     | AddActor (_, actor, _, _) -> ValueSome actor
     | Animate (_, _, clip, _, _) -> ValueSome clip
-    | CrossFade (_, _, fromClip, _, _, _) -> ValueSome fromClip
+    | CrossFadeAnimation (_, _, fromClip, _, _, _) -> ValueSome fromClip
     | Morph (_, _, morph, _, _) -> ValueSome morph
-    | CrossMorph (_, _, fromMorph, _, _, _) -> ValueSome fromMorph
+    | CrossFadeMorph (_, _, fromMorph, _, _, _) -> ValueSome fromMorph
     | MoveActor (_, _, _, movingClip, _) -> ValueSome movingClip
     | SetCamera (_, waypoint) -> ValueSome waypoint
     | FlyCamera (_, path, _) -> ValueSome path
@@ -368,8 +400,8 @@ let textOf (cue: Cue) : string voption =
 /// `AddActor`'s waypoint (its first field is the actor's name).
 let textOf2 (cue: Cue) : string voption =
     match cue with
-    | CrossFade (_, _, _, toClip, _, _) -> ValueSome toClip
-    | CrossMorph (_, _, _, toMorph, _, _) -> ValueSome toMorph
+    | CrossFadeAnimation (_, _, _, toClip, _, _) -> ValueSome toClip
+    | CrossFadeMorph (_, _, _, toMorph, _, _) -> ValueSome toMorph
     | MoveActor (_, _, _, _, idleClip) -> ValueSome idleClip
     | AddActor (_, _, _, waypoint) -> ValueSome waypoint
     | _ -> ValueNone
@@ -381,9 +413,9 @@ let withText (cue: Cue) (text: string) : Cue =
     | Print _ -> Print text
     | AddActor (place, _, asset, waypoint) -> AddActor(place, text, asset, waypoint)
     | Animate (place, actor, _, weight, duration) -> Animate(place, actor, text, weight, duration)
-    | CrossFade (place, actor, _, toClip, weight, duration) -> CrossFade(place, actor, text, toClip, weight, duration)
+    | CrossFadeAnimation (place, actor, _, toClip, weight, duration) -> CrossFadeAnimation(place, actor, text, toClip, weight, duration)
     | Morph (place, actor, _, weight, duration) -> Morph(place, actor, text, weight, duration)
-    | CrossMorph (place, actor, _, toMorph, weight, duration) -> CrossMorph(place, actor, text, toMorph, weight, duration)
+    | CrossFadeMorph (place, actor, _, toMorph, weight, duration) -> CrossFadeMorph(place, actor, text, toMorph, weight, duration)
     | MoveActor (actor, path, speed, _, idleClip) -> MoveActor(actor, path, speed, text, idleClip)
     | SetCamera (place, _) -> SetCamera(place, text)
     | FlyCamera (place, _, speed) -> FlyCamera(place, text, speed)
@@ -392,8 +424,8 @@ let withText (cue: Cue) (text: string) : Cue =
 /// The node with its second text field replaced — the write the caller's second field commits.
 let withText2 (cue: Cue) (text: string) : Cue =
     match cue with
-    | CrossFade (place, actor, fromClip, _, weight, duration) -> CrossFade(place, actor, fromClip, text, weight, duration)
-    | CrossMorph (place, actor, fromMorph, _, weight, duration) -> CrossMorph(place, actor, fromMorph, text, weight, duration)
+    | CrossFadeAnimation (place, actor, fromClip, _, weight, duration) -> CrossFadeAnimation(place, actor, fromClip, text, weight, duration)
+    | CrossFadeMorph (place, actor, fromMorph, _, weight, duration) -> CrossFadeMorph(place, actor, fromMorph, text, weight, duration)
     | MoveActor (actor, path, speed, movingClip, _) -> MoveActor(actor, path, speed, movingClip, text)
     | AddActor (place, actor, asset, _) -> AddActor(place, actor, asset, text)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no second text" (label cue))
@@ -443,9 +475,9 @@ let withPlace (place: string) (cue: Cue) : Cue =
     | AddActor (_, actor, asset, waypoint) -> AddActor(place, actor, asset, waypoint)
     | RemoveActor (_, actor) -> RemoveActor(place, actor)
     | Animate (_, actor, clip, weight, duration) -> Animate(place, actor, clip, weight, duration)
-    | CrossFade (_, actor, fromClip, toClip, weight, duration) -> CrossFade(place, actor, fromClip, toClip, weight, duration)
+    | CrossFadeAnimation (_, actor, fromClip, toClip, weight, duration) -> CrossFadeAnimation(place, actor, fromClip, toClip, weight, duration)
     | Morph (_, actor, morph, weight, duration) -> Morph(place, actor, morph, weight, duration)
-    | CrossMorph (_, actor, fromMorph, toMorph, weight, duration) -> CrossMorph(place, actor, fromMorph, toMorph, weight, duration)
+    | CrossFadeMorph (_, actor, fromMorph, toMorph, weight, duration) -> CrossFadeMorph(place, actor, fromMorph, toMorph, weight, duration)
     | EnablePlayer (_, actor) -> EnablePlayer(place, actor)
     | DisablePlayer (_, actor) -> DisablePlayer(place, actor)
     | EnableTrigger (_, trigger) -> EnableTrigger(place, trigger)
@@ -466,9 +498,9 @@ let withActor (actor: string) (cue: Cue) : Cue =
     | AddActor (place, _, asset, waypoint) -> AddActor(place, actor, asset, waypoint)
     | RemoveActor (place, _) -> RemoveActor(place, actor)
     | Animate (place, _, clip, weight, duration) -> Animate(place, actor, clip, weight, duration)
-    | CrossFade (place, _, fromClip, toClip, weight, duration) -> CrossFade(place, actor, fromClip, toClip, weight, duration)
+    | CrossFadeAnimation (place, _, fromClip, toClip, weight, duration) -> CrossFadeAnimation(place, actor, fromClip, toClip, weight, duration)
     | Morph (place, _, morph, weight, duration) -> Morph(place, actor, morph, weight, duration)
-    | CrossMorph (place, _, fromMorph, toMorph, weight, duration) -> CrossMorph(place, actor, fromMorph, toMorph, weight, duration)
+    | CrossFadeMorph (place, _, fromMorph, toMorph, weight, duration) -> CrossFadeMorph(place, actor, fromMorph, toMorph, weight, duration)
     | MoveActor (_, path, speed, movingClip, idleClip) -> MoveActor(actor, path, speed, movingClip, idleClip)
     | RotateActor (_, waypoint, duration) -> RotateActor(actor, waypoint, duration)
     | EnablePlayer (place, _) -> EnablePlayer(place, actor)
@@ -481,13 +513,31 @@ let withAsset (asset: string) (cue: Cue) : Cue =
     | AddActor (place, actor, _, waypoint) -> AddActor(place, actor, asset, waypoint)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no asset" (label cue))
 
+/// The node with its song replaced — the write the music song chooser commits. Every song-bearing music op
+/// carries one.
+let withSong (song: string) (cue: Cue) : Cue =
+    match cue with
+    | AddMusic _ -> AddMusic song
+    | RemoveMusic _ -> RemoveMusic song
+    | PlayMusic _ -> PlayMusic song
+    | StopMusic _ -> StopMusic song
+    | SetMusicLevel (_, level, duration) -> SetMusicLevel(song, level, duration)
+    | CrossFadeMusic (_, toSong, duration) -> CrossFadeMusic(song, toSong, duration)
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no song" (label cue))
+
+/// The node with its **second** song replaced — the write a cross-fade's incoming-song chooser commits.
+let withSong2 (song: string) (cue: Cue) : Cue =
+    match cue with
+    | CrossFadeMusic (fromSong, _, duration) -> CrossFadeMusic(fromSong, song, duration)
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no second song" (label cue))
+
 /// The place a node's op names, or `ValueNone` when it names none — every entity op names its zone now
 /// (spec 075); the physics-driven motion ops and the `…State` forms do not.
 let placeOf (cue: Cue) : string voption =
     match cue with
     | SetZone p | RemoveZone p -> ValueSome p
     | AddActor (p, _, _, _) | RemoveActor (p, _) -> ValueSome p
-    | Animate (p, _, _, _, _) | CrossFade (p, _, _, _, _, _) | Morph (p, _, _, _, _) | CrossMorph (p, _, _, _, _, _) -> ValueSome p
+    | Animate (p, _, _, _, _) | CrossFadeAnimation (p, _, _, _, _, _) | Morph (p, _, _, _, _) | CrossFadeMorph (p, _, _, _, _, _) -> ValueSome p
     | EnablePlayer (p, _) | DisablePlayer (p, _) -> ValueSome p
     | EnableTrigger (p, _) | DisableTrigger (p, _) -> ValueSome p
     | SetCamera (p, _) | FlyCamera (p, _, _) -> ValueSome p
@@ -736,17 +786,40 @@ let drawEditor
             dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (Animate(place, actor, clip, v, duration)) cue))
             dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (Animate(place, actor, clip, weight, float v)) cue))
 
-        | CrossFade (place, actor, fromClip, toClip, weight, duration) ->
-            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (CrossFade(place, actor, fromClip, toClip, v, duration)) cue))
-            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (CrossFade(place, actor, fromClip, toClip, weight, float v)) cue))
+        | CrossFadeAnimation (place, actor, fromClip, toClip, weight, duration) ->
+            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (CrossFadeAnimation(place, actor, fromClip, toClip, v, duration)) cue))
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (CrossFadeAnimation(place, actor, fromClip, toClip, weight, float v)) cue))
 
         | Morph (place, actor, morph, weight, duration) ->
             dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (Morph(place, actor, morph, v, duration)) cue))
             dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (Morph(place, actor, morph, weight, float v)) cue))
 
-        | CrossMorph (place, actor, fromMorph, toMorph, weight, duration) ->
-            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (CrossMorph(place, actor, fromMorph, toMorph, v, duration)) cue))
-            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (CrossMorph(place, actor, fromMorph, toMorph, weight, float v)) cue))
+        | CrossFadeMorph (place, actor, fromMorph, toMorph, weight, duration) ->
+            dragNumber idBase "Weight" weight (fun v -> commit (withAt selection (CrossFadeMorph(place, actor, fromMorph, toMorph, v, duration)) cue))
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (CrossFadeMorph(place, actor, fromMorph, toMorph, weight, float v)) cue))
+
+        | SetMusicLevel (song, level, duration) ->
+            dragNumber idBase "Level" level (fun v -> commit (withAt selection (SetMusicLevel(song, v, duration)) cue))
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (SetMusicLevel(song, level, float v)) cue))
+
+        | MusicLevelState (song, _, target, duration, _) ->
+            // an in-flight ramp that reached the editor shows its authored numbers (the `Wait`/`Fade` rule)
+            dragNumber idBase "Level" target (fun v -> commit (withAt selection (SetMusicLevel(song, v, duration)) cue))
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (SetMusicLevel(song, target, float v)) cue))
+
+        | SetMusicMaster (level, duration) ->
+            dragNumber idBase "Level" level (fun v -> commit (withAt selection (SetMusicMaster(v, duration)) cue))
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (SetMusicMaster(level, float v)) cue))
+
+        | MusicMasterState (_, target, duration, _) ->
+            dragNumber idBase "Level" target (fun v -> commit (withAt selection (SetMusicMaster(v, duration)) cue))
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (SetMusicMaster(target, float v)) cue))
+
+        | CrossFadeMusic (fromSong, toSong, duration) ->
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (CrossFadeMusic(fromSong, toSong, float v)) cue))
+
+        | CrossFadeMusicState (fromSong, toSong, _, _, duration, _) ->
+            dragNumber idBase "Seconds" (float32 duration) (fun v -> commit (withAt selection (CrossFadeMusic(fromSong, toSong, float v)) cue))
 
         | MoveActor (actor, path, speed, movingClip, idleClip) ->
             // the actor and the speed; its path and clips are the caller's fields (`CueEditor`)
@@ -763,10 +836,11 @@ let drawEditor
             // the place is drawn above; the trigger name is the caller's field (`CueEditor`)
             ()
 
-        | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | Print _ | FlyCameraState _ | BlendState _ | MoveActorState _ | RotateActorState _ | ForkScenario _ ->
+        | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | Print _ | FlyCameraState _ | BlendState _ | MoveActorState _ | RotateActorState _ | ForkScenario _
+        | AddMusic _ | RemoveMusic _ | PlayMusic _ | StopMusic _ | PlayBed | StopBed ->
             // no numbers of their own. `SetCamera` and `Print` carry text (the caller's field edits it) and a
             // `FlyCamera` carries its path and speed above; a place-carrying op's place is chosen above; a
-            // `ForkScenario`'s scenario is chosen by the caller's combo (`CueEditor`).
+            // `ForkScenario`'s scenario and a music op's song are chosen by the caller's combo (`CueEditor`).
             ()
 
     // ── Add Child: the one container that takes one, whether or not it is running ──

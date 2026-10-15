@@ -313,10 +313,17 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
   `specs/064-actor-cue-ops` and were re-based by
   `specs/072`/`specs/073`, and the rest of
   odin's actor family in `specs/066-actor-motion-cue-ops`: the animation/morph blends (`Animate`/`CrossFade`/
-  `Morph`/`CrossMorph`), the movement ops (`MoveActor`/`RotateActor`, physics-driven and active-zone only) and
+  `Morph`/`CrossMorph`, renamed `CrossFadeAnimation`/`CrossFadeMorph` by `specs/088-music-cues` for parity with
+  the music cross-fade), the movement ops (`MoveActor`/`RotateActor`, physics-driven and active-zone only) and
   the player toggles (`Enable`/`DisablePlayer`, the runtime form of the editor's "Set as Player").
   The trigger toggles (`Enable`/`DisableTrigger`) and `Print` landed in `specs/067-print-trigger-cue-ops`.
   Only odin's scenario ops (`Inline`/`Fork`/`ClearScenario`) and the camera-follow/interactions toggles remain.
+- `world/Cue.fs` + `world/CueEngine.fs` — the **music cue ops** (`specs/088-music-cues`): a cue sets up the
+  palette (`AddMusic`/`RemoveMusic`), transports it (`PlayMusic`/`StopMusic`, and whole-bed `PlayBed`/`StopBed`)
+  and shapes it (`SetMusicLevel`, `SetMusicMaster`, `CrossFadeMusic`) against the mix `specs/087-song-mixing`
+  authored. Every music op is a runtime effect that never lands on the one history (the `AddAdvent` pattern),
+  and the engine composes `audio/Music.fs` as-is. One-shot sounds, start/loop points, ducking and
+  spatialisation remain the deferred audio families.
 - Trigger→cue wiring inline in the Inspector: a trigger owns an authored cue, drawn and edited inline, and
   forked into the screen's running cue when the trigger fires on entry (or on the interact key, when
   interactable). *(complete — `specs/058-trigger-cue`)*

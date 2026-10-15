@@ -96,12 +96,12 @@ let rec private describe (cue: Cue) : string =
     | AddActor (p, a, asset, w) -> sprintf "AddActor(%s,%s,%s,%s)" (p) a asset w
     | RemoveActor (p, a) -> sprintf "RemoveActor(%s,%s)" (p) a
     | Animate (p, a, clip, _, d) -> sprintf "Animate(%s,%s,%s,%g)" (p) a clip d
-    | CrossFade (p, a, f, t, _, d) -> sprintf "CrossFade(%s,%s,%s,%s,%g)" (p) a f t d
+    | CrossFadeAnimation (p, a, f, t, _, d) -> sprintf "CrossFadeAnimation(%s,%s,%s,%s,%g)" (p) a f t d
     | Morph (p, a, m, _, d) -> sprintf "Morph(%s,%s,%s,%g)" (p) a m d
-    | CrossMorph (p, a, f, t, _, d) -> sprintf "CrossMorph(%s,%s,%s,%s,%g)" (p) a f t d
+    | CrossFadeMorph (p, a, f, t, _, d) -> sprintf "CrossFadeMorph(%s,%s,%s,%s,%g)" (p) a f t d
     | BlendState (a, _, _, morph, f, t, _, _, _, _, _) ->
         if f = t then sprintf "%s(%s,%s)" (if morph then "Morph" else "Animate") a f
-        else sprintf "%s(%s,%s,%s)" (if morph then "CrossMorph" else "CrossFade") a f t
+        else sprintf "%s(%s,%s,%s)" (if morph then "CrossFadeMorph" else "CrossFadeAnimation") a f t
     | MoveActor (a, p, _, _, _) -> sprintf "MoveActor(%s,%s)" a p
     | MoveActorState (a, _, _, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" a
     | RotateActor (a, w, d) -> sprintf "RotateActor(%s,%s,%g)" a w d
@@ -118,6 +118,18 @@ let rec private describe (cue: Cue) : string =
     | Await m | AwaitState m -> sprintf "Await(%s)" m
     | If (m, t, e) -> sprintf "If(%s, %s, %s)" m (describe t) (describe e)
     | ForkScenario scenario -> sprintf "ForkScenario(%s)" scenario
+    | AddMusic song -> sprintf "AddMusic(%s)" song
+    | RemoveMusic song -> sprintf "RemoveMusic(%s)" song
+    | PlayMusic song -> sprintf "PlayMusic(%s)" song
+    | StopMusic song -> sprintf "StopMusic(%s)" song
+    | PlayBed -> "PlayBed"
+    | StopBed -> "StopBed"
+    | SetMusicLevel (song, level, d) -> sprintf "SetMusicLevel(%s,%g,%g)" song level d
+    | SetMusicMaster (level, d) -> sprintf "SetMusicMaster(%g,%g)" level d
+    | MusicLevelState (song, _, target, d, _) -> sprintf "MusicLevelState(%s,%g,%g)" song target d
+    | MusicMasterState (_, target, d, _) -> sprintf "MusicMasterState(%g,%g)" target d
+    | CrossFadeMusic (fromSong, toSong, d) -> sprintf "CrossFadeMusic(%s,%s,%g)" fromSong toSong d
+    | CrossFadeMusicState (fromSong, toSong, _, _, d, _) -> sprintf "CrossFadeMusicState(%s,%s,%g)" fromSong toSong d
 
 /// The nodes actually in flight. The queue behind a sequence's current op is data, not live nodes, so a
 /// long cue costs no more than a short one.
@@ -1211,7 +1223,7 @@ let ``a cross fade takes one clip out as another comes in, reaching the target a
     let zone = GameplayState.activeZone state
     Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Idle")) // created holding Idle at full weight
 
-    state.Cue <- CrossFade(mainPlace, "Aiko", "Idle", "Jog", 1.0f, 2.0)
+    state.Cue <- CrossFadeAnimation(mainPlace, "Aiko", "Idle", "Jog", 1.0f, 2.0)
     tick shared &state 0.0
 
     tick shared &state 1.0
@@ -1271,7 +1283,7 @@ let ``a blend of an unknown clip or morph name, and of a missing actor, performs
     let ref = placeAiko shared &state
     let zone = GameplayState.activeZone state
 
-    state.Cue <- seqOf [ Animate(mainPlace, "Aiko", "Nope", 1.0f, 1.0); Morph(mainPlace, "Aiko", "Nope", 1.0f, 1.0); CrossFade(mainPlace, "Aiko", "Idle", "Nope", 1.0f, 1.0); Animate(mainPlace, "Akane", "Idle", 1.0f, 1.0) ]
+    state.Cue <- seqOf [ Animate(mainPlace, "Aiko", "Nope", 1.0f, 1.0); Morph(mainPlace, "Aiko", "Nope", 1.0f, 1.0); CrossFadeAnimation(mainPlace, "Aiko", "Idle", "Nope", 1.0f, 1.0); Animate(mainPlace, "Akane", "Idle", 1.0f, 1.0) ]
     tick shared &state 0.0
 
     Assert.Equal("Fin", describe state.Cue)
