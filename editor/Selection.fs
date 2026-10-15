@@ -132,6 +132,20 @@ let setLight (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
     let undo = UndoStack.push state.Editor.Undo cmd
     state.Editor <- { state.Editor with Undo = undo }
 
+// Apply `change` to the active zone's sky as one undoable step (spec 092), the pendant of `setLight`: the
+// control holds its edit in a local until the commit, so one drag is one step, and a commit that changes
+// nothing records nothing.
+let setSkydome (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (change: Skydome.Settings -> Skydome.Settings) : unit =
+    let zone = GameplayState.activeZone state
+    let before = zone.Skydome
+    let after = change before
+    if after = before then () else
+
+    let cmd = SetSkydome (state.ActiveZone, before, after)
+    apply zone state.Physics shared.Assets cmd
+    let undo = UndoStack.push state.Editor.Undo cmd
+    state.Editor <- { state.Editor with Undo = undo }
+
 // Bind `ref`'s actor as the active zone's player as one undoable step (spec 045). The ref is checked
 // before any command exists — `playerHandleOf` fails loudly for a non-actor — and binding the actor who
 // already is the player records nothing, so the control can be pressed twice without an empty step.

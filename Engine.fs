@@ -88,7 +88,10 @@ let run () : int =
     let gizmoDraw = DebugDraw.create device swapchainFormat gpu.DepthFormat true
     // The game's 2D layer (spec 038), its lifetime the device's, as the debug drawers are.
     let ui = Ui.create device swapchainFormat gpu.DepthFormat "assets/fonts/DejaVuSans.ttf"
-    let mutable manager = ScreenManager.init gpu debugDraw gizmoDraw ui
+    // The shared skydome sphere (spec 092), also device-lifetime: the screen draws the active zone's
+    // sky with it, but the authored value it draws lives on the zone.
+    let skydome = Skydome.create device
+    let mutable manager = ScreenManager.init gpu debugDraw gizmoDraw ui skydome
 
     let mutable running = true
     let mutable ev = SDL.Event()
@@ -256,6 +259,7 @@ let run () : int =
 
     // ── Shut down ──
     do SDL.WaitForGPUIdle(device) |> ignore
+    do Skydome.release skydome
     do Ui.release ui
     // Free every music deck before the mixer they belong to (spec 087 FR-014): a `MIX_Track`/`MIX_Audio`
     // must not outlive the `MIX_Mixer` that owns it.

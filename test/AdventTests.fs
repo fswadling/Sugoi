@@ -12,7 +12,7 @@ open System.Collections.Generic
 
 /// A headless gameplay state, the way `test/CuePanelTests.fs` builds one.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
+    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
 
 /// A headless `SharedState`: a device-free, empty asset manager and an empty advent set. Nothing here spawns
 /// an entity, so no resource is touched; the physics world is the gameplay state's own.

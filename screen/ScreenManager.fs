@@ -17,13 +17,13 @@ type ScreenManager =
       mutable ShouldQuit : bool
       mutable Gameplay : GameplayState.GameplayState }
 
-let init (gpu: Gpu.Gpu) (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) : ScreenManager =
+let init (gpu: Gpu.Gpu) (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) (skydome: Skydome.Skydome) : ScreenManager =
     let shared = SharedState.create gpu
     { Active = ScreenKind.MainMenu
       Transition = ScreenTransition.None
       Shared = shared
       ShouldQuit = false
-      Gameplay = GameplayState.create debugDraw gizmoDraw ui }
+      Gameplay = GameplayState.create debugDraw gizmoDraw ui skydome }
 
 // Advance the active screen; may set a transition. The frame carries the frame
 // time, window size, and the engine-gathered input.

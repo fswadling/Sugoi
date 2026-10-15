@@ -45,7 +45,7 @@ let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState 
 
 // A gameplay state seeded with the single `main` zone, as the app starts.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
+    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
 
 let private actor (name: string) : Actor =
     { State =
@@ -94,7 +94,7 @@ let ``presentZone makes an absent place present with its template and leaves the
     let part : PropState = { Base = entity "wall"; AssetId = None; SubmeshIndex = 0; SubmeshCount = 1 }
     let template : ZoneTemplate.ZoneTemplate =
         { AssetId = "room"; Base = entity "room"; Orientation = Quaternion.Identity
-          Light = Texture.defaultLight; Parts = [| part |]; Props = [||] }
+          Light = Texture.defaultLight; Skydome = Skydome.defaultSettings; Parts = [| part |]; Props = [||] }
 
     GameplayState.presentZone shared &state atriumPlace (ZoneTemplate.ofTemplate template)
 

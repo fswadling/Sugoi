@@ -65,6 +65,10 @@
          that keep an unedited scene identical to the constant they replace. -->
     <Compile Include="LightTests.fs" />
 
+    <!-- A zone's authored sky (spec 092): the value's defaults and the `SetSkydome` editor step on
+         the one history — all headless. The staging round-trip is asserted in `ScenarioForkTests`. -->
+    <Compile Include="SkydomeTests.fs" />
+
     <!-- The roster (spec 074 moved it into the narrative subsystem): the closed union and its enumeration. -->
     <Compile Include="RosterTests.fs" />
 

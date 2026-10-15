@@ -102,7 +102,7 @@ let private lockedPaths (cue: Cue) : int list list =
 /// A headless gameplay state, the way `test/CueTests.fs` builds one: `Unchecked.defaultof` for the GPU pieces,
 /// so the panel's write path is assertable with no device.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
+    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
 
 /// A headless `SharedState` for the history cases: a real physics world and a device-free, empty asset manager.
 /// Nothing here spawns an entity — the transform below acts on an actor placed directly in the zone, and a cue

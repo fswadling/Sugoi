@@ -69,6 +69,7 @@ let private captureWaypoints (zone: Zone) : ScenarioWaypoint array =
 let captureStaging (zone: Zone) : ZoneStaging =
     { Environment = Zone.captureTemplate zone
       Light = zone.Light
+      Skydome = zone.Skydome
       Props = Zone.captureProps zone |> Array.map snd }
 
 /// Take a zone as a scenario holds it: its staging (environment, light, placed props) and its actors, waypoints

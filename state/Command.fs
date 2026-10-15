@@ -52,6 +52,9 @@ type Command =
     // Zone-level rather than an entity: the authored light (spec 043). Pushed by the Inspector's
     // committed edits and carried by an instantiate, so a light change is reversible like any other.
     | SetLight of ZoneId : string * Previous : LightSettings * Next : LightSettings
+    // Zone-level rather than an entity: the authored sky (spec 092), the pendant of `SetLight`. Pushed by
+    // the Inspector's committed edits, so tuning the sky is reversible like the light.
+    | SetSkydome of ZoneId : string * Previous : Skydome.Settings * Next : Skydome.Settings
     // Zone-level rather than an entity: the player designation (spec 045) — which of the zone's actors is
     // the avatar. The payload is the value `Player` already holds, so no fourth spelling of it is
     // introduced, and `Previous` is what makes undoing a re-designation restore the *previous actor*
@@ -136,6 +139,7 @@ let placeOf (cmd: Command) : string option =
     | LinkSpawn (place, _, _, _, _)
     | SetEnvironment (place, _, _)
     | SetLight (place, _, _)
+    | SetSkydome (place, _, _)
     | SetPlayer (place, _, _) ->
         Some place
     | Batch _
@@ -190,6 +194,8 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
         setEnvironment zone physics assets next
     | SetLight (_, _, next) ->
         zone.Light <- next
+    | SetSkydome (_, _, next) ->
+        zone.Skydome <- next
     | SetPlayer (_, _, next) ->
         zone.Player <- next
     // A zone move is not an edit to one zone, so the zone-level runner cannot carry it out: `History.apply`
@@ -246,6 +252,8 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
         setEnvironment zone physics assets previous
     | SetLight (_, previous, _) ->
         zone.Light <- previous
+    | SetSkydome (_, previous, _) ->
+        zone.Skydome <- previous
     | SetPlayer (_, previous, _) ->
         zone.Player <- previous
     | ZoneMove _

@@ -62,7 +62,7 @@ let private sharedState () : SharedState.SharedState =
       Voices = Sound.newVoices Audio.unavailable }
 
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
+    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
 
 let private entity (name: string) : Entity =
     { Name = name
@@ -96,11 +96,15 @@ let private register (shared: SharedState.SharedState) (state: byref<GameplaySta
 
 let private light = { Texture.defaultLight with Pitch = 42.0f }
 
+// A non-default sky, so a staging round-trip's sky is distinguishable from `Skydome.defaultSettings`.
+let private sky = { Skydome.defaultSettings with Enabled = true; Zenith = Vector3(0.1f, 0.2f, 0.3f); Horizon = Vector3(0.4f, 0.5f, 0.6f) }
+
 let private template () : ZoneTemplate =
     { AssetId = "island-env"
       Base = entity "island"
       Orientation = Quaternion.Identity
       Light = light
+      Skydome = sky
       Parts = [||]
       Props = [||] }
 
@@ -329,6 +333,7 @@ let ``an absent zone is created from the scenario's staging, or empty when it ca
     Assert.True(state.Zones.ContainsKey "Island")
     Assert.True(state.Zones.["Island"].Environment.IsSome)
     Assert.Equal(light, state.Zones.["Island"].Light)
+    Assert.Equal(sky, state.Zones.["Island"].Skydome)
 
     // with no staging in the scenario, the zone is present and empty but for its entities
     let mutable state2 = newState ()
@@ -336,6 +341,7 @@ let ``an absent zone is created from the scenario's staging, or empty when it ca
     do ScenarioPanel.fork shared &state2 "Intro"
     Assert.True(state2.Zones.ContainsKey "Island")
     Assert.Equal(Texture.defaultLight, state2.Zones.["Island"].Light)
+    Assert.Equal(Skydome.defaultSettings, state2.Zones.["Island"].Skydome)
 
 [<Fact>]
 let ``a fork restages a present zone and leaves its player alone`` () =
@@ -351,6 +357,7 @@ let ``a fork restages a present zone and leaves its player alone`` () =
 
     Assert.Equal(light, start.Light) // the scenario's staging replaced the zone's look
     Assert.True(start.Environment.IsSome)
+    Assert.Equal(sky, start.Skydome) // and its sky
     Assert.Equal(player, start.Player) // the player is not staging and is untouched
 
 [<Fact>]
@@ -402,6 +409,19 @@ let ``a fork brings a created zone up with its environment and light from the sc
     let created = state.Zones.["Moon"]
     Assert.Equal(Some "island-env", created.Environment |> Option.map (fun e -> e.AssetId))
     Assert.Equal(light, created.Light)
+    Assert.Equal(sky, created.Skydome)
+
+[<Fact>]
+let ``an environment-less zone carries a sky through register and fork`` () =
+    let shared = sharedState ()
+    let mutable state = newState ()
+    do register shared &state (contents [ "Void", { emptyZone with Staging = { ZoneTemplate.empty with Skydome = sky } } ] Cue.Fin)
+
+    do ScenarioPanel.fork shared &state "Intro"
+
+    Assert.True(state.Zones.ContainsKey "Void")
+    Assert.True(state.Zones.["Void"].Environment.IsNone)
+    Assert.Equal(sky, state.Zones.["Void"].Skydome)
 
 [<Fact>]
 let ``a fork reuses a present zone and replaces its staging, without duplicating it`` () =
@@ -417,6 +437,7 @@ let ``a fork reuses a present zone and replaces its staging, without duplicating
     Assert.Equal(zonesBefore, state.Zones.Count) // reused, never duplicated
     Assert.True(start.Environment.IsSome)
     Assert.Equal(light, start.Light) // the scenario's staging won
+    Assert.Equal(sky, start.Skydome)
 
 [<Fact>]
 let ``a restage is skipped when the zone's staging already matches`` () =

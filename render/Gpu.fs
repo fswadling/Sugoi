@@ -617,6 +617,87 @@ let createStaticPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat
     do SDL.ReleaseGPUShader(device, fragmentShader)
     pipeline
 
+// ── the skydome pipeline (spec 092) ──
+
+// A position-only, unlit pipeline for the zone's sky: one vertex + one fragment uniform buffer, no
+// samplers, no culling, and depth test/write disabled so the dome is drawn behind the scene without
+// occluding or being occluded by geometry. The depth-stencil target format is still declared because the
+// scene pass carries a depth target; the tests/write flags are what make it inert.
+let createSkydomePipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
+    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/skydome.vert.spv" 1u 0u 0u
+    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/skydome.frag.spv" 1u 0u 0u
+
+    let mutable vbufDesc = SDL.GPUVertexBufferDescription()
+    vbufDesc.Slot <- 0u
+    vbufDesc.Pitch <- 12u
+    vbufDesc.InputRate <- SDL.GPUVertexInputRate.Vertex
+    vbufDesc.InstanceStepRate <- 0u
+
+    let mutable attr0 = SDL.GPUVertexAttribute()
+    attr0.Location <- 0u
+    attr0.BufferSlot <- 0u
+    attr0.Format <- SDL.GPUVertexElementFormat.Float3
+    attr0.Offset <- 0u
+
+    let mutable raster = SDL.GPURasterizerState()
+    raster.FillMode <- SDL.GPUFillMode.Fill
+    raster.CullMode <- SDL.GPUCullMode.None
+    raster.FrontFace <- SDL.GPUFrontFace.CounterClockwise
+
+    let mutable ms = SDL.GPUMultisampleState()
+    ms.SampleCount <- SampleCount
+    ms.SampleMask <- 0u
+
+    let mutable depth = SDL.GPUDepthStencilState()
+    depth.EnableDepthTest <- false
+    depth.EnableDepthWrite <- false
+    depth.CompareOp <- SDL.GPUCompareOp.Always
+
+    let mutable colorTarget = SDL.GPUColorTargetDescription()
+    colorTarget.Format <- swapchainFormat
+
+    let vbufDescs = [| vbufDesc |]
+    let attrs = [| attr0 |]
+    let colorTargets = [| colorTarget |]
+
+    let mutable info = SDL.GPUGraphicsPipelineCreateInfo()
+    info.VertexShader <- vertexShader
+    info.FragmentShader <- fragmentShader
+    info.PrimitiveType <- SDL.GPUPrimitiveType.TriangleList
+    info.RasterizerState <- raster
+    info.MultisampleState <- ms
+    info.DepthStencilState <- depth
+
+    let vbufHandle = GCHandle.Alloc(vbufDescs, GCHandleType.Pinned)
+    let attrHandle = GCHandle.Alloc(attrs, GCHandleType.Pinned)
+    let colorHandle = GCHandle.Alloc(colorTargets, GCHandleType.Pinned)
+
+    let pipeline =
+        try
+            let mutable vertexInput = SDL.GPUVertexInputState()
+            vertexInput.VertexBufferDescriptions <- vbufHandle.AddrOfPinnedObject()
+            vertexInput.NumVertexBuffers <- 1u
+            vertexInput.VertexAttributes <- attrHandle.AddrOfPinnedObject()
+            vertexInput.NumVertexAttributes <- 1u
+            info.VertexInputState <- vertexInput
+
+            let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()
+            targetInfo.ColorTargetDescriptions <- colorHandle.AddrOfPinnedObject()
+            targetInfo.NumColorTargets <- 1u
+            targetInfo.DepthStencilFormat <- depthFormat
+            targetInfo.HasDepthStencilTarget <- true
+            info.TargetInfo <- targetInfo
+
+            SDL.CreateGPUGraphicsPipeline(device, &info)
+        finally
+            vbufHandle.Free()
+            attrHandle.Free()
+            colorHandle.Free()
+
+    do SDL.ReleaseGPUShader(device, vertexShader)
+    do SDL.ReleaseGPUShader(device, fragmentShader)
+    pipeline
+
 // ── GPU context (pipeline + depth texture) ──
 
 [<Struct>]
@@ -627,6 +708,7 @@ type Gpu =
       CelPipeline : Pipeline
       OutlinePipeline : Pipeline
       StaticPipeline : Pipeline
+      SkydomePipeline : Pipeline
       mutable MsaaTexture : Texture
       mutable DepthTexture : Texture
       mutable DepthW : int
@@ -646,6 +728,7 @@ let create (device: Device) (swapchainFormat: SDL.GPUTextureFormat) : Gpu =
       CelPipeline = createCelPipeline device swapchainFormat depthFormat
       OutlinePipeline = createOutlinePipeline device swapchainFormat depthFormat
       StaticPipeline = createStaticPipeline device swapchainFormat depthFormat
+      SkydomePipeline = createSkydomePipeline device swapchainFormat depthFormat
       MsaaTexture = IntPtr.Zero
       DepthTexture = IntPtr.Zero
       DepthW = 0
@@ -716,6 +799,8 @@ let destroy (g: Gpu) : unit =
         do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.OutlinePipeline)
     if g.StaticPipeline <> IntPtr.Zero then
         do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.StaticPipeline)
+    if g.SkydomePipeline <> IntPtr.Zero then
+        do SDL.ReleaseGPUGraphicsPipeline(g.Device, g.SkydomePipeline)
     if g.MsaaTexture <> IntPtr.Zero then
         do SDL.ReleaseGPUTexture(g.Device, g.MsaaTexture)
     if g.DepthTexture <> IntPtr.Zero then

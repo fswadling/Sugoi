@@ -69,7 +69,8 @@ heap-allocated per entity.
 `Zone` owns one playable area: `actors`, `environment` (which owns its own
 `parts`), `waypoints`, `triggers`, plus inline global settings (wind, lighting,
 skydome, ocean). Zones are heap-allocated; their entity collections are
-fixed-size inline arrays.
+fixed-size inline arrays. A zone's authored **light** (`specs/043-zone-light-settings`)
+and **sky** (`specs/092-zone-skydome`) are set today; wind and ocean are still to come.
 
 Two zone containers exist on purpose:
 

@@ -36,6 +36,8 @@ type ZoneTemplate =
       // environment so a registration is reproducible. Unlike `Base` and `Orientation`, this is the
       // *zone's* setting rather than the environment's — an environment has no light of its own.
       Light : Texture.LightSettings
+      // The zone's own sky (spec 092), carried with the environment for the same reason as the light.
+      Skydome : Skydome.Settings
       Parts : PropState array
       Props : PropState array }
 
@@ -48,15 +50,16 @@ type ZoneTemplate =
 type ZoneStaging =
     { Environment : ZoneTemplate option
       Light : Texture.LightSettings
+      Skydome : Skydome.Settings
       Props : PropState array }
 
-/// The staging of a zone with no environment: no environment, the default light, no props.
+/// The staging of a zone with no environment: no environment, the default light and sky, no props.
 let empty : ZoneStaging =
-    { Environment = None; Light = Texture.defaultLight; Props = [||] }
+    { Environment = None; Light = Texture.defaultLight; Skydome = Skydome.defaultSettings; Props = [||] }
 
-/// The staging of a zone built around a template's environment (its light and props ride with it).
+/// The staging of a zone built around a template's environment (its light, sky and props ride with it).
 let ofTemplate (template: ZoneTemplate) : ZoneStaging =
-    { Environment = Some template; Light = template.Light; Props = template.Props }
+    { Environment = Some template; Light = template.Light; Skydome = template.Skydome; Props = template.Props }
 
 /// The record of a loaded environment together with the props standing in the zone that holds it, part
 /// for part and prop for prop, in the order each map holds them. Reading the live maps is what makes a
@@ -66,12 +69,13 @@ let ofTemplate (template: ZoneTemplate) : ZoneStaging =
 /// The props are an argument rather than something read here, because a prop belongs to the zone and
 /// this file is compiled above `world/Zone.fs` — which is also what lets a record be built in a test
 /// without a scene.
-let ofEnvironment (environment: Environment) (props: PropState array) (light: Texture.LightSettings) : ZoneTemplate =
+let ofEnvironment (environment: Environment) (props: PropState array) (light: Texture.LightSettings) (skydome: Skydome.Settings) : ZoneTemplate =
     let parts = ResizeArray<PropState>(int environment.Parts.Count)
     environment.Parts.IteriAlive (fun _ _ part -> parts.Add part.State)
     { AssetId = environment.AssetId
       Base = environment.Base
       Orientation = environment.Orientation
       Light = light
+      Skydome = skydome
       Parts = parts.ToArray()
       Props = props }

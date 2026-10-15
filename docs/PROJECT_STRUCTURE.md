@@ -138,7 +138,7 @@ fsharp-game/
 │   ├── Grass.fs                #   (planned)
 │   ├── Terrain.fs              #   (planned)
 │   ├── TerrainSplat.fs         #   (planned)
-│   ├── Skydome.fs              #   (planned)
+│   ├── Skydome.fs              #   the zone's sky: a camera-centred dome drawn behind the scene (spec 092)
 │   ├── Shadow.fs               #   (planned)
 │   ├── SceneTarget.fs          #   offscreen FBO (planned)
 │   └── Exr.fs                  #   OpenEXR support (planned)

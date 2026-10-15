@@ -180,6 +180,40 @@ let private drawLighting (shared: SharedState.SharedState) (state: byref<Gamepla
     if ImGui.isItemDeactivatedAfterEdit() then
         do Selection.setLight shared &state (fun light -> { light with Ambient = ambient })
 
+// The active zone's sky (spec 092, FR-009): the Inspector's fallback subject, beside the lighting. Each
+// control commits one `SetSkydome` step when it is toggled or released, as the light's controls do; the
+// colour pickers draw over reused buffers, re-seeded from the zone's colour while they are not live.
+let private drawSkydome (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (zone: Zone.Zone) : unit =
+    if not (ImGui.collapsingHeader("Sky", 0)) then () else
+
+    let mutable enabled = zone.Skydome.Enabled
+    if ImGui.checkbox("Enabled", &enabled) then
+        do Selection.setSkydome shared &state (fun sky -> { sky with Enabled = enabled })
+
+    if not state.Editor.ZenithColorEditing then
+        let colour = zone.Skydome.Zenith
+        state.Editor.ZenithColorBuffer.[0] <- colour.X
+        state.Editor.ZenithColorBuffer.[1] <- colour.Y
+        state.Editor.ZenithColorBuffer.[2] <- colour.Z
+
+    do ImGui.colorEdit3("Zenith Colour", state.Editor.ZenithColorBuffer, 0) |> ignore
+    if ImGui.isItemDeactivatedAfterEdit() then
+        let buffer = state.Editor.ZenithColorBuffer
+        do Selection.setSkydome shared &state (fun sky -> { sky with Zenith = System.Numerics.Vector3(buffer.[0], buffer.[1], buffer.[2]) })
+    state.Editor <- { state.Editor with ZenithColorEditing = ImGui.isItemActive() }
+
+    if not state.Editor.HorizonColorEditing then
+        let colour = zone.Skydome.Horizon
+        state.Editor.HorizonColorBuffer.[0] <- colour.X
+        state.Editor.HorizonColorBuffer.[1] <- colour.Y
+        state.Editor.HorizonColorBuffer.[2] <- colour.Z
+
+    do ImGui.colorEdit3("Horizon Colour", state.Editor.HorizonColorBuffer, 0) |> ignore
+    if ImGui.isItemDeactivatedAfterEdit() then
+        let buffer = state.Editor.HorizonColorBuffer
+        do Selection.setSkydome shared &state (fun sky -> { sky with Horizon = System.Numerics.Vector3(buffer.[0], buffer.[1], buffer.[2]) })
+    state.Editor <- { state.Editor with HorizonColorEditing = ImGui.isItemActive() }
+
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) =
     do ImGui.beginWindow("Inspector", System.IntPtr.Zero, 0) |> ignore
 
@@ -290,5 +324,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         // lighting are the zone-level settings it edits (spec 043, FR-003).
         do drawEnvironment zone
         do drawLighting shared &state zone
+        do drawSkydome shared &state zone
 
     do ImGui.endWindow()

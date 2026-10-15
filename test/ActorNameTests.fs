@@ -57,7 +57,7 @@ let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState 
       Voices = Sound.newVoices Audio.unavailable }
 
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
+    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
 
 // Spawn an actor named `name` into the active zone, through the editor path — no cast argument: an actor
 // carries no role, its name is its identity (spec 072 FR-001).

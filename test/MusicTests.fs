@@ -14,7 +14,7 @@ open Music
 
 /// A headless gameplay state, the way `test/AdventTests.fs` builds one.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
+    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
 
 /// A headless `SharedState`: a device-free, empty asset manager (whose audio is `unavailable`), an empty
 /// mix and a fresh rack — so a `SetMix` step reconciles nothing and no device is touched.

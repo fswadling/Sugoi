@@ -165,11 +165,19 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
     let scenePass = SDL.BeginGPURenderPass(pass.Cmd, ReadOnlySpan<SDL.GPUColorTargetInfo>(pass.ColorTargets), 1u, &depthTarget)
 
     let viewProjection = Camera.viewProjection state.Camera
-    do DebugDraw.draw state.DebugDraw viewProjection pass.Cmd scenePass
 
     // The scene's one sun, resolved from the active zone's authored settings (spec 043) instead of
     // a constant, so a zone lights its own scene.
     let light = Texture.toLight zone.Light
+
+    // The zone's sky (spec 092): a camera-centred dome drawn first, depth-less, so the grid and geometry
+    // drawn after it overwrite it. No-op when the sky is off, so an unedited zone's frame is unchanged.
+    let sky = zone.Skydome
+    if sky.Enabled then
+        do Skydome.draw state.Skydome scenePass pass.Cmd shared.Gpu.SkydomePipeline state.Camera sky light
+
+    do DebugDraw.draw state.DebugDraw viewProjection pass.Cmd scenePass
+
     let cameraPos = state.Camera.Position
 
     // Static scene: props (placed assets + imported environment parts) batched into

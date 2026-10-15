@@ -37,6 +37,7 @@ let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
       DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
       Ui = Unchecked.defaultof<Ui.Ui>
+      Skydome = Unchecked.defaultof<Skydome.Skydome>
       Dialogue = Dialogue.empty
       Zones = zones
       Scenarios = ScenarioRegistry.create ()

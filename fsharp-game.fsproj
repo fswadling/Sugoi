@@ -49,6 +49,9 @@
     <Compile Include="render/ImGui.fs" />
     <Compile Include="render/ImGuiSdl3.fs" />
     <Compile Include="render/Camera.fs" />
+    <!-- The zone's sky (spec 092): a camera-centred dome drawn behind the scene. Technology-only —
+         Gpu + Camera + the light — so it sits below `world/`, which holds the authored value on a zone. -->
+    <Compile Include="render/Skydome.fs" />
     <Compile Include="render/DebugDraw.fs" />
     <!-- The game's own screen-space 2D layer (spec 038): one blended, depth-less
          pipeline, one quad batch, and SDL_ttf text. Technology-only — it knows Gpu,
@@ -209,7 +212,7 @@
   <!-- Compiled line shader SPIR-V, loaded from disk at startup. Copied to the
        output dir so the shaders/ path resolves regardless of working dir. -->
   <Target Name="CopyShaders" AfterTargets="Build">
-    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv;shaders/mesh.vert.spv;shaders/cel.frag.spv;shaders/outline.frag.spv;shaders/static.vert.spv;shaders/static.frag.spv;shaders/ui.vert.spv;shaders/ui.frag.spv" DestinationFolder="$(OutDir)shaders" />
+    <Copy SourceFiles="shaders/line.vert.spv;shaders/line.frag.spv;shaders/mesh.vert.spv;shaders/cel.frag.spv;shaders/outline.frag.spv;shaders/static.vert.spv;shaders/static.frag.spv;shaders/ui.vert.spv;shaders/ui.frag.spv;shaders/skydome.vert.spv;shaders/skydome.frag.spv" DestinationFolder="$(OutDir)shaders" />
   </Target>
 
   <ItemGroup>

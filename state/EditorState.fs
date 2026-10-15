@@ -83,6 +83,12 @@ type EditorState =
       // over, seeded from the zone's colour while the picker is not live.
       LightColorBuffer : float32 array
       LightColorEditing : bool
+      // The Inspector's sky-colour pickers (spec 092): a reused `float[3]` per colour, seeded from the zone's
+      // zenith/horizon colour while its picker is not live, exactly as the light-colour buffer above.
+      ZenithColorBuffer : float32 array
+      ZenithColorEditing : bool
+      HorizonColorBuffer : float32 array
+      HorizonColorEditing : bool
       // The Cue panel (spec 047): which node is selected, and the reused buffer for the selected node's text.
       // The selection is the panel's and is never written into a cue; the text buffer belongs to the node
       // `CueTextPath` names — not always the selected one — and is re-seeded only while the field is not live,
@@ -150,6 +156,10 @@ let create () : EditorState =
       DialogueTextEditing = false
       LightColorBuffer = Array.zeroCreate lightColorChannels
       LightColorEditing = false
+      ZenithColorBuffer = Array.zeroCreate lightColorChannels
+      ZenithColorEditing = false
+      HorizonColorBuffer = Array.zeroCreate lightColorChannels
+      HorizonColorEditing = false
       CueSelection = None
       CueTextBuffer = Array.zeroCreate cueTextBufferSize
       CueTextPath = None

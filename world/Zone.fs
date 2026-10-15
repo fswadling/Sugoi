@@ -31,6 +31,9 @@ type Zone =
       // into the scene's one sun. A zone-level setting rather than an entity's, and one every
       // zone owns — a zone lights its scene whether or not an environment is loaded.
       mutable Light : Texture.LightSettings
+      // The zone's authored sky (spec 092): an on/off flag and a zenith and horizon colour, drawn as a
+      // dome behind the scene. A zone-level setting beside the light, and part of the zone's staging.
+      mutable Skydome : Skydome.Settings
       Props : SlotMap<Prop>
       Waypoints : SlotMap<Waypoint>
       Triggers : SlotMap<Trigger>
@@ -53,6 +56,7 @@ let create () : Zone =
     { Actors = SlotMap<Actor>(64u)
       EnvironmentState = NoEnvironment
       Light = Texture.defaultLight
+      Skydome = Skydome.defaultSettings
       Props = SlotMap<Prop>(32u)
       Waypoints = SlotMap<Waypoint>(128u)
       Triggers = SlotMap<Trigger>(32u)
@@ -320,7 +324,7 @@ let captureTemplate (zone: Zone) : ZoneTemplate option =
     | Some environment ->
 
     let props = captureProps zone |> Array.map snd
-    Some (ZoneTemplate.ofEnvironment environment props zone.Light)
+    Some (ZoneTemplate.ofEnvironment environment props zone.Light zone.Skydome)
 
 // The authored value a trigger is created with: a one-metre radius two metres tall, not
 // interactable, with no prompt and no cue. It is only ever a new trigger's starting point —

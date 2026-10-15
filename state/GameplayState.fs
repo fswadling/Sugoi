@@ -23,6 +23,9 @@ type GameplayState =
       // The game's 2D layer (spec 038), held as the two debug drawers are: a per-screen
       // renderer the screen draws with. It owns the pipeline, the batch and the font.
       mutable Ui : Ui.Ui
+      // The shared skydome resource (spec 092), held like the UI: a device-lifetime sphere the screen
+      // draws the active zone's sky with. The authored value itself lives on the zone.
+      mutable Skydome : Skydome.Skydome
       // The dialogue state (spec 038): the screen's, not a zone's, so a zone switch does
       // not clear it. Runtime only — never authored, never persisted, never on an entity.
       mutable Dialogue : Dialogue.Dialogue
@@ -63,13 +66,14 @@ type GameplayState =
 /// with it present and empty.
 let startZone = "start"
 
-let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) : GameplayState =
+let create (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) (skydome: Skydome.Skydome) : GameplayState =
     let zones = Dictionary<string, Zone.Zone>()
     zones.[startZone] <- Zone.create ()
     { Camera = Camera.create (Vector3(0.0f, 3.0f, 6.0f)) Vector3.Zero
       DebugDraw = debugDraw
       GizmoDraw = gizmoDraw
       Ui = ui
+      Skydome = skydome
       Dialogue = Dialogue.empty
       Zones = zones
       Scenarios = ScenarioRegistry.create ()
@@ -164,6 +168,7 @@ let private applyStaging (shared: SharedState.SharedState) (state: byref<Gamepla
     | None -> do Zone.setEnvironment zone physics shared.Assets None
 
     zone.Light <- staging.Light
+    zone.Skydome <- staging.Skydome
 
     for prop in staging.Props do
         let assetId =

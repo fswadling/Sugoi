@@ -427,6 +427,12 @@ cel-shading.
 > deleted. See [`SHADOWS_NOTES.md`](./SHADOWS_NOTES.md) for the design summary and the traps to fix on a
 > retry (notably: the asset `Bounds` are local-space, so the light frustum must be fitted to the casters'
 > *world* bounds).
+>
+> **Sky (spec 092) landed as a trimmed port.** A zone's authored sky — an on/off flag and a zenith and
+> horizon colour — is drawn as a camera-centred dome behind the scene (`render/Skydome.fs`), part of the
+> zone's staging like the light, with a simple sun that follows the light. What is **deferred** is
+> `odin-game`'s **procedural clouds** and layered sun (and the time uniform the clouds need): the port has
+> no clock on the sky path, so those are left out rather than half-built.
 
 ### 15 · Persistence + perf
 

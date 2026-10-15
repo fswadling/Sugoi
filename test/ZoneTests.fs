@@ -840,6 +840,7 @@ let ``a registered template's parts are never filled from the asset`` () =
           Base = entity "room"
           Orientation = Quaternion.Identity
           Light = Texture.defaultLight
+          Skydome = Skydome.defaultSettings
           Parts = [||]
           Props = [||] }
     let environment = Zone.loadEnvironmentFrom zone world assets template

@@ -136,7 +136,7 @@ let ``the pool is a quiet no-op when audio is unavailable`` () =
 [<Fact>]
 let ``auditioning a sound records no history step`` () =
     let shared = sharedState ()
-    let state = GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
+    let state = GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
     do Sound.play shared.Voices "a" 1n
     do Sound.stop shared.Voices "a"
     do Sound.stopAll shared.Voices

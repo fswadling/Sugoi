@@ -13,6 +13,7 @@ let private newState () : GameplayState.GameplayState =
         (Unchecked.defaultof<DebugDraw.DebugDraw>)
         (Unchecked.defaultof<DebugDraw.DebugDraw>)
         (Unchecked.defaultof<Ui.Ui>)
+        (Unchecked.defaultof<Skydome.Skydome>)
 
 [<Fact>]
 let ``a fresh gameplay screen has no fade`` () =

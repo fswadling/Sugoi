@@ -33,7 +33,7 @@ let private sharedState () : SharedState.SharedState =
       Voices = Sound.newVoices Audio.unavailable }
 
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
+    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
 
 // Shared assets and flags for the file: the zones these tests build are empty, so a switch only walks an
 // empty body map and nothing leaks between tests. The physics world is each state's own. The test runner

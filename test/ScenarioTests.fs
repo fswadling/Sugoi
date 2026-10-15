@@ -30,7 +30,7 @@ let private actor (name: string) : Actor =
 
 /// A headless gameplay state: the single `GameplayState.startZone` zone, as the app starts.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>)
+    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
 
 /// A device-free `SharedState`: an empty asset manager and an empty flag set.
 let private sharedState () : SharedState.SharedState =
