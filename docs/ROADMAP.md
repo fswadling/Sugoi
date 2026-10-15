@@ -414,6 +414,15 @@ cel-shading.
 
 **Done when**: each sub-feature lands as a visible, committable increment.
 
+> **Sway (spec 091) landed as motion-only.** Manifest-declared bone chains (`world/Sway.fs`) sway with
+> the actor's movement — a Verlet rope anchored to the animated pose, applied as per-joint rotations
+> before the pose becomes the bone palette — and Akane's twelve hair chains are authored. What is
+> **deferred** is **wind**: the port has no zone wind field yet, so the reference's `affected_by_wind`
+> is deliberately absent from the manifest rather than defaulted, and the wind force is the one part
+> of `odin-game`'s `sway.odin` this port does not carry. Adding it means a zone-level wind setting
+> (direction/strength/gust, alongside the light of spec 043, carried by `ZoneTemplate`/`ZoneStaging`)
+> plus one manifest field.
+>
 > **Shadows (first deliverable)** were prototyped as spec 043 and then **reverted**; the spec directory was
 > deleted. See [`SHADOWS_NOTES.md`](./SHADOWS_NOTES.md) for the design summary and the traps to fix on a
 > retry (notably: the asset `Bounds` are local-space, so the light frustum must be fitted to the casters'

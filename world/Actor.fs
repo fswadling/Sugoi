@@ -35,12 +35,21 @@ type AnimationSlot =
       Loop : bool
       mutable Enabled : bool }
 
-// The per-frame pose: per-joint local, world, and skinning matrices. The arrays
-// are allocated once and mutated in place each frame.
+// The per-frame pose: per-joint local, world, and skinning matrices, plus the blend's own
+// translation, rotation and scale and the per-joint world rotation. The matrices are what the
+// bone palette and the skinning use; the TRS is what a pass that rewrites a joint's *rotation*
+// needs in order to recompose it (the sway, spec 091), and `WorldRotation` is that joint's world
+// orientation composed from rotations — never decomposed out of a matrix, which is where the
+// reference's own sway arithmetic went wrong. All seven arrays are allocated once and mutated in
+// place each frame.
 type PoseFrame =
     { Local : Matrix4x4 array
       World : Matrix4x4 array
-      Skinning : Matrix4x4 array }
+      Skinning : Matrix4x4 array
+      Translation : Vector3 array
+      Rotation : Quaternion array
+      Scale : Vector3 array
+      WorldRotation : Quaternion array }
 
 // ── matrix helpers ──
 
@@ -101,7 +110,11 @@ let createPoseFrame (model: Iqm.Model) : PoseFrame =
     let n = model.Joints.Length
     { Local = Array.zeroCreate<Matrix4x4> n
       World = Array.zeroCreate<Matrix4x4> n
-      Skinning = Array.zeroCreate<Matrix4x4> n }
+      Skinning = Array.zeroCreate<Matrix4x4> n
+      Translation = Array.zeroCreate<Vector3> n
+      Rotation = Array.zeroCreate<Quaternion> n
+      Scale = Array.zeroCreate<Vector3> n
+      WorldRotation = Array.zeroCreate<Quaternion> n }
 
 // ── animation clocks ──
 
@@ -213,6 +226,19 @@ let private composeJoint (m: ActorModel) (model: Iqm.Model) (j: int) (t: Vector3
     pose.Local.[j] <- local
     pose.World.[j] <- world
     pose.Skinning.[j] <- m.InverseBind.[j] * world
+    pose.Translation.[j] <- t
+    pose.Rotation.[j] <- r
+    pose.Scale.[j] <- s
+    // The joint's world rotation. `worldWorld = local * parentWorld`, and System.Numerics reverses
+    // the product order in quaternions, so the parent's rotation multiplies from the left.
+    pose.WorldRotation.[j] <- if joint.Parent >= 0 then Quaternion.Multiply(pose.WorldRotation.[joint.Parent], r) else r
+
+/// Recompose every joint from the pose's stored translation/rotation/scale. Called after a pass that
+/// rewrote some joints' `Rotation` (the sway, spec 091) so the change reaches `World`, `Skinning` and
+/// the bone palette — the port's analogue of the reference re-running `UpdateModelAnimation`.
+let composeAll (m: ActorModel) (pose: PoseFrame) : unit =
+    for j in 0 .. m.Model.Joints.Length - 1 do
+        composeJoint m m.Model j pose.Translation.[j] pose.Rotation.[j] pose.Scale.[j] pose
 
 // Sample the pose of a single clip at a local animation frame (0 .. NumFrames-1) and
 // write the per-joint local/world/skinning matrices into `pose`. Kept as the tested

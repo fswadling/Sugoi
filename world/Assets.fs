@@ -35,7 +35,8 @@ type private Manifest =
       Name : string
       Model : string
       Morphs : string
-      Portraits : ActorAsset.PortraitPaths }
+      Portraits : ActorAsset.PortraitPaths
+      Sway : Sway.SwayChain array }
 
 // A texture the loader created, with the number of loaded assets currently binding it.
 type TextureEntry =
@@ -110,14 +111,14 @@ let UploadBudgetMs : float = 4.0
 
 // ── scanning ──
 
-let private readManifest (path: string) : string * string * string * string * ActorAsset.PortraitPaths =
+let private readManifest (path: string) : string * string * string * string * ActorAsset.PortraitPaths * Sway.SwayChain array =
     let stem = Path.GetFileNameWithoutExtension(path)
     let manifest = File.ReadAllText(path) |> scvalue<Manifest>
     let id = if String.IsNullOrEmpty manifest.Id then stem else manifest.Id
     let name = if String.IsNullOrEmpty manifest.Name then id else manifest.Name
-    (id, name, manifest.Model, manifest.Morphs, manifest.Portraits)
+    (id, name, manifest.Model, manifest.Morphs, manifest.Portraits, manifest.Sway)
 
-let private scanDir (root: string) (dir: string) : (string * string * string * string * ActorAsset.PortraitPaths) array =
+let private scanDir (root: string) (dir: string) : (string * string * string * string * ActorAsset.PortraitPaths * Sway.SwayChain array) array =
     let full = Path.Combine(root, dir)
     if not (Directory.Exists(full)) then Array.empty else
     Directory.EnumerateFiles(full, "*.manifest", SearchOption.AllDirectories)
@@ -211,7 +212,7 @@ let private resolveMaterial (loader: Loader) (batch: Gpu.UploadBatch) (imageOf: 
 // the GPU bone palette; the caller reports and skips (spec 080, US7). The actor's IQM meshes each name an
 // albedo texture (their `Material` string); these become per-submesh PBR materials sharing one combined
 // vertex/index buffer.
-let private loadActorAsset (loader: Lazy<Loader>) (root: string) (id: string) (name: string) (modelPath: string) (morphsPath: string) (portraitPaths: ActorAsset.PortraitPaths) : ActorAsset.ActorAsset =
+let private loadActorAsset (loader: Lazy<Loader>) (root: string) (id: string) (name: string) (modelPath: string) (morphsPath: string) (portraitPaths: ActorAsset.PortraitPaths) (sway: Sway.SwayChain array) : ActorAsset.ActorAsset =
     if String.IsNullOrEmpty modelPath then
         failwithf "asset manager: actor asset '%s' has no model path" id
 
@@ -309,15 +310,24 @@ let private loadActorAsset (loader: Lazy<Loader>) (root: string) (id: string) (n
               Surprised = loadPortrait portraitPaths.Surprised }
         Some loaded
 
-    { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel; Morphs = morphs; Portraits = portraits }
+    // Sway chains (spec 091): `Sway.resolveAll` holds the policy and words the failures; the actor's
+    // id is here, so the reporting is here. A chain that cannot resolve is dropped, never the
+    // character (FR-009, FR-012).
+    let swayChains =
+        let struct (defs, messages) = Sway.resolveAll model sway
+        for message in messages do
+            do Diagnostics.reportf "asset '%s': %s" id message
+        defs
+
+    { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel; Morphs = morphs; Portraits = portraits; SwayChains = swayChains }
 
 // Scan the actors directory, loading each asset through `loadActorAsset`; a failure is reported and the asset
 // skipped, so one bad file does not deny the rest (spec 080, US7).
 let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<AssetId, ActorAsset.ActorAsset> =
     let actors = Dictionary<AssetId, ActorAsset.ActorAsset>()
-    for (id, name, modelPath, morphsPath, portraitPaths) in scanDir root "actors" do
+    for (id, name, modelPath, morphsPath, portraitPaths, sway) in scanDir root "actors" do
         let loaded =
-            try Some (loadActorAsset loader root id name modelPath morphsPath portraitPaths)
+            try Some (loadActorAsset loader root id name modelPath morphsPath portraitPaths sway)
             with e ->
                 do Diagnostics.reportf "asset '%s': %s (skipped)" id e.Message
                 None
@@ -768,7 +778,7 @@ let scan (root: string) (device: Gpu.Device) (audio: Audio.Context) : AssetManag
     let loader = lazy (createLoader device)
 
     let props = Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>()
-    for (id, name, modelPath, _, _) in scanDir root "props" do
+    for (id, name, modelPath, _, _, _) in scanDir root "props" do
         try
             if String.IsNullOrEmpty modelPath then
                 failwithf "asset manager: prop asset '%s' has no model path" id
@@ -780,7 +790,7 @@ let scan (root: string) (device: Gpu.Device) (audio: Audio.Context) : AssetManag
             do Diagnostics.reportf "asset '%s': %s (skipped)" id e.Message
 
     let environments = Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>()
-    for (id, name, modelPath, _, _) in scanDir root "environments" do
+    for (id, name, modelPath, _, _, _) in scanDir root "environments" do
         try
             if String.IsNullOrEmpty modelPath then
                 failwithf "asset manager: environment asset '%s' has no model path" id

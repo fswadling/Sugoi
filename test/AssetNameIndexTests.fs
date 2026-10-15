@@ -17,7 +17,7 @@ let private asset (id: string) (name: string) : ActorAsset.ActorAsset =
       Mesh = Unchecked.defaultof<Mesh.Mesh>
       Model = Unchecked.defaultof<Actor.ActorModel>
       Morphs = None
-      Portraits = None }
+      Portraits = None; SwayChains = [||] }
 
 let private index (assets: ActorAsset.ActorAsset list) : Dictionary<string, ActorAsset.ActorAsset> =
     let byId = Dictionary<string, ActorAsset.ActorAsset>()

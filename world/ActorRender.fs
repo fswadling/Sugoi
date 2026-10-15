@@ -35,6 +35,7 @@ type ActorRender =
       BoneTransfer : Gpu.TransferBuffer // upload transfer buffer, same size
       BoneBytes : byte array        // BonesMax * 64, reused
       MorphWeightBytes : byte array // the pushed morph weights + count, reused
+      Sway : Sway.SwayState         // the actor's sway chains, seeded and stepped per frame (spec 091)
       mutable LastMissing : string }        // the last clip name reported absent, so the report is once per event (spec 080, FR-013)
 
 // The animation slot capacity, re-exported for the editor's "at maximum" report
@@ -46,7 +47,11 @@ let animationSlotCapacity = MaxAnimationSlots
 // +Z), while the engine's world/camera is Y-up. Convert with a -90° rotation
 // about X (+Z -> +Y, +Y -> -Z), matching odin-game's `orientation_degrees.x =
 // -90`. Applied in local space (before the entity transform) inside `draw`.
-let private upAxisFix : Matrix4x4 = Matrix4x4.CreateRotationX(-MathF.PI / 2.0f)
+//
+// Rot and matrix are the same rotation expressed twice, because the sway needs the actor's world
+// *orientation* as a quaternion and must not solve for it out of a scaled matrix (spec 091).
+let private upAxisFixRot : Quaternion = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -MathF.PI / 2.0f)
+let private upAxisFix : Matrix4x4 = Matrix4x4.CreateFromQuaternion upAxisFixRot
 
 // The idealized face light (spec 040, FR-007): the actor's horizontal facing — the entity model
 // matrix applied to local +Z (the project's forward convention, matching `Systems.forwardOf`),
@@ -96,12 +101,30 @@ let create (device: Gpu.Device) (asset: ActorAsset.ActorAsset) : ActorRender =
       BoneTransfer = Gpu.createTransferBuffer device (uint32 (Gpu.BonesMax * 64))
       BoneBytes = Array.zeroCreate<byte> (Gpu.BonesMax * 64)
       MorphWeightBytes = Array.zeroCreate<byte> 48
+      Sway = Sway.createState asset.SwayChains
       LastMissing = "" }
 
-// Advance every held clip's own clock in place through the renderer field. The
-// per-frame hot path calls this so no ActorRender/Actor records are rebuilt.
-let advanceInPlace (r: byref<ActorRender>) (dt: float32) : unit =
-    do Actor.advanceSlotsInPlace r.Asset.Model r.AnimationSlots.Slots dt
+// The actor's per-frame step, called once per frame in *both* modes: advance the held clips' clocks
+// while playing, blend the pose, and — while playing — step and apply the sway (spec 091).
+//
+// The blend always runs, because an actor must be posed while it is being placed in the editor; the
+// clock and the sway are gated on `playing`, which is what makes the sway a play-mode effect (FR-008).
+// It runs from the update chain (research D1), where the frame's time and the actor's transform are in
+// hand — the copy pass that uploads the palette has neither, and `dt` is what the rope needs.
+//
+// `model` is the entity's model matrix and `rotation` its rotation, both passed rather than derived
+// because `world/Entity.fs` is compiled below this file. The sway is given the same world transform
+// `draw` builds, so the rope swings where the character is drawn.
+let simulate (r: byref<ActorRender>) (dt: float32) (playing: bool) (model: Matrix4x4) (rotation: Quaternion) : unit =
+    if playing then
+        do Actor.advanceSlotsInPlace r.Asset.Model r.AnimationSlots.Slots dt
+
+    do Actor.blendPose r.Asset.Model r.AnimationSlots.Slots r.Pose
+
+    if playing then
+        do Sway.apply r.Asset.Model r.Pose r.Sway dt (upAxisFix * model) (Quaternion.Multiply(rotation, upAxisFixRot))
+    else
+        do Sway.clear r.Sway
 
 // Set the named clip's weight, clamped to 0..1, adding the clip to the actor's set when
 // it is not already held (FR-005, FR-006, FR-007). A clip the asset does not define
@@ -216,13 +239,12 @@ let playClip (r: byref<ActorRender>) (name: string) : unit =
 
     do Actor.setSlotWeight model slots index 1.0f
 
-// Sample the blended pose and upload the bone palette to this instance's GPU storage
-// buffer. Runs in the copy-pass phase, before the render pass (like DebugDraw).
+// Upload the pose's bone palette to this instance's GPU storage buffer. Runs in the copy-pass phase,
+// before the render pass (like DebugDraw). The pose itself is built a phase earlier by `simulate`;
+// this is only the transfer, which is what its name says.
 let upload (r: ActorRender) (cmd: Gpu.CommandBuffer) : unit =
     let mesh = r.Asset.Mesh
     let model = r.Asset.Model
-
-    do Actor.blendPose model r.AnimationSlots.Slots r.Pose
 
     let byteCount = model.Model.Joints.Length * 64
     for j in 0 .. model.Model.Joints.Length - 1 do

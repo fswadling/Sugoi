@@ -150,7 +150,7 @@ let private assetsWith (portraitsOpt: ActorAsset.ActorPortraits option) : Assets
     actors.["akane"] <-
         { Id = "akane"; Name = "Akane"; ModelPath = ""; Bounds = Unchecked.defaultof<Gltf.Bounds>
           Mesh = Unchecked.defaultof<Mesh.Mesh>; Model = Unchecked.defaultof<Actor.ActorModel>
-          Morphs = None; Portraits = portraitsOpt }
+          Morphs = None; Portraits = portraitsOpt; SwayChains = [||] }
     TestSupport.manager System.IntPtr.Zero actors (Dictionary()) (Dictionary())
 
 [<Fact>]

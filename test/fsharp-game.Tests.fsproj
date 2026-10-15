@@ -35,6 +35,7 @@
     <Compile Include="IqmTests.fs" />
     <Compile Include="GltfTests.fs" />
     <Compile Include="ActorTests.fs" />
+    <Compile Include="SwayTests.fs" />
     <Compile Include="PhysicsTests.fs" />
     <Compile Include="ZoneTests.fs" />
     <Compile Include="SpawningTests.fs" />

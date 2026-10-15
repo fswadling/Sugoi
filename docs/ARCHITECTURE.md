@@ -131,12 +131,19 @@ entities, and forks its cue beside the rest, as a runtime effect. Odin's other s
 ## Systems
 
 Systems are plain procedures that take `zone`/`screen`/`shared` + `dt` and
-mutate data in place. `play_mode_systems_update` chains them in a fixed order:
+mutate data in place. The reference's loop, `play_mode_systems_update`, chains them in a
+fixed order:
 
 ```text
 player_input → gravity → physics → animation → sway → trigger →
 interaction → exposition → camera_follow → collider sync → clock → cue
 ```
+
+The port follows this for the systems it has, with one deliberate deviation: the actor step —
+blend the pose, then sway it (spec 091) — runs **last in `update`, after `cue`**, because a cue op
+sets clip weights (`PlayClip`) and the blend has to see the weights the frame has just set. The
+sway travels with it rather than sitting between `animation` and `trigger`: one pass over the pose,
+not two.
 
 Iteration is direct scan loops over the fixed arrays — no component registry or
 archetypes.

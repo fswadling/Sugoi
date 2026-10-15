@@ -70,7 +70,11 @@ type ActorAsset =
       /// The actor's portraits, one per expression, loaded once (spec 038). `None` when the
       /// manifest declares no `[Portraits …]` block, which is legal: such a character simply
       /// cannot speak a portrait line.
-      Portraits : ActorPortraits option }
+      Portraits : ActorPortraits option
+      /// The actor's sway chains (spec 091), resolved against its skeleton once and shared by every
+      /// instance. A chain that could not resolve was reported and dropped at load, so this holds only
+      /// usable chains — `[||]` when the manifest declares none, which is the common case.
+      SwayChains : Sway.SwayChainDef array }
 
 // ── pure loaders ──
 

@@ -71,6 +71,11 @@
          Pure — no GPU, no asset, no cast — so it sits before the actor and systems modules. -->
     <Compile Include="world/Dialogue.fs" />
     <Compile Include="world/Actor.fs" />
+    <!-- Bone-chain sway (spec 091): a Verlet rope anchored to the animated pose, applied as per-joint
+         rotations before the pose becomes the bone palette. Names `PoseFrame` and `ActorModel` (so it
+         sits after `world/Actor.fs`) and owns the resolved `SwayChainDef` that `world/ActorAsset.fs`
+         carries (so it sits before it). Pure — no GPU, no screen, no zone. -->
+    <Compile Include="world/Sway.fs" />
     <Compile Include="world/ActorAsset.fs" />
     <Compile Include="world/ActorRender.fs" />
     <Compile Include="world/EnvironmentAsset.fs" />

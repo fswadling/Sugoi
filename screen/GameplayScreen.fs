@@ -22,22 +22,28 @@ let activate (_shared: SharedState.SharedState) (state: byref<GameplayState.Game
     let size = ImGui.displaySize()
     do updateAspectRatio (size.x, size.y) &state
 
-// Advance each actor's own animation clock in place: the alive scan reads the map's
-// slot span, then each payload is resolved through `Get` so only the frame float is written.
-let private advanceActorAnimations (dt: float32) (zone: Zone.Zone) : unit =
+// The per-frame actor step: blend each actor's pose, and while playing advance its clocks and its sway.
+// The alive scan reads the map's slot span, then each payload is written through, so nothing is rebuilt.
+//
+// It runs in *both* modes — an actor must be posed while it is being placed in the editor — and it runs
+// last in `update`, after every system and cue op that sets a clip weight or moves an actor, so the
+// blend sees this frame's weights and the sway this frame's positions (spec 091, research D1).
+let private simulateActors (dt: float32) (playing: bool) (zone: Zone.Zone) : unit =
     let slots = zone.Actors.Slots
     for i in 0 .. slots.Length - 1 do
         let slot = &slots.[i]
         if not slot.Alive then () else
         let actor = &slot.Value
-        do ActorRender.advanceInPlace &actor.Renderer dt
+        let transform = actor.State.Base.Transform
+        do ActorRender.simulate &actor.Renderer dt playing (Entity.modelMatrix transform) transform.Rotation
 
 // Advance non-render logic: refresh the camera aspect from the frame's window size, then hand the
 // frame's input to the editor (which owns the edit/play toggle, shortcuts, nudge, interaction, and
 // camera). The editor does not simulate, so it stays passive: the animation clock, the dialogue
 // dismiss and the player systems run only while playing. The play chain and the physics step
 // therefore also run only while playing; each player system no-ops without a live bound player, so a
-// play session with no player still advances the world but drives no character.
+// play session with no player still advances the world but drives no character. The one step that runs
+// in both modes is the actor step (spec 091), and it runs last — see its own comment.
 let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<GameplayState.GameplayState>) : ScreenTransition =
     do updateAspectRatio (frame.WindowW, frame.WindowH) &state
     let zone = GameplayState.activeZone state
@@ -56,10 +62,6 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
     do Zone.reconcileEnvironment (GameplayState.activeZone state) state.Physics shared.Assets
 
     if not state.Editing then
-        // The animation clock advances only while playing, so an actor stands still while it is being
-        // placed and edited.
-        do advanceActorAnimations frame.Dt zone
-
         // The dialogue dismiss: while playing only, so the editor's SPACE is its own. Gated on a text
         // field having focus too, because the editor's fields take the same keys (FR-008).
         do Systems.dismissDialogue (Input.isPressed Input.Key.Space frame.Input) (ImGui.wantTextInput()) &state.Dialogue
@@ -79,6 +81,12 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
         // cue is set.
         state.PlayTime <- state.PlayTime + float frame.Dt
         CueEngine.tick shared &state state.PlayTime
+
+    // The actor step last, on the *current* active zone (a cue may have switched place this frame): the
+    // blend then sees the weights the systems and the cue set, and the sway the positions
+    // `Systems.syncActors` wrote. It sits outside the play gate so an actor is also posed while editing
+    // (spec 091, research D1).
+    do simulateActors frame.Dt (not state.Editing) (GameplayState.activeZone state)
 
     transition
 

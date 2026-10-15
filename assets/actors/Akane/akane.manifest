@@ -1,1 +1,25 @@
-[[Id "akane"] [Name "Akane"] [Model "actors/Akane/Akane.iqm"] [Morphs "actors/Akane/akane.morphs"] [Portraits [[Neutral "actors/Akane/portraits/AkaneNeutral.png"] [Happy "actors/Akane/portraits/AkaneHappy.png"] [Sad "actors/Akane/portraits/AkaneSad.png"] [Angry "actors/Akane/portraits/AkaneAngry.png"] [Surprised "actors/Akane/portraits/AkaneSurprised.png"]]]]
+[[Id "akane"]
+ [Name "Akane"]
+ [Model "actors/Akane/Akane.iqm"]
+ [Morphs "actors/Akane/akane.morphs"]
+ [Portraits [[Neutral "actors/Akane/portraits/AkaneNeutral.png"]
+             [Happy "actors/Akane/portraits/AkaneHappy.png"]
+             [Sad "actors/Akane/portraits/AkaneSad.png"]
+             [Angry "actors/Akane/portraits/AkaneAngry.png"]
+             [Surprised "actors/Akane/portraits/AkaneSurprised.png"]]]
+ ;; Hair sway (spec 091): Akane's twelve hair chains, root to tip, with each joint name as a bare
+ ;; atom (Prime's canonical rendering of a string array). The root of each is J_Bip_C_Head, which is
+ ;; deliberately *not* in the chain: it is the parent the first listed joint hangs from, and a
+ ;; chain's first joint is anchored to it in position only.
+ [Sway [[[Bones [J_Sec_Hair1_01 J_Sec_Hair2_01 J_Sec_Hair3_01 J_Sec_Hair3_01_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_02 J_Sec_Hair2_02 J_Sec_Hair3_02 J_Sec_Hair3_02_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_03 J_Sec_Hair2_03 J_Sec_Hair3_03 J_Sec_Hair3_03_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_04 J_Sec_Hair2_04 J_Sec_Hair3_04 J_Sec_Hair3_04_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_05 J_Sec_Hair2_05 J_Sec_Hair3_05 J_Sec_Hair3_05_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_06 J_Sec_Hair2_06 J_Sec_Hair3_06 J_Sec_Hair3_06_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_07 J_Sec_Hair2_07 J_Sec_Hair3_07 J_Sec_Hair3_07_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_08 J_Sec_Hair2_08 J_Sec_Hair3_08 J_Sec_Hair4_08 J_Sec_Hair4_08_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_09 J_Sec_Hair2_09 J_Sec_Hair3_09 J_Sec_Hair4_09 J_Sec_Hair4_09_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_10 J_Sec_Hair2_10 J_Sec_Hair3_10 J_Sec_Hair4_10 J_Sec_Hair4_10_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_11 J_Sec_Hair2_11 J_Sec_Hair3_11 J_Sec_Hair4_11 J_Sec_Hair4_11_end]] [Stiffness 0.15]]
+       [[Bones [J_Sec_Hair1_12 J_Sec_Hair2_12 J_Sec_Hair3_12 J_Sec_Hair4_12 J_Sec_Hair4_12_end]] [Stiffness 0.15]]]]]

@@ -701,7 +701,7 @@ let private assetOf (id: string) (m: Iqm.Model) : ActorAsset.ActorAsset =
       Mesh = Unchecked.defaultof<Mesh.Mesh>
       Model = Actor.createModel m
       Morphs = None
-      Portraits = None }
+      Portraits = None; SwayChains = [||] }
 
 let private renderOf (asset: ActorAsset.ActorAsset) (slots: SlotMap<AnimationSlot>) : ActorRender.ActorRender =
     { Unchecked.defaultof<ActorRender.ActorRender> with Asset = asset; AnimationSlots = slots }

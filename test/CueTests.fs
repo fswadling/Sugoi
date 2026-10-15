@@ -809,7 +809,7 @@ let private actorShared () : SharedState.SharedState =
           Mesh = Unchecked.defaultof<Mesh.Mesh>
           Model = Actor.createModel model
           Morphs = Some morphs
-          Portraits = None }
+          Portraits = None; SwayChains = [||] }
     let actors = Dictionary<string, ActorAsset.ActorAsset>()
     actors.["aiko"] <- asset
     { Gpu = Unchecked.defaultof<Gpu.Gpu>

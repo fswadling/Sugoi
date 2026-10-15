@@ -41,7 +41,7 @@ let private actorAsset (id: string) : ActorAsset.ActorAsset =
       Mesh = Unchecked.defaultof<Mesh.Mesh>
       Model = Actor.createModel (emptyModel ())
       Morphs = None
-      Portraits = None }
+      Portraits = None; SwayChains = [||] }
 
 let private headlessAssets () : Assets.AssetManager =
     let actors = Dictionary<string, ActorAsset.ActorAsset>()

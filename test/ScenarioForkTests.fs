@@ -46,7 +46,7 @@ let private actorAsset (id: string) : ActorAsset.ActorAsset =
       Mesh = Unchecked.defaultof<Mesh.Mesh>
       Model = Actor.createModel (emptyModel ())
       Morphs = None
-      Portraits = None }
+      Portraits = None; SwayChains = [||] }
 
 /// A device-free `SharedState`: a fabricated actor asset, a resident environment asset, and an empty flag set.
 let private sharedState () : SharedState.SharedState =
