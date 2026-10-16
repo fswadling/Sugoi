@@ -110,6 +110,9 @@
     <!-- The scenario fork (spec 078): the materialiser, the cue op, the editor step and its undo/redo, the
          footprint rules, non-idempotence, the capacity no-op and the unregistered no-op — all headless. -->
     <Compile Include="ScenarioForkTests.fs" />
+    <!-- The project file (spec 095): the s-syntax round trip, the file handling and the change-driven persist —
+         all headless, over a temp directory. -->
+    <Compile Include="ProjectTests.fs" />
   </ItemGroup>
 
   <!-- Serialize test collections: `Physics.create` calls Jolt's process-global

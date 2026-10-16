@@ -178,6 +178,12 @@ extern void beginDisabled(bool disabled)
 [<DllImport("cimgui", EntryPoint = "igEndDisabled", CallingConvention = CallingConvention.Cdecl)>]
 extern void endDisabled()
 
+// A tooltip attached to the last item submitted (cimgui's igSetItemTooltip). Bound like `text`: the underlying
+// call is variadic, so a literal format string is passed. It uses ImGui's default tooltip hover flags, which
+// allow a disabled item, so a control disabled with `beginDisabled` can still explain itself (spec 095).
+[<DllImport("cimgui", EntryPoint = "igSetItemTooltip", CallingConvention = CallingConvention.Cdecl)>]
+extern void setItemTooltip(string text)
+
 // Push/pop an ID onto ImGui's ID stack (cimgui's igPushID_Str / igPopID). Widgets are keyed by
 // their label plus this stack, so the cast panel pushes a member's name and then the look's before
 // drawing a row: both repeat — the look labels under every member, and a row's own widgets under

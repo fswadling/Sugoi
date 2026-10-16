@@ -88,6 +88,10 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
     // (spec 091, research D1).
     do simulateActors frame.Dt (not state.Editing) (GameplayState.activeZone state)
 
+    // Persist the scenario library if it changed (spec 095 FR-005): one reference comparison, so a write happens
+    // only on an author action — an add, clear, register or delete, or the undo/redo of one.
+    do Project.persist state.Scenarios
+
     transition
 
 // The prompt of the nearest interactable trigger the player is inside, or "" for nothing to show.

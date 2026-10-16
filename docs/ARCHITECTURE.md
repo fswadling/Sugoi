@@ -166,12 +166,14 @@ archetypes.
 
 ## Persistence
 
-Uses a DTO pattern: `Project_DTO`/`Project_Zone`/`Project_Prop`/
-`Project_Scenario` structs with JSON tags, separate from the runtime model.
-`project_save`/`project_load` convert between them; saves are atomic
-(`.tmp` + rename). A missing file is not an error. Runtime/player save state is
-out of scope — only cast, zone-registry templates, and the scenario library are
-persisted.
+The scenario library is written and read **automatically** (`specs/095-scenario-persistence`) as a single
+s-syntax file, `project.manifest`, at the launch working directory: `world/Project.fs` holds a serializable record
+tree mirroring the authored types and converts at that one boundary (Prime's symbolic converter, so no JSON — it
+maps records, unions, options, collections and `FDeque` directly, but `Vector3`/`Quaternion` and its own ordered
+map are flattened). Writes are atomic (`.tmp` + rename) and happen when the library changes, including the undo or
+redo of a change; the file is read once at startup. A missing file is not an error; a damaged one is reported and
+leaves an empty library. Runtime/player save state is out of scope, and only the scenario library is persisted —
+the cast and zone registry were retired (`specs/074`, `specs/079`).
 
 ## Assets
 

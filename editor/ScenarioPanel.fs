@@ -14,6 +14,7 @@ module ScenarioPanel
 // step (the same class as the Advent panel).
 
 open Command
+open Cue
 open ScenarioRegistry
 
 // ── the write path ──
@@ -49,6 +50,12 @@ let fork (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
     state.Editor <- { state.Editor with Undo = UndoStack.push state.Editor.Undo (Batch (commands @ cueSteps)) }
 
+/// Whether the current scene may be filed under a scenario: a cue that is still mid-run — one holding a
+/// `…State` op, run progress rather than authoring — cannot round-trip through the project file, so Register is
+/// refused (spec 095 FR-018). Reuses the editor's existing executing-cue predicate (spec 047) rather than a
+/// second notion of "in progress".
+let canFile (cue: Cue) : bool = not (CueTree.executing cue)
+
 // ── the text field's NUL-terminated buffer ──
 
 let private bufferText (buffer: byte[]) : string =
@@ -78,6 +85,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     // empties a registered scenario but keeps its name; Fork (enabled only when registered) materialises it; Delete
     // removes the name and its contents. The name is unique in the library, so it is a stable widget id.
     let scenarioNames = names state.Scenarios
+    let fileable = canFile state.Cue
     if scenarioNames.IsEmpty then
         do ImGui.text "(none)"
     else
@@ -97,11 +105,15 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do ImGui.sameLine(0.0f, 8.0f)
             do ImGui.text preview
 
-            // Register captures the current scene as the scenario's contents. Always offered: the active place is
-            // always present, so there is always something to capture.
+            // Register captures the current scene as the scenario's contents. Refused while the cue is still
+            // mid-run — it cannot round-trip through the project file — and the control says why (spec 095 FR-018).
             do ImGui.sameLine(0.0f, 8.0f)
+            do ImGui.beginDisabled (not fileable)
             if ImGui.smallButton "Register" then
                 do commit shared &state (setContents name (Some (capture state.Zones state.Cue)) state.Scenarios)
+            do ImGui.endDisabled()
+            if not fileable then
+                do ImGui.setItemTooltip "The cue is still running — stop play first"
 
             // Clear empties a registered scenario, so it is offered only when there is something to clear; the
             // affordance is drawn where it becomes usable, not hidden. The name is kept.

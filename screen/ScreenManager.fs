@@ -19,11 +19,16 @@ type ScreenManager =
 
 let init (gpu: Gpu.Gpu) (debugDraw: DebugDraw.DebugDraw) (gizmoDraw: DebugDraw.DebugDraw) (ui: Ui.Ui) (skydome: Skydome.Skydome) : ScreenManager =
     let shared = SharedState.create gpu
+    // Load the project file once, at startup (spec 095 FR-007), so the author's scenarios are present from the
+    // first frame. Not in `GameplayState.create`, which the headless fixtures call — a disk read there would make
+    // the whole suite touch the filesystem.
+    let mutable gameplay = GameplayState.create debugDraw gizmoDraw ui skydome
+    gameplay.Scenarios <- Project.load ()
     { Active = ScreenKind.MainMenu
       Transition = ScreenTransition.None
       Shared = shared
       ShouldQuit = false
-      Gameplay = GameplayState.create debugDraw gizmoDraw ui skydome }
+      Gameplay = gameplay }
 
 // Advance the active screen; may set a transition. The frame carries the frame
 // time, window size, and the engine-gathered input.

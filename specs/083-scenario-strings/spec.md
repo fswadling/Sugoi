@@ -278,7 +278,8 @@ one step; redo and assert the name is back.
 - **FR-015**: A fork op naming an absent or unregistered scenario, or one whose target zone lacks room, MUST
   perform nothing and report why, leaving the run to advance past it (the existing behaviour).
 - **FR-016**: The library MUST NOT be persisted, and nothing about it is written to disk (phase 15, unchanged
-  from `specs/070`).
+  from `specs/070`). *(Superseded by `specs/095-scenario-persistence`, which persists the library automatically as
+  `project.manifest`.)*
 - **FR-017**: The project MUST build with **0 warnings** and the headless suite MUST pass, with the new library,
   panel controls and cue case among them.
 

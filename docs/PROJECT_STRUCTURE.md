@@ -74,6 +74,8 @@ The `.fsproj` compile list is ordered like this (abridged):
   <Compile Include="world/Zone.fs" />
   <Compile Include="world/ScenarioZone.fs" />
   <Compile Include="world/ScenarioRegistry.fs" />
+  <!-- Project.fs files the scenario library as s-syntax; it names every world/ type above it and nothing below (spec 095) -->
+  <Compile Include="world/Project.fs" />
   <Compile Include="world/Systems.fs" />
   <!-- state (app/screen state, the command model, and the engines over the gameplay state) -->
   <Compile Include="state/Screen.fs" />
@@ -187,7 +189,7 @@ fsharp-game/
 │   │   ├── EnvironmentBatch.fs #     per-zone static-scene instancing batch
 │   │   ├── DialogueRender.fs   #     the dialogue view: speaker name -> actor asset -> portrait, + the panel layout
 │   │   └── PromptRender.fs     #     the interact prompt view + its layout (pure)
-│   └── Project.fs              #   DTO persistence (project.json) (planned)
+│   └── Project.fs              #   the project file: the scenario library as s-syntax (`project.manifest`) at the launch working directory (spec 095)
 ├── state/                      # app/screen state, the editor-command model, and the engines over the gameplay state
 │   ├── Screen.fs               #   kind/transition/input types
 │   ├── SharedState.fs          #   engine/any-screen state: GPU context, assets, advents

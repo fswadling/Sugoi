@@ -314,6 +314,19 @@ let ``a registration carries the zone's light but not its player`` () =
     let afterLight = tryContents "Intro" state.Scenarios
     Assert.NotEqual<ScenarioContents option>(afterPlayer, afterLight)
 
+// ══════ the Register guard (spec 095 FR-018) ══════
+
+[<Fact>]
+let ``the Register guard refuses a mid-run cue and allows an authored one`` () =
+    // A run-form op (a `…State` case) is run progress, not authoring, and cannot round-trip through the project
+    // file, so the Register control is refused (FR-018). An authored cue — including a non-`Fin` one that has
+    // never played — is fileable.
+    Assert.False(ScenarioPanel.canFile (Cue.WaitState(1.0, 2.0)))
+    Assert.False(ScenarioPanel.canFile (Cue.Parallel(Cue.Fin, Cue.WaitState(1.0, 2.0))))
+    Assert.True(ScenarioPanel.canFile Cue.Fin)
+    Assert.True(ScenarioPanel.canFile (Cue.Wait 1.0))
+    Assert.True(ScenarioPanel.canFile (Cue.Print "authored"))
+
 [<Fact>]
 let ``the zone-level runner refuses a scenario step, which is state-level`` () =
     let shared = sharedState ()

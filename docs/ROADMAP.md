@@ -79,7 +79,7 @@ content-authoring and polish on top.
 | **12** | **Zone registry + editor** | author zone templates/settings | `odin-game/src/{zone_registry,zone_editor}.odin`; `ocaml-game` M10; `specs/034-zone-registry` |
 | **13** | **Systems + fixed timestep + immutable cue** (refactor) | named systems, live-edit-safe cues | `odin-game` systems-extraction commits; `ocaml-game` M11 / D-010 |
 | **14** | **Advanced rendering** | shadows → water → grass → sky → ocean → sway → cel-shading | `odin-game/src/{shadow,water,grass,skydome,ocean,sway}.odin`; one spec each |
-| **15** | **Persistence + perf** | save/load `project.json`, async loading, LRU cache | `odin-game/src/project.odin`; `ocaml-game` M12/M14 |
+| **15** | **Persistence + perf** | automatic save/load of the scenario library (`project.manifest`), async loading, LRU cache | `odin-game/src/project.odin`; `ocaml-game` M12/M14 |
 
 The phases are **dependency-ordered**, but several are intentionally parallel
 after the core (e.g. 10/11 vs 12, and the sub-features of 14).
@@ -436,16 +436,17 @@ cel-shading.
 
 ### 15 · Persistence + perf
 
-**Goal**: save/load and performance.
+**Goal**: automatic save/load and performance.
 
 **Deliverables**
-- `world/Project.fs` — `Project_DTO`/`Project_Zone`/`Project_Prop`/
-  `Project_Scenario` DTOs (`System.Text.Json`), separate from the runtime model.
-- Atomic save/load (`project.json`, `.tmp` + rename); missing file is not an error.
-- Async asset loading + LRU model cache.
+- `world/Project.fs` — the scenario library persisted as s-syntax (`project.manifest`), written on every change
+  and read at startup; the record tree mirrors the authored types and converts at the boundary (Prime's symbolic
+  converter, not JSON). *(complete — `specs/095-scenario-persistence`)*
+- Atomic save (`project.manifest`, `.tmp` + rename); a missing file is not an error, a damaged one is reported.
+- Async asset loading + LRU model cache. *(the async loading and the LRU cache are `specs/050`–`053`)*
 
-**Done when**: cast, zone-registry templates, and the scenario library round-trip
-through `project.json`; assets load async with an LRU cache.
+**Done when**: the scenario library round-trips through `project.manifest` automatically, with no save or load
+command; assets load async with an LRU cache. *(the project file is complete — `specs/095-scenario-persistence`)*
 
 ## Sequencing
 

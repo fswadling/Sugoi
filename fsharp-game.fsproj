@@ -121,6 +121,11 @@
          keyed by its name in an ordered map. Listed after `world/Zone.fs` (a capture reads the live zones) and
          after `world/Cue.fs` (it carries a cue). -->
     <Compile Include="world/ScenarioRegistry.fs" />
+    <!-- The project file (spec 095): the scenario library written and read automatically as s-syntax. Listed
+         after `world/ScenarioRegistry.fs` (whose library it files) and after every `world/` type its record tree
+         mirrors. Its `load`/`persist` take the library by value, so it needs nothing from `state/`; the startup
+         load and the per-frame write are wired in `screen/`. -->
+    <Compile Include="world/Project.fs" />
     <Compile Include="world/Systems.fs" />
     <Compile Include="state/Screen.fs" />
     <Compile Include="state/SharedState.fs" />
