@@ -59,6 +59,18 @@ let private tempPath (stem: string) : string =
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
 
+/// Run `body` with the current directory at a fresh temp dir, so `project.manifest` resolves there. The suite is
+/// serialized (`xunit.runner.json`), so the process-global directory change is safe; the dir is restored and deleted.
+let private withTempDir (body: unit -> unit) : unit =
+    let dir = Path.Combine(Path.GetTempPath(), sprintf "fsharp-game-project-%s" (Guid.NewGuid().ToString "N"))
+    do Directory.CreateDirectory dir |> ignore
+    let original = Directory.GetCurrentDirectory ()
+    do Directory.SetCurrentDirectory dir
+    try body ()
+    finally
+        do Directory.SetCurrentDirectory original
+        do Directory.Delete(dir, true)
+
 // ── the round trip (FR-003, FR-004, FR-011) ──
 
 [<Fact>]
@@ -117,40 +129,31 @@ let ``a missing file yields the empty library, reports nothing, and is not creat
 
 [<Fact>]
 let ``persist writes on a change and nothing when unchanged, and touches nothing but the library`` () =
-    let dir = Path.Combine(Path.GetTempPath(), sprintf "fsharp-game-persist-%s" (Guid.NewGuid().ToString "N"))
-    do Directory.CreateDirectory dir |> ignore
-    let original = Directory.GetCurrentDirectory ()
-    do Directory.SetCurrentDirectory dir
-    try
-        let file = Path.Combine(dir, "project.manifest")
-
+    withTempDir (fun () ->
         // the first persist writes; the same instance again writes nothing
         let registry = library ()
         do Project.persist registry
-        Assert.True(File.Exists file)
-        let written = File.GetLastWriteTimeUtc file
+        Assert.True(File.Exists "project.manifest")
+        let written = File.GetLastWriteTimeUtc "project.manifest"
         do Project.persist registry
-        Assert.Equal(written, File.GetLastWriteTimeUtc file)
+        Assert.Equal(written, File.GetLastWriteTimeUtc "project.manifest")
 
         // a change (a new instance) is written
         do Project.persist (remove "Draft" registry)
-        Assert.DoesNotContain("Draft", File.ReadAllText file)
+        Assert.DoesNotContain("Draft", File.ReadAllText "project.manifest")
 
         // an undo restores the prior instance, and the file holds the scenario again
         do Project.persist registry
-        Assert.Contains("Draft", File.ReadAllText file)
+        Assert.Contains("Draft", File.ReadAllText "project.manifest")
 
         // a write and a load touch nothing but the library: the undo history and the zones are untouched
         let mutable state = newState ()
         let undoBefore = state.Editor.Undo
         let zonesBefore = state.Zones.Count
         do Project.persist state.Scenarios
-        state.Scenarios <- Project.loadFrom file
+        state.Scenarios <- Project.loadFrom "project.manifest"
         Assert.Equal(undoBefore, state.Editor.Undo)
-        Assert.Equal(zonesBefore, state.Zones.Count)
-    finally
-        do Directory.SetCurrentDirectory original
-        do Directory.Delete(dir, true)
+        Assert.Equal(zonesBefore, state.Zones.Count))
 
 // ── a damaged file (FR-009, FR-010) ──
 
@@ -208,3 +211,84 @@ let ``a failed write is reported and leaves the existing good file`` () =
         Assert.Equal(good, File.ReadAllText path)
     finally
         do Directory.Delete(dir, true)
+
+// ── live reload: an external change (spec 096 FR-001..FR-003, FR-007, SC-004) ──
+
+[<Fact>]
+let ``an external edit is picked up, a rename-over save too, and the game's own write is not`` () =
+    withTempDir (fun () ->
+        // the game writes the library, so the file holds a baseline
+        let registry = library ()
+        do Project.persist registry
+        Assert.True((Project.pollExternal 1.0).IsNone) // our own write is not a change
+
+        // an external rewrite is picked up
+        let changed = setContents "Intro" None registry
+        do File.WriteAllText("project.manifest", Project.encode changed)
+        match Project.pollExternal 1.0 with
+        | Some reloaded -> Assert.Equal(Project.encode changed, Project.encode reloaded)
+        | _ -> Assert.Fail "the external rewrite was not picked up"
+
+        // a temp-file-then-rename save is picked up the same way (a content poll, not an event)
+        do File.WriteAllText("project.manifest.tmp", Project.encode registry)
+        do File.Move("project.manifest.tmp", "project.manifest", true)
+        match Project.pollExternal 1.0 with
+        | Some reloaded -> Assert.Equal(Project.encode registry, Project.encode reloaded)
+        | _ -> Assert.Fail "the rename-over save was not picked up"
+
+        // an identical rewrite is not a change
+        Assert.True((Project.pollExternal 1.0).IsNone)
+
+        // installing a reload touches nothing but the library
+        let mutable state = newState ()
+        let undoBefore = state.Editor.Undo
+        let zonesBefore = state.Zones.Count
+        state.Scenarios <- registry
+        Assert.Equal(undoBefore, state.Editor.Undo)
+        Assert.Equal(zonesBefore, state.Zones.Count))
+
+// ── live reload: a damaged or deleted file keeps the running library (spec 096 FR-004, FR-005, SC-003) ──
+
+[<Fact>]
+let ``a damaged or deleted external file leaves the running library alone`` () =
+    withTempDir (fun () ->
+        do File.WriteAllText("project.manifest", Project.encode (library ()))
+        do ignore (Project.load ()) // establish the baseline
+
+        // a malformed write is reported and installs nothing, and the file is left alone
+        do File.WriteAllText("project.manifest", "not a project")
+        let before = Diagnostics.errorCount ()
+        Assert.True((Project.pollExternal 1.0).IsNone)
+        Assert.True(Diagnostics.errorCount () > before)
+        Assert.Equal("not a project", File.ReadAllText "project.manifest")
+
+        // a later valid write is still picked up (the retry self-heals)
+        do File.WriteAllText("project.manifest", Project.encode (setContents "Intro" None (library ())))
+        Assert.True((Project.pollExternal 1.0).IsSome)
+
+        // a deletion installs nothing
+        do File.Delete "project.manifest"
+        Assert.True((Project.pollExternal 1.0).IsNone))
+
+// ── the gate and the interval (spec 096 FR-001, FR-008, FR-011) ──
+
+[<Fact>]
+let ``the poll gate is pure, defaults to on, and the interval suppresses a second immediate read`` () =
+    withTempDir (fun () ->
+        Assert.True((EditorState.create ()).LiveReload)
+        Assert.True(Project.pollEnabled true true)
+        Assert.False(Project.pollEnabled true false)
+        Assert.False(Project.pollEnabled false true)
+        Assert.False(Project.pollEnabled false false)
+
+        do File.WriteAllText("project.manifest", Project.encode (library ()))
+        do ignore (Project.load ())
+        // read once to zero the interval accumulator
+        do File.WriteAllText("project.manifest", Project.encode (setContents "Intro" None (library ())))
+        do ignore (Project.pollExternal 1.0)
+
+        // a fresh external change, just below and then past the interval
+        do File.WriteAllText("project.manifest", Project.encode (library ()))
+        Assert.True((Project.pollExternal 0.1).IsNone)
+        Assert.True((Project.pollExternal 0.1).IsNone)
+        Assert.True((Project.pollExternal 0.1).IsSome))

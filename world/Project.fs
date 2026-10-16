@@ -245,45 +245,107 @@ let decode (text: string) : Registry =
 
 // ── the file read and write ──
 
-/// Read a project file. A missing file is the empty library — the expected first run, not an error (FR-008). A
-/// file that cannot be read or parsed, or whose version is not understood, is reported and yields the empty
-/// library, leaving the file untouched (FR-009).
-let loadFrom (path: string) : Registry =
-    if not (File.Exists path) then ScenarioRegistry.create () else
-    try
-        decode (File.ReadAllText path)
-    with ex ->
-        do Diagnostics.reportf "project: '%s' could not be read (%s); starting with an empty library" path ex.Message
-        ScenarioRegistry.create ()
+/// The file's text, or `None` when it is absent (the expected first run, not an error).
+let private readText (path: string) : string option =
+    if File.Exists path then Some (File.ReadAllText path) else None
 
-/// Write the library atomically: encode, write a temporary file, then rename it over the project file, so an
-/// interrupted write cannot corrupt the last good file (FR-006). A failure to encode or write is reported and
-/// the write skipped, leaving the last good file; the next change retries.
-let saveTo (path: string) (registry: Registry) : unit =
+/// Text back to a library, or the failure's message when it cannot be read. The caller decides the policy.
+let private tryDecode (text: string) : Result<Registry, string> =
+    try Ok (decode text) with ex -> Error ex.Message
+
+/// Write `text` atomically: a temporary file, then a rename over the target, so an interrupted write cannot
+/// corrupt the last good file (FR-006). Reports a failure, leaving the last good file; true when it wrote.
+let private writeAtomic (path: string) (text: string) : bool =
     let temporary = path + ".tmp"
     try
-        do File.WriteAllText(temporary, encode registry)
+        do File.WriteAllText(temporary, text)
         do File.Move(temporary, path, true)
+        true
     with ex ->
         do Diagnostics.reportf "project: '%s' could not be written (%s); keeping the previous file" path ex.Message
         if File.Exists temporary then
             try File.Delete temporary with _ -> ()
+        false
 
-// ── the store ──
+/// Decode with the **startup** policy: a good file's library, or a reported empty library for a damaged one (FR-009).
+let private decodeStartup (path: string) (text: string) : Registry =
+    match tryDecode text with
+    | Ok registry -> registry
+    | Error message ->
+        do Diagnostics.reportf "project: '%s' could not be read (%s); starting with an empty library" path message
+        ScenarioRegistry.create ()
+
+/// Read a project file. A missing file is the empty library — the expected first run, not an error (FR-008). A
+/// file that cannot be read or parsed, or whose version is not understood, is reported and yields the empty
+/// library, leaving the file untouched (FR-009).
+let loadFrom (path: string) : Registry =
+    match readText path with
+    | None -> ScenarioRegistry.create ()
+    | Some text -> decodeStartup path text
+
+/// Write the library atomically (FR-006). A failure is reported and the write skipped, leaving the last good file.
+let saveTo (path: string) (registry: Registry) : unit =
+    ignore (writeAtomic path (encode registry))
+
+// ── the store and the watch (spec 096) ──
 
 // The library as last written (or loaded): the reference the change comparison is against.
 let mutable private lastWritten : Registry = ScenarioRegistry.create ()
 
+// The file's text as last written or read: the reference an external change is compared against. It closes the
+// feedback loop — the game's own saves read back identical, so they are never reloaded (FR-002).
+let mutable private lastText : string = ""
+
+// The frame time banked toward the next poll, so the file is read once per interval, not once per frame.
+let mutable private accumulator : float = 0.0
+
+// The poll interval: at most one read of the file per this many seconds (FR-001).
+let private pollSeconds = 0.25
+
 /// Load the project file once, remembering it (FR-007).
 let load () : Registry =
-    let registry = loadFrom projectPath
+    let text = readText projectPath
+    let registry =
+        match text with
+        | None -> ScenarioRegistry.create ()
+        | Some text -> decodeStartup projectPath text
+    match text with Some text -> lastText <- text | None -> ()
     do lastWritten <- registry
     registry
 
-/// Write the project file **iff** `registry` is not the value last written (FR-005). The library is immutable,
-/// so every change — an add, clear, register or delete, and the undo or redo of any of them — yields a new
-/// instance, so the comparison is one reference check and an unchanged library writes nothing (FR-015).
+/// Write the project file **iff** `registry` is not the value last written (FR-005). The library is immutable, so
+/// every change — an add, clear, register or delete, and the undo or redo of any of them — yields a new instance,
+/// so the comparison is one reference check and an unchanged library writes nothing (FR-015). The file's text is
+/// remembered only when the write succeeded, so a failed write is never mistaken for the file's content (FR-006).
 let persist (registry: Registry) : unit =
     if obj.ReferenceEquals (registry, lastWritten) then () else
-    do saveTo projectPath registry
+    let text = encode registry
+    if writeAtomic projectPath text then do lastText <- text
     do lastWritten <- registry
+
+/// Whether the poll may run: only while the author is **editing**, and only when live reload is **on**. A pure
+/// predicate, so the gate the frame applies is itself testable (FR-008).
+let pollEnabled (editing: bool) (liveReload: bool) : bool = editing && liveReload
+
+/// Read the file at most once per interval; when an **external** change is found and decodes, return the reloaded
+/// library. `None` means nothing to do — not yet due, unchanged (the game's own write, or a no-op rewrite), absent,
+/// or undecodable; the last is reported and retried next interval, leaving the running library alone
+/// (FR-001–FR-005, FR-007).
+let pollExternal (dt: float) : Registry option =
+    accumulator <- accumulator + dt
+    if accumulator < pollSeconds then None else
+
+    do accumulator <- 0.0
+    match readText projectPath with
+    | None -> None
+    | Some text ->
+    if text = lastText then None else
+
+    match tryDecode text with
+    | Ok registry ->
+        do lastText <- text
+        do lastWritten <- registry
+        Some registry
+    | Error message ->
+        do Diagnostics.reportf "project: '%s' changed but could not be read (%s); keeping the running library" projectPath message
+        None

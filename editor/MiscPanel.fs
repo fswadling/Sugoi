@@ -15,4 +15,11 @@ let draw (state: byref<GameplayState.GameplayState>) : unit =
     // the fade while the panels stay readable above it.
     if ImGui.sliderFloat("Fade", &state.Fade, 0.0f, 1.0f, "%.2f", 0) then ()
 
+    // The project file's live reload (spec 096): when on, an external edit to `project.manifest` is picked up
+    // while editing (an agent's or the author's, without a restart). Transient editor state, not authored data,
+    // so the write is in place — no `Command`, no `Undo` step (the `Snap` pattern, not the `Fade` byref one).
+    let mutable live = state.Editor.LiveReload
+    if ImGui.checkbox("Live reload", &live) then
+        state.Editor <- { state.Editor with LiveReload = live }
+
     do ImGui.endWindow()

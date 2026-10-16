@@ -74,7 +74,9 @@ tuning** — values that belong to no zone and no selection, so they cannot live
 control is the screen **fade level**, a slider over 0..1 for the black overlay the gameplay screen draws
 over the rendered game view. Unlike the Cue and Advent panels it writes the value **in place**, not as a
 step on the history, because it is live screen state rather than an authored edit (the same class as the
-Cast binding and the collider overlay, D-022).
+Cast binding and the collider overlay, D-022). Its second control is the **Live reload** toggle (spec 096): with it
+on (the default), an external edit to `project.manifest` — by the author in a text editor, or by a coding agent — is
+picked up while editing, without a restart; it too writes transient editor state in place, not a step on the history.
 
 The **Dialogue** panel (spec 038) docks by exception as a tab beside the **Asset Browser** at the
 **bottom** rather than in the left column, because it is a line of text and wants the dock's width —
@@ -424,7 +426,7 @@ rest are in `editor/`.
 | `Inspector` | single editing surface for the selection (and the active zone's environment and lighting when nothing is selected) |
 | `Viewport` | 3D viewport + transform gizmo |
 | `AdventPanel` / `AssetBrowser` | docked list panels |
-| `MiscPanel` | the right-docked Miscellaneous panel: game-wide runtime tuning (the fade level is its first control) |
+| `MiscPanel` | the right-docked Miscellaneous panel: game-wide runtime tuning (the fade level and, since spec 096, the Live reload toggle) |
 | `CueEditor` / `CueTree` | the cue panel (right column, beside the Inspector) + the shared recursive cue-tree control |
 | `ScenarioPanel` | the scenario panel (add/delete · register / clear / fork) |
 | `Command` | undoable editor commands |

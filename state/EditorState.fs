@@ -58,6 +58,9 @@ type EditorState =
       PendingFocus : string option
       Tool : Tool
       Snap : bool
+      // Whether an external edit to the project file is picked up live while editing (spec 096). Transient editor
+      // state, like `Snap`: not persisted, and not a step on the undo history.
+      LiveReload : bool
       Drag : Drag option
       DockingInitialized : bool
       Undo : UndoStack
@@ -142,6 +145,7 @@ let create () : EditorState =
       PendingFocus = None
       Tool = Move
       Snap = false
+      LiveReload = true
       Drag = None
       DockingInitialized = false
       Undo = UndoStack.create ()

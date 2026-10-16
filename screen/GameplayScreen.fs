@@ -92,6 +92,16 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
     // only on an author action — an add, clear, register or delete, or the undo/redo of one.
     do Project.persist state.Scenarios
 
+    // Pick up an external edit to the project file (spec 096): only while editing, and only when live reload is
+    // on, and at most once per interval — so actual play performs no file I/O.
+    if Project.pollEnabled state.Editing state.Editor.LiveReload then
+        let reloaded = Project.pollExternal (float frame.Dt)
+        match reloaded with
+        | Some registry -> state.Scenarios <- registry
+        // `open Screen` brings `ScreenTransition.None` into scope, so the option's empty case is matched
+        // with a wildcard rather than the ambiguous `None`.
+        | _ -> ()
+
     transition
 
 // The prompt of the nearest interactable trigger the player is inside, or "" for nothing to show.

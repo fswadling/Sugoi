@@ -171,9 +171,12 @@ s-syntax file, `project.manifest`, at the launch working directory: `world/Proje
 tree mirroring the authored types and converts at that one boundary (Prime's symbolic converter, so no JSON — it
 maps records, unions, options, collections and `FDeque` directly, but `Vector3`/`Quaternion` and its own ordered
 map are flattened). Writes are atomic (`.tmp` + rename) and happen when the library changes, including the undo or
-redo of a change; the file is read once at startup. A missing file is not an error; a damaged one is reported and
-leaves an empty library. Runtime/player save state is out of scope, and only the scenario library is persisted —
-the cast and zone registry were retired (`specs/074`, `specs/079`).
+redo of a change; the file is read once at startup and, **while editing**, polled for an external change
+(`specs/096-external-reload`) — an edit made outside the game, by the author or an agent, is picked up within a
+fraction of a second, the game's own writes are recognised and never reloaded, and a damaged or deleted file leaves
+the running library alone (play itself does no file I/O). A missing file is not an error; a damaged one at startup is
+reported and leaves an empty library. Runtime/player save state is out of scope, and only the scenario library is
+persisted — the cast and zone registry were retired (`specs/074`, `specs/079`).
 
 ## Assets
 
