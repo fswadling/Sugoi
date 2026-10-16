@@ -14,10 +14,8 @@ module Dialogue
 /// than a hopeful one (FR-006). The reference's five.
 ///
 /// A union rather than a string so it is matched exhaustively and a misspelling is a
-/// compile error. It gains `[<SymbolicExpansion>]` when a cue or a scenario is first
-/// serialized (roadmap phase 15): the cue's `Exposit` op now authors an expression
-/// (spec 057), but nothing writes a cue to disk yet, so the attribute would still be a
-/// just-in-case.
+/// compile error. It needs no `[<SymbolicExpansion>]`: `PortraitDialogue` folds it in
+/// positionally, so Prime serializes a cue carrying one without the attribute (spec 095).
 type Emotion =
     | Neutral
     | Happy
