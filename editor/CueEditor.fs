@@ -51,7 +51,7 @@ let private assetNamesOfAsset (assets: Assets.AssetManager) (assetId: string) : 
 /// Apply an accepted edit to the screen's cue: the next cue written in place, and one `SetCue` step pushed onto
 /// the one history (spec 049). The control decides whether anything changed, so this always records a step — there
 /// is no second opinion here about whether an edit "counted". It takes only the state: routing through
-/// `History.commit` would make the panel take `SharedState`, which it does not need.
+/// `Undo.commit` would make the panel take `SharedState`, which it does not need.
 let commit (state: byref<GameplayState.GameplayState>) (next: Cue) : unit =
     let before = state.Cue
     state.Cue <- next

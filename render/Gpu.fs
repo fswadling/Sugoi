@@ -1,7 +1,7 @@
 module Gpu
 
 // SDL_gpu device/pass/buffer/pipeline wrappers for the phase-3 mesh path. The
-// device and swapchain are created in `Engine.fs`; this module owns the shared
+// device and swapchain are created in `Shell.fs`; this module owns the shared
 // mesh pipeline (depth-tested, position/normal/uv) and the depth texture that
 // the scene pass attaches.
 

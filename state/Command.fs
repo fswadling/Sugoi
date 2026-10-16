@@ -100,18 +100,18 @@ type Command =
     | SetCue of Previous : Cue.Cue * Next : Cue.Cue
     // The named adventure flags were edited (spec 055; a string set since spec 082). Like `SetCue`, it is not a
     // zone's — the set is project state on `SharedState` (`specs/055` FR-002) — so it is a state-level step carried
-    // by `History` and never by the zone-level runner. The payload is the two set values: the set is immutable, so a
+    // by `Undo` and never by the zone-level runner. The payload is the two set values: the set is immutable, so a
     // snapshot is the set itself, and a before/after pair makes undo total (an add and a remove are the same shape).
     | Advent of Previous : Advent.Set * Next : Advent.Set
     // The scenario library was edited (spec 070; string-keyed since spec 083): an add, delete, clear or register,
     // as a before/after pair of the whole library. Like `SetCue` and `Advent`, it is not a zone's — a scenario spans
-    // zones — so it is a state-level step carried by `History` and never by the zone-level runner. The library is a
+    // zones — so it is a state-level step carried by `Undo` and never by the zone-level runner. The library is a
     // persistent ordered map, so the pair is a reference snapshot, and one shape covers every kind of edit.
     | SetScenario of Previous : ScenarioRegistry.Registry * Next : ScenarioRegistry.Registry
     // The music mix was edited (spec 087): a weight, loop, master or row-set change, as a before/after pair
     // of the whole mix — the mix is immutable, so the pair is a reference snapshot. Like `SetCue`, `Advent`
     // and `SetScenario`, it is not a zone's (the mix is project-wide), so it is a state-level step carried by
-    // `History` and never by the zone-level runner.
+    // `Undo` and never by the zone-level runner.
     | SetMix of Previous : Music.Mix * Next : Music.Mix
 
 // ── the place a command acts on ──
@@ -198,7 +198,7 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
         zone.Skydome <- next
     | SetPlayer (_, _, next) ->
         zone.Player <- next
-    // A zone move is not an edit to one zone, so the zone-level runner cannot carry it out: `History.apply`
+    // A zone move is not an edit to one zone, so the zone-level runner cannot carry it out: `Undo.apply`
     // does, against the state (spec 048). The cue is the same kind of step (spec 049) — it is not a zone's
     // either. Reaching one of these here is a broken invariant, not a value to ignore.
     | ZoneMove _
@@ -310,9 +310,9 @@ module UndoStack =
         | None -> { Applied = cmd :: t.Applied; Redo = [] }
 
     // Stepping a stack against **one** zone. The editor does not use these: a step on the gameplay state's one
-    // history may be a zone move, an add or a delete, which only `History` can carry out (spec 048). These stay
+    // history may be a zone move, an add or a delete, which only `Undo` can carry out (spec 048). These stay
     // because they need no gameplay state at all, which is what the zone-level suite drives them with; a stack
-    // whose commands name different places must be stepped through `History` instead (spec 077).
+    // whose commands name different places must be stepped through `Undo` instead (spec 077).
     let undo (t: UndoStack) (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) : UndoStack =
         match t.Applied with
         | [] -> t

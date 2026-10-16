@@ -3,7 +3,7 @@ module Actor
 // Animation sampling + CPU skinning for IQM actors. The references delegate this
 // to raylib; this is the genuinely new F# work for phase 3. Pure data/math — no
 // GPU, no Zone dependency; the slot algebra and the blend operate on `core/SlotMap`,
-// which is neither. `world/ActorRender.fs` owns the upload/draw side.
+// which is neither. `world/render/ActorRender.fs` owns the upload/draw side.
 
 open System
 open System.Numerics

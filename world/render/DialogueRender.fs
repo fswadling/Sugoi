@@ -3,7 +3,7 @@ module DialogueRender
 // The dialogue view: it turns the screen's dialogue state into `Ui` draw calls. This is the
 // only module that knows the whole chain — a speaker string, her actor asset (by name, via the
 // asset manager), the asset's portraits, the font — and so the only place that maps an `Emotion`
-// to a portrait field (FR-005). Compiled after `world/Assets.fs` and `render/Ui.fs`.
+// to a portrait field (FR-005). Compiled after `world/assets/Assets.fs` and `render/Ui.fs`.
 //
 // The layout arithmetic here is pure (viewport + a measured content height → three rects),
 // so it is asserted headlessly (`test/DialogueTests.fs`); the measuring and the drawing need

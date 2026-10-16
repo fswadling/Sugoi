@@ -6,9 +6,9 @@ module ScenarioFork
 // the cue. It returns the commands that reverse the scene work, so the editor gets one undoable step and the cue op
 // a runtime effect with no history.
 //
-// Listed after `state/GameplayState.fs` and before `world/CueEngine.fs` — the project's deliberate ordering
-// inversion point — because it mutates the gameplay state (needs `GameplayState`, `Zone`) and both `CueEngine`
-// (the op) and `editor/ScenarioPanel.fs` (the control) call it.
+// Listed after `state/GameplayState.fs` and before `state/CueEngine.fs` because it mutates the gameplay
+// state (needs `GameplayState`, `Zone`) and both `CueEngine` (the op) and `editor/ScenarioPanel.fs`
+// (the control) call it.
 
 open Command
 open Entity

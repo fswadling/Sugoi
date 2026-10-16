@@ -57,6 +57,9 @@
          pipeline, one quad batch, and SDL_ttf text. Technology-only — it knows Gpu,
          Texture and the font, and nothing of characters or dialogue. -->
     <Compile Include="render/Ui.fs" />
+    <!-- The on-screen debug readout (spec 081): fps and the error tally over ImGui. Technology-only —
+         Diagnostics + ImGui — so it sits in `render/` beside `DebugDraw`, not with the screens. -->
+    <Compile Include="render/DebugOverlay.fs" />
     <!-- Audio (spec 086): device/CPU, no GPU. The model first (`Residency` names `SoundHandle`), then
          the mixer context; consumed by `world/`, so it sits below it (render -> audio -> world). -->
     <Compile Include="audio/AudioAsset.fs" />
@@ -76,34 +79,34 @@
     <Compile Include="world/Actor.fs" />
     <!-- Bone-chain sway (spec 091): a Verlet rope anchored to the animated pose, applied as per-joint
          rotations before the pose becomes the bone palette. Names `PoseFrame` and `ActorModel` (so it
-         sits after `world/Actor.fs`) and owns the resolved `SwayChainDef` that `world/ActorAsset.fs`
+         sits after `world/Actor.fs`) and owns the resolved `SwayChainDef` that `world/assets/ActorAsset.fs`
          carries (so it sits before it). Pure — no GPU, no screen, no zone. -->
     <Compile Include="world/Sway.fs" />
-    <Compile Include="world/ActorAsset.fs" />
-    <Compile Include="world/ActorRender.fs" />
-    <Compile Include="world/EnvironmentAsset.fs" />
-    <Compile Include="world/EnvironmentRender.fs" />
+    <Compile Include="world/assets/ActorAsset.fs" />
+    <Compile Include="world/render/ActorRender.fs" />
+    <Compile Include="world/assets/EnvironmentAsset.fs" />
+    <Compile Include="world/render/EnvironmentRender.fs" />
     <!-- The named adventure flags (spec 055; milestones are plain strings since spec 082), recorded in
          an immutable, ordered set — project state that belongs to no zone. Pure data — it names no zone,
          screen, asset or device — so it sits before the state that holds it. -->
     <Compile Include="world/Advent.fs" />
     <!-- The async load substrate (spec 053): the decoded payload, the bounded recency queue and the
          worker pool. CPU-only; depends on `Gltf` and `Texture`, and is depended on by `Assets`. -->
-    <Compile Include="world/AssetLoad.fs" />
-    <Compile Include="world/Assets.fs" />
+    <Compile Include="world/assets/AssetLoad.fs" />
+    <Compile Include="world/assets/Assets.fs" />
     <!-- The dialogue view (spec 074): it resolves a speaker name to an actor asset (by name, through the
          asset manager's index) and draws that asset's declared portrait. Needs Assets, Ui and Dialogue,
          so it sits after them. -->
-    <Compile Include="world/DialogueRender.fs" />
+    <Compile Include="world/render/DialogueRender.fs" />
     <!-- The interact prompt's view (spec 039): the 2D layer's second consumer. Needs only `Ui`,
          so it sits beside the dialogue view. -->
-    <Compile Include="world/PromptRender.fs" />
+    <Compile Include="world/render/PromptRender.fs" />
     <!-- The cue — and therefore the run (spec 046): one type, the vocabulary and its execution
          state, shrinking to `Fin`. Needs `Prime`, `System.Numerics`, `Dialogue` and `SlotMap` only, and names no
          zone, screen, asset or device. Listed before `Entity.fs`, which names it (a trigger owns a cue, spec 058). -->
     <Compile Include="world/Cue.fs" />
     <Compile Include="world/Entity.fs" />
-    <Compile Include="world/EnvironmentBatch.fs" />
+    <Compile Include="world/render/EnvironmentBatch.fs" />
     <!-- The record of a registered zone (spec 034): listed before `Zone.fs`, because the loader there
          takes one as its argument. -->
     <Compile Include="world/ZoneTemplate.fs" />
@@ -124,21 +127,21 @@
     <Compile Include="state/Command.fs" />
     <Compile Include="state/EditorState.fs" />
     <Compile Include="state/GameplayState.fs" />
+    <!-- The one undo history (spec 048). Listed right after the gameplay state: a zone step adds,
+         removes and switches a zone, so the runners need `GameplayState` — and nothing below it.
+         The `Command` type stays above the state; only the runners live here. -->
+    <Compile Include="state/Undo.fs" />
     <!-- The scenario fork (spec 078): the one materialiser both entry points call — a cue's `ForkScenario` op and
          the Scenario panel's Fork control. It appends a registered scenario's entities into the live scene
          (creating absent places first) and returns the commands that reverse it, so the editor gets one undoable
-         step and the cue op a runtime effect with no history. Listed after `state/GameplayState.fs` (it mutates
-         that state) and before `world/CueEngine.fs` (which calls it). -->
-    <Compile Include="world/ScenarioFork.fs" />
-    <!-- The cue engine (spec 046). Listed AFTER the gameplay state — a deliberate inversion, the
-         only `world/` file below `state/` — because the ops perform their effects on that state
-         where the walk reaches them: a zone switch, an exposition, a camera flight (research D3).
-         It must precede `screen/GameplayScreen.fs`, which ticks it. -->
-    <Compile Include="world/CueEngine.fs" />
-    <!-- The one undo history (spec 048). Listed AFTER the gameplay state — the same deliberate inversion
-         the cue engine follows, and the project's second — because a zone step adds, removes and switches a
-         zone. The `Command` type stays above the state; only the runners move here. -->
-    <Compile Include="state/History.fs" />
+         step and the cue op a runtime effect with no history. It lives in `state/` because it mutates the
+         gameplay state; listed before `state/CueEngine.fs` (which calls it). -->
+    <Compile Include="state/ScenarioFork.fs" />
+    <!-- The cue engine (spec 046). The ops perform their effects on the gameplay state where the walk reaches
+         them: a zone switch, an exposition, a camera flight (research D3) — so it lives in `state/`, the one
+         cluster the effects all name, after `state/ScenarioFork.fs` (which it calls). It must precede
+         `screen/GameplayScreen.fs`, which ticks it. -->
+    <Compile Include="state/CueEngine.fs" />
     <Compile Include="editor/Spawning.fs" />
     <Compile Include="editor/Selection.fs" />
     <!-- The cue control and the editor that draws it (spec 047). Listed here, after `Selection` (the inline
@@ -176,8 +179,7 @@
     <Compile Include="screen/MainMenuScreen.fs" />
     <Compile Include="screen/GameplayScreen.fs" />
     <Compile Include="screen/ScreenManager.fs" />
-    <Compile Include="screen/DebugOverlay.fs" />
-    <Compile Include="Engine.fs" />
+    <Compile Include="Shell.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

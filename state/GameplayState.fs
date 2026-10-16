@@ -96,7 +96,7 @@ let activeZone (state: GameplayState) : Zone.Zone =
 // ── The runtime cast (spec 072, spec 075) ──
 
 // Resolution is per zone now: a cue op names its place and resolves the actor there with `Zone.tryActorByName`
-// (`world/CueEngine.fs`). There is no scan of the present places, so no resolver lives here.
+// (`state/CueEngine.fs`). There is no scan of the present places, so no resolver lives here.
 
 // After `ActiveZone` has changed: drop the (zone-scoped) selection/drag/nudge and re-frame the camera on the
 // incoming zone. The undo history is **not** touched: it is one timeline for the whole gameplay state, and the

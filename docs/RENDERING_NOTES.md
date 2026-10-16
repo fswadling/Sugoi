@@ -125,7 +125,7 @@ A vertex-stage read-only storage buffer bound via
 - The fix for anything larger than 4 KiB is a **storage buffer**
   (`SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ` + per-frame transfer-buffer
   upload + `SDL_BindGPUVertexStorageBuffers`), which is what
-  `world/ActorRender.fs` does for the bone palette.
+  `world/render/ActorRender.fs` does for the bone palette.
 - Uniform slots are also scarce: `MAX_UNIFORM_BUFFERS_PER_STAGE = 4` per stage,
   so splitting a big array across slots caps out quickly.
 
@@ -180,7 +180,7 @@ The grid was hidden in play mode because two places tied it to `Editing`:
 
 - `screen/GameplayScreen.fs` cleared the `DebugDraw` accumulator when
   `Editing = false`.
-- `Engine.fs` gated `drawGrid` on `manager.Gameplay.Editing`.
+- `Shell.fs` gated `drawGrid` on `manager.Gameplay.Editing`.
 
 The scene (grid) belongs to the Gameplay screen, not to the editor, so it
 should draw whenever the active screen is `Gameplay`. The editor only controls
@@ -198,7 +198,7 @@ Line vertices are 7 floats each — `position.xyz` (offset 0, `Float3`) +
 
 ## 11. Per-phase frame timing
 
-The frame loop (`Engine.fs`) times each phase every frame and prints the averages
+The frame loop (`Shell.fs`) times each phase every frame and prints the averages
 once a second alongside the frame time:
 
 ```
@@ -261,7 +261,7 @@ engine**.
   is taller than the viewport — is simply left undrawn: `draw` returns without emitting anything and
   keeps no mutable state of its own. Explaining *why* is the editor's job, not the render layer's (the
   Dialogue panel asks `DialogueRender.missReason`), so nothing is logged per frame from the draw path.
-- **Its second consumer is the interact prompt (spec 039).** `world/PromptRender.fs` draws a trigger's
+- **Its second consumer is the interact prompt (spec 039).** `world/render/PromptRender.fs` draws a trigger's
   prompt as one centred line near the bottom of the screen while the player is inside it, with a
   shadow under the text for contrast. It measures through the third text slot, and the shadow and the
   text share the atlas texture and sampler, so the pair is a single draw run. A dialogue line takes the
@@ -361,7 +361,7 @@ unchanged.
 
 ## Known follow-ups
 
-- Two benign build warnings in `Engine.fs` (`FS0009`/`FS0051`) from the
+- Two benign build warnings in `Shell.fs` (`FS0009`/`FS0051`) from the
   `NativePtr.toNativeInt (&&ev)` event dispatch; they can be silenced with
   `#nowarn` if desired.
 - The frame loop still uses both `mailbox` present mode and a software 60 fps

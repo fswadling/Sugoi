@@ -1,4 +1,4 @@
-module Engine
+module Shell
 
 // App shell: initialise SDL3 + ImGui, run the frame loop through the screen
 // manager, and tear everything down on exit.

@@ -13,7 +13,7 @@ module Sway
 // is the one the joint drives, so a chain's reconstructed positions equal the simulated ones.
 //
 // Pure of GPU, screen and zone: it takes a model, a pose and an actor's world transform, and rewrites
-// the pose's rotations. `world/ActorRender.fs` owns the per-instance plumbing.
+// the pose's rotations. `world/render/ActorRender.fs` owns the per-instance plumbing.
 
 open System
 open System.Numerics

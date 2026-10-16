@@ -20,7 +20,7 @@ them up front. Zone *state* (actors, props, waypoints, triggers, the environment
 part list, collision geometry) is cheap and should stay resident. The zone's
 **environment asset GPU data is not**: it is the memory that blows.
 
-Today `Assets.scan` (`world/Assets.fs:277`) eagerly parses **and uploads every**
+Today `Assets.scan` (`world/assets/Assets.fs:777`) eagerly parses **and uploads every**
 environment and prop asset at startup (`loadStaticModel`, `Assets.fs:234-273`).
 As the asset set grows, startup and VRAM grow with it — with no upper bound.
 
@@ -46,7 +46,7 @@ The project's asset sizes are not uniform, which drives the capacity decision be
 
 - **Zone instantiation stays as it is.** `Zone.create`, `Zone.loadEnvironment`,
   `occupyZone`, and every entity/body/part is built from CPU data and is unaffected.
-  The per-instance renderer (`EnvironmentRender`, `world/EnvironmentRender.fs:24`)
+  The per-instance renderer (`EnvironmentRender`, `world/render/EnvironmentRender.fs:24`)
   already holds only a reference to the shared asset plus a submesh range — it copies
   no GPU data, so an evicted-then-reloaded asset is seen through the same reference.
 - **Zone activation ensures GPU residency.** The active zone's environment asset is
@@ -115,7 +115,7 @@ Lru.remove : Lru -> string -> unit
 Lru.tail   : Lru -> string option     // LRU victim
 ```
 
-Insert it after `core/SlotMap.fs` in `fsharp-game.fsproj` (before `world/Assets.fs`).
+Insert it after `core/SlotMap.fs` in `fsharp-game.fsproj` (before `world/assets/Assets.fs`).
 
 ### Capacity: a byte budget only
 
@@ -143,7 +143,7 @@ Cheap and exact enough to budget with. Eviction runs `while bytes > budget` over
 
 ### 1. `core/Lru.fs` (new) — the structure above.
 
-### 2. `world/EnvironmentAsset.fs` — a mutable GPU side, immutable CPU side
+### 2. `world/assets/EnvironmentAsset.fs` — a mutable GPU side, immutable CPU side
 
 `EnvironmentAsset` keeps its immutable authored/CPU fields. GPU residency becomes
 mutable and explicitly flagged (odin's `model` + `model_loaded`):
@@ -171,7 +171,7 @@ Retaining `Gltf.Model` (or at least its materials/`TextureRef`s) is new: the cur
 texture URIs. Keeping the parsed model also makes the CPU data available before the
 first GPU load.
 
-### 3. `world/Assets.fs` — split parse from upload, own textures per asset
+### 3. `world/assets/Assets.fs` — split parse from upload, own textures per asset
 
 - **Scan (`scan`, `Assets.fs:277`)** parses glTF into CPU `EnvironmentAsset`s
   (`Gltf.load`, `Parts`, `Bounds`, material factors) and **does not upload**. Startup
@@ -196,7 +196,7 @@ first GPU load.
   props + textures. Guard `releaseAsset` on `GpuLoaded` so a double-release can't free
   an already-freed handle.
 
-### 4. `world/Assets.fs` — the cache and the two calls
+### 4. `world/assets/Assets.fs` — the cache and the two calls
 
 ```fsharp
 // Assets.ensureEnvironmentResident: make the asset's GPU data resident, evicting LRU
@@ -238,7 +238,7 @@ Two call sites, both already for the **active** zone:
 Why dropping odin's per-frame touch is safe here: eviction only ever happens inside
 `ensureResident` — i.e. while loading — and every load is for the **active** zone
 (switching activates the incoming zone; environment instantiation happens on the
-active zone, via the Asset Browser, the registry, and `History.undo`). The asset just
+active zone, via the Asset Browser, the registry, and `Undo.undo`). The asset just
 loaded is therefore always the LRU head at the moment eviction runs, so it can never
 be its own victim.
 
@@ -246,9 +246,9 @@ That invariant is the one to preserve: if a future feature ever loads a *non-act
 zone's environment, either touch the active zone's asset after that load, or exempt
 it from eviction.
 
-### 6. `Engine.fs` — release on shutdown
+### 6. `Shell.fs` — release on shutdown
 
-`Engine.fs:260-262` already releases every zone; ensure the LRU is torn down too
+`Shell.fs:274` already releases every zone; ensure the LRU is torn down too
 (release any still-resident assets, then the cache) before `Gpu.destroy`.
 
 ### 7. Defensive asserts
@@ -298,7 +298,7 @@ path that forgets the ensure should fail at once, not read a freed handle.
 - Set `ENVIRONMENT_GPU_BUDGET_BYTES` low (e.g. one asset) and alternate between two
   zones in the editor: each return reloads, renders correctly, and never double-frees.
 - Confirm startup no longer uploads env textures (add a `printfn` around `uploadAsset`
-  temporarily, or rely on the existing per-phase timing in `Engine.fs`).
+  temporarily, or rely on the existing per-phase timing in `Shell.fs`).
 - Confirm physics/picking inside an environment still work immediately after a
   switch — they read CPU data, so they must be unaffected by an eviction.
 - Confirm shutdown after heavy zone-hopping leaks nothing (no SDL handle warning;
@@ -331,7 +331,7 @@ Shipped as designed, with these concrete choices:
 - **Refcounted texture cache** on the (lazily created) `Loader`; a load acquires and an eviction
   releases, freeing at zero.
 - **Load hooks**: `Zone.setEnvironment` (covers the asset browser's `SetEnvironment` command and
-  `History.undo`'s `occupyZone`), `Zone.loadEnvironment`/`loadEnvironmentFrom` (load before the
+  `Undo.undo`'s `occupyZone`), `Zone.loadEnvironment`/`loadEnvironmentFrom` (load before the
   parts read), and `GameplayState.swapZone` (activation). All load before mutating, so a failed
   load cancels the action.
 - **Eviction** exempts a `protectedIds` list (the asset being loaded, which is the environment

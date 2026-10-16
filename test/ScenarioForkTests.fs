@@ -243,11 +243,11 @@ let ``the editor fork is one step, and undo and redo round-trip it`` () =
     Assert.Equal(actorsBefore + 1u, start.Actors.Count)
     Assert.Equal(Cue.forkInto scenarioCue cueBefore, state.Cue) // the screen cue became the fork
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(actorsBefore, start.Actors.Count)
     Assert.Equal(cueBefore, state.Cue)
 
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.Equal(actorsBefore + 1u, start.Actors.Count)
     Assert.Equal(Cue.forkInto scenarioCue cueBefore, state.Cue)
 
@@ -264,7 +264,7 @@ let ``undoing a fork removes the places it created and leaves active place and s
     Assert.True(state.Zones.ContainsKey "Island")
     Assert.Equal(cue, state.Cue) // a `Fin` scenario cue leaves the running cue untouched
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.False(state.Zones.ContainsKey "Island")
     Assert.Equal(active, state.ActiveZone)
     Assert.Equal(selection, state.Editor.Selection)
@@ -289,13 +289,13 @@ let ``ZonePresent makes a zone present from its staging, and undo removes it`` (
     let shared = sharedState ()
     let mutable state = newState ()
 
-    do History.apply shared &state (ZonePresent ("Island", ZoneTemplate.ofTemplate (template ())))
+    do Undo.apply shared &state (ZonePresent ("Island", ZoneTemplate.ofTemplate (template ())))
     Assert.True(state.Zones.ContainsKey "Island")
     Assert.True(state.Zones.["Island"].Environment.IsSome) // its staging's environment streamed in
     Assert.Equal(light, state.Zones.["Island"].Light) // and its light
     Assert.NotEqual<string>("Island", state.ActiveZone) // presence, not entry
 
-    do History.undo shared &state (ZonePresent ("Island", ZoneTemplate.ofTemplate (template ())))
+    do Undo.undo shared &state (ZonePresent ("Island", ZoneTemplate.ofTemplate (template ())))
     Assert.False(state.Zones.ContainsKey "Island")
 
 [<Fact>]
@@ -313,7 +313,7 @@ let ``pruneCueSteps drops a fork's cue step but keeps its entity commands`` () =
     do register shared &state (contents [ "Island", fullZone () ] (Cue.Print "scenario"))
 
     do ScenarioPanel.fork shared &state "Intro"
-    do History.pruneCueSteps &state
+    do Undo.pruneCueSteps &state
 
     match state.Editor.Undo.Applied with
     | Batch kept :: _ ->
@@ -467,10 +467,10 @@ let ``the editor fork's one step round-trips a restage`` () =
     do ScenarioPanel.fork shared &state "Intro"
     Assert.Equal(light, start.Light) // restaged to the scenario's
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(lightBefore, start.Light) // one step restores the previous staging
 
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.Equal(light, start.Light)
 
 [<Fact>]
@@ -482,7 +482,7 @@ let ``ZoneStage apply and undo round-trip a restage, detaching an inactive zone'
     do GameplayState.switchZone shared &state GameplayState.startZone // Hall is now inactive
 
     let previous = ScenarioZone.captureStaging state.Zones.["Hall"]
-    do History.apply shared &state (ZoneStage ("Hall", previous, ZoneTemplate.ofTemplate (template ())))
+    do Undo.apply shared &state (ZoneStage ("Hall", previous, ZoneTemplate.ofTemplate (template ())))
 
     let hall = state.Zones.["Hall"]
     Assert.Equal(light, hall.Light)
@@ -494,7 +494,7 @@ let ``ZoneStage apply and undo round-trip a restage, detaching an inactive zone'
         | None -> Assert.Fail "expected a body"
     | None -> Assert.Fail "expected the actor"
 
-    do History.undo shared &state (ZoneStage ("Hall", previous, ZoneTemplate.ofTemplate (template ())))
+    do Undo.undo shared &state (ZoneStage ("Hall", previous, ZoneTemplate.ofTemplate (template ())))
     Assert.Equal(Texture.defaultLight, hall.Light)
 
 [<Fact>]

@@ -78,10 +78,10 @@ let ``setSkydome records one step and undo and redo round-trip the sky`` () =
     Assert.Equal(Vector3(0.2f, 0.4f, 0.6f), zone.Skydome.Horizon)
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(before, zone.Skydome)
 
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.True(zone.Skydome.Enabled)
 
 [<Fact>]

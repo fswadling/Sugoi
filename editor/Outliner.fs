@@ -58,12 +58,12 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             // click that *changes* the zone is a step on the one history (spec 048).
             if ImGui.button(sprintf "%s%s%s##zone_%s" marker residency name name, ImGui.ImVec2(0.0f, 0.0f)) then
                 if name = state.ActiveZone then GameplayState.selectZone shared &state name
-                else History.commit shared &state (ZoneMove (state.ActiveZone, name))
+                else Undo.commit shared &state (ZoneMove (state.ActiveZone, name))
             do ImGui.sameLine(0.0f, -1.0f)
             // The active zone cannot be made absent, so the control is refused rather than hidden.
             do ImGui.beginDisabled(name = state.ActiveZone)
             if ImGui.smallButton(sprintf "Del##delzone_%s" name) then
-                History.commit shared &state (ZoneDelete (state.ActiveZone, name, Zone.captureZone zone))
+                Undo.commit shared &state (ZoneDelete (state.ActiveZone, name, Zone.captureZone zone))
             do ImGui.endDisabled()
 
         do ImGui.text("")
@@ -75,7 +75,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         let canAdd = newName <> "" && not (state.Zones.ContainsKey newName)
         do ImGui.beginDisabled(not canAdd)
         if ImGui.smallButton("Add##addzone_btn") && canAdd then
-            History.commit shared &state (ZoneAdd (state.ActiveZone, newName))
+            Undo.commit shared &state (ZoneAdd (state.ActiveZone, newName))
         do ImGui.endDisabled()
         do ImGui.text("")
 

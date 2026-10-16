@@ -10,7 +10,7 @@ module ScenarioPanel
 // exactly (ordinal). Register **captures** rather than edits: it copies every present zone and the screen's cue into
 // the library. Each add, delete, clear and register is one step on the one undo history (`docs/EDITOR_DESIGN.md`,
 // D-011) — the library is not a zone's, so `Command.SetScenario` carries it before and after the edit and
-// `state/History.fs` writes `GameplayState.Scenarios`. The panel keeps no history of its own; `Ctrl+Z` reaches the
+// `state/Undo.fs` writes `GameplayState.Scenarios`. The panel keeps no history of its own; `Ctrl+Z` reaches the
 // step (the same class as the Advent panel).
 
 open Command
@@ -23,7 +23,7 @@ open ScenarioRegistry
 /// drivable headlessly.
 let commit (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (next: Registry) : unit =
     let before = state.Scenarios
-    do History.commit shared &state (SetScenario (before, next))
+    do Undo.commit shared &state (SetScenario (before, next))
 
 /// Fork a registered scenario into the scene as **one** step on the one history (spec 078): the commands that
 /// reverse the materialised entities, plus — when the scenario's cue is not `Fin` — the cue forked into the

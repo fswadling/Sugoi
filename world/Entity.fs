@@ -155,7 +155,7 @@ type Actor =
       mutable Physics : PhysicsAttachment<CapsuleCollider> option
       mutable Renderer : ActorRender.ActorRender }
 
-module Actor =
+module ActorEntity =
     // Release an actor's renderer GPU buffers.
     let releaseRenderer (a: Actor) : unit = ActorRender.release a.Renderer
 

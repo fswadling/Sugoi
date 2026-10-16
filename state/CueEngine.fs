@@ -5,11 +5,11 @@ module CueEngine
 // `forkInto`, which runs an arriving cue beside the running one, lives beside the type in `world/Cue.fs` so the
 // trigger system — compiled before this engine — can fork without waiting for it (spec 058).
 //
-// Compiled *after* `state/GameplayState.fs` — the project's one deliberate ordering inversion — because
-// each op performs its effect on the gameplay state where the walk reaches it: an `Exposit` writes the
-// screen's dialogue, a `SetZone` reuses `GameplayState.switchZone` (which is why the walk carries
-// `shared` for the switch's asset request), the camera ops write the camera from a named waypoint, and the advent ops
-// read and write `SharedState.Advents` (research D3).
+// Lives in `state/`, compiled after `state/GameplayState.fs`, because each op performs its effect on the
+// gameplay state where the walk reaches it: an `Exposit` writes the screen's dialogue, a `SetZone` reuses
+// `GameplayState.switchZone` (which is why the walk carries `shared` for the switch's asset request), the
+// camera ops write the camera from a named waypoint, and the advent ops read and write `SharedState.Advents`
+// (research D3).
 
 open System.Numerics
 open Prime

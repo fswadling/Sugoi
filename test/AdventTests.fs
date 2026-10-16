@@ -105,7 +105,7 @@ let ``a flag survives a zone switch`` () =
     let mutable state = newState ()
     do AdventPanel.commit shared &state (Advent.add "TheOpeningIsOver" shared.Advents)
 
-    do History.commit shared &state (Command.ZoneAdd (GameplayState.startZone, "Island"))
+    do Undo.commit shared &state (Command.ZoneAdd (GameplayState.startZone, "Island"))
     Assert.Equal("Island", state.ActiveZone)
     Assert.Equal<string list>([ "TheOpeningIsOver" ], Advent.names shared.Advents)
 
@@ -116,12 +116,12 @@ let ``undo restores the prior set and redo re-applies the edit`` () =
     do AdventPanel.commit shared &state (Advent.add "TheOpeningIsOver" shared.Advents)
     Assert.Equal<string list>([ "TheOpeningIsOver" ], Advent.names shared.Advents)
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal<string list>([], Advent.names shared.Advents)
     Assert.Equal(0, List.length state.Editor.Undo.Applied)
     Assert.Equal(1, List.length state.Editor.Undo.Redo)
 
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.Equal<string list>([ "TheOpeningIsOver" ], Advent.names shared.Advents)
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
     Assert.Equal(0, List.length state.Editor.Undo.Redo)
@@ -134,10 +134,10 @@ let ``undo and redo restore the authored order`` () =
     do AdventPanel.commit shared &state (Advent.ofList [ "B"; "A" ])
     Assert.Equal<string list>([ "B"; "A" ], Advent.names shared.Advents)
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal<string list>([], Advent.names shared.Advents)
 
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.Equal<string list>([ "B"; "A" ], Advent.names shared.Advents)
 
 [<Fact>]
@@ -145,16 +145,16 @@ let ``a flag edit before a zone move is reached only after the move is undone`` 
     let shared = sharedState ()
     let mutable state = newState ()
     do AdventPanel.commit shared &state (Advent.add "TheOpeningIsOver" shared.Advents)
-    do History.commit shared &state (Command.ZoneAdd (GameplayState.startZone, "Island"))
+    do Undo.commit shared &state (Command.ZoneAdd (GameplayState.startZone, "Island"))
 
     // The move reverses first, carrying the view back to main — and leaving the flag set, because a
     // move's undo touches no flag.
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(GameplayState.startZone, state.ActiveZone)
     Assert.Equal<string list>([ "TheOpeningIsOver" ], Advent.names shared.Advents)
 
     // ...then the flag edit itself.
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal<string list>([], Advent.names shared.Advents)
 
 [<Fact>]

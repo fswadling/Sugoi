@@ -69,7 +69,7 @@ a trigger fires into.
 `FDeque` is Prime's double-ended queue — the structure `My Game 3` used — and its operation set is the four
 above plus the mirror image: `cons`/`head`/`tail` at the front, `conj`/`last`/`initial` at the back, with
 `append`, `ofCatLists`, `rev` (O(1)) and `Cons`/`Nil` active patterns. Prime is **already a live dependency** of
-this project (`world/Assets.fs`, `world/ActorAsset.fs`, `test/DialogueTests.fs` all `open Prime`) and targets
+this project (`world/assets/Assets.fs`, `world/assets/ActorAsset.fs`, `test/DialogueTests.fs` all `open Prime`) and targets
 netstandard2.1, so this adds no package.
 
 What it does not have is indexed access — no `item`, `insertAt`, `removeAt`. The editor therefore reads children

@@ -80,7 +80,7 @@ let private worldPosition (pose: PoseFrame) (world: Matrix4x4) (joint: int) : Ve
 let private angleBetween (a: Vector3) (b: Vector3) : float32 =
     MathF.Acos(Math.Clamp(Vector3.Dot(Vector3.Normalize a, Vector3.Normalize b), -1.0f, 1.0f))
 
-// The manifest field, as `world/Assets.fs` declares it — so the authored form is pinned here and not
+// The manifest field, as `world/assets/Assets.fs` declares it — so the authored form is pinned here and not
 // only in the one hand-written manifest.
 [<SymbolicExpansion>]
 type private SwayManifest =

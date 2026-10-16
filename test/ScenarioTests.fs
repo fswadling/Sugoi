@@ -216,11 +216,11 @@ let ``register records one step, and undo and redo round-trip it`` () =
     do register shared &state
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.True((tryContents "Intro" state.Scenarios).IsNone)
     Assert.Equal(0, List.length state.Editor.Undo.Applied)
 
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.True((tryContents "Intro" state.Scenarios).IsSome)
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
 
@@ -234,9 +234,9 @@ let ``an add and a delete are each one step`` () =
     do ScenarioPanel.commit shared &state (remove "Intro" state.Scenarios)
     Assert.Equal(2, List.length state.Editor.Undo.Applied)
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal<string list>([ "Intro" ], names state.Scenarios)
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Empty(names state.Scenarios)
 
 [<Fact>]
@@ -255,7 +255,7 @@ let ``undo of a re-registration restores the previous contents, not nothing`` ()
     do register shared &state
     Assert.Equal(1, capturedWaypoints state)
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(0, capturedWaypoints state) // the earlier registration, not an empty slot
 
 [<Fact>]
@@ -268,7 +268,7 @@ let ``undo of a clear restores the contents it held`` () =
     do ScenarioPanel.commit shared &state (setContents "Intro" None state.Scenarios)
     Assert.True((tryContents "Intro" state.Scenarios).IsNone)
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(filed, tryContents "Intro" state.Scenarios)
 
 [<Fact>]
@@ -283,7 +283,7 @@ let ``registering disturbs nothing in the scene`` () =
     let selection = state.Editor.Selection
 
     do register shared &state
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
 
     Assert.Equal(zones, state.Zones.Count)
     Assert.Equal(active, state.ActiveZone)

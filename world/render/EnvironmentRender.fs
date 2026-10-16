@@ -4,7 +4,7 @@ module EnvironmentRender
 // is the per-instance state owned inline by an environment part or prop entity; the
 // shared per-asset data lives on `EnvironmentAsset.EnvironmentAsset`. It records
 // which contiguous range of the asset's static submeshes this instance uses and its
-// orientation; `world/EnvironmentBatch.fs` reads these fields to batch one instanced
+// orientation; `world/render/EnvironmentBatch.fs` reads these fields to batch one instanced
 // draw per distinct submesh.
 
 open System.Numerics

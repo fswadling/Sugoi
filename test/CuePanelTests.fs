@@ -6,7 +6,7 @@ module CuePanelTests
 // *shows* can be asserted at all.
 //
 // The panel's write path and the cue's edits on the one undo history (spec 049) are asserted here too: an
-// accepted edit is one `SetCue` step on `state.Editor.Undo`, and `History`'s steppers take it back and re-apply
+// accepted edit is one `SetCue` step on `state.Editor.Undo`, and `Undo`'s steppers take it back and re-apply
 // it beside a scene step.
 //
 // Nothing compares two `Cue` values: a cue holds an `FDeque` and the engine deliberately answers "same value"
@@ -501,12 +501,12 @@ let ``one accepted edit is one step, and the steppers walk it`` () =
         Assert.Equal("Seq[Wait 2, Exposit(b), Wait 3]", describe next)
     | other -> Assert.Fail(sprintf "expected one SetCue step, got %A" other)
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(before, describe state.Cue)
     Assert.Equal(0, List.length state.Editor.Undo.Applied)
     Assert.Equal(1, List.length state.Editor.Undo.Redo)
 
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.Equal("Seq[Wait 2, Exposit(b), Wait 3]", describe state.Cue)
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
     Assert.Equal(0, List.length state.Editor.Undo.Redo)
@@ -521,9 +521,9 @@ let ``retuning a fade's duration is one step the steppers walk`` () =
     do CueEditor.commit &state (withAt [] (FadeOut 3.0) state.Cue)
     Assert.Equal("FadeOut 3", describe state.Cue)
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(before, describe state.Cue)
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.Equal("FadeOut 3", describe state.Cue)
 
 [<Fact>]
@@ -543,20 +543,20 @@ let ``a cue edit and a scene edit are undone in the reverse of the order they we
     let ref' = actorRef handle.Index handle.Generation
     let before = transformIdentity
     let after = { transformIdentity with Position = Vector3.One }
-    do History.commit shared &state (Command.Transform (state.ActiveZone, ref', before, after))
+    do Undo.commit shared &state (Command.Transform (state.ActiveZone, ref', before, after))
     Assert.Equal(after, (zone.Actors.Get handle).State.Base.Transform)
 
     // Undo twice: the transform first, the cue second.
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(before, (zone.Actors.Get handle).State.Base.Transform)
     Assert.Equal("Seq[Exposit(b), Wait 1]", describe state.Cue) // the transform's undo leaves the cue alone
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(cueBefore, describe state.Cue)
 
     // Redo twice: both re-applied in the order they were made.
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.Equal("Seq[Exposit(b), Wait 1]", describe state.Cue)
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.Equal(after, (zone.Actors.Get handle).State.Base.Transform)
 
 [<Fact>]
@@ -571,7 +571,7 @@ let ``a cue step changes the cue and nothing else`` () =
     let cameraBefore = state.Camera
     state.Editor <- { state.Editor with CueSelection = Some [ 0 ] }
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(zoneBefore, state.ActiveZone)
     Assert.Equal(cameraBefore, state.Camera)
     Assert.Equal<int list option>(Some [ 0 ], state.Editor.CueSelection)
@@ -588,10 +588,10 @@ let ``undo through the whole history returns the cue to where it started`` () =
     do CueEditor.commit &state (seqOf [ Wait 1.0; Exposit("a", Dialogue.Kind.Dialogue) ])
     let zone = GameplayState.activeZone state
     let handle = zone.Actors.Add(placedActor "player")
-    do History.commit shared &state (Command.Transform (state.ActiveZone, actorRef handle.Index handle.Generation, transformIdentity, { transformIdentity with Position = Vector3.One }))
+    do Undo.commit shared &state (Command.Transform (state.ActiveZone, actorRef handle.Index handle.Generation, transformIdentity, { transformIdentity with Position = Vector3.One }))
 
     while not (List.isEmpty state.Editor.Undo.Applied) do
-        do History.undoHistory shared &state
+        do Undo.undoHistory shared &state
 
     Assert.Equal(cueAtStart, describe state.Cue)
     Assert.Equal(zoneAtStart, state.ActiveZone)
@@ -608,9 +608,9 @@ let ``an undo with nothing applied is a no-op`` () =
     state.Cue <- seqOf [ Wait 1.0 ]
     let before = describe state.Cue
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(before, describe state.Cue)
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     Assert.Equal(before, describe state.Cue)
 
 [<Fact>]
@@ -625,24 +625,24 @@ let ``a cue edit made before a zone move is still reachable after it`` () =
 
     do CueEditor.commit &state (withAt [ 0 ] (Exposit("b", Dialogue.Kind.Dialogue)) state.Cue) // cue edit A, in main
     let afterA = describe state.Cue
-    do History.commit shared &state (ZoneAdd (GameplayState.startZone, "Island")) // a real move: the art room → the island
+    do Undo.commit shared &state (ZoneAdd (GameplayState.startZone, "Island")) // a real move: the art room → the island
     Assert.Equal("Island", state.ActiveZone)
     do CueEditor.commit &state (withAt [ 0 ] (Exposit("c", Dialogue.Kind.Dialogue)) state.Cue) // cue edit B, in classroom
     let afterB = describe state.Cue
     Assert.NotEqual<string>(afterA, afterB)
 
     // B first, with classroom still on screen.
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal("Island", state.ActiveZone)
     Assert.Equal(afterA, describe state.Cue)
 
     // Then the move steps back, carrying the view to main — where A is now reachable.
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(GameplayState.startZone, state.ActiveZone)
     Assert.Equal(afterA, describe state.Cue)
 
     // Then A itself.
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(cueBefore, describe state.Cue)
 
 // ══════ the panel has no undo of its own (spec 049: FR-003, SC-002) ══════
@@ -701,7 +701,7 @@ let ``a trigger cue edit is one TriggerSet step and undo restores the before-cue
         Assert.Equal("Seq[Wait 1, Exposit(a)]", describe after.Cue)
     | other -> Assert.Fail(sprintf "expected one TriggerSet step, got %A" other)
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(Cue.Fin, (Zone.tryTriggerAt zone ref).Value.State.Cue)
 
 [<Fact>]

@@ -30,7 +30,7 @@ let private log (message: string) : unit =
 /// control drawing later in the same frame.
 let private commit (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (edit: Music.Mix -> Music.Mix) : unit =
     let before = shared.Mix
-    do History.commit shared &state (SetMix (before, edit before))
+    do Undo.commit shared &state (SetMix (before, edit before))
 
 /// Play a row: resolve its path from the asset manager, and only when its asset is a playable reference —
 /// a failed or absent asset is a quiet no-op, so an unavailable track never takes the panel down (FR-013).

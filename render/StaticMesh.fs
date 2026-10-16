@@ -75,7 +75,7 @@ let release (m: StaticMesh) : unit =
 // Push the fragment material/light uniform, bind the mesh vertices (slot 0) and the
 // caller's instance range (slot 1), bind the material's samplers, and issue an
 // indexed instanced draw. The static pipeline and the shared viewProj uniform are
-// bound/pushed once per static block by the caller (see world/EnvironmentBatch.fs).
+// bound/pushed once per static block by the caller (see world/render/EnvironmentBatch.fs).
 let drawInstanced (m: StaticMesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (instanceBinding: SDL.GPUBufferBinding) (instanceCount: uint32) (light: Light) (cameraPos: Vector3) (material: Material) : unit =
     do writeVector4 m.MaterialUniformBytes 0 material.BaseColor
     do writeVector4 m.MaterialUniformBytes 16 (Vector4(material.Metallic, material.Roughness, 0.0f, 0.0f))

@@ -10,7 +10,7 @@ module AdventPanel
 // there are no fixed cases to check off. A name is trimmed and refused when blank or already present; a
 // name is matched exactly (ordinal). Each add and remove is one step on the one undo history
 // (`docs/EDITOR_DESIGN.md`, D-011) — the set is not a zone's, so `Command.Advent` carries the set before and
-// after the edit and `state/History.fs` writes `SharedState.Advents`, the same shape the cue's `SetCue` step
+// after the edit and `state/Undo.fs` writes `SharedState.Advents`, the same shape the cue's `SetCue` step
 // has (`specs/048`, `specs/049`). The panel keeps no history of its own; `Ctrl+Z`, `Ctrl+Y` and the Edit menu
 // reach the step.
 
@@ -21,7 +21,7 @@ module AdventPanel
 /// history of its own.
 let commit (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (next: Advent.Set) : unit =
     let before = shared.Advents
-    do History.commit shared &state (Command.Advent (before, next))
+    do Undo.commit shared &state (Command.Advent (before, next))
 
 // ── the text field's NUL-terminated buffer ──
 

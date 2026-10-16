@@ -534,7 +534,7 @@ let removeActor (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
     if zone.Actors.IsAlive(handleOf ref) then
         let physics = (zone.Actors.Get(handleOf ref)).Physics
         do destroyBody world zone physics
-        do zone.Actors.Remove(handleOf ref, Some Actor.releaseRenderer)
+        do zone.Actors.Remove(handleOf ref, Some ActorEntity.releaseRenderer)
 
 let removeProp (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
     do removeMeshEntity zone world zone.Props ref
@@ -648,7 +648,7 @@ let setWaypointNext (zone: Zone) (ref: EntityRef) (next: EntityRef option) : uni
 
 // The first live waypoint named `name`, in slot order, or None when there is none. Names are not
 // required to be unique: the first match wins, deterministically. Used by the cue's camera ops to
-// resolve the waypoint an author typed into a cue (`world/CueEngine.fs`).
+// resolve the waypoint an author typed into a cue (`state/CueEngine.fs`).
 let tryWaypointByName (zone: Zone) (name: string) : EntityRef option =
     let slots = zone.Waypoints.Slots
     let mutable found = None
@@ -699,7 +699,7 @@ let setTrigger (zone: Zone) (ref: EntityRef) (state: TriggerState) : unit =
 
 // The first live trigger named `name`, in slot order, or None. Names are not required to be unique: the
 // first match wins, deterministically. Used by the cue's trigger ops to resolve the trigger an author names
-// (`world/CueEngine.fs`).
+// (`state/CueEngine.fs`).
 let tryTriggerByName (zone: Zone) (name: string) : EntityRef option =
     let slots = zone.Triggers.Slots
     let mutable found = None
@@ -907,7 +907,7 @@ let captureZone (zone: Zone) : ZoneContents =
 /// Put recorded contents into a zone, through the same calls an entity create makes, so a restored zone is built by
 /// the one path that builds live entities. The zone must be **active**: `occupy*` creates a body and the body joins
 /// the simulation as it is created, so only the active zone's bodies may be built — the caller makes the zone active
-/// first (`History.undo`).
+/// first (`Undo.undo`).
 let occupyZone (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (contents: ZoneContents) : unit =
     do setEnvironment zone physics assets contents.Environment
     for ref, actor in contents.Actors do occupyActor zone physics assets ref actor
@@ -1045,7 +1045,7 @@ let release (zone: Zone) (world: Physics.World) (device: Gpu.Device) : unit =
             match a.Physics with
             | Some ph -> do Physics.releaseBody world ph.Body
             | None -> ()
-            do Actor.releaseRenderer a
+            do ActorEntity.releaseRenderer a
 
     let propSlots = zone.Props.Slots
     for i in 0 .. propSlots.Length - 1 do

@@ -17,7 +17,7 @@ module Cue
 // `FDeque`), `System.Numerics`, `Dialogue` (the closed presentation union) and `SlotMap` (its
 // `Handle`, which the actor `…State` cases carry) only, so it loads on its own. A milestone and a
 // scenario are plain strings (specs 082, 083). The engine
-// that walks it (`world/CueEngine.fs`) is compiled *after* `state/GameplayState.fs`, because the ops perform
+// that walks it (`state/CueEngine.fs`) is compiled *after* `state/GameplayState.fs`, because the ops perform
 // their effects on the gameplay state where the walk reaches them (research D3).
 
 open System.Numerics
@@ -50,7 +50,7 @@ type Cue =
     // The line and how it is presented (spec 057): a plain dialogue line, a thought, or a portrait line
     // with a speaker and an expression — the closed `Dialogue.Kind`, so a mis-spelled speaker or
     // expression is unrepresentable and a portrait line always carries both. The view resolves the
-    // portrait at draw time (`world/DialogueRender.fs`); the op names a character, not an asset.
+    // portrait at draw time (`world/render/DialogueRender.fs`); the op names a character, not an asset.
     | Exposit of text: string * kind: Dialogue.Kind
     // Print (spec 067): a developer-facing line written to the console where the walk reaches it — a no-progress
     // leaf, distinct from `Exposit`'s player-facing dialogue (spec 057).

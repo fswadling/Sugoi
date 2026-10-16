@@ -2,7 +2,7 @@ module Audio
 
 // The mixer device seam (spec 086). `Context` bundles the `MIX_Mixer` handle with the three
 // operations the asset layer needs — load a sound into memory, probe a music file, free a sound — so
-// `world/Assets.fs` never names SDL and the suite can inject a fake. `create` brings the subsystem up
+// `world/assets/Assets.fs` never names SDL and the suite can inject a fake. `create` brings the subsystem up
 // and **never raises**: a machine with no audio device yields `unavailable`, and the game runs on
 // (FR-009). SDL audio is initialised here, not in `Engine`'s all-or-nothing `SDL.Init`.
 
@@ -75,7 +75,7 @@ let release (context: Context) : unit =
 // ── playback decks (spec 087) ──
 //
 // The music-playback device ops: a streaming deck, its transport, gain, loop and seek, and its
-// position. Thin wrappers over `SDL3.Mixer`, so `Music`, the panel and `History` never name SDL. A `0n`
+// position. Thin wrappers over `SDL3.Mixer`, so `Music`, the panel and `Undo` never name SDL. A `0n`
 // handle — an `unavailable` context (spec 086) or a missing deck — makes every op a quiet no-op, so an
 // absent audio subsystem leaves the panel drawing and the game running (FR-013).
 

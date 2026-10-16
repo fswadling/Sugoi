@@ -122,7 +122,7 @@ scene/camera without owning them.
 - Editor functions take the gameplay state and read/write it without owning it —
   this avoids a `GameplayScreen ↔ Editor` module cycle by splitting the data
   (`GameplayState`) from the behaviour (`GameplayScreen` / `Editor`).
-- `Engine.fs` stays screen-agnostic: it calls `ScreenManager.update`/`draw` and
+- `Shell.fs` stays screen-agnostic: it calls `ScreenManager.update`/`draw` and
   presents the returned scene; `GameplayScreen` calls into `Editor`.
 
 ## Command / undo model (D-011)
@@ -171,13 +171,13 @@ undo stack. Commands store **values** (not closures):
 - One step can span the whole world: **Clear World** (`specs/084`) retires every zone and installs a fresh **start**
   place, and resets the running cue, as one `Batch` — a state-level `ZonesClear` (carrying each zone's name and
   `ZoneContents`, and the active place) paired with a `SetCue` to empty. Like a zone add/delete or a cue edit it is
-  carried by `History`, not the zone-level runner, and it reuses the delete-time teardown (`Zone.release` plus the
+  carried by `Undo`, not the zone-level runner, and it reuses the delete-time teardown (`Zone.release` plus the
   environment unload). The camera and the scenario library are untouched.
 - Non-entity surfaces (scenario, advent flags, cue root) store
   **name-keyed before/after snapshots** of the immutable map/set entry. The cue's has landed
   (`specs/049-cue-on-one-history`): its edits are `SetCue` steps — before/after cue values — on the one history,
   pruned on the way into play (D-010). The adventure flags' has landed too (`specs/055-advent-flags`): its edits are
-  `Advent` steps — the set before and after the edit — on the same history, carried by `state/History.fs` because the
+  `Advent` steps — the set before and after the edit — on the same history, carried by `state/Undo.fs` because the
   set is not a zone's. The scenario is the one surface a project-scoped stack is still owed to, and it is a gap for a
   surface that does not exist yet rather than for this one.
   The surfaces expected
@@ -204,7 +204,7 @@ Command` module cycle. The state-level runner resolves a content command's named
 (`Command.placeOf`) before delegating, so `Command` still names no state container. (The advent flags live on `SharedState`; the zone registry
 and the physics world live on `GameplayState`; `Command` reads none of them directly.) The
 **history** is one, on the gameplay state:
-`state/History.fs`, compiled after `GameplayState`, carries the state-level runners and the steppers,
+`state/Undo.fs`, compiled after `GameplayState`, carries the state-level runners and the steppers,
 because a step may be a zone move, an add, a delete or a cue edit, which only the state can carry out
 (`specs/048-unified-undo-stack`, `specs/049-cue-on-one-history`). The `Command` *type* stays where it is — moving it would be that cyclic
 edge — and only the runners moved.

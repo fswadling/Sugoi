@@ -27,7 +27,7 @@ let deleteRef (shared: SharedState.SharedState) (state: byref<GameplayState.Game
         | EntityKind.Trigger -> TriggerDelete (state.ActiveZone, ref, Zone.captureTrigger zone ref)
         | EntityKind.Environment -> invalidOp "deleteRef: the environment is not an addressable entity"
     // Through the state-level runner so undo/redo reverse it in one place.
-    do History.commit shared &state cmd
+    do Undo.commit shared &state cmd
     if state.Editor.Selection = Some ref then
         state.Editor <- { state.Editor with Selection = None; Drag = None }
 

@@ -3,9 +3,9 @@ module Dialogue
 // The dialogue state and its vocabulary: what the screen is showing, as data. Pure —
 // no GPU, no asset, no presentation. Held by `GameplayState` (the screen's, not a
 // zone's, not an entity's: spec 038 FR-007), written field by field by the editor
-// panel, and read by the view (`world/DialogueRender.fs`).
+// panel, and read by the view (`world/render/DialogueRender.fs`).
 //
-// Compiled before `world/Assets.fs` and `world/Systems.fs` (which read it), per
+// Compiled before `world/assets/Assets.fs` and `world/Systems.fs` (which read it), per
 // `specs/038-dialogue-display/contracts/dialogue-display.md`. The speaker is a plain string
 // (`specs/074`): the actor's `Name`, resolved to her asset by the view; this module names no roster.
 

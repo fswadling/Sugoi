@@ -246,14 +246,14 @@ let updateNudge (physics: Physics.World) (input: Input.Input) (state: byref<Game
 // Apply one undo/redo step and reconcile the selection: a swapped environment
 // dangles a Part selection. Both the shortcut and the Edit menu route through here
 // so the reconcile can't be missed. The step is one command on the one history —
-// `History` owns which zone it belongs to (spec 048).
+// `Undo` owns which zone it belongs to (spec 048).
 let private undoStep (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     do Selection.dropStalePartSelection &state
 
 // Redo re-applies the most recently undone command.
 let private redoStep (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    do History.redoHistory shared &state
+    do Undo.redoHistory shared &state
     do Selection.dropStalePartSelection &state
 
 // ── App-level shortcuts ──
@@ -294,7 +294,7 @@ let handleShortcuts (shared: SharedState.SharedState) (input: Input.Input) (stat
             // Shift is required, so this does not shadow the conventional `Ctrl+C`; a focused text field never
             // reaches here (the `wantTextInput` early return above), and a mid-drag gesture is not corrupted.
             if Input.isCtrl input && Input.isShift input && Input.isPressed Input.Key.C input then
-                History.clearZones shared &state
+                Undo.clearZones shared &state
 
     // Escape returns to the main menu
     if Input.isPressed Input.Key.Escape input then
@@ -375,7 +375,7 @@ let update (shared: SharedState.SharedState) (frame: Screen.Frame) (state: byref
         // Play begins: the cue's own *steps* go with it (spec 049 FR-005) — the cue advances while playing, so a
         // step recorded against it could no longer be applied cleanly. Every zone step stays (spec 048).
         if not state.Editing then
-            History.pruneCueSteps &state
+            Undo.pruneCueSteps &state
 
     if not state.Editing then Screen.ScreenTransition.None else
 
@@ -428,7 +428,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             // Retire every zone and reset the cue, as one step on the one history (spec 084). Gated like Undo/Redo: not
             // mid-drag and not while a field is focused.
             if ImGui.menuItem("Clear World", "Ctrl+Shift+C", false, idle) then
-                do History.clearZones shared &state
+                do Undo.clearZones shared &state
             do ImGui.endMenu()
 
         // The error tally, always visible in the menu bar when non-zero, so it shows regardless of the

@@ -168,10 +168,10 @@ Attempt 2's shape (all of it in `git stash@{0}`):
 - `shaders/shadow.frag` (empty body) + `.spv`; a `shadowFactor` block added to `static.frag` (uniform
   `set = 3, binding = 1`; map `set = 2, binding = 4`) and `cel.frag` (map `set = 2, binding = 1`).
   `static.vert` is reused **unchanged** by the caster pipeline.
-- `world/EnvironmentAsset.fs` — `StaticSubmesh.GeometryBounds`. **Not** named `Bounds`: that label already
+- `world/assets/EnvironmentAsset.fs` — `StaticSubmesh.GeometryBounds`. **Not** named `Bounds`: that label already
   exists on two other records in the module and made record literals ambiguous (FS0656).
-- `world/Assets.fs` — fills `GeometryBounds` per submesh.
-- `world/EnvironmentBatch.fs` — `mutable WorldBounds : Gltf.Bounds option` accumulated in `fillInstance`;
+- `world/assets/Assets.fs` — fills `GeometryBounds` per submesh.
+- `world/render/EnvironmentBatch.fs` — `mutable WorldBounds : Gltf.Bounds option` accumulated in `fillInstance`;
   `renderDepth` (binds the pipeline, pushes the light view-projection at vertex slot 0, one draw per group);
   `render`/`drawInstanced` take the `Shadow.Binding`.
 - `render/StaticMesh.fs` / `render/Mesh.fs` — an 80-byte shadow block pushed at fragment slot 1 and the map

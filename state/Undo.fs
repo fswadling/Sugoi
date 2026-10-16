@@ -1,4 +1,4 @@
-module History
+module Undo
 
 // The one undo history (spec 048). A scene edit, a zone move, a zone add, a zone delete, a cue edit and an
 // adventure-flag edit are all steps on `EditorState.Undo`; there is no history per zone, and none of its own for the
@@ -9,10 +9,10 @@ module History
 // never changes the active place. `ZoneMove` stays a step because switching the active place is itself an edit the
 // author can undo, not because undo depends on it.
 //
-// Compiled *after* `state/GameplayState.fs` — the project's second deliberate ordering inversion, after
-// `world/CueEngine.fs` — because a state-level step adds, removes or switches a zone, or writes the screen's
-// cue. The `Command` *type* stays above the state: moving it would be cyclic, since `EditorState` names
-// `UndoStack`, which names `Command`.
+// Compiled right after `state/GameplayState.fs`: a state-level step adds, removes or switches a zone, or
+// writes the screen's cue, so the runners need the gameplay state and nothing below it. The `Command`
+// *type* stays above the state: moving it would be cyclic, since `EditorState` names `UndoStack`, which
+// names `Command`.
 
 open Command
 
@@ -22,7 +22,7 @@ open Command
 // reported, not fatal (spec 080, US4): a runtime cue op mutates the scene without a history step, so a
 // recorded step can outlive the place it names. The state mutators stay fail-fast for direct misuse.
 let private skip (phase: string) (cmd: Command) (reason: string) : unit =
-    do Diagnostics.reportf "History.%s: skipping %A: %s" phase cmd reason
+    do Diagnostics.reportf "Undo.%s: skipping %A: %s" phase cmd reason
 
 /// Apply one command to the gameplay state. A content command names its place (spec 077), so it is carried out on
 /// **that place's zone**, not the active one — a `Batch` may therefore span places. A state-level step (a zone

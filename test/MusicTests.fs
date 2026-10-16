@@ -29,7 +29,7 @@ let private sharedState () : SharedState.SharedState =
 /// The panel's write path: one `SetMix` step on the one history.
 let private setMix (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (next: Music.Mix) : unit =
     let before = shared.Mix
-    do History.commit shared &state (SetMix (before, next))
+    do Undo.commit shared &state (SetMix (before, next))
 
 let private raises (f: unit -> unit) : bool =
     try
@@ -129,7 +129,7 @@ let ``a weight edit is one step, and undo restores the prior mix`` () =
     Assert.Equal(0.2f, (Music.rowOf "a" shared.Mix).Value.Weight)
     Assert.Equal(1, List.length state.Editor.Undo.Applied)
 
-    do History.undoHistory shared &state
+    do Undo.undoHistory shared &state
     Assert.Equal(1.0f, (Music.rowOf "a" shared.Mix).Value.Weight)
     Assert.Equal(0, List.length state.Editor.Undo.Applied)
 

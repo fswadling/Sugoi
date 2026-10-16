@@ -59,7 +59,7 @@ one material — grouping draws by submesh groups materials for free.
 
 ## 3. Instrumentation
 
-Per-phase timing was added to `Engine.fs` (committed as part of `c7b3167`). It
+Per-phase timing was added to `Shell.fs` (committed as part of `c7b3167`). It
 prints once per second:
 
 ```
@@ -119,7 +119,7 @@ They are retained here as documented dead ends so nobody re-treads them.
 - `EnvironmentRender` gained a `Bounds : Gltf.Bounds` field. `draw` composes the
   world matrix and early-returns when `intersectsBox` is false.
 - `EnvironmentRender.create` gained a `bounds` parameter.
-- `world/Assets.fs`: `createPartRender` looks up `part.Bounds` from
+- `world/assets/Assets.fs`: `createPartRender` looks up `part.Bounds` from
   `asset.Parts` (fails loudly with `failwithf` if no part matches the submesh
   index); `createPropRender` passes `asset.Bounds`.
 - `screen/GameplayScreen.fs`: `renderScene` builds the frustum once and passes it
@@ -181,11 +181,11 @@ instanced meshes** at parse time (`Gltf.load`, "Read every mesh's primitives onc
 (deduplicating instanced meshes)", ~L313-324): each glTF mesh's primitives become
 one `Submesh`, and every node that references the mesh shares that range via
 `Part.SubmeshIndex`/`SubmeshCount`. `loadStaticModel` then uploads each unique
-`Submesh` exactly once as a `StaticMesh` (`world/Assets.fs`), so
+`Submesh` exactly once as a `StaticMesh` (`world/assets/Assets.fs`), so
 `asset.Submeshes` is the 191 unique submeshes.
 
 The 521 draws come solely from `EnvironmentRender.draw` looping a part's submesh
-range and calling `StaticMesh.draw` per submesh (`world/EnvironmentRender.fs:34-36`),
+range and calling `StaticMesh.draw` per submesh (`world/render/EnvironmentRender.fs:34-36`),
 each with its own full state block. Nothing needs re-uploading or re-merging —
 but the grouping key is **not** a bare submesh index (see below).
 
@@ -195,9 +195,9 @@ but the grouping key is **not** a bare submesh index (see below).
 depends on where the instance came from:
 
 - `createPartRender` uses `manager.Environments.[environmentAssetId]`
-  (`world/Assets.fs:255-257`).
-- `createPropRender` uses `manager.Props.[assetId]` (`world/Assets.fs:249-251`).
-- `draw` reads `r.Asset.Submeshes.[i]` (`world/EnvironmentRender.fs:35`).
+  (`world/assets/Assets.fs:255-257`).
+- `createPropRender` uses `manager.Props.[assetId]` (`world/assets/Assets.fs:249-251`).
+- `draw` reads `r.Asset.Submeshes.[i]` (`world/render/EnvironmentRender.fs:35`).
 
 So the same index can name **different geometry and material** in different
 assets. A placed prop and an environment part can both have submesh index 0
@@ -307,7 +307,7 @@ until an edit) — but do not build that up front.
 | `render/Gpu.fs` (`createStaticPipeline`) | Add vertex buffer slot 1: pitch 112, `InputRate = Instance`, `InstanceStepRate = 0`; 7 `Float4` attributes at locations 3..9. |
 | `render/StaticMesh.fs` | Instanced-draw variant: push `viewProj` + material, bind slot 0 + slot 1 (with offset), `DrawGPUIndexedPrimitives(count, instanceCount, …)`. |
 | `render/InstanceBuffer.fs` (new) | Grow-only instance GPU buffer + transfer buffer + CPU staging; `ensureCapacity`/`upload`/`bind`. Pure GPU, no `world` dependency. |
-| `world/EnvironmentBatch.fs` (new) | The gather + per-submesh draw. Keyed by `(asset, submeshIndex)` (see "Grouping key"), not a global index. Lives in `world/` because it walks `Zone`; `render/` may not depend on `world/` (see `PROJECT_STRUCTURE.md`). |
+| `world/render/EnvironmentBatch.fs` (new) | The gather + per-submesh draw. Keyed by `(asset, submeshIndex)` (see "Grouping key"), not a global index. Lives in `world/` because it walks `Zone`; `render/` may not depend on `world/` (see `PROJECT_STRUCTURE.md`). |
 | `screen/GameplayScreen.fs` (`renderScene`, ~L99-107) | Replace the two `EnvironmentRender.draw` loops with one `EnvironmentBatch` call. |
 | `test/EnvironmentBatchTests.fs` (new) | Unit-test the pure count/prefix-sum/fill planner (GPU paths can't run headless). |
 | frustum cull | Still not required. If ever reintroduced it reduces **instances**, not call count — but §5a says don't. |
@@ -361,14 +361,14 @@ As of `dd7f8b1` (clean working tree):
 - **No instancing code exists yet** (searched `render/`, `world/`, `screen/`,
   `shaders/`); §7 is unimplemented and there is no `018-*` spec yet.
 - The §5 attempts remain reverted: `render/Camera.fs`, `render/StaticMesh.fs`,
-  `world/EnvironmentRender.fs`, `world/Assets.fs`, `screen/GameplayScreen.fs`,
+  `world/render/EnvironmentRender.fs`, `world/assets/Assets.fs`, `screen/GameplayScreen.fs`,
   `test/CameraTests.fs` are back to `c7b3167`; the `draws`/`culled` counters are
-  still absent from the `Engine.fs` log.
+  still absent from the `Shell.fs` log.
 
 **Instancing is now implemented (uncommitted, `specs/018-instanced-draws`).**
 Per §7: `shaders/static.vert` takes per-instance transform attributes, the static
 pipeline gains vertex slot 1 (112-byte instances), `render/InstanceBuffer.fs` and
-`world/EnvironmentBatch.fs` are new, and `Engine.fs` logs `draws`/`instances`.
+`world/render/EnvironmentBatch.fs` are new, and `Shell.fs` logs `draws`/`instances`.
 
 **Measured** with the ArtRoom loaded: **`draws 191 instances 521`** (from 521
 draws), and `record` falls from ~20–30 ms to **~1.1–1.6 ms**. Frame `avg` ~16.8 ms
@@ -403,14 +403,14 @@ Visual identity (SC-003) still needs a look by eye (quickstart scenarios 3–4).
 
 The last recorded full run was `dotnet build` clean and `dotnet test` → 96 passed
 (the earlier 102 included the frustum `CameraTests` that §5a reverted); the 2
-benign `Engine.fs` warnings (`FS0009`/`FS0051` from `NativePtr.toNativeInt (&&ev)`)
+benign `Shell.fs` warnings (`FS0009`/`FS0051` from `NativePtr.toNativeInt (&&ev)`)
 are noted in `RENDERING_NOTES.md` "Known follow-ups".
 
 ---
 
 ## 10. Next steps (in order)
 
-1. ~~**Instrument first.**~~ — done: `Engine.fs` now logs `draws`/`instances`
+1. ~~**Instrument first.**~~ — done: `Shell.fs` now logs `draws`/`instances`
    from `EnvironmentBatch` (`specs/018-instanced-draws` T012).
 2. ~~**Implement instancing (§7)**~~ — done (uncommitted, `018-instanced-draws`);
    measured `record` ~1.2 ms and `draws 191 instances 521` with the ArtRoom (§9).
@@ -432,7 +432,7 @@ are noted in `RENDERING_NOTES.md` "Known follow-ups".
   (§5b).
 - **Don't report `culled` as working until it's been seen non-zero.**
 - `ScreenTransition.None` shadows `Option.None` in files that `open Screen`
-  (e.g. `Engine.fs`, `GameplayScreen.fs`) — use `| _ -> ()`.
+  (e.g. `Shell.fs`, `GameplayScreen.fs`) — use `| _ -> ()`.
 - `SlotMap` is `Handle`-only (`Get` / `IsAlive` / `Occupy` / `Remove`); `TryGet`
   was deleted deliberately. Resolve by reference (`&…Get handle`) and mutate in
   place — never copy out and re-assign.
@@ -498,7 +498,7 @@ Mapping to fsharp-game:
 | 1 instanced draw per unique submesh identity (521 → 191) | ~1 instanced draw per unique surface |
 | grouping rebuilt per frame (v1) | baked once at freeze for static hierarchies |
 | per-instance data in one vertex buffer; one shared `viewProj` push | per-instance data in one buffer |
-| `Engine.fs` logs `draws`/`instances` | `Hl.ReportDrawCall` etc. |
+| `Shell.fs` logs `draws`/`instances` | `Hl.ReportDrawCall` etc. |
 | frustum cull per part (tried, reverted) | per-instance cull inside the batch |
 
 Differences that matter: Nu renders through OpenGL, this project through

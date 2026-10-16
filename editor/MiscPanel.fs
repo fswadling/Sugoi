@@ -5,7 +5,7 @@ module MiscPanel
 // column beside the Inspector/Cue/Advent, with the other editing surfaces.
 //
 // Its first control is the screen's fade level: a slider over 0..1, the opacity of the black overlay the
-// gameplay screen draws over the rendered game view. The write is in place — no `Command`, no `History`
+// gameplay screen draws over the rendered game view. The write is in place — no `Command`, no `Undo`
 // step — because the fade is live screen runtime state, not authored project data (spec 059, research D1).
 
 let draw (state: byref<GameplayState.GameplayState>) : unit =

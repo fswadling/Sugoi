@@ -2,7 +2,7 @@ module Maths
 
 // Spline geometry (spec 054): a curve through points, and a turn through rotations, sampled at a global
 // parameter. Pure and device-free — positions and rotations only — so it names no zone, screen, asset or
-// device and is exercisable on its own. The cue's camera flight is its first caller (`world/CueEngine.fs`).
+// device and is exercisable on its own. The cue's camera flight is its first caller (`state/CueEngine.fs`).
 
 open System.Numerics
 

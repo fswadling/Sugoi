@@ -192,7 +192,7 @@ parsed from s-syntax manifests, keyed by `id`.
   zones carry their staging (`specs/079-scenario-owned-zones`), and the contents carry no active place: that is the
   place's or the runtime state's.
   Adding, deleting, registering or clearing one is a step on the one undo history. **Running** one is **forking** it into the scene
-  (`specs/078-fork-scenario`): `world/ScenarioFork.fs` appends the scenario's entities into its places (creating
+  (`specs/078-fork-scenario`): `state/ScenarioFork.fs` appends the scenario's entities into its places (creating
   absent ones from the Zone Registry's template, without entering them) and returns the commands that reverse them,
   so the **Scenario** panel's **Fork** control is one undoable step while the `ForkScenario` cue op is a runtime
   effect that forks the scenario's cue beside the running one. A fork is deliberately non-idempotent — duplicates
@@ -361,6 +361,6 @@ failure is routed by one question: **can only a programming error produce this s
   - **report + controlled teardown** — the frame loop and the entry point: an unexpected failure names the
     operation that failed and ends the run through the normal teardown, rather than aborting silently.
 
-Reports use the one-line `eprintfn` convention (see `world/CueEngine.fs`), emitted once per event and never per
+Reports use the one-line `eprintfn` convention (see `state/CueEngine.fs`), emitted once per event and never per
 frame. **Cue undoability** — whether a cue's runtime effects become history steps — is deliberately *not* part
 of this boundary and remains a separate design question.

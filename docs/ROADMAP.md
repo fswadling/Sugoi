@@ -43,9 +43,9 @@ box/BVH props), and a full **in-engine editor** to author all of it.
 
 ## Current state
 
-- Phase 1 (screens + main menu) is complete: `Engine.fs` run loop, `screen/`
+- Phase 1 (screens + main menu) is complete: `Shell.fs` run loop, `screen/`
   screen manager + main menu + gameplay placeholder, and an on-screen frame rate
-  counter (`screen/DebugOverlay.fs`).
+  counter (`render/DebugOverlay.fs`).
 - SDL3 window + SDL_gpu device + swapchain loop with a software 60 FPS cap.
 - Dear ImGui wired through the SDL_gpu backend, docking-enabled
   (`render/ImGui.fs`, `render/ImGuiSdl3.fs`, `native/`).
@@ -102,7 +102,7 @@ screen on the existing ImGui + SDL_gpu loop.
   (UI-only placeholder).
 - `state/SharedState.fs` / `state/GameplayState.fs` — empty state seams for
   later phases.
-- `Engine.fs` (run loop) split out of `Program.fs`, which becomes a thin entry
+- `Shell.fs` (run loop) split out of `Program.fs`, which becomes a thin entry
   point. Move `ImGui.fs`/`ImGuiSdl3.fs` into `render/`.
 
 **Done when**: launch lands on the menu; Play switches to the gameplay
@@ -136,7 +136,7 @@ stale-handle rejection.
 populated asset browser.
 
 **Deliverables**
-- `world/Assets.fs` — asset manager: scan `actors/`/`environments/`/`props/` + s-syntax
+- `world/assets/Assets.fs` — asset manager: scan `actors/`/`environments/`/`props/` + s-syntax
   manifests, keyed by `id`.
 - `render/DebugDraw.fs` — line/wireframe primitive (grid; later gizmos/overlays).
 - `render/Camera.fs` — editor camera (pitch/yaw/pan/zoom).
@@ -188,7 +188,7 @@ the hard plumbing step (SDL_gpu has no `LoadModel`/`DrawMesh` helper).
 - `core/Iqm.fs` — IQM binary parser emitting flat struct-of-arrays
   (`System.IO.BinaryReader`, little-endian, `float32` data).
 - `world/Actor.fs` — IQM model + animation slots + CPU skinning.
-- `world/ActorRender.fs` — skinned actor rendering.
+- `world/render/ActorRender.fs` — skinned actor rendering.
 
 **Done when**: an animated character (e.g. Akane) is visible and animating in
 the viewport via the asset manifest.
@@ -203,7 +203,7 @@ the viewport via the asset manifest.
   `parts` slot map), `waypoints`, `triggers`, plus inline global settings.
 - `world/Entity.fs` — `Environment_Entity` (owning its parts map) / `Prop_Entity`
   / `Part`.
-- `world/EnvironmentRender.fs` — static environment + prop rendering.
+- `world/render/EnvironmentRender.fs` — static environment + prop rendering.
 
 **Done when**: a static environment and prop assets are visible in the viewport.
 
@@ -277,7 +277,7 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
 
 **Deliverables** *(in two features: the engine — `specs/046` — then the editor)*
 - `world/Cue.fs` — one type that is the vocabulary **and** the run (`Sequence`/
-  `Parallel`/`Fork`, the leaf ops, and the terminal `Fin`); `world/CueEngine.fs` —
+  `Parallel`/`Fork`, the leaf ops, and the terminal `Fin`); `state/CueEngine.fs` —
   `advance` / `tick` / `forkInto`. No `CueState` union and no `state_map`: measured and
   retired (`docs/CUE_MODEL_DECISION.md`). *(complete — `specs/046`)*
 - Runtime cue execution in the play chain, on play time. *(complete — `specs/046`)*
@@ -318,7 +318,7 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
   the player toggles (`Enable`/`DisablePlayer`, the runtime form of the editor's "Set as Player").
   The trigger toggles (`Enable`/`DisableTrigger`) and `Print` landed in `specs/067-print-trigger-cue-ops`.
   Only odin's scenario ops (`Inline`/`Fork`/`ClearScenario`) and the camera-follow/interactions toggles remain.
-- `world/Cue.fs` + `world/CueEngine.fs` — the **music cue ops** (`specs/088-music-cues`): a cue sets up the
+- `world/Cue.fs` + `state/CueEngine.fs` — the **music cue ops** (`specs/088-music-cues`): a cue sets up the
   palette (`AddMusic`/`RemoveMusic`), transports it (`PlayMusic`/`StopMusic`, and whole-bed `PlayBed`/`StopBed`)
   and shapes it (`SetMusicLevel`, `SetMusicMaster`, `CrossFadeMusic`) against the mix `specs/087-song-mixing`
   authored. Every music op is a runtime effect that never lands on the one history (the `AddAdvent` pattern),
@@ -357,7 +357,7 @@ the adventure flags, and trigger→cue wiring is `specs/058-trigger-cue`. The ca
 - `editor/ScenarioPanel.fs` — the scenarios, one row each, named by hand: a text field + **Add**, and each row's
   **Register** (file the current scene), **Clear**, **Fork** (run it) and **Delete**, all steps on the one undo
   history. *(complete — `specs/070-scenario-library`, `specs/078-fork-scenario`, `specs/083-scenario-strings`)*
-- `world/ScenarioFork.fs` — the materialiser both entry points call (the `ForkScenario` cue op and the panel's Fork
+- `state/ScenarioFork.fs` — the materialiser both entry points call (the `ForkScenario` cue op and the panel's Fork
   control): it ensures each zone by name (creating and staging an absent one, restaging a present one), appends its
   entities, and returns the commands that reverse it. *(`specs/078-fork-scenario`, `specs/079-scenario-owned-zones`)*
 

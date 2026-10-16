@@ -40,7 +40,7 @@ type Row =
 /// read-only (`FR-011`): a node on the running path is not retuned, replaced or removed. (An *addition* is
 /// still offered to a `Sequence` on it — see `drawEditor` — because a queue's tail is ahead of the running op.)
 ///
-/// Read off the value rather than decided by the editor: `world/CueEngine.fs` gives a run state of its own to
+/// Read off the value rather than decided by the editor: `state/CueEngine.fs` gives a run state of its own to
 /// two cases only (`WaitState`'s deadline, `FlyCameraState`'s resolved path), so a `Sequence`'s front is executing
 /// when what it holds is, a `Parallel`'s sides are executing together, and everything else is either
 /// structure or an op that has not begun. A suite can therefore assert the lock with no device.
@@ -198,7 +198,7 @@ let rec tryAt (path: int list) (cue: Cue) : Cue option =
 ///
 /// A child list that no longer fills the constructor is not an error: a `Sequence` with nothing left is
 /// `Fin`, a `Parallel` or `Fork` with one child left collapses to it — which is the engine's own rule (`a
-/// side that is Fin drops out`, `world/CueEngine.fs`), so removing a branch behaves like the run does.
+/// side that is Fin drops out`, `state/CueEngine.fs`), so removing a branch behaves like the run does.
 let private withChildren (cue: Cue) (items: Cue list) : Cue =
     match cue, items with
     | Sequence _, current :: rest' -> Sequence(current, FDeque.ofList rest')
