@@ -1,4 +1,4 @@
-# fsharp-game
+# Sugoi
 
 A game written in F# using SDL3, ImGui, and Jolt Physics, structured after `odin-game`.
 

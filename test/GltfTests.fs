@@ -35,7 +35,7 @@ let ``load parses the Island environment`` () =
 [<Fact>]
 let ``load reports a cyclic node graph rather than overflowing the stack`` () =
     // spec 080, US7: a node that is its own ancestor is a reported error, not an uncatchable stack overflow.
-    let tmp = Path.Combine(Path.GetTempPath(), sprintf "fsharp-game-gltf-%s.gltf" (Guid.NewGuid().ToString("N")))
+    let tmp = Path.Combine(Path.GetTempPath(), sprintf "sugoi-gltf-%s.gltf" (Guid.NewGuid().ToString("N")))
     File.WriteAllText(tmp, """{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"name":"a","children":[1]},{"name":"b","children":[0]}]}""")
     try
         let raised =
@@ -87,7 +87,7 @@ let ``load rejects a non-glTF file`` () =
 
 [<Fact>]
 let ``load rejects a data-URI embedded image`` () =
-    let tmp = Directory.CreateTempSubdirectory "fsharp-game-gltf-"
+    let tmp = Directory.CreateTempSubdirectory "sugoi-gltf-"
     try
         let json = """{"images": [{"uri": "data:image/png;base64,AAAA"}]}"""
         let gltfPath = Path.Combine(tmp.FullName, "test.gltf")
@@ -126,7 +126,7 @@ let ``load spans a multi-primitive mesh as one part`` () =
 
 [<Fact>]
 let ``load composes parent and child node transforms in row-vector order`` () =
-    let tmp = Directory.CreateTempSubdirectory "fsharp-game-gltf-"
+    let tmp = Directory.CreateTempSubdirectory "sugoi-gltf-"
     try
         // Parent: rotate 90° about Y then translate (10,0,0). Child: translate
         // (0,0,5) in parent space -> world (15,0,0).

@@ -1,4 +1,4 @@
-﻿// fsharp-game entry point. All initialisation and the frame loop live in
+﻿// Sugoi entry point. All initialisation and the frame loop live in
 // Shell.run; keep this file as thin as possible.
 
 [<EntryPoint>]

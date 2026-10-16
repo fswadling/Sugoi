@@ -1,4 +1,4 @@
-# fsharp-game Constitution
+# Sugoi Constitution
 
 ## Core Principles
 

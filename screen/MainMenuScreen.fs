@@ -12,7 +12,7 @@ let update (_shared: SharedState.SharedState) : ScreenTransition =
 // Draw the menu and return the navigation requested by a clicked button.
 let draw (_shared: SharedState.SharedState) : ScreenTransition =
     do ImGui.beginWindow("Main Menu", System.IntPtr.Zero, 0) |> ignore
-    do ImGui.text("fsharp-game")
+    do ImGui.text("Sugoi")
     let playDown = ImGui.button("Play", ImGui.ImVec2(160.0f, 0.0f))
     let quitDown = ImGui.button("Quit", ImGui.ImVec2(160.0f, 0.0f))
     do ImGui.endWindow()

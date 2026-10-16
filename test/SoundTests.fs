@@ -20,7 +20,7 @@ let private fakeContext (load: string -> SoundHandle) (probe: string -> unit) : 
 
 // A temp asset root with an `audio/` folder holding the given manifests (file name -> text).
 let private audioRoot (manifests: (string * string) list) : DirectoryInfo =
-    let tmp = Directory.CreateTempSubdirectory "fsharp-game-sound-"
+    let tmp = Directory.CreateTempSubdirectory "sugoi-sound-"
     let dir = Directory.CreateDirectory(Path.Combine(tmp.FullName, "audio"))
     for (name, text) in manifests do
         File.WriteAllText(Path.Combine(dir.FullName, name), text)

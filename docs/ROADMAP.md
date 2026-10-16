@@ -1,4 +1,4 @@
-# fsharp-game — Roadmap
+# Sugoi — Roadmap
 
 **Status**: Draft (2026-08-27).
 
@@ -514,7 +514,7 @@ PBR → physics → walk around). After that, the content-authoring path is
 - **ocaml-game** — `lib/core/` (slot map, entity, zone, cue, iqm, gltf, assets),
   `docs/{ROADMAP,DECISIONS,EDITOR_DESIGN,CUE_DESIGN,SYSTEMS_PHYSICS_DESIGN}.md`,
   `specs/` (27 completed specs as evidence).
-- **fsharp-game** — `docs/ARCHITECTURE.md` (target data model),
+- **Sugoi** — `docs/ARCHITECTURE.md` (target data model),
   `docs/PROJECT_STRUCTURE.md` (layout), `docs/EDITOR_DESIGN.md` (editor),
   `AGENTS.md` (style), `ImGui.fs`/`ImGuiSdl3.fs`/`native/` (ImGui + SDL_gpu).
 

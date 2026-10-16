@@ -54,7 +54,7 @@ let private library () : Registry =
     setContents "Intro" (Some contents) (add "Draft" (create ()))
 
 let private tempPath (stem: string) : string =
-    Path.Combine(Path.GetTempPath(), sprintf "fsharp-game-%s-%s.manifest" stem (Guid.NewGuid().ToString "N"))
+    Path.Combine(Path.GetTempPath(), sprintf "sugoi-%s-%s.manifest" stem (Guid.NewGuid().ToString "N"))
 
 let private newState () : GameplayState.GameplayState =
     GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
@@ -62,7 +62,7 @@ let private newState () : GameplayState.GameplayState =
 /// Run `body` with the current directory at a fresh temp dir, so `project.manifest` resolves there. The suite is
 /// serialized (`xunit.runner.json`), so the process-global directory change is safe; the dir is restored and deleted.
 let private withTempDir (body: unit -> unit) : unit =
-    let dir = Path.Combine(Path.GetTempPath(), sprintf "fsharp-game-project-%s" (Guid.NewGuid().ToString "N"))
+    let dir = Path.Combine(Path.GetTempPath(), sprintf "sugoi-project-%s" (Guid.NewGuid().ToString "N"))
     do Directory.CreateDirectory dir |> ignore
     let original = Directory.GetCurrentDirectory ()
     do Directory.SetCurrentDirectory dir
@@ -196,7 +196,7 @@ let ``saveTo writes atomically, leaves no temporary, and reloads`` () =
 
 [<Fact>]
 let ``a failed write is reported and leaves the existing good file`` () =
-    let dir = Path.Combine(Path.GetTempPath(), sprintf "fsharp-game-fail-%s" (Guid.NewGuid().ToString "N"))
+    let dir = Path.Combine(Path.GetTempPath(), sprintf "sugoi-fail-%s" (Guid.NewGuid().ToString "N"))
     do Directory.CreateDirectory dir |> ignore
     try
         let path = Path.Combine(dir, "project.manifest")

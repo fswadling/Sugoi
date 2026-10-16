@@ -1,6 +1,6 @@
 # Project Structure
 
-This document defines the target directory layout for `fsharp-game`. It adapts
+This document defines the target directory layout for `Sugoi`. It adapts
 `ocaml-game`'s structure (`ocaml-game/docs/PROJECT_STRUCTURE.md`) to F#, whose
 build model differs from OCaml/dune in one important way: **files are compiled
 in the order they are listed in the `.fsproj`, not discovered by directory.**
@@ -23,7 +23,7 @@ marks a file that is not created yet — the marker is dropped when the file lan
    the directory, decides order.
 2. **Flat module namespace.** One top-level `module X` per file, no namespace.
    `core/SlotMap.fs` declares `module SlotMap`, exactly as if it lived at the
-   root. (Rejects `namespace FSharpGame.Core` to avoid churning references.)
+   root. (Rejects `namespace Sugoi.Core` to avoid churning references.)
 3. **Compile order encodes dependencies.** The `.fsproj` `<Compile Include>`
    list is ordered `core → physics → render → audio → world → state → editor →
    screen → Shell → Program`, and within each cluster files are ordered by
@@ -36,7 +36,7 @@ marks a file that is not created yet — the marker is dropped when the file lan
 ## The F# mechanism
 
 F# has no dune/`include_subdirs`. The single source of truth for ordering is the
-`<Compile Include="...">` list in `fsharp-game.fsproj`. Adding a module means
+`<Compile Include="...">` list in `Sugoi.fsproj`. Adding a module means
 inserting its file at the correct point in that list, not creating a directory.
 
 The `.fsproj` compile list is ordered like this (abridged):
@@ -114,7 +114,7 @@ The `.fsproj` compile list is ordered like this (abridged):
 ## Target layout
 
 ```text
-fsharp-game/
+Sugoi/
 ├── Program.fs                  # entry point: [<EntryPoint>] main → Shell.run
 ├── Shell.fs                    # app shell: SDL3 + ImGui bring-up, the frame loop, teardown
 ├── narrative/                  # the narrative engine: events → facts → rules

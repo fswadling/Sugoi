@@ -3,7 +3,7 @@
 **Status**: Design. This document governs the editor's architecture, workspace,
 interaction model, and undo model. It is a port of `ocaml-game`'s editor design
 (`ocaml-game/docs/EDITOR_DESIGN.md` + the D-009…D-017/D-020/D-021 decisions) to
-F#, adapted to the fsharp-game roadmap and data model. It is built incrementally
+F#, adapted to the Sugoi roadmap and data model. It is built incrementally
 across the editor phases of `docs/ROADMAP.md`.
 
 ## Purpose

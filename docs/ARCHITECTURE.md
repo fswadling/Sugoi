@@ -1,6 +1,6 @@
 # Architecture
 
-This is the reference for `fsharp-game`'s data architecture, derived from
+This is the reference for `Sugoi`'s data architecture, derived from
 `odin-game`. The goal is to reproduce odin-game's data-oriented design in F#,
 leveraging F#'s structs and the GC rather than fighting them.
 
@@ -299,7 +299,7 @@ Two properties the design depends on:
   replaying the same event stream through the new rules, not editing the past;
   there is no way to assert a fact or to alter a committed event at all.
 
-`narrative/Roster.fs` is listed **first** among the narrative files in `fsharp-game.fsproj`, with the
+`narrative/Roster.fs` is listed **first** among the narrative files in `Sugoi.fsproj`, with the
 rest of `narrative/` after it and ahead of the game's own files. F# compiles in list order, so the roster
 sits low enough that the engine can see it, while the engine still cannot reference the game — a compile
 error rather than a convention. That is why the compile order departs from the `core → … → Engine` sequence

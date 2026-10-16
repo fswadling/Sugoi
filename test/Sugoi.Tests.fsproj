@@ -132,7 +132,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../fsharp-game.fsproj" />
+    <ProjectReference Include="../Sugoi.fsproj" />
   </ItemGroup>
 
 </Project>

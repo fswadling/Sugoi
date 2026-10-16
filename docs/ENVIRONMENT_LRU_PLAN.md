@@ -115,7 +115,7 @@ Lru.remove : Lru -> string -> unit
 Lru.tail   : Lru -> string option     // LRU victim
 ```
 
-Insert it after `core/SlotMap.fs` in `fsharp-game.fsproj` (before `world/assets/Assets.fs`).
+Insert it after `core/SlotMap.fs` in `Sugoi.fsproj` (before `world/assets/Assets.fs`).
 
 ### Capacity: a byte budget only
 

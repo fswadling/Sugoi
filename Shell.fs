@@ -22,7 +22,7 @@ let run () : int =
         1
     else
 
-    let window = SDL.CreateWindow("fsharp-game", 1280, 720, SDL.WindowFlags.Resizable)
+    let window = SDL.CreateWindow("Sugoi", 1280, 720, SDL.WindowFlags.Resizable)
 
     if window = IntPtr.Zero then
         do Diagnostics.reportf "SDL_CreateWindow failed: %s" (SDL.GetError())

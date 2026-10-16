@@ -37,7 +37,7 @@ including the GPU text engine (`TTF_CreateGPUTextEngine`,
 
 Unlike `libSDL3_image.so`, it needs no FreeType or any other transitive library —
 `ldd` reports only `libSDL3`, `libm`, `libgcc_s` and `libc` — so it is a single
-file with no second dependency to preload. `fsharp-game.fsproj`'s
+file with no second dependency to preload. `Sugoi.fsproj`'s
 `CopySdl3TtfLibrary` target copies it next to the apphost, as
 `CopySdl3ImageLibraries` does for the image library.
 

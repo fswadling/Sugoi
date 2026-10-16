@@ -491,9 +491,9 @@ How Nu does it (source-read of `Repos/Nu`, not measured):
 - **Draw-call instrumentation**: `Nu/Nu/Nu/OpenGL/OpenGL.Hl.fs`
   (`ReportDrawCall` / `GetDrawCallCount` / `GetDrawInstanceCount`).
 
-Mapping to fsharp-game:
+Mapping to Sugoi:
 
-| fsharp-game (now) | Nu |
+| Sugoi (now) | Nu |
 |---|---|
 | 1 instanced draw per unique submesh identity (521 → 191) | ~1 instanced draw per unique surface |
 | grouping rebuilt per frame (v1) | baked once at freeze for static hierarchies |

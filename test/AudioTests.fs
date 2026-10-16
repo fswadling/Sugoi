@@ -24,7 +24,7 @@ let private fakeContext (load: string -> SoundHandle) (probe: string -> unit) : 
 
 // A temp asset root with an `audio/` folder holding the given manifests (file name → text).
 let private audioRoot (manifests: (string * string) list) : DirectoryInfo =
-    let tmp = Directory.CreateTempSubdirectory "fsharp-game-audio-"
+    let tmp = Directory.CreateTempSubdirectory "sugoi-audio-"
     let dir = Directory.CreateDirectory(Path.Combine(tmp.FullName, "audio"))
     for (name, text) in manifests do
         File.WriteAllText(Path.Combine(dir.FullName, name), text)
@@ -110,7 +110,7 @@ let ``a manifest with no source file or an unknown class is skipped`` () =
 
 [<Fact>]
 let ``an absent audio folder yields no audio assets`` () =
-    let tmp = Directory.CreateTempSubdirectory "fsharp-game-audio-"
+    let tmp = Directory.CreateTempSubdirectory "sugoi-audio-"
     try
         let context, _ = fakeContext (fun _ -> 1n) (fun _ -> ())
         let manager = Assets.scan tmp.FullName 0n context
