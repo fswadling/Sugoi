@@ -40,7 +40,7 @@ let private simulateActors (dt: float32) (playing: bool) (zone: Zone.Zone) : uni
 // Advance non-render logic: refresh the camera aspect from the frame's window size, then hand the
 // frame's input to the editor (which owns the edit/play toggle, shortcuts, nudge, interaction, and
 // camera). The editor does not simulate, so it stays passive: the animation clock, the dialogue
-// dismiss and the player systems run only while playing. The play chain and the physics step
+// tick and the player systems run only while playing. The play chain and the physics step
 // therefore also run only while playing; each player system no-ops without a live bound player, so a
 // play session with no player still advances the world but drives no character. The one step that runs
 // in both modes is the actor step (spec 091), and it runs last — see its own comment.
@@ -62,9 +62,11 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
     do Zone.reconcileEnvironment (GameplayState.activeZone state) state.Physics shared.Assets
 
     if not state.Editing then
-        // The dialogue dismiss: while playing only, so the editor's SPACE is its own. Gated on a text
-        // field having focus too, because the editor's fields take the same keys (FR-008).
-        do Systems.dismissDialogue (Input.isPressed Input.Key.Space frame.Input) (ImGui.wantTextInput()) &state.Dialogue
+        let playTime = state.PlayTime + float frame.Dt
+        // The dialogue tick: while playing only, so the editor's SPACE is its own. Gated on a text
+        // field having focus too, because the editor's fields take the same keys (FR-003). The same
+        // play time feeds the cue below, so a timeout and a cue wait share one clock.
+        do Systems.updateDialogue (Input.isPressed Input.Key.Space frame.Input) (ImGui.wantTextInput()) playTime &state.Dialogue
         do Systems.playerInput state.Physics zone frame.Input frame.Dt
         do Physics.step state.Physics frame.Dt
         do Systems.syncActors state.Physics zone
@@ -79,8 +81,8 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
         // systems see, and the clock is frozen while the editor is open, so Play resumes a cue rather
         // than leaping it forward (FR-002). There is no start — the first play tick begins whatever
         // cue is set.
-        state.PlayTime <- state.PlayTime + float frame.Dt
-        CueEngine.tick shared &state state.PlayTime
+        state.PlayTime <- playTime
+        CueEngine.tick shared &state playTime
 
     // The actor step last, on the *current* active zone (a cue may have switched place this frame): the
     // blend then sees the weights the systems and the cue set, and the sway the positions

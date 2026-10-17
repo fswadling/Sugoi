@@ -53,6 +53,18 @@ let private library () : Registry =
           Cue = Sequence(Wait 1.0, FDeque.ofList [ Exposit("hello", Kind.Dialogue) ]) }
     setContents "Intro" (Some contents) (add "Draft" (create ()))
 
+/// A zone whose one trigger carries `cue`, so a cue alone can be put through the file.
+let private zoneWithCue (cue: Cue) : ScenarioZone =
+    { authoredZone () with
+        Triggers = [| { Base = entity "area"; Radius = 1.0f; Height = 1.0f; Interactable = true; Prompt = ""; Cue = cue } |] }
+
+/// Encode and decode `cue` as a registered scenario's trigger cue.
+let private cueRoundTrip (cue: Cue) : Cue =
+    let contents = { Zones = Map.ofList [ "start", zoneWithCue cue ]; Cue = Fin }
+    let registry = setContents "Intro" (Some contents) (create ())
+    let reloaded = Project.decode (Project.encode registry)
+    (Map.find "start" (Option.get (tryContents "Intro" reloaded)).Zones).Triggers.[0].Cue
+
 let private tempPath (stem: string) : string =
     Path.Combine(Path.GetTempPath(), sprintf "sugoi-%s-%s.manifest" stem (Guid.NewGuid().ToString "N"))
 
@@ -91,6 +103,29 @@ let ``a library round-trips through encode and decode, equal scenario for scenar
     Assert.Equal(None, main.Waypoints.[1].Next)
     Assert.Equal(1, Array.length main.Triggers)
     Assert.Equal(Exposit("hi", Kind.Dialogue), main.Triggers.[0].Cue)
+
+[<Fact>]
+let ``every dialogue ending shape round-trips, and the old exposit stays cue-managed`` () =
+    let cases =
+        [ Exposit("hi", Kind.Dialogue)
+          ExpositWith("hi", Kind.Dialogue, Set.empty, ValueNone)
+          ExpositWith("hi", Kind.Dialogue, Set.singleton ByPlayer, ValueNone)
+          ExpositWith("hi", Kind.Thought, Set.singleton ByTimeout, ValueSome 3.5)
+          ExpositWith("hi", Kind.Dialogue, Set.ofList [ ByPlayer; ByTimeout ], ValueSome 3.5)
+          ExpositWait("hi", Kind.Dialogue, Set.empty, ValueNone)
+          ExpositWait("hi", Kind.Dialogue, Set.singleton ByPlayer, ValueNone)
+          ExpositWait("hi", Kind.Dialogue, Set.ofList [ ByPlayer; ByTimeout ], ValueSome 3.5)
+          ExpositWaitState("hi", Kind.Dialogue, Set.empty, ValueNone)
+          ExpositWaitState("hi", Kind.Dialogue, Set.ofList [ ByPlayer; ByTimeout ], ValueSome 3.5)
+          CloseExposition ]
+
+    for cue in cases do
+        Assert.Equal(cue, cueRoundTrip cue)
+
+    // the two-argument form persisted by earlier projects is the empty set, exactly
+    match cueRoundTrip (Exposit("hi", Kind.Dialogue)) with
+    | Exposit (text, Kind.Dialogue) -> Assert.Equal("hi", text)
+    | other -> Assert.Fail(sprintf "the old Exposit decoded as %A" other)
 
 [<Fact>]
 let ``a captured scene round-trips`` () =

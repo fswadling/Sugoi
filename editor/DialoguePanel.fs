@@ -58,6 +58,13 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     let mutable shown = dialogue.Shown
     if ImGui.checkbox("Shown", &shown) then
         dialogue.Shown <- shown
+        if shown then dialogue.ShownAt <- state.PlayTime
+
+    // The same ending control the cue tree uses: the player and timeout conditions plus the timeout
+    // seconds. A cue can always close or replace the line, so that capability is not a toggle (spec 097).
+    let endings, timeout = CueTree.endingControls "dialogue" dialogue.Endings dialogue.Timeout
+    dialogue.Endings <- endings
+    dialogue.Timeout <- timeout
 
     if ImGui.beginCombo("Kind", kindName dialogue.Kind, 0) then
         if selectable "Dialogue" (dialogue.Kind = Kind.Dialogue) then

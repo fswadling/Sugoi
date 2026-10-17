@@ -215,13 +215,24 @@ let animate (zone: Zone.Zone) (input: Input.Input) : unit =
     do ActorRender.playClip &actor.Renderer (locomotionClip input)
 
 
-// ── Dialogue (spec 038) ──
+// ── Dialogue (spec 038, spec 097) ──
 
-// Clear a shown line when the dismiss key is pressed and no text field has focus, writing the state
-// in place; otherwise it is left as it is. Takes the state by reference as the other systems do,
-// and the rule is still a pure function of its two booleans and that state, so the timing rules are
-// assertable without a window (FR-008). The caller supplies `Input.isPressed Key.Space` and
-// `ImGui.wantTextInput()`.
-let dismissDialogue (pressed: bool) (textFocused: bool) (dialogue: byref<Dialogue.Dialogue>) : unit =
-    if dialogue.Shown && pressed && not textFocused then
+/// Whether a runtime ending holds now: `ByPlayer` on the dismiss edge, or `ByTimeout` when the
+/// elapsed play time reaches the line's duration. A cue close or replacement is outside this tick.
+/// Allocation-free: `Set.contains` over at most two elements and a `voption` match.
+let private endsNow (pressed: bool) (elapsed: float) (endings: Set<Dialogue.Ending>) (timeout: float voption) : bool =
+    (pressed && Set.contains Dialogue.ByPlayer endings) ||
+    (Set.contains Dialogue.ByTimeout endings &&
+     match timeout with
+     | ValueSome seconds -> elapsed >= seconds
+     | ValueNone -> false)
+
+/// End a shown line when one of its runtime conditions holds, writing the state in place. An
+/// empty set is left for the cue, which can always close or replace the line. The caller supplies
+/// `Input.isPressed Key.Space`, `ImGui.wantTextInput()` and the frame's play time.
+let updateDialogue (pressed: bool) (textFocused: bool) (now: float) (dialogue: byref<Dialogue.Dialogue>) : unit =
+    if not dialogue.Shown then () else
+
+    let elapsed = now - dialogue.ShownAt
+    if endsNow (pressed && not textFocused) elapsed dialogue.Endings dialogue.Timeout then
         dialogue.Shown <- false

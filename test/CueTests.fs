@@ -78,6 +78,14 @@ let private residentShared () : SharedState.SharedState =
       Rack = Music.newRack ()
       Voices = Sound.newVoices Audio.unavailable }
 
+/// A line's ending set and timeout as a test reads it: the author-facing summary, with the duration
+/// appended when one is set so a timeout without `ByTimeout` is still visible.
+let private describeEndings (endings: Set<Dialogue.Ending>) (timeout: float voption) : string =
+    let summary = Dialogue.summary endings timeout
+    match timeout with
+    | ValueSome seconds -> sprintf "%s@%g" summary seconds
+    | ValueNone -> summary
+
 /// The cue as a person (or the editor's panel) reads it. The in-flight `WaitState` renders as the `Wait`
 /// it came from: the view is what is left to run, and its front is the running op.
 let rec private describe (cue: Cue) : string =
@@ -92,6 +100,9 @@ let rec private describe (cue: Cue) : string =
     | FadeOut d | FadeOutState (_, d, _) -> sprintf "FadeOut %g" d
     | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
+    | ExpositWith (t, _, e, tm) -> sprintf "ExpositWith(%s,%s)" t (describeEndings e tm)
+    | ExpositWait (t, _, e, tm) | ExpositWaitState (t, _, e, tm) -> sprintf "ExpositWait(%s,%s)" t (describeEndings e tm)
+    | CloseExposition -> "CloseExposition"
     | Print t -> sprintf "Print(%s)" t
     | SetZone z -> sprintf "Zone(%s)" (z)
     | RemoveZone z -> sprintf "RemoveZone(%s)" (z)
@@ -230,6 +241,198 @@ let ``a portrait line whose speaker is unbound is written and does not block`` (
     tick shared &state 0.0
     Assert.Equal(portrait, state.Dialogue.Kind) // the op succeeded
     Assert.Equal("Seq[Wait 1]", describe state.Cue) // and the cue advanced past it
+
+// ══════ Story 2 (spec 097) — a cue writes a line and moves on, waits for it, or closes it ══════
+
+/// What a line the cue wrote should hold: shown at `shownAt` with the authored conditions.
+let private assertLine (text: string) (endings: Set<Dialogue.Ending>) (timeout: float voption) (shownAt: float) (line: Dialogue.Dialogue) : unit =
+    Assert.True line.Shown
+    Assert.Equal(text, line.Text)
+    Assert.Equal<Dialogue.Ending list>(Set.toList endings, Set.toList line.Endings)
+    Assert.Equal<float voption>(timeout, line.Timeout)
+    Assert.Equal(shownAt, line.ShownAt)
+
+[<Fact>]
+let ``an exposit writes the cue-managed line at the moment it is reached`` () =
+    let mutable state = withCue (seqOf [ Wait 1.0; Exposit("hello", Dialogue.Kind.Dialogue) ])
+    tick shared &state 0.0
+    Assert.False state.Dialogue.Shown
+
+    tick shared &state 1.0
+    assertLine "hello" Set.empty ValueNone 1.0 state.Dialogue
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``an exposit with writes any ending set and costs no time`` () =
+    let nonWaiting =
+        [ Set.empty, ValueNone
+          Set.singleton Dialogue.ByPlayer, ValueNone
+          Set.singleton Dialogue.ByTimeout, ValueSome 2.5
+          Set.ofList [ Dialogue.ByPlayer; Dialogue.ByTimeout ], ValueSome 2.5 ]
+
+    for (endings, timeout) in nonWaiting do
+        let mutable state = withCue (ExpositWith("hi", Dialogue.Kind.Thought, endings, timeout))
+        tick shared &state 4.0
+        assertLine "hi" endings timeout 4.0 state.Dialogue
+        Assert.Equal("Fin", describe state.Cue) // no progress of its own, so it is consumed by the step
+
+[<Fact>]
+let ``a waiting exposit holds the cue until the line goes`` () =
+    let mutable state = withCue (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone))
+    tick shared &state 0.0
+    assertLine "hi" (Set.singleton Dialogue.ByPlayer) ValueNone 0.0 state.Dialogue
+    Assert.Equal("ExpositWait(hi,player)", describe state.Cue)
+
+    // the authored op became its run state, and the line stays while it is shown
+    tick shared &state 5.0
+    Assert.Equal("ExpositWait(hi,player)", describe state.Cue)
+
+    do Systems.updateDialogue true false 5.0 &state.Dialogue
+    tick shared &state 6.0
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a waiting sequence advances to its next line on the tick the current line ends`` () =
+    // the dialogue tick runs before the cue tick in the play frame, so a close observed in this
+    // frame's updateDialogue lets the waiting op complete and the next line begin in the same tick
+    let cases =
+        [ Set.singleton Dialogue.ByPlayer, ValueNone, 0.0, true
+          Set.singleton Dialogue.ByTimeout, ValueSome 2.0, 2.0, false
+          Set.ofList [ Dialogue.ByPlayer; Dialogue.ByTimeout ], ValueSome 2.0, 2.0, false ]
+
+    for (endings, timeout, closeAt, press) in cases do
+        let mutable state =
+            withCue (seqOf [ ExpositWait("one", Dialogue.Kind.Dialogue, endings, timeout)
+                             ExpositWait("two", Dialogue.Kind.Dialogue, Set.empty, ValueNone) ])
+        tick shared &state 0.0
+        assertLine "one" endings timeout 0.0 state.Dialogue
+
+        do Systems.updateDialogue press false closeAt &state.Dialogue
+        Assert.False state.Dialogue.Shown
+
+        tick shared &state closeAt
+        assertLine "two" Set.empty ValueNone closeAt state.Dialogue
+        Assert.Equal("Seq[ExpositWait(two,cue)]", describe state.Cue)
+
+[<Fact>]
+let ``a waiting cue-managed line ignores the player and waits for an explicit close`` () =
+    let mutable state = withCue (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.empty, ValueNone))
+    tick shared &state 0.0
+
+    // the empty set has no runtime condition: the dismiss edge leaves both the line and the wait alone
+    do Systems.updateDialogue true false 1.0 &state.Dialogue
+    tick shared &state 1.0
+    assertLine "hi" Set.empty ValueNone 0.0 state.Dialogue
+    Assert.Equal("ExpositWait(hi,cue)", describe state.Cue)
+
+    // the cue's own close is its closer, and the waiting op observes it on the next step
+    state.Cue <- forkInto CloseExposition state.Cue
+    tick shared &state 2.0
+    Assert.False state.Dialogue.Shown
+    tick shared &state 3.0
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a close exposition op clears a line whatever its runtime conditions are`` () =
+    let lines =
+        [ Set.empty, ValueNone
+          Set.singleton Dialogue.ByPlayer, ValueNone
+          Set.singleton Dialogue.ByTimeout, ValueSome 100.0 ]
+
+    for (endings, timeout) in lines do
+        let mutable state = withCue (ExpositWith("hi", Dialogue.Kind.Dialogue, endings, timeout))
+        tick shared &state 0.0
+        Assert.True state.Dialogue.Shown
+
+        state.Cue <- CloseExposition
+        tick shared &state 0.5
+        Assert.False state.Dialogue.Shown
+        Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a replacement line keeps the waiting op waiting`` () =
+    // the wait is "the screen line is gone", not a line identity: a later write replaces `first` and the
+    // waiting op is still waiting on the replacement
+    let mutable state = withCue (Parallel(ExpositWait("first", Dialogue.Kind.Dialogue, Set.empty, ValueNone),
+                                          ExpositWith("second", Dialogue.Kind.Dialogue, Set.empty, ValueNone)))
+    tick shared &state 0.0
+    assertLine "second" Set.empty ValueNone 0.0 state.Dialogue
+    Assert.Equal("ExpositWait(first,cue)", describe state.Cue)
+
+    tick shared &state 1.0
+    Assert.Equal("ExpositWait(first,cue)", describe state.Cue) // the replacement did not release it
+
+    state.Cue <- forkInto CloseExposition state.Cue
+    tick shared &state 2.0
+    tick shared &state 3.0
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a parallel close before the waiting branch is consumed before the line exists`` () =
+    // `stepParallel` advances the left side first: a close on the left clears whatever was there, then the
+    // waiting op writes its line — so the line is shown and the wait continues
+    let mutable state = withCue (Parallel(CloseExposition, ExpositWait("hi", Dialogue.Kind.Dialogue, Set.empty, ValueNone)))
+    tick shared &state 0.0
+    Assert.True state.Dialogue.Shown
+    Assert.Equal("ExpositWait(hi,cue)", describe state.Cue)
+
+    tick shared &state 1.0
+    Assert.Equal("ExpositWait(hi,cue)", describe state.Cue)
+
+[<Fact>]
+let ``a parallel close after the waiting branch clears the line in the same tick, and the wait ends next tick`` () =
+    // the other order: the wait writes the line, then the close clears it in the same step. The waiting op
+    // already answered for this tick, so it observes the clear on the next one.
+    let mutable state = withCue (Parallel(ExpositWait("hi", Dialogue.Kind.Dialogue, Set.empty, ValueNone), CloseExposition))
+    tick shared &state 0.0
+    Assert.False state.Dialogue.Shown
+    Assert.Equal("ExpositWait(hi,cue)", describe state.Cue)
+
+    tick shared &state 1.0
+    Assert.Equal("Fin", describe state.Cue)
+
+[<Fact>]
+let ``a timed non-waiting line still clears after the cue is Fin`` () =
+    // the timer is screen state, not cue state: the cue is over, and the line still ends on its own
+    let mutable state = withCue (ExpositWith("bye", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByTimeout, ValueSome 2.0))
+    tick shared &state 0.0
+    Assert.Equal("Fin", describe state.Cue)
+    Assert.True state.Dialogue.Shown
+
+    do Systems.updateDialogue false false 1.999 &state.Dialogue
+    Assert.True state.Dialogue.Shown
+
+    do Systems.updateDialogue false false 2.0 &state.Dialogue
+    Assert.False state.Dialogue.Shown
+
+[<Fact>]
+let ``an idle waiting exposit allocates nothing per tick`` () =
+    let mutable state = withCue (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone))
+    tick shared &state 0.0
+    for _ in 1 .. 50 do tick shared &state 0.5
+
+    let before = GC.GetAllocatedBytesForCurrentThread()
+    for _ in 1 .. 2000 do tick shared &state 0.5
+    let bytes = GC.GetAllocatedBytesForCurrentThread() - before
+    Assert.Equal(0L, bytes)
+
+[<Fact>]
+let ``the dialogue tick with a closed or cue-managed line allocates nothing`` () =
+    let closed = { Dialogue.empty with Shown = false; Endings = Set.empty }
+    let mutable line = closed
+    for _ in 1 .. 100 do do Systems.updateDialogue false false 1.0 &line
+    let before = GC.GetAllocatedBytesForCurrentThread()
+    for _ in 1 .. 2000 do do Systems.updateDialogue false false 1.0 &line
+    let closedBytes = GC.GetAllocatedBytesForCurrentThread() - before
+    Assert.Equal(0L, closedBytes)
+
+    let cueManaged = { Dialogue.empty with Shown = true; Endings = Set.empty }
+    let mutable kept = cueManaged
+    for _ in 1 .. 100 do do Systems.updateDialogue true false 1.0 &kept
+    let before = GC.GetAllocatedBytesForCurrentThread()
+    for _ in 1 .. 2000 do do Systems.updateDialogue true false 1.0 &kept
+    let cueManagedBytes = GC.GetAllocatedBytesForCurrentThread() - before
+    Assert.Equal(0L, cueManagedBytes)
 
 [<Fact>]
 let ``an authored Fin in a sequence is skipped rather than stopping it`` () =

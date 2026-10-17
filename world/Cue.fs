@@ -4,14 +4,16 @@ module Cue
 // beside it: a cue *is* its own execution state, an immutable value that shrinks as it is stepped
 // down to `Fin` — what is left when a cue finishes, and where it then rolls.
 //
-// The ops with no progress of their own (`Exposit`, `Print`, `SetZone`, `AddZone`, `RemoveZone`, `PreloadZone`,
-// `AddActor`, `RemoveActor`, `EnablePlayer`, `DisablePlayer`, `EnableTrigger`, `DisableTrigger`, `SetCamera`,
-// `AddAdvent`, `RemoveAdvent`, `PlaySound`) hold no record; a leaf that spans time carries its numbers in its own `…State` case
-// (`WaitState`'s deadline, `FlyCameraState`'s resolved path, the fade states' captured level, `BlendState`'s
-// captured weights, `MoveActorState`'s spline, `RotateActorState`'s turn). So a case suffixed `State` appears
-// exactly where the run form holds something the authored form does not — the convention the reference lineage
-// uses (`wait` / `waitstate`), and FR-017's "a leaf op and its own state case". (`AwaitState` is the one
-// exception: it carries the same milestone name, existing only to mark a blocking op as begun — spec 056.)
+// The ops with no progress of their own (`Exposit`, `ExpositWith`, `CloseExposition`, `Print`, `SetZone`,
+// `AddZone`, `RemoveZone`, `PreloadZone`, `AddActor`, `RemoveActor`, `EnablePlayer`, `DisablePlayer`,
+// `EnableTrigger`, `DisableTrigger`, `SetCamera`, `AddAdvent`, `RemoveAdvent`, `PlaySound`) hold no record;
+// a leaf that spans time carries its numbers in its own `…State` case (`WaitState`'s deadline,
+// `FlyCameraState`'s resolved path, the fade states' captured level, `BlendState`'s captured weights,
+// `MoveActorState`'s spline, `RotateActorState`'s turn, `ExpositWaitState`'s line). So a case suffixed
+// `State` appears exactly where the run form holds something the authored form does not — the convention
+// the reference lineage uses (`wait` / `waitstate`), and FR-017's "a leaf op and its own state case".
+// (`AwaitState` is the one exception: it carries the same milestone name, existing only to mark a
+// blocking op as begun — spec 056.)
 //
 // Neither names a zone, a screen, an asset or a device: this module depends on `Prime` (for
 // `FDeque`), `System.Numerics`, `Dialogue` (the closed presentation union) and `SlotMap` (its
@@ -51,7 +53,17 @@ type Cue =
     // with a speaker and an expression — the closed `Dialogue.Kind`, so a mis-spelled speaker or
     // expression is unrepresentable and a portrait line always carries both. The view resolves the
     // portrait at draw time (`world/render/DialogueRender.fs`); the op names a character, not an asset.
+    // `Exposit` keeps its two-argument form so persisted projects decode; it writes the empty ending
+    // set with `ValueNone`, which means the cue owns the line's end. The ending set and timeout are
+    // the spec-097 additions: `ByPlayer`/`ByTimeout` are runtime conditions, the timeout's duration
+    // is data on the line rather than part of `ByTimeout`, and a cue can always close or replace a
+    // line. `ExpositWith` is the general non-waiting form, `ExpositWait`/`ExpositWaitState` are the
+    // waiting leaf/state pair, and `CloseExposition` clears a line.
     | Exposit of text: string * kind: Dialogue.Kind
+    | ExpositWith of text: string * kind: Dialogue.Kind * endings: Set<Dialogue.Ending> * timeout: float voption
+    | ExpositWait of text: string * kind: Dialogue.Kind * endings: Set<Dialogue.Ending> * timeout: float voption
+    | ExpositWaitState of text: string * kind: Dialogue.Kind * endings: Set<Dialogue.Ending> * timeout: float voption
+    | CloseExposition
     // Print (spec 067): a developer-facing line written to the console where the walk reaches it — a no-progress
     // leaf, distinct from `Exposit`'s player-facing dialogue (spec 057).
     | Print of text: string

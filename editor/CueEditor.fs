@@ -221,8 +221,9 @@ let private drawPickCombo
 /// Draw the editor for `path`'s node after `drawEditor`: the waypoint/path ops choose from the active zone's
 /// waypoints, the clip/morph fields choose from the character's asset's names (a combo) or are typed when the
 /// asset does not resolve, and the two-name ops (a cross-fade, a move) draw a second field. `onCommit` is handed
-/// the next cue. A node that carries a name is never executing, so this needs no lock check. Returns the two
-/// fields' `(path, editing)` pairs for the caller to store.
+/// the next cue. A node whose text this draws is never executing (`ExpositWaitState` is excluded from
+/// `textOf`), so this needs no lock check. Returns the two fields' `(path, editing)` pairs for the caller to
+/// store.
 let private drawNodeText
     (assets: Assets.AssetManager)
     (activeZone: Zone.Zone)

@@ -100,41 +100,176 @@ let ``an absent Portraits block parses to a default set, not null`` () =
     Assert.True(System.String.IsNullOrEmpty manifest.Portraits.Neutral)
     Assert.True(System.String.IsNullOrEmpty manifest.Portraits.Surprised)
 
-// ── The dismiss rule (FR-008, SC-004) ──
+// ── The ending rules (FR-001..FR-007, SC-001..SC-004) ──
 
 let private shown : Dialogue.Dialogue =
-    { Shown = true; Kind = Dialogue.Kind.PortraitDialogue ("Akane", Dialogue.Sad); Text = "hello" }
+    { Shown = true
+      Kind = Dialogue.Kind.PortraitDialogue ("Akane", Dialogue.Sad)
+      Text = "hello"
+      Endings = Set.singleton Dialogue.ByPlayer
+      Timeout = ValueNone
+      ShownAt = 0.0 }
+
+let private at (shownAt: float) (endings: Set<Dialogue.Ending>) (timeout: float voption) : Dialogue.Dialogue =
+    { shown with ShownAt = shownAt; Endings = endings; Timeout = timeout }
 
 [<Fact>]
-let ``a shown line clears only when the key is pressed and no field has focus`` () =
-    let mutable cleared = shown
-    do Systems.dismissDialogue true false &cleared
-    Assert.False(cleared.Shown)
+let ``a player-ending line clears on the dismiss edge only`` () =
+    let mutable pressed = at 0.0 (Set.singleton Dialogue.ByPlayer) ValueNone
+    do Systems.updateDialogue true false 0.0 &pressed
+    Assert.False(pressed.Shown)
 
-    let mutable focused = shown
-    do Systems.dismissDialogue true true &focused
+    let mutable focused = at 0.0 (Set.singleton Dialogue.ByPlayer) ValueNone
+    do Systems.updateDialogue true true 0.0 &focused
     Assert.True(focused.Shown)
 
-    let mutable idle = shown
-    do Systems.dismissDialogue false false &idle
+    let mutable idle = at 0.0 (Set.singleton Dialogue.ByPlayer) ValueNone
+    do Systems.updateDialogue false false 0.0 &idle
     Assert.True(idle.Shown)
+
+[<Fact>]
+let ``the empty set ignores the dismiss edge and time`` () =
+    let mutable line = at 0.0 Set.empty ValueNone
+    do Systems.updateDialogue true false 100.0 &line
+    Assert.True(line.Shown)
+    do Systems.updateDialogue false false 1000000.0 &line
+    Assert.True(line.Shown)
+
+[<Fact>]
+let ``a timeout line clears at its duration and ignores the dismiss edge`` () =
+    let mutable early = at 10.0 (Set.singleton Dialogue.ByTimeout) (ValueSome 2.0)
+    do Systems.updateDialogue true false 11.99 &early
+    Assert.True(early.Shown)
+
+    let mutable due = at 10.0 (Set.singleton Dialogue.ByTimeout) (ValueSome 2.0)
+    do Systems.updateDialogue false false 12.0 &due
+    Assert.False(due.Shown)
+
+    let mutable pressed = at 10.0 (Set.singleton Dialogue.ByTimeout) (ValueSome 2.0)
+    do Systems.updateDialogue true false 10.5 &pressed
+    Assert.True(pressed.Shown)
+
+[<Fact>]
+let ``a player-or-timeout line ends on whichever comes first`` () =
+    let endings = Set.ofList [ Dialogue.ByPlayer; Dialogue.ByTimeout ]
+    let mutable byPress = at 10.0 endings (ValueSome 2.0)
+    do Systems.updateDialogue true false 10.5 &byPress
+    Assert.False(byPress.Shown)
+
+    let mutable byTime = at 10.0 endings (ValueSome 2.0)
+    do Systems.updateDialogue false false 12.0 &byTime
+    Assert.False(byTime.Shown)
+
+[<Fact>]
+let ``the focus gate suppresses only the player condition`` () =
+    let mutable playerFocused = at 10.0 (Set.singleton Dialogue.ByPlayer) ValueNone
+    do Systems.updateDialogue true true 10.0 &playerFocused
+    Assert.True(playerFocused.Shown)
+
+    let mutable timeoutFocused = at 10.0 (Set.singleton Dialogue.ByTimeout) (ValueSome 1.0)
+    do Systems.updateDialogue false true 11.0 &timeoutFocused
+    Assert.False(timeoutFocused.Shown)
+
+[<Fact>]
+let ``an empty ending set never clears`` () =
+    let mutable line = at 0.0 Set.empty ValueNone
+    do Systems.updateDialogue true false 1000000.0 &line
+    Assert.True(line.Shown)
+
+[<Fact>]
+let ``a non-positive timeout clears on the next check`` () =
+    let mutable zero = at 10.0 (Set.singleton Dialogue.ByTimeout) (ValueSome 0.0)
+    do Systems.updateDialogue false false 10.0 &zero
+    Assert.False(zero.Shown)
+
+    let mutable negative = at 10.0 (Set.singleton Dialogue.ByTimeout) (ValueSome -1.0)
+    do Systems.updateDialogue false false 10.0 &negative
+    Assert.False(negative.Shown)
+
+[<Fact>]
+let ``a ByTimeout without a duration never times out`` () =
+    let mutable line = at 10.0 (Set.singleton Dialogue.ByTimeout) ValueNone
+    do Systems.updateDialogue false false 1000.0 &line
+    Assert.True(line.Shown)
+
+[<Fact>]
+let ``retiming measures from the original show time`` () =
+    let mutable line = at 10.0 (Set.singleton Dialogue.ByTimeout) (ValueSome 10.0)
+    do Systems.updateDialogue false false 14.0 &line
+    Assert.True(line.Shown)
+
+    // Four seconds already elapsed; a shorter duration counts them.
+    line.Timeout <- ValueSome 3.0
+    do Systems.updateDialogue false false 14.0 &line
+    Assert.False(line.Shown)
+
+[<Fact>]
+let ``a portrait miss still honours its ending`` () =
+    // `shown` is a portrait line; the runtime tick never consults the view, so an unresolvable
+    // portrait cannot stop a player ending (FR-018).
+    let mutable line = at 0.0 (Set.singleton Dialogue.ByPlayer) ValueNone
+    do Systems.updateDialogue true false 0.0 &line
+    Assert.False(line.Shown)
 
 [<Fact>]
 let ``pressing with nothing shown changes nothing`` () =
     let mutable pressed = Dialogue.empty
-    do Systems.dismissDialogue true false &pressed
+    do Systems.updateDialogue true false 0.0 &pressed
     Assert.False(pressed.Shown)
 
     let mutable idle = Dialogue.empty
-    do Systems.dismissDialogue false false &idle
+    do Systems.updateDialogue false false 0.0 &idle
     Assert.False(idle.Shown)
 
 [<Fact>]
 let ``a frame with no press leaves a shown line shown`` () =
     let mutable kept = shown
-    do Systems.dismissDialogue false false &kept
+    do Systems.updateDialogue false false 0.0 &kept
     Assert.True(kept.Shown)
     Assert.Equal(shown.Text, kept.Text)
+
+[<Fact>]
+let ``the dialogue tick allocates nothing`` () =
+    let mutable line = at 0.0 (Set.ofList [ Dialogue.ByPlayer; Dialogue.ByTimeout ]) (ValueSome 10.0)
+    for _ in 1 .. 100 do do Systems.updateDialogue false false 1.0 &line
+    let before = System.GC.GetAllocatedBytesForCurrentThread()
+    for _ in 1 .. 2000 do do Systems.updateDialogue false false 1.0 &line
+    let after = System.GC.GetAllocatedBytesForCurrentThread()
+    Assert.Equal(0L, after - before)
+
+[<Fact>]
+let ``the dialogue tick with nothing shown allocates nothing`` () =
+    let mutable line = Dialogue.empty
+    for _ in 1 .. 100 do do Systems.updateDialogue false false 1.0 &line
+    let before = System.GC.GetAllocatedBytesForCurrentThread()
+    for _ in 1 .. 2000 do do Systems.updateDialogue false false 1.0 &line
+    let after = System.GC.GetAllocatedBytesForCurrentThread()
+    Assert.Equal(0L, after - before)
+
+// ── The ending helpers (FR-001, FR-017) ──
+
+[<Fact>]
+let ``ending helpers combine and summarise`` () =
+    Assert.True(Dialogue.playerCloses (Set.singleton Dialogue.ByPlayer))
+    Assert.False(Dialogue.playerCloses Set.empty)
+    Assert.True(Dialogue.timed (Set.singleton Dialogue.ByTimeout))
+    Assert.False(Dialogue.timed Set.empty)
+
+    Assert.Equal<Dialogue.Ending list>([ Dialogue.ByPlayer ], Set.toList (Dialogue.withPlayer true Set.empty))
+    Assert.Equal<Dialogue.Ending list>([], Set.toList (Dialogue.withPlayer false (Set.singleton Dialogue.ByPlayer)))
+    Assert.Equal<Dialogue.Ending list>([ Dialogue.ByTimeout ], Set.toList (Dialogue.withTimeout true Set.empty))
+    Assert.Equal<Dialogue.Ending list>([], Set.toList (Dialogue.withTimeout false (Set.singleton Dialogue.ByTimeout)))
+
+    Assert.Equal("cue", Dialogue.summary Set.empty ValueNone)
+    Assert.Equal("player", Dialogue.summary (Set.singleton Dialogue.ByPlayer) ValueNone)
+    Assert.Equal("3.5s", Dialogue.summary (Set.singleton Dialogue.ByTimeout) (ValueSome 3.5))
+    Assert.Equal("player or 3.5s", Dialogue.summary (Set.ofList [ Dialogue.ByPlayer; Dialogue.ByTimeout ]) (ValueSome 3.5))
+
+[<Fact>]
+let ``the empty dialogue defaults to a dismissible hand-shown line`` () =
+    Assert.False(Dialogue.empty.Shown)
+    Assert.Equal<Dialogue.Ending list>([ Dialogue.ByPlayer ], Set.toList Dialogue.empty.Endings)
+    Assert.Equal<float voption>(ValueNone, Dialogue.empty.Timeout)
 
 // ── A draw-time portrait miss is reported, not raised (FR-005, FR-006, SC-002) ──
 

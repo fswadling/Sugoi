@@ -4,8 +4,8 @@ module CueTree
 // children indented beneath it — with what is executing read-only (except that any `Sequence` takes an addition,
 // whose tail is ahead of the running op) and what is still to run editable.
 //
-// It names `Cue`, `Prime` and `ImGui` and nothing else: no `GameplayState`, no `EditorState`, no `Command`,
-// no zone and no asset. That is what lets a trigger's cue (phase 10) and a scenario's cue (phase 11) draw it
+// It names `Cue`, `Dialogue`, `Prime` and `ImGui` and nothing else: no `GameplayState`, no `EditorState`,
+// no `Command`, no zone and no asset. That is what lets a trigger's cue (phase 10) and a scenario's cue (phase 11) draw it
 // (`FR-006`), and it is why a zone name is typed into a field rather than chosen from a list.
 //
 // The readable half is pure — `rows`, `executing` and the path helpers — so what the author is told, and
@@ -46,11 +46,11 @@ type Row =
 /// structure or an op that has not begun. A suite can therefore assert the lock with no device.
 let rec executing (cue: Cue) : bool =
     match cue with
-    | WaitState _ | FlyCameraState _ | FadeOutState _ | FadeInState _ | AwaitState _ | BlendState _ | MoveActorState _ | RotateActorState _ | MusicLevelState _ | MusicMasterState _ | CrossFadeMusicState _ -> true
+    | WaitState _ | FlyCameraState _ | FadeOutState _ | FadeInState _ | AwaitState _ | ExpositWaitState _ | BlendState _ | MoveActorState _ | RotateActorState _ | MusicLevelState _ | MusicMasterState _ | CrossFadeMusicState _ -> true
     | Sequence (current, _) -> executing current
     | Parallel (left, right) -> executing left || executing right
     | Fork inner -> executing inner
-    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | Print _ | SetZone _ | RemoveZone _
+    | Fin | Wait _ | FadeOut _ | FadeIn _ | Exposit _ | ExpositWith _ | ExpositWait _ | CloseExposition | Print _ | SetZone _ | RemoveZone _
     | AddActor _ | RemoveActor _ | Animate _ | CrossFadeAnimation _ | Morph _ | CrossFadeMorph _ | MoveActor _ | RotateActor _
     | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
     | SetCamera _ | FlyCamera _ | AddAdvent _ | RemoveAdvent _ | Await _ | If _ | ForkScenario _
@@ -85,7 +85,10 @@ let private label (cue: Cue) : string =
     | WaitState (seconds, _) -> sprintf "Wait %g" seconds
     | FadeOut duration | FadeOutState (_, duration, _) -> sprintf "Fade out %g" duration
     | FadeIn duration | FadeInState (_, duration, _) -> sprintf "Fade in %g" duration
-    | Exposit (text, _) -> "Exposit: " + text
+    | Exposit (text, _) -> sprintf "Exposit: %s [%s]" text (Dialogue.summary Set.empty ValueNone)
+    | ExpositWith (text, _, endings, timeout) -> sprintf "Exposit: %s [%s]" text (Dialogue.summary endings timeout)
+    | ExpositWait (text, _, endings, timeout) | ExpositWaitState (text, _, endings, timeout) -> sprintf "Exposit (wait): %s [%s]" text (Dialogue.summary endings timeout)
+    | CloseExposition -> "Close exposition"
     | SetZone place -> "Zone: " + place
     | RemoveZone place -> "Remove zone: " + place
     | ForkScenario scenario -> if scenario = "" then "Fork scenario" else "Fork scenario: " + scenario
@@ -135,7 +138,7 @@ let children (cue: Cue) : Cue list =
     | Parallel (left, right) -> [ left; right ]
     | Fork inner -> [ inner ]
     | If (_, thenCue, elseCue) -> [ thenCue; elseCue ]
-    | Fin | Wait _ | WaitState _ | FadeOut _ | FadeIn _ | FadeOutState _ | FadeInState _ | Exposit _
+    | Fin | Wait _ | WaitState _ | FadeOut _ | FadeIn _ | FadeOutState _ | FadeInState _ | Exposit _ | ExpositWith _ | ExpositWait _ | ExpositWaitState _ | CloseExposition
     | SetZone _ | RemoveZone _ | AddActor _ | RemoveActor _ | SetCamera _
     | Animate _ | CrossFadeAnimation _ | Morph _ | CrossFadeMorph _ | BlendState _ | MoveActor _ | MoveActorState _
     | RotateActor _ | RotateActorState _ | EnablePlayer _ | DisablePlayer _ | EnableTrigger _ | DisableTrigger _
@@ -271,7 +274,7 @@ let canAppend (path: int list) (cue: Cue) : bool =
 let private kinds : (string * string list) array = [|
     "Structure", [ "Fin"; "Sequence"; "Parallel"; "Fork" ]
     "Timing",    [ "Wait"; "Fade out"; "Fade in" ]
-    "Dialogue",  [ "Exposit" ]
+    "Dialogue",  [ "Exposit"; "Exposit (wait)"; "Close exposition" ]
     "Zones",     [ "Set zone"; "Remove zone" ]
     "Actors",    [ "Add actor"; "Remove actor"; "Move actor"; "Rotate actor"; "Enable player"; "Disable player" ]
     "Animation", [ "Animate"; "Cross fade animation"; "Morph"; "Cross fade morph" ]
@@ -295,7 +298,9 @@ let private kindName (cue: Cue) : string =
     | Wait _ | WaitState _ -> "Wait"
     | FadeOut _ | FadeOutState _ -> "Fade out"
     | FadeIn _ | FadeInState _ -> "Fade in"
-    | Exposit _ -> "Exposit"
+    | Exposit _ | ExpositWith _ -> "Exposit"
+    | ExpositWait _ | ExpositWaitState _ -> "Exposit (wait)"
+    | CloseExposition -> "Close exposition"
     | Print _ -> "Print"
     | SetZone _ -> "Set zone"
     | RemoveZone _ -> "Remove zone"
@@ -345,6 +350,8 @@ let defaultOfKind (place: string) (kind: string) : Cue =
     | "Fade out" -> FadeOut 1.0
     | "Fade in" -> FadeIn 1.0
     | "Exposit" -> Exposit("", Dialogue.Kind.Dialogue)
+    | "Exposit (wait)" -> ExpositWait("", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone)
+    | "Close exposition" -> CloseExposition
     | "Print" -> Print ""
     | "Set zone" -> SetZone place
     | "Remove zone" -> RemoveZone place
@@ -387,7 +394,7 @@ let defaultOfKind (place: string) (kind: string) : Cue =
 /// so a caller drawing this field needs no lock check of its own.
 let textOf (cue: Cue) : string voption =
     match cue with
-    | Exposit (text, _) -> ValueSome text
+    | Exposit (text, _) | ExpositWith (text, _, _, _) | ExpositWait (text, _, _, _) -> ValueSome text
     | Print text -> ValueSome text
     | AddActor (_, actor, _, _) -> ValueSome actor
     | Animate (_, _, clip, _, _) -> ValueSome clip
@@ -414,6 +421,8 @@ let textOf2 (cue: Cue) : string voption =
 let withText (cue: Cue) (text: string) : Cue =
     match cue with
     | Exposit (_, kind) -> Exposit(text, kind)
+    | ExpositWith (_, kind, endings, timeout) -> ExpositWith(text, kind, endings, timeout)
+    | ExpositWait (_, kind, endings, timeout) -> ExpositWait(text, kind, endings, timeout)
     | Print _ -> Print text
     | AddActor (place, _, asset, waypoint) -> AddActor(place, text, asset, waypoint)
     | Animate (place, actor, _, weight, duration) -> Animate(place, actor, text, weight, duration)
@@ -458,7 +467,25 @@ let withTrigger (name: string) (cue: Cue) : Cue =
 let withExpositKind (kind: Dialogue.Kind) (cue: Cue) : Cue =
     match cue with
     | Exposit (text, _) -> Exposit(text, kind)
+    | ExpositWith (text, _, endings, timeout) -> ExpositWith(text, kind, endings, timeout)
+    | ExpositWait (text, _, endings, timeout) -> ExpositWait(text, kind, endings, timeout)
     | _ -> invalidOp (sprintf "CueTree: a %s carries no presentation" (label cue))
+
+/// The node with its ending set and timeout replaced — the write the ending control commits. The
+/// editor normalises the empty set with `ValueNone` back to the two-argument `Exposit`.
+let withEndings (endings: Set<Dialogue.Ending>) (timeout: float voption) (cue: Cue) : Cue =
+    let plain =
+        Set.isEmpty endings &&
+        (match timeout with
+         | ValueNone -> true
+         | ValueSome _ -> false)
+    match cue with
+    | Exposit (text, kind) ->
+        if plain then Exposit(text, kind) else ExpositWith(text, kind, endings, timeout)
+    | ExpositWith (text, kind, _, _) ->
+        if plain then Exposit(text, kind) else ExpositWith(text, kind, endings, timeout)
+    | ExpositWait (text, kind, _, _) -> ExpositWait(text, kind, endings, timeout)
+    | _ -> invalidOp (sprintf "CueTree: a %s carries no ending" (label cue))
 
 /// The node with its milestone replaced — the write the chooser commits. Only the advent ops carry one.
 let private withAdvent (advent: string) (cue: Cue) : Cue =
@@ -584,6 +611,40 @@ let private dragNumber (idBase: string) (label: string) (value: float32) (onComm
     let mutable edited = value
     do ImGui.dragFloat(label + "##" + idBase, &edited, 0.05f, -10000.0f, 10000.0f, "%.2f", 0) |> ignore
     if ImGui.isItemDeactivatedAfterEdit() && edited <> value then onCommit edited
+
+/// The shared ending control: the player and timeout conditions plus the timeout seconds. Returns
+/// the next set and timeout; the caller commits or assigns. A cue can always close or replace a line,
+/// so that capability is stated unconditionally rather than offered as a toggle.
+let endingControls (idSuffix: string) (endings: Set<Dialogue.Ending>) (timeout: float voption) : Set<Dialogue.Ending> * float voption =
+    let mutable nextEndings = endings
+    let mutable nextTimeout =
+        if Dialogue.timed endings then
+            match timeout with
+            | ValueSome _ -> timeout
+            | ValueNone -> ValueSome 3.0
+        else ValueNone
+
+    let mutable player = Dialogue.playerCloses endings
+    if ImGui.checkbox("Player can close##" + idSuffix, &player) then
+        nextEndings <- Dialogue.withPlayer player nextEndings
+
+    let mutable timed = Dialogue.timed endings
+    if ImGui.checkbox("Closes after##" + idSuffix, &timed) then
+        nextEndings <- Dialogue.withTimeout timed nextEndings
+        nextTimeout <- if timed then ValueSome 3.0 else ValueNone
+
+    if Dialogue.timed nextEndings then
+        let current =
+            match nextTimeout with
+            | ValueSome seconds -> seconds
+            | ValueNone -> 3.0
+        let mutable edited = float32 current
+        do ImGui.dragFloat("Seconds##" + idSuffix, &edited, 0.05f, 0.0f, 10000.0f, "%.2f", 0) |> ignore
+        if ImGui.isItemDeactivatedAfterEdit() && float edited <> current then
+            nextTimeout <- ValueSome(float edited)
+
+    do ImGui.text("A cue can always close or replace this line.")
+    nextEndings, nextTimeout
 
 /// Whether `name` is offered for `filter`: a case-insensitive substring match. An empty filter offers every
 /// name, which is what an unfiltered dropdown shows. Pure, so it is asserted headlessly (spec 068).
@@ -753,7 +814,7 @@ let drawEditor
             filteredNameCombo filter ("Advent##" + idBase) advent advents advent (fun candidate ->
                 do commit (withAt selection (withAdvent (Advent.normalise candidate) node) cue))
 
-        | Exposit (_, kind) ->
+        | Exposit (_, kind) | ExpositWith (_, kind, _, _) | ExpositWait (_, kind, _, _) ->
             // the presentation, chosen from the closed vocabularies: the expression is closed, and the speaker
             // is a plain string offered from the discovered actor names (`specs/074`), so neither needs a zone
             // or a placed actor. Re-choosing the current kind must not clobber a portrait pair, so the kind is
@@ -781,6 +842,16 @@ let drawEditor
                 filteredCombo filter ("Expression##" + idBase) (Dialogue.emotionName emotion) Dialogue.emotions Dialogue.emotionName emotion (fun candidate ->
                     do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(speaker, candidate)) node) cue))
             | _ -> ()
+
+            // the ending set and timeout: one accepted change is one `SetCue` step
+            let endings, timeout =
+                match node with
+                | Exposit _ -> Set.empty, ValueNone
+                | ExpositWith (_, _, e, t) | ExpositWait (_, _, e, t) -> e, t
+                | _ -> Set.empty, ValueNone
+            let nextEndings, nextTimeout = endingControls idBase endings timeout
+            if nextEndings <> endings || nextTimeout <> timeout then
+                do commit (withAt selection (withEndings nextEndings nextTimeout node) cue)
 
         | SetZone _ | RemoveZone _ | AddActor _ | RemoveActor _ ->
             // the place is drawn above (spec 075); an `AddActor`/`RemoveActor` name and asset are the caller's
@@ -842,6 +913,7 @@ let drawEditor
             ()
 
         | Fin | Sequence _ | Parallel _ | Fork _ | SetCamera _ | Print _ | FlyCameraState _ | BlendState _ | MoveActorState _ | RotateActorState _ | ForkScenario _
+        | ExpositWith _ | ExpositWait _ | ExpositWaitState _ | CloseExposition
         | AddMusic _ | RemoveMusic _ | PlayMusic _ | StopMusic _ | PlayBed | StopBed | PlaySound _ ->
             // no numbers of their own. `SetCamera` and `Print` carry text (the caller's field edits it) and a
             // `FlyCamera` carries its path and speed above; a place-carrying op's place is chosen above; a

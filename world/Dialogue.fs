@@ -47,18 +47,67 @@ type Kind =
     | Dialogue
     | Thought
 
+/// One runtime condition that may end a shown line (spec 097). The cases are data-free so a real
+/// `Set<Ending>` works; the timeout's duration is not part of `ByTimeout` — it lives in
+/// `Dialogue.Timeout` and is meaningful only when `ByTimeout` is in the set.
+///
+/// Closing a line from a cue is not a member: a hide or a replacement always works, whatever the set
+/// says. The empty set therefore means the cue owns the line's end, not that the line cannot close.
+type Ending =
+    | ByPlayer
+    | ByTimeout
+
 /// What the dialogue layer is showing. Runtime screen state on `GameplayState`: never
 /// authored into a manifest, never persisted, never carried by an entity's captured
 /// state. `Shown` is the only field that decides visibility, so there is nothing that
 /// can disagree with it.
 [<Struct>]
 type Dialogue =
-    { /// On screen. The player clears it; whatever delivers lines waits for that.
+    { /// On screen. The player or a cue clears it; whatever delivers lines waits for that.
       mutable Shown : bool
       /// The line. `Text` is the whole line — there is no reveal progress and no timer.
       mutable Kind : Kind
-      mutable Text : string }
+      mutable Text : string
+      /// The runtime conditions that may end the line. Either, both, or neither; the empty set
+      /// means the cue owns the line's end and a hide or replacement always works.
+      mutable Endings : Set<Ending>
+      /// The duration when `ByTimeout` is in `Endings`; `ValueNone` otherwise.
+      mutable Timeout : float voption
+      /// Play time at which the line was shown; the timeout is measured from here.
+      mutable ShownAt : float }
 
 /// Nothing shown — the default, so a fresh screen draws exactly what it drew before this
-/// feature existed (FR-003).
-let empty : Dialogue = { Shown = false; Kind = Kind.Dialogue; Text = "" }
+/// feature existed (FR-003). A line shown by hand stays dismissible, as it is today.
+let empty : Dialogue =
+    { Shown = false
+      Kind = Kind.Dialogue
+      Text = ""
+      Endings = Set.singleton ByPlayer
+      Timeout = ValueNone
+      ShownAt = 0.0 }
+
+// ── ending conditions ──
+
+/// Whether the player may end the line with the dismiss control.
+let playerCloses (endings: Set<Ending>) : bool = Set.contains ByPlayer endings
+
+/// Whether a timeout is one of the line's conditions.
+let timed (endings: Set<Ending>) : bool = Set.contains ByTimeout endings
+
+/// The set with the player condition added or removed.
+let withPlayer (on: bool) (endings: Set<Ending>) : Set<Ending> =
+    if on then Set.add ByPlayer endings else Set.remove ByPlayer endings
+
+/// The set with the timeout condition added or removed. The duration lives in `Dialogue.Timeout`.
+let withTimeout (on: bool) (endings: Set<Ending>) : Set<Ending> =
+    if on then Set.add ByTimeout endings else Set.remove ByTimeout endings
+
+/// A short author-facing summary: "cue" for the empty set (cue-managed), otherwise the present
+/// runtime labels joined with " or" — "player", "3.5s", "player or 3.5s".
+let summary (endings: Set<Ending>) (timeout: float voption) : string =
+    let parts =
+        [ if playerCloses endings then yield "player"
+          match timeout with
+          | ValueSome seconds when timed endings -> yield sprintf "%gs" seconds
+          | _ -> () ]
+    if List.isEmpty parts then "cue" else String.concat " or " parts

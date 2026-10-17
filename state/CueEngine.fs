@@ -20,10 +20,13 @@ open SlotMap
 
 // ── The ops' effects, performed where the walk reaches them ──
 
-let private exposit (state: byref<GameplayState.GameplayState>) (text: string) (kind: Dialogue.Kind) : unit =
+let private exposit (now: float) (endings: Set<Dialogue.Ending>) (timeout: float voption) (state: byref<GameplayState.GameplayState>) (text: string) (kind: Dialogue.Kind) : unit =
     state.Dialogue.Shown <- true
     state.Dialogue.Kind <- kind
     state.Dialogue.Text <- text
+    state.Dialogue.Endings <- endings
+    state.Dialogue.Timeout <- timeout
+    state.Dialogue.ShownAt <- now
 
 // ── Camera ops (spec 054) ──
 
@@ -575,7 +578,19 @@ let rec advance
     match cue with
     | Fin -> ValueSome Fin // nothing left, and it stays nothing left — the fixed point, and still a *value*
     | Exposit (text, kind) ->
-        exposit &state text kind
+        exposit now Set.empty ValueNone &state text kind
+        ValueSome Fin // no progress of its own: performed here and gone
+    | ExpositWith (text, kind, endings, timeout) ->
+        exposit now endings timeout &state text kind
+        ValueSome Fin
+    | ExpositWait (text, kind, endings, timeout) ->
+        exposit now endings timeout &state text kind
+        ValueSome (ExpositWaitState(text, kind, endings, timeout))
+    | ExpositWaitState _ ->
+        // the wait is the screen line, not a line identity: a replacement keeps it waiting
+        if state.Dialogue.Shown then ValueNone else ValueSome Fin
+    | CloseExposition ->
+        state.Dialogue.Shown <- false
         ValueSome Fin // no progress of its own: performed here and gone
     | Print text ->
         printfn "cue: %s" text

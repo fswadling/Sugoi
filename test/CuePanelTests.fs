@@ -36,6 +36,14 @@ let private seqOf (cues: Cue list) : Cue =
     | [ only ] -> only
     | head :: tail -> Sequence(head, FDeque.ofList tail)
 
+/// A line's ending set and timeout as a test reads it: the author-facing summary, with the duration
+/// appended when one is set so a timeout without `ByTimeout` is still visible.
+let private describeEndings (endings: Set<Dialogue.Ending>) (timeout: float voption) : string =
+    let summary = Dialogue.summary endings timeout
+    match timeout with
+    | ValueSome seconds -> sprintf "%s@%g" summary seconds
+    | ValueNone -> summary
+
 /// The cue as a person reads it, for assertions that would otherwise compare cue values.
 let rec private describe (cue: Cue) : string =
     match cue with
@@ -49,6 +57,9 @@ let rec private describe (cue: Cue) : string =
     | FadeOut d | FadeOutState (_, d, _) -> sprintf "FadeOut %g" d
     | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
     | Exposit (t, _) -> sprintf "Exposit(%s)" t
+    | ExpositWith (t, _, e, tm) -> sprintf "ExpositWith(%s,%s)" t (describeEndings e tm)
+    | ExpositWait (t, _, e, tm) | ExpositWaitState (t, _, e, tm) -> sprintf "ExpositWait(%s,%s)" t (describeEndings e tm)
+    | CloseExposition -> "CloseExposition"
     | Print t -> sprintf "Print(%s)" t
     | SetZone z -> sprintf "Zone(%s)" (z)
     | RemoveZone z -> sprintf "RemoveZone(%s)" (z)
@@ -146,7 +157,7 @@ let ``a bare leaf is one row at depth 0`` () =
 [<Fact>]
 let ``a sequence is a row with its children indented one deeper, front first`` () =
     let rs = rows (seqOf [ Wait 1.0; Exposit("hello", Dialogue.Kind.Dialogue); Wait 2.0 ])
-    Assert.Equal<string list>([ "Sequence"; "Wait 1"; "Exposit: hello"; "Wait 2" ], List.map (fun r -> r.Label) rs)
+    Assert.Equal<string list>([ "Sequence"; "Wait 1"; "Exposit: hello [cue]"; "Wait 2" ], List.map (fun r -> r.Label) rs)
     Assert.Equal<int list>([ 0; 1; 1; 1 ], List.map (fun r -> r.Depth) rs)
     Assert.Equal<int list list>([ []; [ 0 ]; [ 1 ]; [ 2 ] ], List.map (fun r -> r.Path) rs)
 
@@ -155,7 +166,7 @@ let ``a leaf in flight is labelled as the op it came from`` () =
     // the cue the engine makes of `Wait 2` part-way through: the view is what is left to run, never an
     // internal state's name. The in-flight form and the authored form read the same, which is the point.
     let running = seqOf [ WaitState(2.0, 10.0); Exposit("later", Dialogue.Kind.Dialogue) ]
-    Assert.Equal<string list>([ "Sequence"; "Wait 2"; "Exposit: later" ], List.map (fun r -> r.Label) (rows running))
+    Assert.Equal<string list>([ "Sequence"; "Wait 2"; "Exposit: later [cue]" ], List.map (fun r -> r.Label) (rows running))
 
 [<Fact>]
 let ``Fin is a row with no children`` () =
@@ -189,7 +200,7 @@ let ``every kind's row says what it is, and a leaf in flight as the op it came f
     Assert.Equal("Parallel", labelOf (Parallel(Wait 1.0, Wait 2.0)))
     Assert.Equal("Fork", labelOf (Fork(Wait 1.0)))
     Assert.Equal("Wait 1", labelOf (Wait 1.0))
-    Assert.Equal("Exposit: hello", labelOf (Exposit("hello", Dialogue.Kind.Dialogue)))
+    Assert.Equal("Exposit: hello [cue]", labelOf (Exposit("hello", Dialogue.Kind.Dialogue)))
     Assert.Equal("Zone: Island", labelOf (SetZone "Island"))
     Assert.Equal("Remove zone: Island", labelOf (RemoveZone "Island"))
     Assert.Equal("Camera: balcony in Island", labelOf (SetCamera("Island", "balcony")))
@@ -245,7 +256,7 @@ let ``the scenario op carries no children or place, and its authoring round-trip
 [<Fact>]
 let ``a sequence inside a sequence is indented one deeper again, and a container's sides are siblings`` () =
     let nested = rows (seqOf [ Wait 1.0; seqOf [ Exposit("a", Dialogue.Kind.Dialogue); Wait 2.0 ] ])
-    Assert.Equal<string list>([ "Sequence"; "Wait 1"; "Sequence"; "Exposit: a"; "Wait 2" ], List.map (fun r -> r.Label) nested)
+    Assert.Equal<string list>([ "Sequence"; "Wait 1"; "Sequence"; "Exposit: a [cue]"; "Wait 2" ], List.map (fun r -> r.Label) nested)
     Assert.Equal<int list>([ 0; 1; 1; 2; 2 ], List.map (fun r -> r.Depth) nested)
     Assert.Equal<int list list>([ []; [ 0 ]; [ 1 ]; [ 1; 0 ]; [ 1; 1 ] ], List.map (fun r -> r.Path) nested)
 
@@ -311,7 +322,7 @@ let ``a running fade is locked and reads as the op it came from`` () =
 let ``an if shows its two branches under then and else labels, and a running await is locked`` () =
     let rs = rows (If("MetAiko", Exposit("t", Dialogue.Kind.Dialogue), Exposit("e", Dialogue.Kind.Dialogue)))
     // the two branches are told apart by a label row above each, one indentation deeper than the `If`
-    Assert.Equal<string list>([ "If: MetAiko"; "then"; "Exposit: t"; "else"; "Exposit: e" ], List.map (fun (r: Row) -> r.Label) rs)
+    Assert.Equal<string list>([ "If: MetAiko"; "then"; "Exposit: t [cue]"; "else"; "Exposit: e [cue]" ], List.map (fun (r: Row) -> r.Label) rs)
     Assert.Equal<string list>([ ""; "then"; ""; "else"; "" ], List.map (fun (r: Row) -> r.Branch) rs)
     Assert.Equal<int list>([ 0; 1; 2; 1; 2 ], List.map (fun (r: Row) -> r.Depth) rs)
     Assert.Equal<int list list>([ []; [ 0 ]; [ 0 ]; [ 1 ]; [ 1 ] ], List.map (fun (r: Row) -> r.Path) rs)
@@ -481,6 +492,96 @@ let ``an exposit's text and presentation are written independently`` () =
     Assert.Equal(Dialogue.Kind.Thought, kindOf rekinded)
     // and it refuses a node that carries no presentation, as `withText` refuses one with no text
     Assert.True(raises (fun () -> withExpositKind Dialogue.Kind.Dialogue (Wait 1.0) |> ignore))
+
+// ── spec 097: a line's ending conditions in the panel ──
+
+[<Fact>]
+let ``only a waiting exposit in flight is executing`` () =
+    Assert.True(executing (ExpositWaitState("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone)))
+    Assert.False(executing (Exposit("hi", Dialogue.Kind.Dialogue)))
+    Assert.False(executing (ExpositWith("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone)))
+    Assert.False(executing (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone)))
+    Assert.False(executing CloseExposition)
+
+[<Fact>]
+let ``an exposit row labels its ending set and timeout`` () =
+    let labelOf (cue: Cue) : string = (List.head (CueTree.rows cue)).Label
+    Assert.Equal("Exposit: hi [cue]", labelOf (ExpositWith("hi", Dialogue.Kind.Dialogue, Set.empty, ValueNone)))
+    Assert.Equal("Exposit: hi [cue]", labelOf (Exposit("hi", Dialogue.Kind.Dialogue)))
+    Assert.Equal("Exposit: hi [player]", labelOf (ExpositWith("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone)))
+    Assert.Equal("Exposit: hi [3.5s]", labelOf (ExpositWith("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByTimeout, ValueSome 3.5)))
+    Assert.Equal("Exposit: hi [player or 3.5s]", labelOf (ExpositWith("hi", Dialogue.Kind.Dialogue, Set.ofList [ Dialogue.ByPlayer; Dialogue.ByTimeout ], ValueSome 3.5)))
+
+    // a waiting op reads the same ending label, prefixed by its waiting shape
+    Assert.Equal("Exposit (wait): hi [player]", labelOf (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone)))
+    Assert.Equal("Exposit (wait): hi [player or 3.5s]", labelOf (ExpositWaitState("hi", Dialogue.Kind.Dialogue, Set.ofList [ Dialogue.ByPlayer; Dialogue.ByTimeout ], ValueSome 3.5)))
+    Assert.Equal("Close exposition", labelOf CloseExposition)
+
+[<Fact>]
+let ``the dialogue kinds default to their authored forms and carry no children`` () =
+    Assert.Equal(Exposit("", Dialogue.Kind.Dialogue), defaultOfKind "Island" "Exposit")
+
+    match defaultOfKind "Island" "Exposit (wait)" with
+    | ExpositWait ("", _, endings, timeout) ->
+        Assert.Equal<Dialogue.Ending list>([ Dialogue.ByPlayer ], Set.toList endings)
+        Assert.Equal<float voption>(ValueNone, timeout)
+    | other -> Assert.Fail(sprintf "'Exposit (wait)' should default a waiting line, got %A" other)
+
+    Assert.Equal(CloseExposition, defaultOfKind "Island" "Close exposition")
+
+    for cue in
+        [ Exposit("hi", Dialogue.Kind.Dialogue)
+          ExpositWith("hi", Dialogue.Kind.Dialogue, Set.empty, ValueNone)
+          ExpositWait("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone)
+          ExpositWaitState("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone)
+          CloseExposition ] do
+        Assert.Equal<Cue list>([], children cue)
+
+[<Fact>]
+let ``withEndings writes the conditions and normalises the cue-managed default`` () =
+    // the empty set with no timeout is the persisted two-argument form
+    Assert.Equal("Exposit(hi)", describe (withEndings Set.empty ValueNone (ExpositWith("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone))))
+    Assert.Equal("Exposit(hi)", describe (withEndings Set.empty ValueNone (Exposit("hi", Dialogue.Kind.Dialogue))))
+
+    // anything else is the general form, with the timeout kept beside the set
+    Assert.Equal("ExpositWith(hi,player)", describe (withEndings (Set.singleton Dialogue.ByPlayer) ValueNone (Exposit("hi", Dialogue.Kind.Dialogue))))
+    Assert.Equal("ExpositWith(hi,player or 3.5s@3.5)", describe (withEndings (Set.ofList [ Dialogue.ByPlayer; Dialogue.ByTimeout ]) (ValueSome 3.5) (Exposit("hi", Dialogue.Kind.Dialogue))))
+
+    // a waiting op keeps its waiting shape
+    Assert.Equal("ExpositWait(hi,player)", describe (withEndings (Set.singleton Dialogue.ByPlayer) ValueNone (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.empty, ValueNone))))
+
+    // and it refuses a leaf that carries no line
+    Assert.True(raises (fun () -> withEndings Set.empty ValueNone CloseExposition |> ignore))
+
+[<Fact>]
+let ``the text and presentation writes cover the general and waiting forms`` () =
+    let endings = Set.singleton Dialogue.ByPlayer
+    Assert.Equal("ExpositWith(bye,player)", describe (withText (ExpositWith("hi", Dialogue.Kind.Dialogue, endings, ValueNone)) "bye"))
+    Assert.Equal("ExpositWait(bye,player)", describe (withText (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone)) "bye"))
+    Assert.Equal("ExpositWait(hi,player)", describe (withExpositKind Dialogue.Kind.Thought (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone))))
+
+[<Fact>]
+let ``an ending edit is one SetCue step, and re-reading it writes nothing new`` () =
+    let mutable state = newState ()
+    state.Cue <- seqOf [ Wait 1.0; Exposit("hi", Dialogue.Kind.Dialogue) ]
+    let before = describe state.Cue
+
+    let selected = Option.get (tryAt [ 1 ] state.Cue)
+    let edited = withAt [ 1 ] (withEndings (Set.singleton Dialogue.ByPlayer) ValueNone selected) state.Cue
+    do CueEditor.commit &state edited
+    Assert.Equal("Seq[Wait 1, ExpositWith(hi,player)]", describe state.Cue)
+    Assert.Equal(1, List.length state.Editor.Undo.Applied) // one edit, exactly one step
+    match state.Editor.Undo.Applied with
+    | [ SetCue (previous, _) ] -> Assert.Equal(before, describe previous)
+    | other -> Assert.Fail(sprintf "expected one SetCue step, got %A" other)
+
+    // the draw loop commits only when the write differs: re-reading the node's own conditions is a no-op
+    let node = Option.get (tryAt [ 1 ] state.Cue)
+    let (endings, timeout) =
+        match node with
+        | ExpositWith (_, _, e, t) -> e, t
+        | other -> failwith (sprintf "expected an ExpositWith, got %s" (describe other))
+    Assert.Equal(describe node, describe (withEndings endings timeout node))
 
 // ══════ the cue's edits on the one history (spec 049: FR-001, FR-004, SC-001, SC-004) ══════
 
