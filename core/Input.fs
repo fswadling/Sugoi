@@ -32,8 +32,6 @@ module KeyMask =
 
     let zero : KeyMask = 0u
 
-    let add (a: KeyMask) (b: KeyMask) : KeyMask = a ||| b
-
 module Key =
 
     // Map a key to its unique bit (1u <<< case index). The `Key` DU stays the
@@ -54,7 +52,9 @@ module Key =
         | Z -> 1u <<< 11
         | Y -> 1u <<< 12
         | C -> 1u <<< 22
-        | Digit n -> 1u <<< (13 + (n - 1))
+        | Digit n ->
+            if n < 1 || n > 3 then invalidArg "n" "Key.Digit must be between 1 and 3"
+            1u <<< (13 + (n - 1))
         | LeftCtrl -> 1u <<< 17
         | RightCtrl -> 1u <<< 18
         | LeftShift -> 1u <<< 19

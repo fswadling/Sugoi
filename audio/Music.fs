@@ -84,12 +84,20 @@ let newRack () : Rack =
 // ── device ops ──
 
 /// Apply a row's authored gain (`master × weight`) and loop flag to a live deck.
-let private applyRow (mix: Mix) (asset: string) (deck: Deck) : unit =
+let private applyToDeck (mix: Mix) (asset: string) (deck: Deck) : unit =
     match rowOf asset mix with
     | None -> ()
     | Some row ->
     do Audio.setGain deck.Track (gainOf mix.Master row.Weight)
     do Audio.setLoops deck.Track row.Loop
+
+/// Apply one row's gain and loop to its live deck, if it has one. This is the targeted edit a
+/// caller that changed a single row uses: unlike `reconcile`, it does not walk the whole rack or
+/// free a row that left the mix.
+let applyRow (mix: Mix) (asset: string) (rack: Rack) : unit =
+    match rack.TryGetValue asset with
+    | true, deck -> applyToDeck mix asset deck
+    | false, _ -> ()
 
 /// Open a row's deck on first use (D10). A file that will not open is reported and yields `None`, so
 /// playing an unavailable asset is a no-op rather than a crash (FR-013).
@@ -117,7 +125,7 @@ let play (context: Audio.Context) (mix: Mix) (rack: Rack) (asset: string) (path:
     | None -> ()
     | Some deck ->
 
-    do applyRow mix asset deck
+    do applyToDeck mix asset deck
     match startOf (Audio.isPaused deck.Track) with
     | Resume -> Audio.resume deck.Track
     | Restart ->
@@ -158,12 +166,6 @@ let isPlaying (rack: Rack) (asset: string) : bool =
     | true, deck -> Audio.isPlaying deck.Track
     | false, _ -> false
 
-/// Whether a row is held.
-let isPaused (rack: Rack) (asset: string) : bool =
-    match rack.TryGetValue asset with
-    | true, deck -> Audio.isPaused deck.Track
-    | false, _ -> false
-
 /// Seek a row to a position in seconds (FR-008). A no-op when it has no deck.
 let seek (rack: Rack) (asset: string) (seconds: float32) : unit =
     match rack.TryGetValue asset with
@@ -186,7 +188,7 @@ let reconcile (context: Audio.Context) (rack: Rack) (mix: Mix) : unit =
         do freeDeck context deck
         rack.Remove asset |> ignore
     for KeyValue (asset, deck) in rack do
-        applyRow mix asset deck
+        applyToDeck mix asset deck
 
 /// Free every deck. Called before the mixer is released (FR-014).
 let release (context: Audio.Context) (rack: Rack) : unit =

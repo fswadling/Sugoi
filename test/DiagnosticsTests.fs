@@ -60,14 +60,7 @@ let ``isLoud crosses at the threshold`` () =
 let ``reading a cleared tally allocates nothing`` () =
     // The display reads the tally every frame; with nothing reported that read must cost nothing (FR-007).
     Diagnostics.clear ()
-    // Warm up, so tiered JIT and any static init are not counted against the measurement.
-    let mutable warm = 0
-    for _ in 1 .. 2000 do warm <- warm + errorCount ()
-    let before = GC.GetAllocatedBytesForCurrentThread()
     let mutable acc = 0
-    for _ in 1 .. 10_000 do
-        acc <- acc + errorCount () + (if isLoud () then 1 else 0) + (lastMessage ()).Length
-    let bytes = GC.GetAllocatedBytesForCurrentThread() - before
-    Assert.Equal(0L, bytes)
+    TestSupport.assertAllocatesNothing 2000 10_000 (fun () ->
+        acc <- acc + errorCount () + (if isLoud () then 1 else 0) + (lastMessage ()).Length)
     Assert.Equal(0, acc)
-    Assert.Equal(0, warm)

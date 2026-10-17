@@ -16,14 +16,6 @@ open ScenarioRegistry
 open SlotMap
 open ZoneTemplate
 
-/// Detach the body an appended actor built when its zone is not the active one, so it does not simulate —
-/// mirroring `CueEngine.detachIfInactive`. Only the body just built is touched.
-let private detachActor (world: Physics.World) (zone: Zone.Zone) (ref: EntityRef) : unit =
-    let actor = &zone.Actors.Get(handleOf ref)
-    match actor.Physics with
-    | Some ph when Physics.isAdded world ph.Body -> do Physics.removeBody world ph.Body
-    | _ -> ()
-
 /// Load a scenario into the live scene: **ensure** each recorded zone by name (create and stage an absent one;
 /// restage a present one whose staging differs), **append** its narrative entities into it, and leave the cue to
 /// the caller. Returns, in apply order, the commands that reverse the scene work — or `None` when the capacity
@@ -42,6 +34,7 @@ let materialise
     // Appended entities need free room (`Capacity - Count`); a staging's props replace all present props, so they
     // need the whole props map to hold them. A zone that is absent is created empty, so it has full capacity.
     let room (map: SlotMap<'T>) (need: int) : bool = int map.Capacity - int map.Count >= need
+    let roomFixed (capacity: uint32) (need: int) : bool = int capacity >= need
     let mutable fits = true
     for KeyValue (name, scenarioZone) in contents.Zones do
         if fits then
@@ -57,11 +50,11 @@ let materialise
                     && room zone.Triggers needTriggers
                     && int zone.Props.Capacity >= needProps
                 | false, _ ->
-                    let fresh = Zone.create ()
-                    room fresh.Actors needActors
-                    && room fresh.Waypoints needWaypoints
-                    && room fresh.Triggers needTriggers
-                    && int fresh.Props.Capacity >= needProps
+                    // A fresh zone has the same fixed capacities `Zone.create` uses, without being built (F-44).
+                    roomFixed Zone.ActorsCapacity needActors
+                    && roomFixed Zone.WaypointsCapacity needWaypoints
+                    && roomFixed Zone.TriggersCapacity needTriggers
+                    && int Zone.PropsCapacity >= needProps
             if not ok then fits <- false
 
     if not fits then
@@ -90,7 +83,7 @@ let materialise
         for actor in scenarioZone.Actors do
             let ref = Zone.spawnActor zone state.Physics shared.Assets actor.Base actor.AssetId
             do Zone.setShowCollider zone ref actor.ShowCollider
-            if name <> active then detachActor state.Physics zone ref
+            if name <> active then do Zone.detachActorBody state.Physics zone ref
             commands.Add(ActorCreate(name, ref, Zone.captureActor zone ref))
 
         // waypoints: spawn all first, then re-link from the scenario's own indices, so each recorded

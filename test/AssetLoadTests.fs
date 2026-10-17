@@ -4,7 +4,7 @@ module AssetLoadTests
 // recency, pinning and drop rules, the claim-hold invariant, and the pool's concurrent-decode bound.
 // Device-free — no asset is decoded here (`LoadPool` takes an injected decode).
 
-open System.Diagnostics
+open System
 open System.Threading
 open Xunit
 open AssetLoad
@@ -94,27 +94,26 @@ let ``a claimed id is not claimed again until it is resident`` () =
 [<Fact>]
 let ``the pool never decodes more than its worker count at once`` () =
     use gate = new ManualResetEventSlim(false)
+    use full = new ManualResetEventSlim(false)
+    let workers = 2
     let sync = obj ()
     let mutable active = 0
     let mutable peak = 0
-    // A stub decode that blocks until released, recording how many run at once.
+    // A stub decode that blocks until released, recording how many run at once and signalling once
+    // every worker is inside it — a deterministic wait, never a sleep-poll.
     let decode (id: AssetId) (_: ModelPath) : LoadOutcome =
         lock sync (fun () ->
             active <- active + 1
-            if active > peak then peak <- active)
+            if active > peak then peak <- active
+            if active = workers then full.Set())
         gate.Wait()
         lock sync (fun () -> active <- active - 1)
         LoadFailed(id, "stub")
-    let workers = 2
     let pool = createPool workers 8 decode
     try
         for i in 1 .. workers + 3 do
-            do requestLoad pool (sprintf "z%d" i) (sprintf "p%d" i) |> ignore
-        let sw = Stopwatch.StartNew()
-        let mutable busy = 0
-        while busy < workers && sw.ElapsedMilliseconds < 3000L do
-            lock sync (fun () -> busy <- active)
-            Thread.Sleep 5
+            do request pool.Queue (sprintf "z%d" i) (sprintf "p%d" i) |> ignore
+        Assert.True(full.Wait(TimeSpan.FromSeconds 3.0), "the workers did not all start decoding")
         Assert.Equal(workers, peak)
         Assert.True(inFlight pool <= workers)
     finally

@@ -27,7 +27,7 @@ module Friendship =
     /// two. The friendship is looked up by the jealous character, and which name comes first
     /// in it is irrelevant — that is what the interchangeable declaration buys (research D22).
     let threatened : Derivation =
-        Rules.derivation "threatened" (fun facts ->
+        Rules.derivation "threatened" [ FactKind.JealousOf; FactKind.Friends ] (fun facts ->
             facts {
                 let! struct (a, c) = Facts.Sources.jealousOf
                 let! struct (x, y) = Facts.Sources.friendsOf a
@@ -41,7 +41,7 @@ module Friendship =
     /// it to themselves. The trait is a fact another unit concluded, so a unit that has no
     /// opinion about traits can still be the reason this fires.
     let bottledUp : Derivation =
-        Rules.derivation "bottled-up" (fun facts ->
+        Rules.derivation "bottled-up" [ FactKind.FriendshipThreatened; FactKind.HasTrait ] (fun facts ->
             facts {
                 let! struct (a, c) = Facts.Sources.friendshipThreatened
                 let! struct (_, ascribed) = Facts.Sources.traitsOf a

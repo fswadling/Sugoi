@@ -63,42 +63,35 @@ let basis (axis: GizmoAxis) : Vector3 * Vector3 =
     | ZAxis -> (Vector3.UnitX, Vector3.UnitY)
 
 // A circle in the plane spanned by (u, v), centred at `center`.
-let private circle (dd: DebugDraw.DebugDraw) (center: Vector3) (radius: float32) (u: Vector3) (v: Vector3) (c: DebugDraw.Color) : DebugDraw.DebugDraw =
+let private circle (dd: byref<DebugDraw.DebugDraw>) (center: Vector3) (radius: float32) (u: Vector3) (v: Vector3) (c: DebugDraw.Color) : unit =
     let segments = 32
-    let mutable dd = dd
     let mutable prev = None
     for i in 0 .. segments do
         let a = 2.0f * MathF.PI * float32 i / float32 segments
         let p = center + u * (radius * MathF.Cos a) + v * (radius * MathF.Sin a)
         match prev with
-        | Some q -> dd <- DebugDraw.line dd q p c
+        | Some q -> DebugDraw.line &dd q p c
         | None -> ()
         prev <- Some p
-    dd
 
 // ── Gizmo drawing ──
 
-let drawGizmo (state: GameplayState.GameplayState) (dd: DebugDraw.DebugDraw) (center: Vector3) : DebugDraw.DebugDraw =
+let drawGizmo (state: GameplayState.GameplayState) (dd: byref<DebugDraw.DebugDraw>) (center: Vector3) : unit =
     let axes = [ XAxis; YAxis; ZAxis ]
     match state.Editor.Tool with
     | Move | Scale ->
-        let mutable dd = dd
         for axis in axes do
             let d = axisDir axis
             let tip = center + d * gizmoLen
-            dd <- DebugDraw.line dd center tip (axisColor axis)
-            dd <-
-                if state.Editor.Tool = Move then
-                    DebugDraw.sphere dd tip tipSize (axisColor axis)
-                else
-                    DebugDraw.wireframeBox dd tip (Vector3(tipSize, tipSize, tipSize)) (axisColor axis)
-        dd
+            DebugDraw.line &dd center tip (axisColor axis)
+            if state.Editor.Tool = Move then
+                DebugDraw.sphere &dd tip tipSize (axisColor axis)
+            else
+                DebugDraw.wireframeBox &dd tip (Vector3(tipSize, tipSize, tipSize)) (axisColor axis)
     | Rotate ->
-        let mutable dd = dd
         for axis in axes do
             let (u, v) = basis axis
-            dd <- circle dd center gizmoRadius u v (axisColor axis)
-        dd
+            circle &dd center gizmoRadius u v (axisColor axis)
 
 // The selected entity's position (the gizmo center), or None.
 let gizmoCenter (state: GameplayState.GameplayState) : Vector3 option =
@@ -110,31 +103,34 @@ let gizmoCenter (state: GameplayState.GameplayState) : Vector3 option =
 
 // ── Reference grid (editor only) ──
 
-// The grid is an editor-only aid (spec 093): rebuilt into its accumulator while editing, emptied while
-// playing, so neither the grid nor the previous editing frame's vertices draw in play (FR-001, FR-002).
+// The grid is an editor-only aid (spec 093): built once into its accumulator when editing resumes, reused
+// while editing (it does not depend on the camera or the selection), and emptied while playing, so neither
+// the grid nor the previous editing frame's vertices draw in play (FR-001, FR-002, FR-014).
 let drawGrid (state: byref<GameplayState.GameplayState>) : unit =
-    state.DebugDraw <-
-        if state.Editing then DebugDraw.clear state.DebugDraw |> DebugDraw.drawGrid
-        else DebugDraw.clear state.DebugDraw
+    if state.Editing then
+        // An empty accumulator means the play-mode clear ran: this is the one rebuild.
+        if state.DebugDraw.Count = 0 then DebugDraw.drawGrid &state.DebugDraw
+    else if state.DebugDraw.Count <> 0 then
+        state.DebugDraw <- DebugDraw.clear state.DebugDraw
 
 // ── Chain links ──
 
 // One link: a line from its waypoint to the midpoint of the segment toward the next,
 // plus a two-wing arrow head at that midpoint, so which way the chain runs is readable.
 // Drawing only the first half is what distinguishes a link from a two-way relation.
-let private drawLink (dd: DebugDraw.DebugDraw) (from: Vector3) (target: Vector3) : DebugDraw.DebugDraw =
+let private drawLink (dd: byref<DebugDraw.DebugDraw>) (from: Vector3) (target: Vector3) : unit =
     let delta = target - from
     let length = delta.Length()
-    if length < linkMinLength then dd else
+    if length < linkMinLength then () else
 
     let dir = delta / length
     let mid = from + delta * 0.5f + Vector3(0.0f, linkLift, 0.0f)
-    let dd = DebugDraw.line dd from mid linkColor
+    DebugDraw.line &dd from mid linkColor
     let side = Vector3.Cross(dir, Vector3.UnitY)
     let right = if side.Length() < linkMinLength then Vector3.UnitX else Vector3.Normalize side
     let back = mid - dir * linkBack
-    let dd = DebugDraw.line dd mid (back + right * linkWing) linkColor
-    DebugDraw.line dd mid (back - right * linkWing) linkColor
+    DebugDraw.line &dd mid (back + right * linkWing) linkColor
+    DebugDraw.line &dd mid (back - right * linkWing) linkColor
 
 // ── Markers + gizmo (editor mode only; appends to the gizmo accumulator) ──
 
@@ -146,23 +142,23 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
     zone.Actors.IteriAlive(fun i gen a ->
         let isSelected = selection = Some (actorRef i gen)
         let c = if isSelected then selectedColor else white
-        dd <- DebugDraw.wireframeBox dd a.State.Base.Transform.Position halfExtent c
+        DebugDraw.wireframeBox &dd a.State.Base.Transform.Position halfExtent c
         if a.State.ShowCollider then
             match a.Physics with
-            | Some ph -> dd <- DebugDraw.capsule dd (Zone.capsuleCenter a.State.Base.Transform ph.Collider) ph.Collider.HalfHeight ph.Collider.Radius colliderColor
+            | Some ph -> DebugDraw.capsule &dd (Zone.capsuleCenter a.State.Base.Transform ph.Collider) ph.Collider.HalfHeight ph.Collider.Radius colliderColor
             | None -> ())
 
     zone.Props.IteriAlive(fun i gen p ->
         let isSelected = selection = Some (propRef i gen)
         let c = if isSelected then selectedColor else white
-        dd <- DebugDraw.wireframeBox dd p.State.Base.Transform.Position halfExtent c)
+        DebugDraw.wireframeBox &dd p.State.Base.Transform.Position halfExtent c)
 
     match zone.Environment with
     | Some environment ->
         environment.Parts.IteriAlive(fun i gen p ->
             let isSelected = selection = Some (partRef environment.Epoch i gen)
             let c = if isSelected then selectedColor else white
-            dd <- DebugDraw.wireframeBox dd p.State.Base.Transform.Position halfExtent c)
+            DebugDraw.wireframeBox &dd p.State.Base.Transform.Position halfExtent c)
     | None -> ()
 
     zone.Waypoints.IteriAlive(fun i gen w ->
@@ -170,7 +166,7 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
         let c = if isSelected then selectedColor else white
         let rot = w.Base.Transform.Rotation
         let position = w.Base.Transform.Position
-        dd <- DebugDraw.wireframeBox dd position halfExtent c
+        DebugDraw.wireframeBox &dd position halfExtent c
         // A shaft along the waypoint's facing (its rotation applied to -Z, the
         // camera-forward convention) so the orientation is visible and rotatable.
         // The head's barbs reuse the same rotation's X/Y axes, which stay exactly
@@ -181,18 +177,18 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
         let basePoint = tip - forward * headLen
         let right = Vector3.Transform(Vector3.UnitX, rot) * headRadius
         let up = Vector3.Transform(Vector3.UnitY, rot) * headRadius
-        dd <- DebugDraw.line dd position tip c
-        dd <- DebugDraw.line dd tip (basePoint + right) c
-        dd <- DebugDraw.line dd tip (basePoint - right) c
-        dd <- DebugDraw.line dd tip (basePoint + up) c
-        dd <- DebugDraw.line dd tip (basePoint - up) c
+        DebugDraw.line &dd position tip c
+        DebugDraw.line &dd tip (basePoint + right) c
+        DebugDraw.line &dd tip (basePoint - right) c
+        DebugDraw.line &dd tip (basePoint + up) c
+        DebugDraw.line &dd tip (basePoint - up) c
 
         // The link out of this waypoint, if it has one. Drawn per link, from the
         // waypoint that holds it, so a chain shows its order and its direction.
         match Zone.waypointNext zone (waypointRef i gen) with
         | Some next ->
             match Zone.tryEntityAt zone next with
-            | Some target -> dd <- drawLink dd position target.Transform.Position
+            | Some target -> drawLink &dd position target.Transform.Position
             | None -> ()
         | None -> ())
 
@@ -202,10 +198,10 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
         let basePosition = t.State.Base.Transform.Position
         // The primitive takes a centre and a half-height; the volume's base is its position.
         let centre = basePosition + Vector3(0.0f, t.State.Height * 0.5f, 0.0f)
-        dd <- DebugDraw.cylinder dd centre (t.State.Height * 0.5f) t.State.Radius c)
+        DebugDraw.cylinder &dd centre (t.State.Height * 0.5f) t.State.Radius c)
 
     match gizmoCenter state with
-    | Some center -> dd <- drawGizmo state dd center
+    | Some center -> drawGizmo state &dd center
     | None -> ()
 
     state.GizmoDraw <- dd
@@ -215,9 +211,7 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
 let ray (camera: Camera.Camera) (w: float32) (h: float32) (x: float32) (y: float32) : Ray =
     Raycast.rayFromScreen camera w h x y
 
-let pick (physics: Physics.World) (state: GameplayState.GameplayState) (w: float32) (h: float32) (x: float32) (y: float32) : EntityRef option =
-    let r = ray state.Camera w h x y
-
+let pick (physics: Physics.World) (state: GameplayState.GameplayState) (r: Ray) : EntityRef option =
     // Raycast against the physics colliders and map the hit body back to its
     // entity via the zone's body→entity map.
     match Physics.raycast physics r.Origin (r.Dir * pickDistance) with

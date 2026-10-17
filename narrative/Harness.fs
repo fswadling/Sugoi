@@ -28,11 +28,6 @@ type RunResult =
 
 module Harness =
 
-    /// The facts in the order this file presents them: by canonical text, ordinally so that the
-    /// order does not depend on the ambient culture (FR-021, FR-026).
-    let private byText (facts: Fact list) : Fact list =
-        facts |> List.sortWith (fun a b -> Canonical.ordinal (Canonical.factText a) (Canonical.factText b))
-
     /// History and facts with their reasons, stable and diffable. One route to a rendering:
     /// `RunResult.Report` is this applied to the run's engine, so an assertion and a
     /// caller's display cannot diverge.
@@ -41,21 +36,34 @@ module Harness =
     /// A reason is *identified* by its premises as a set rather than by their order — that is what
     /// `Facts.canonical` does — but the order they are held in is left alone, because printing them
     /// as the rule reads them is the point of a report.
-    let report (engine: Engine.Engine) : string =
+    ///
+    /// Each fact is rendered once and the text is what the sort compares, so a report does not
+    /// re-render a fact per comparison (F-89). `runBounded` passes the history and facts it already
+    /// computed rather than asking the engine for them again.
+    let private reportOf
+        (history: CommittedEvent list)
+        (facts: Fact list)
+        (reasonsFor: Fact -> Reason list)
+        : string =
         let lines = ResizeArray<string>()
         lines.Add "history"
 
-        for committed in Engine.history engine do
+        for committed in history do
             let (GameTime time) = committed.Time
             lines.Add(sprintf "    %d  %d  %s" committed.Index time (Canonical.eventText committed.Event))
 
         lines.Add ""
         lines.Add "facts"
 
-        for fact in byText (Engine.facts engine) do
-            lines.Add(sprintf "    %s" (Canonical.factText fact))
+        let ordered =
+            facts
+            |> List.map (fun fact -> Canonical.factText fact, fact)
+            |> List.sortWith (fun (a, _) (b, _) -> Canonical.ordinal a b)
 
-            for reason in Engine.reasonsFor engine fact do
+        for text, fact in ordered do
+            lines.Add(sprintf "    %s" text)
+
+            for reason in reasonsFor fact do
                 let kind =
                     match reason.Premises with
                     | FromEvent _ :: _ -> "projected by"
@@ -66,6 +74,9 @@ module Harness =
 
         String.Join("\n", lines)
 
+    let report (engine: Engine.Engine) : string =
+        reportOf (Engine.history engine) (Engine.facts engine) (Engine.reasonsFor engine)
+
     /// Run a scenario with an explicit derivation bound, so the failure path is reachable
     /// deliberately (FR-014). The scenario's events are committed in order, which is a fold of
     /// `Engine.commit`.
@@ -75,10 +86,12 @@ module Harness =
             |> List.fold Engine.commit (Engine.createBounded bound rules)
 
         let finished = scenario.Steps |> List.fold Engine.commit started
+        let history = Engine.history finished
+        let facts = Engine.facts finished
 
-        { History = Engine.history finished
-          Facts = Engine.facts finished
-          Report = report finished }
+        { History = history
+          Facts = facts
+          Report = reportOf history facts (Engine.reasonsFor finished) }
 
     /// Run a scenario with no graphical interface, through the ordinary commit path with no
     /// privileged route (FR-005, FR-025).

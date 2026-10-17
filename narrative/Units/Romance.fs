@@ -43,7 +43,7 @@ module Romance =
     /// mutual — and the relationship is looked up by the name already bound rather than by
     /// scanning every relationship there is (research D22, D7).
     let jealousy : Derivation =
-        Rules.derivation "jealousy" (fun facts ->
+        Rules.derivation "jealousy" [ FactKind.AttractedTo; FactKind.InRelationship ] (fun facts ->
             facts {
                 let! struct (a, wanted) = Facts.Sources.attractedTo
                 let! struct (x, y) = Facts.Sources.partnersOf wanted

@@ -14,34 +14,10 @@ open Roster
 let private aiko = Aiko
 let private akane = Akane
 
-let private befriended =
-    Rules.projection
-        "befriended"
-        { EstablishedBy =
-            function
-            | FriendshipStarted (a, b) -> ValueSome(struct (a, b))
-            | _ -> ValueNone
-          WithdrawnBy =
-            Some(
-                function
-                | FriendshipEnded (a, b) -> ValueSome(struct (a, b))
-                | _ -> ValueNone
-            )
-          Yield = fun (struct (a, b)) -> Fact.Friends(a, b) }
-
-/// Establishes and never withdraws, so the two halves of a projection are separable.
-let private attracted =
-    Rules.projection
-        "crush-started"
-        { EstablishedBy =
-            function
-            | CrushStarted (a, b) -> ValueSome(struct (a, b))
-            | _ -> ValueNone
-          WithdrawnBy = None
-          Yield = fun (struct (a, b)) -> Fact.AttractedTo(a, b) }
-
+// The projections are the shared test-only declarations: `befriended` withdraws, `attraction`
+// establishes and never withdraws, so the two halves of a projection are separable.
 let private rules =
-    { Projections = [ befriended; attracted ]
+    { Projections = [ NarrativeTestSupport.befriended; NarrativeTestSupport.attraction ]
       Derivations = [] }
 
 let private run (events: (GameTime * Event) list) =

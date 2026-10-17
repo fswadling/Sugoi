@@ -64,6 +64,17 @@ extern void sameLine(float32 offsetFromStartX, float32 spacing)
 [<DllImport("cimgui", EntryPoint = "igText", CallingConvention = CallingConvention.Cdecl)>]
 extern void text(string fmt)
 
+// `igText` is variadic, so a dynamic string containing `%` is reinterpreted. This binding takes
+// the string and an explicit end pointer (spec 098, F-01); the wrapper always passes `null`.
+module private Native =
+    [<DllImport("cimgui", EntryPoint = "igTextUnformatted", CallingConvention = CallingConvention.Cdecl)>]
+    extern void textUnformatted(string text, nativeint textEnd)
+
+/// Draw `text` without interpreting it as a printf format. Every dynamic string uses this; the
+/// variadic `text` remains for compile-time literals only.
+let textUnformatted (text: string) : unit =
+    Native.textUnformatted(text, System.IntPtr.Zero)
+
 [<DllImport("cimgui", EntryPoint = "igSeparator", CallingConvention = CallingConvention.Cdecl)>]
 extern void separator()
 
@@ -212,3 +223,38 @@ extern void closeCurrentPopup()
 // marks the row as the current value; `size` of (0, 0) spans the available width.
 [<DllImport("cimgui", EntryPoint = "igSelectable_Bool", CallingConvention = CallingConvention.Cdecl)>]
 extern bool selectableBool(string label, bool selected, int flags, ImVec2 size)
+
+// ── shared editor helpers (spec 098 T068) ──
+
+/// Decode a NUL-terminated UTF-8 edit buffer to a string.
+let bufferText (buffer: byte[]) : string =
+    let zero = System.Array.IndexOf(buffer, 0uy)
+    let length = if zero < 0 then buffer.Length else zero
+    if length = 0 then "" else System.Text.Encoding.UTF8.GetString(buffer, 0, length)
+
+/// Seed a caller-owned NUL-terminated UTF-8 edit buffer with `text`, truncating it to at most
+/// `maxChars` characters and to the buffer's byte capacity. Allocation-free: it walks the string
+/// once to find the widest prefix that fits.
+let seedText (buffer: byte[]) (maxChars: int) (text: string) : unit =
+    let byteLimit = buffer.Length - 1
+    let mutable bytes = 0
+    let mutable chars = 0
+    let mutable stop = false
+    while not stop && chars < text.Length && chars < maxChars do
+        let c = text.[chars]
+        let width =
+            if c < '\u0080' then 1
+            elif c < '\u0800' then 2
+            elif System.Char.IsHighSurrogate c && chars + 1 < text.Length && System.Char.IsLowSurrogate text.[chars + 1] then 4
+            else 3
+        let step = if width = 4 then 2 else 1
+        if chars + step > maxChars || bytes + width > byteLimit then stop <- true
+        else
+            bytes <- bytes + width
+            chars <- chars + step
+    let count = System.Text.Encoding.UTF8.GetBytes(text, 0, chars, buffer, 0)
+    buffer.[count] <- 0uy
+
+/// A full-width selectable row with no flags.
+let selectable (label: string) (selected: bool) : bool =
+    selectableBool(label, selected, 0, ImVec2(0.0f, 0.0f))

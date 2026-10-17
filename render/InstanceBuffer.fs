@@ -29,7 +29,8 @@ type InstanceBuffer =
       mutable Transfer : Gpu.TransferBuffer
       mutable Capacity : int
       mutable Staging : byte array
-      mutable Retired : (Gpu.Buffer * Gpu.TransferBuffer * int) list }
+      // A struct queue: `reclaim` runs every frame, so it must not cons a new list each time.
+      mutable Retired : ResizeArray<struct (Gpu.Buffer * Gpu.TransferBuffer * int)> }
 
 // No device and no allocation; the buffers are created on the first `ensure`.
 let create () : InstanceBuffer =
@@ -37,7 +38,7 @@ let create () : InstanceBuffer =
       Transfer = IntPtr.Zero
       Capacity = 0
       Staging = Array.empty<byte>
-      Retired = [] }
+      Retired = ResizeArray() }
 
 // ── growth + retirement ──
 
@@ -47,23 +48,29 @@ let ensure (device: Gpu.Device) (buf: byref<InstanceBuffer>) (instances: int) : 
     if instances <= buf.Capacity then () else
 
     if buf.Buffer <> IntPtr.Zero then
-        buf.Retired <- (buf.Buffer, buf.Transfer, retireFrames) :: buf.Retired
-    let bytes = uint32 (max 1 instances * stride)
+        buf.Retired.Add(struct (buf.Buffer, buf.Transfer, retireFrames))
+    // Grow geometrically so a scene that gains instances one at a time does not reallocate and
+    // retire a buffer on every add; the first allocation is still at least four instances.
+    let capacity = max instances (max 4 (buf.Capacity * 2))
+    let bytes = uint32 (capacity * stride)
     buf.Buffer <- createBuffer device SDL.GPUBufferUsageFlags.Vertex bytes
     buf.Transfer <- createTransferBuffer device bytes
-    buf.Capacity <- instances
-    buf.Staging <- Array.zeroCreate<byte> (instances * stride)
+    buf.Capacity <- capacity
+    buf.Staging <- Array.zeroCreate<byte> (capacity * stride)
 
 // Release retired buffers that have outlived every in-flight frame. Call once per frame.
 let reclaim (device: Gpu.Device) (buf: byref<InstanceBuffer>) : unit =
-    let mutable keep = []
-    for (buffer, transfer, frames) in buf.Retired do
+    let retired = buf.Retired
+    let mutable i = retired.Count - 1
+    while i >= 0 do
+        let struct (buffer, transfer, frames) = retired.[i]
         if frames <= 1 then
             do SDL.ReleaseGPUBuffer(device, buffer)
             do SDL.ReleaseGPUTransferBuffer(device, transfer)
+            retired.RemoveAt i
         else
-            keep <- (buffer, transfer, frames - 1) :: keep
-    buf.Retired <- keep
+            retired.[i] <- struct (buffer, transfer, frames - 1)
+        i <- i - 1
 
 // Free this buffer's GPU memory, including any retired buffers. Called before the
 // device is destroyed, or when the owning zone is released.
@@ -75,10 +82,11 @@ let release (device: Gpu.Device) (buf: byref<InstanceBuffer>) : unit =
         buf.Transfer <- IntPtr.Zero
         buf.Capacity <- 0
         buf.Staging <- Array.empty<byte>
-    for (buffer, transfer, _) in buf.Retired do
+    for item in buf.Retired do
+        let struct (buffer, transfer, _) = item
         do SDL.ReleaseGPUBuffer(device, buffer)
         do SDL.ReleaseGPUTransferBuffer(device, transfer)
-    buf.Retired <- []
+    buf.Retired.Clear()
 
 // ── upload + binding ──
 
@@ -86,7 +94,9 @@ let release (device: Gpu.Device) (buf: byref<InstanceBuffer>) : unit =
 let upload (device: Gpu.Device) (buf: InstanceBuffer) (cmd: Gpu.CommandBuffer) (usedBytes: int) : unit =
     if usedBytes <= 0 || buf.Buffer = IntPtr.Zero then () else
 
-    let mapped = SDL.MapGPUTransferBuffer(device, buf.Transfer, false)
+    // Recurring per-frame map: cycle so an earlier in-flight frame still copying from this staging
+    // buffer does not race this frame's write (spec 098, F-02).
+    let mapped = SDL.MapGPUTransferBuffer(device, buf.Transfer, true)
     do Marshal.Copy(buf.Staging, 0, mapped, usedBytes)
     do SDL.UnmapGPUTransferBuffer(device, buf.Transfer)
 

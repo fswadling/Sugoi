@@ -61,7 +61,7 @@ let draw (prompt: string) (viewportW: float32) (viewportH: float32) (ui: byref<U
     if prompt = "" then () else
 
     let wrapWidth = int (max 1.0f (maxWidth viewportW))
-    let (textW, textH) = Ui.setLine &ui promptSlot prompt wrapWidth
+    let struct (textW, textH) = Ui.setLine &ui promptSlot prompt wrapWidth
     let geom = ui.TextGeoms.[promptSlot]
     let rect = layout viewportW viewportH (float32 textW) (float32 textH)
     let shadow : Ui.Rect = { rect with X = rect.X + shadowOffset; Y = rect.Y + shadowOffset }

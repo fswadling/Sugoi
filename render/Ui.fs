@@ -21,7 +21,6 @@ module Ui
 // own memory, so it is walked **once per rebuild**, never per frame.
 
 open System
-open System.IO
 open System.Numerics
 open System.Runtime.InteropServices
 open SDL3
@@ -133,28 +132,6 @@ type Ui =
 
 // ── construction ──
 
-let private loadShader (device: Gpu.Device) (stage: SDL.GPUShaderStage) (path: string) (uniformBuffers: uint32) (samplers: uint32) : Gpu.Shader =
-    let code = File.ReadAllBytes(path)
-    let mutable info = SDL.GPUShaderCreateInfo()
-    info.Format <- SDL.GPUShaderFormat.SPIRV
-    info.Stage <- stage
-    info.NumSamplers <- samplers
-    info.NumStorageTextures <- 0u
-    info.NumStorageBuffers <- 0u
-    info.NumUniformBuffers <- uniformBuffers
-    info.Props <- 0u
-    SDL.CreateGPUShader(device, &info, ReadOnlySpan<byte>(code), "main")
-
-let private createSampler (device: Gpu.Device) : Gpu.Sampler =
-    let mutable info = SDL.GPUSamplerCreateInfo()
-    info.MinFilter <- SDL.GPUFilter.Linear
-    info.MagFilter <- SDL.GPUFilter.Linear
-    info.MipmapMode <- SDL.GPUSamplerMipmapMode.Linear
-    info.AddressModeU <- SDL.GPUSamplerAddressMode.ClampToEdge
-    info.AddressModeV <- SDL.GPUSamplerAddressMode.ClampToEdge
-    info.AddressModeW <- SDL.GPUSamplerAddressMode.ClampToEdge
-    SDL.CreateGPUSampler(device, &info)
-
 /// Create the layer: the pipeline, the batch buffers, the glyph-atlas sampler, and the font
 /// and text engine (opened once). Fails loudly if the font or the text engine will not
 /// initialize (research Decision 9).
@@ -164,8 +141,8 @@ let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFo
         failwithf "ui: TTF_Init failed: %s" (SDL.GetError())
 
     // ── shaders ──
-    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/ui.vert.spv" 1u 0u
-    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/ui.frag.spv" 0u 1u
+    let vertexShader = Gpu.loadShader device SDL.GPUShaderStage.Vertex "shaders/ui.vert.spv" 1u 0u 0u
+    let fragmentShader = Gpu.loadShader device SDL.GPUShaderStage.Fragment "shaders/ui.frag.spv" 0u 0u 1u
 
     // ── vertex input layout ──
     let mutable vertexBufferDescription = SDL.GPUVertexBufferDescription()
@@ -222,38 +199,8 @@ let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFo
     let attributes = [| positionAttribute; uvAttribute; colourAttribute |]
     let colorTargets = [| colorTarget |]
 
-    let mutable info = SDL.GPUGraphicsPipelineCreateInfo()
-    info.VertexShader <- vertexShader
-    info.FragmentShader <- fragmentShader
-    info.PrimitiveType <- SDL.GPUPrimitiveType.TriangleList
-    info.RasterizerState <- raster
-    info.MultisampleState <- multisample
-
-    let vertexBufferHandle = GCHandle.Alloc(vertexBufferDescriptions, GCHandleType.Pinned)
-    let attributeHandle = GCHandle.Alloc(attributes, GCHandleType.Pinned)
-    let colorHandle = GCHandle.Alloc(colorTargets, GCHandleType.Pinned)
-
     let pipeline =
-        try
-            let mutable vertexInput = SDL.GPUVertexInputState()
-            vertexInput.VertexBufferDescriptions <- vertexBufferHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexBuffers <- 1u
-            vertexInput.VertexAttributes <- attributeHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexAttributes <- 3u
-            info.VertexInputState <- vertexInput
-
-            let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()
-            targetInfo.ColorTargetDescriptions <- colorHandle.AddrOfPinnedObject()
-            targetInfo.NumColorTargets <- 1u
-            targetInfo.DepthStencilFormat <- depthFormat
-            targetInfo.HasDepthStencilTarget <- false
-            info.TargetInfo <- targetInfo
-
-            SDL.CreateGPUGraphicsPipeline(device, &info)
-        finally
-            vertexBufferHandle.Free()
-            attributeHandle.Free()
-            colorHandle.Free()
+        Gpu.createGraphicsPipeline device vertexShader fragmentShader SDL.GPUPrimitiveType.TriangleList vertexBufferDescriptions attributes colorTargets raster multisample ValueNone depthFormat
 
     if pipeline = IntPtr.Zero then
         failwithf "ui: failed to create the 2D pipeline: %s" (SDL.GetError())
@@ -297,7 +244,7 @@ let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFo
       IndexBuffer = indexBuffer
       VertexTransfer = vertexTransfer
       IndexTransfer = indexTransfer
-      Sampler = createSampler device
+      Sampler = Texture.createSampler device SDL.GPUSamplerAddressMode.ClampToEdge
       White = Texture.solid device 255uy 255uy 255uy 255uy
       Font = font
       TextEngine = textEngine
@@ -384,11 +331,11 @@ let private rebuild (ui: byref<Ui>) (slot: int) (textObject: TextObject) (text: 
 /// A no-op when that slot's line and wrap width are unchanged, so its geometry is rebuilt
 /// only on a line change. Returns the measured (width, height) at that wrap width — the one
 /// impure step the panel layout needs.
-let setLine (ui: byref<Ui>) (slot: int) (text: string) (wrapWidth: int) : int * int =
+let setLine (ui: byref<Ui>) (slot: int) (text: string) (wrapWidth: int) : struct (int * int) =
     // With no font the layer has no glyphs: skip the rebuild and report an empty measurement (spec 080, US7c).
     if ui.Font <> IntPtr.Zero && (ui.TextGeoms.[slot].Source <> text || ui.TextGeoms.[slot].WrapWidth <> wrapWidth) then
         rebuild &ui slot ui.TextObjects.[slot] text wrapWidth
-    (ui.TextW.[slot], ui.TextH.[slot])
+    struct (ui.TextW.[slot], ui.TextH.[slot])
 
 // ── CPU batch ──
 
@@ -510,14 +457,15 @@ let upload (ui: Ui) (cmd: Gpu.CommandBuffer) : unit =
     // ── stage the vertex range into the transfer buffer ──
     let vertexBytes = ui.VertexCount * bytesPerVertex
     do Buffer.BlockCopy(ui.Vertices, 0, ui.VertexBytes, 0, vertexBytes)
-    let mappedVertices = SDL.MapGPUTransferBuffer(ui.Device, ui.VertexTransfer, false)
+    // Recurring per-frame maps: cycle so an earlier in-flight frame does not race this write.
+    let mappedVertices = SDL.MapGPUTransferBuffer(ui.Device, ui.VertexTransfer, true)
     do Marshal.Copy(ui.VertexBytes, 0, mappedVertices, vertexBytes)
     do SDL.UnmapGPUTransferBuffer(ui.Device, ui.VertexTransfer)
 
     // ── stage the index range into the transfer buffer ──
     let indexBytes = ui.IndexCount * 4
     do Buffer.BlockCopy(ui.Indices, 0, ui.IndexBytes, 0, indexBytes)
-    let mappedIndices = SDL.MapGPUTransferBuffer(ui.Device, ui.IndexTransfer, false)
+    let mappedIndices = SDL.MapGPUTransferBuffer(ui.Device, ui.IndexTransfer, true)
     do Marshal.Copy(ui.IndexBytes, 0, mappedIndices, indexBytes)
     do SDL.UnmapGPUTransferBuffer(ui.Device, ui.IndexTransfer)
 

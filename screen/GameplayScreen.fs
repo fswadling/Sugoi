@@ -37,6 +37,10 @@ let private simulateActors (dt: float32) (playing: bool) (zone: Zone.Zone) : uni
         let transform = actor.State.Base.Transform
         do ActorRender.simulate &actor.Renderer dt playing (Entity.modelMatrix transform) transform.Rotation
 
+// The active environment whose assets are pinned. Cached so an unchanged environment performs no pin-set
+// clear, refill or lock (FR-013): only an actual change reaches `Assets.setPinned`.
+let mutable private lastPinned : string voption = ValueNone
+
 // Advance non-render logic: refresh the camera aspect from the frame's window size, then hand the
 // frame's input to the editor (which owns the edit/play toggle, shortcuts, nudge, interaction, and
 // camera). The editor does not simulate, so it stays passive: the animation clock, the dialogue
@@ -55,9 +59,13 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
     // frame, in edit and play alike.
     let pinned =
         match (GameplayState.activeZone state).EnvironmentState with
-        | Zone.Active environment | Zone.Awaiting environment -> [ environment.AssetId ]
-        | Zone.NoEnvironment -> []
-    do Assets.setPinned shared.Assets pinned
+        | Zone.Active environment | Zone.Awaiting environment -> ValueSome environment.AssetId
+        | Zone.NoEnvironment -> ValueNone
+    if pinned <> lastPinned then
+        match pinned with
+        | ValueSome assetId -> do Assets.setPinned shared.Assets [ assetId ]
+        | ValueNone -> do Assets.setPinned shared.Assets []
+        lastPinned <- pinned
     do Assets.pump shared.Assets Assets.UploadBudgetMs
     do Zone.reconcileEnvironment (GameplayState.activeZone state) state.Physics shared.Assets
 
@@ -91,8 +99,9 @@ let update (shared: SharedState.SharedState) (frame: Frame) (state: byref<Gamepl
     do simulateActors frame.Dt (not state.Editing) (GameplayState.activeZone state)
 
     // Persist the scenario library if it changed (spec 095 FR-005): one reference comparison, so a write happens
-    // only on an author action — an add, clear, register or delete, or the undo/redo of one.
-    do Project.persist state.Scenarios
+    // only on an author action — an add, clear, register or delete, or the undo/redo of one. A failed write is
+    // retried at a bounded interval rather than once per frame (spec 098 FR-003).
+    do Project.persistFrame (float frame.Dt) state.Scenarios
 
     // Pick up an external edit to the project file (spec 096): only while editing, and only when live reload is
     // on, and at most once per interval — so actual play performs no file I/O.
@@ -167,8 +176,9 @@ let renderScene (shared: SharedState.SharedState) (state: inref<GameplayState.Ga
     // Gather the static instances (CPU), then upload every per-frame buffer in copy
     // passes before the render pass.
     let zone = GameplayState.activeZone state
-    do Zone.gatherStatic shared.Gpu.Device zone
-    do EnvironmentBatch.upload shared.Gpu.Device zone.Batch pass.Cmd
+    // Gather only when the static scene changed; upload only what was gathered (FR-009).
+    let gathered = Zone.gatherStatic shared.Gpu.Device zone
+    if gathered then do EnvironmentBatch.upload shared.Gpu.Device zone.Batch pass.Cmd
     do DebugDraw.upload state.DebugDraw pass.Cmd
     do DebugDraw.upload state.GizmoDraw pass.Cmd
     do Ui.upload state.Ui pass.Cmd

@@ -12,35 +12,23 @@ open Command
 open Cue
 open CueEngine
 open Music
+open TestSupport
 
 // ── Headless fixtures ──
 
-/// A headless gameplay state, the way `test/CueTests.fs` builds one.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
+    TestSupport.headlessState ()
 
 /// A headless `SharedState`: a device-free, empty asset manager (whose audio is `unavailable` and whose
 /// `AudioAssets` is empty, so every song resolves to *unavailable*), an empty mix and a fresh rack.
 let private sharedState () : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    TestSupport.headlessShared ()
 
 /// A shared state with the named songs already palette rows.
 let private withPalette (songs: string list) : SharedState.SharedState =
     let shared = sharedState ()
     shared.Mix <- List.fold (fun mix song -> Music.addRow song mix) shared.Mix songs
     shared
-
-/// Authoring sugar: a list of ops as the cue they denote (the `CueTests` helper).
-let private seqOf (cues: Cue list) : Cue =
-    match cues with
-    | [] -> Fin
-    | [ only ] -> only
-    | head :: tail -> Sequence(head, FDeque.ofList tail)
 
 let private raises (f: unit -> unit) : bool =
     try
@@ -189,6 +177,25 @@ let ``a level op on a song that is not a palette row is a no-op`` () =
     tick shared &state 0.0
     Assert.Empty shared.Mix.Rows
     Assert.Equal(Fin, state.Cue)
+
+[<Fact>]
+let ``a ramp moves only its row, without reconciling the rack`` () =
+    // F-24: a level ramp re-applies one deck. Other rows, the master and the row order are untouched —
+    // a full `Music.reconcile` would walk (and could free) every deck.
+    let shared = withPalette [ "casual1"; "dark1" ]
+    shared.Mix <- Music.setWeight "dark1" 0.3f shared.Mix
+    let mutable state = newState ()
+    state.Cue <- SetMusicLevel("casual1", 0.0f, 2.0)
+    tick shared &state 0.0
+    tick shared &state 1.0
+
+    // Only the ramped row moves: the other row, the master and the row order are untouched, so no
+    // full reconcile ran (a reconcile would re-apply every deck and can free rows that left the mix).
+    Assert.Equal(0.5f, (Music.rowOf "casual1" shared.Mix).Value.Weight)
+    Assert.Equal(0.3f, (Music.rowOf "dark1" shared.Mix).Value.Weight)
+    Assert.Equal(1.0f, shared.Mix.Master)
+    Assert.Equal<string list>([ "casual1"; "dark1" ], shared.Mix.Rows |> List.map (fun row -> row.Asset))
+    Assert.Empty state.Editor.Undo.Applied
 
 [<Fact>]
 let ``a level op on a row that is not playing still writes the mix`` () =

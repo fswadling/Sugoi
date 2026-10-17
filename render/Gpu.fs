@@ -370,13 +370,64 @@ let normalMatrix (model: Matrix4x4) : Matrix4x4 =
     let mutable inv = Matrix4x4.Identity
     if Matrix4x4.Invert(m3, &inv) then Matrix4x4.Transpose(inv) else Matrix4x4.Identity
 
+// ── graphics pipelines ──
+
+/// Create a graphics pipeline from prepared state. The descriptor arrays are pinned only for the
+/// native call (which stores their pointers in the vertex-input/target structs), then released;
+/// the shaders remain the caller's to release. `ValueNone` selects a depth-less pipeline.
+let createGraphicsPipeline
+    (device: Device)
+    (vertexShader: Shader)
+    (fragmentShader: Shader)
+    (primitiveType: SDL.GPUPrimitiveType)
+    (vertexBufferDescriptions: SDL.GPUVertexBufferDescription array)
+    (attributes: SDL.GPUVertexAttribute array)
+    (colorTargets: SDL.GPUColorTargetDescription array)
+    (raster: SDL.GPURasterizerState)
+    (multisample: SDL.GPUMultisampleState)
+    (depthStencil: SDL.GPUDepthStencilState voption)
+    (depthFormat: SDL.GPUTextureFormat) : Pipeline =
+    let mutable info = SDL.GPUGraphicsPipelineCreateInfo()
+    info.VertexShader <- vertexShader
+    info.FragmentShader <- fragmentShader
+    info.PrimitiveType <- primitiveType
+    info.RasterizerState <- raster
+    info.MultisampleState <- multisample
+    match depthStencil with
+    | ValueSome depth -> info.DepthStencilState <- depth
+    | ValueNone -> ()
+
+    let vbufHandle = GCHandle.Alloc(vertexBufferDescriptions, GCHandleType.Pinned)
+    let attrHandle = GCHandle.Alloc(attributes, GCHandleType.Pinned)
+    let colorHandle = GCHandle.Alloc(colorTargets, GCHandleType.Pinned)
+    try
+        let mutable vertexInput = SDL.GPUVertexInputState()
+        vertexInput.VertexBufferDescriptions <- vbufHandle.AddrOfPinnedObject()
+        vertexInput.NumVertexBuffers <- uint32 vertexBufferDescriptions.Length
+        vertexInput.VertexAttributes <- attrHandle.AddrOfPinnedObject()
+        vertexInput.NumVertexAttributes <- uint32 attributes.Length
+        info.VertexInputState <- vertexInput
+
+        let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()
+        targetInfo.ColorTargetDescriptions <- colorHandle.AddrOfPinnedObject()
+        targetInfo.NumColorTargets <- uint32 colorTargets.Length
+        targetInfo.DepthStencilFormat <- depthFormat
+        targetInfo.HasDepthStencilTarget <- match depthStencil with ValueSome _ -> true | ValueNone -> false
+        info.TargetInfo <- targetInfo
+
+        SDL.CreateGPUGraphicsPipeline(device, &info)
+    finally
+        vbufHandle.Free()
+        attrHandle.Free()
+        colorHandle.Free()
+
 // ── actor pipelines (cel surface + outline, specs 040/041) ──
 
 // Shared builder for the two actor pipelines: the same 6-attribute, 52-byte vertex layout and the
 // `mesh.vert` stage (skinning + morphs + the outline extrusion), differing only in the fragment
-// shader, the cull mode and whether depth bias is enabled.
-let private createActorPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) (fragmentPath: string) (fragmentUniformBuffers: uint32) (fragmentSamplers: uint32) (cullMode: SDL.GPUCullMode) (useDepthBias: bool) : Pipeline =
-    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/mesh.vert.spv" 3u 2u 0u
+// shader, the cull mode and whether depth bias is enabled. The vertex shader is the caller's:
+// both actor pipelines are built from one compiled `mesh.vert`.
+let private createActorPipeline (device: Device) (vertexShader: Shader) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) (fragmentPath: string) (fragmentUniformBuffers: uint32) (fragmentSamplers: uint32) (cullMode: SDL.GPUCullMode) (useDepthBias: bool) : Pipeline =
     let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment fragmentPath fragmentUniformBuffers 0u fragmentSamplers
 
     let mutable vbufDesc = SDL.GPUVertexBufferDescription()
@@ -455,54 +506,20 @@ let private createActorPipeline (device: Device) (swapchainFormat: SDL.GPUTextur
 
     let colorTargets = [| colorTarget |]
 
-    let mutable info = SDL.GPUGraphicsPipelineCreateInfo()
-    info.VertexShader <- vertexShader
-    info.FragmentShader <- fragmentShader
-    info.PrimitiveType <- SDL.GPUPrimitiveType.TriangleList
-    info.RasterizerState <- raster
-    info.MultisampleState <- ms
-    info.DepthStencilState <- depth
-
-    // Pin the input/description arrays so their native pointers can be stored in
-    // the vertex-input/target-info structs (the 2-arg overload is required to
-    // set a depth-stencil target).
-    let vbufHandle = GCHandle.Alloc(vbufDescs, GCHandleType.Pinned)
-    let attrHandle = GCHandle.Alloc(attrs, GCHandleType.Pinned)
-    let colorHandle = GCHandle.Alloc(colorTargets, GCHandleType.Pinned)
-
     let pipeline =
-        try
-            let mutable vertexInput = SDL.GPUVertexInputState()
-            vertexInput.VertexBufferDescriptions <- vbufHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexBuffers <- 1u
-            vertexInput.VertexAttributes <- attrHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexAttributes <- 6u
-            info.VertexInputState <- vertexInput
+        createGraphicsPipeline device vertexShader fragmentShader SDL.GPUPrimitiveType.TriangleList vbufDescs attrs colorTargets raster ms (ValueSome depth) depthFormat
 
-            let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()
-            targetInfo.ColorTargetDescriptions <- colorHandle.AddrOfPinnedObject()
-            targetInfo.NumColorTargets <- 1u
-            targetInfo.DepthStencilFormat <- depthFormat
-            targetInfo.HasDepthStencilTarget <- true
-            info.TargetInfo <- targetInfo
-
-            SDL.CreateGPUGraphicsPipeline(device, &info)
-        finally
-            vbufHandle.Free()
-            attrHandle.Free()
-            colorHandle.Free()
-
-    SDL.ReleaseGPUShader(device, vertexShader)
-    SDL.ReleaseGPUShader(device, fragmentShader)
+    do SDL.ReleaseGPUShader(device, fragmentShader)
     pipeline
 
-// The cel-shaded surface: double-sided (the model relies on it), no depth bias.
-let createCelPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
-    createActorPipeline device swapchainFormat depthFormat "shaders/cel.frag.spv" 1u 1u SDL.GPUCullMode.None false
-
-// The outline hull: front faces culled so only the extruded back faces show, depth-biased back.
-let createOutlinePipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : Pipeline =
-    createActorPipeline device swapchainFormat depthFormat "shaders/outline.frag.spv" 0u 1u SDL.GPUCullMode.Front true
+// Build both actor pipelines from one compiled `mesh.vert`: the cel-shaded surface (double-sided,
+// no depth bias) and the outline hull (front faces culled, depth-biased back).
+let private createActorPipelines (device: Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) : struct (Pipeline * Pipeline) =
+    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/mesh.vert.spv" 3u 2u 0u
+    let cel = createActorPipeline device vertexShader swapchainFormat depthFormat "shaders/cel.frag.spv" 1u 1u SDL.GPUCullMode.None false
+    let outline = createActorPipeline device vertexShader swapchainFormat depthFormat "shaders/outline.frag.spv" 0u 1u SDL.GPUCullMode.Front true
+    do SDL.ReleaseGPUShader(device, vertexShader)
+    struct (cel, outline)
 
 // Depth-tested triangle pipeline for static position/normal/uv geometry (no
 // blend attributes, no bone storage buffer). Used by environments and props,
@@ -579,39 +596,8 @@ let createStaticPipeline (device: Device) (swapchainFormat: SDL.GPUTextureFormat
 
     let colorTargets = [| colorTarget |]
 
-    let mutable info = SDL.GPUGraphicsPipelineCreateInfo()
-    info.VertexShader <- vertexShader
-    info.FragmentShader <- fragmentShader
-    info.PrimitiveType <- SDL.GPUPrimitiveType.TriangleList
-    info.RasterizerState <- raster
-    info.MultisampleState <- ms
-    info.DepthStencilState <- depth
-
-    let vbufHandle = GCHandle.Alloc(vbufDescs, GCHandleType.Pinned)
-    let attrHandle = GCHandle.Alloc(attrs, GCHandleType.Pinned)
-    let colorHandle = GCHandle.Alloc(colorTargets, GCHandleType.Pinned)
-
     let pipeline =
-        try
-            let mutable vertexInput = SDL.GPUVertexInputState()
-            vertexInput.VertexBufferDescriptions <- vbufHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexBuffers <- 2u
-            vertexInput.VertexAttributes <- attrHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexAttributes <- 10u
-            info.VertexInputState <- vertexInput
-
-            let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()
-            targetInfo.ColorTargetDescriptions <- colorHandle.AddrOfPinnedObject()
-            targetInfo.NumColorTargets <- 1u
-            targetInfo.DepthStencilFormat <- depthFormat
-            targetInfo.HasDepthStencilTarget <- true
-            info.TargetInfo <- targetInfo
-
-            SDL.CreateGPUGraphicsPipeline(device, &info)
-        finally
-            vbufHandle.Free()
-            attrHandle.Free()
-            colorHandle.Free()
+        createGraphicsPipeline device vertexShader fragmentShader SDL.GPUPrimitiveType.TriangleList vbufDescs attrs colorTargets raster ms (ValueSome depth) depthFormat
 
     do SDL.ReleaseGPUShader(device, vertexShader)
     do SDL.ReleaseGPUShader(device, fragmentShader)
@@ -660,39 +646,8 @@ let createSkydomePipeline (device: Device) (swapchainFormat: SDL.GPUTextureForma
     let attrs = [| attr0 |]
     let colorTargets = [| colorTarget |]
 
-    let mutable info = SDL.GPUGraphicsPipelineCreateInfo()
-    info.VertexShader <- vertexShader
-    info.FragmentShader <- fragmentShader
-    info.PrimitiveType <- SDL.GPUPrimitiveType.TriangleList
-    info.RasterizerState <- raster
-    info.MultisampleState <- ms
-    info.DepthStencilState <- depth
-
-    let vbufHandle = GCHandle.Alloc(vbufDescs, GCHandleType.Pinned)
-    let attrHandle = GCHandle.Alloc(attrs, GCHandleType.Pinned)
-    let colorHandle = GCHandle.Alloc(colorTargets, GCHandleType.Pinned)
-
     let pipeline =
-        try
-            let mutable vertexInput = SDL.GPUVertexInputState()
-            vertexInput.VertexBufferDescriptions <- vbufHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexBuffers <- 1u
-            vertexInput.VertexAttributes <- attrHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexAttributes <- 1u
-            info.VertexInputState <- vertexInput
-
-            let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()
-            targetInfo.ColorTargetDescriptions <- colorHandle.AddrOfPinnedObject()
-            targetInfo.NumColorTargets <- 1u
-            targetInfo.DepthStencilFormat <- depthFormat
-            targetInfo.HasDepthStencilTarget <- true
-            info.TargetInfo <- targetInfo
-
-            SDL.CreateGPUGraphicsPipeline(device, &info)
-        finally
-            vbufHandle.Free()
-            attrHandle.Free()
-            colorHandle.Free()
+        createGraphicsPipeline device vertexShader fragmentShader SDL.GPUPrimitiveType.TriangleList vbufDescs attrs colorTargets raster ms (ValueSome depth) depthFormat
 
     do SDL.ReleaseGPUShader(device, vertexShader)
     do SDL.ReleaseGPUShader(device, fragmentShader)
@@ -722,11 +677,12 @@ let create (device: Device) (swapchainFormat: SDL.GPUTextureFormat) : Gpu =
         failwithf "gpu: swapchain format %A does not support %A multisampling (spec 042)" swapchainFormat SampleCount
     if not (SDL.GPUTextureSupportsSampleCount(device, depthFormat, SampleCount)) then
         failwithf "gpu: depth format %A does not support %A multisampling (spec 042)" depthFormat SampleCount
+    let struct (celPipeline, outlinePipeline) = createActorPipelines device swapchainFormat depthFormat
     { Device = device
       SwapchainFormat = swapchainFormat
       DepthFormat = depthFormat
-      CelPipeline = createCelPipeline device swapchainFormat depthFormat
-      OutlinePipeline = createOutlinePipeline device swapchainFormat depthFormat
+      CelPipeline = celPipeline
+      OutlinePipeline = outlinePipeline
       StaticPipeline = createStaticPipeline device swapchainFormat depthFormat
       SkydomePipeline = createSkydomePipeline device swapchainFormat depthFormat
       MsaaTexture = IntPtr.Zero

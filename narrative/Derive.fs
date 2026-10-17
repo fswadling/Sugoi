@@ -5,6 +5,7 @@ namespace Narrative
 // appearing and disappearing true by construction (FR-011, FR-013, research D7).
 
 open System
+open System.Collections.Generic
 
 /// Raised, rather than returned, because reaching the bound is not caller data: with a
 /// finite vocabulary and a closed roster a well-formed rule set cannot reach it, so it means
@@ -46,39 +47,40 @@ module Derive =
         /// leaves is those facts with this pass's conclusions added — or, when the conclusions would
         /// exceed the bound, the pass raises with the rules that were still concluding.
         let pass (snapshot: Snapshot) : Snapshot =
-            let considered =
-                [ for rule in snapshot.Pending do
-                    let conclusions, _ = rule.Evaluate snapshot.Current snapshot.Index
-                    for fact, premises in conclusions do
-                        yield rule.Name, fact, premises ]
+            let mutable current = snapshot.Current
+            let mutable gained = []
+            let mutable remaining = snapshot.Remaining
+            // One entry per rule rather than one per conclusion, and sorted only on the failure path,
+            // so naming the rules costs nothing on a normal pass.
+            let concluding = HashSet<string>()
 
-            // One evaluation is one conclusion a rule considered, which is the unit that grows with
-            // the number of facts and rules (research D9).
-            if List.length considered > snapshot.Remaining then
-                let concluding =
-                    considered |> List.map (fun (name, _, _) -> name) |> List.distinct |> List.sort
+            let addConclusion (name: string) (fact: Fact) (premises: Premise list) =
+                // One conclusion is what the bound counts, and it is counted as it arrives rather
+                // than after every conclusion has been materialised (F-84, research D9).
+                if remaining <= 0 then
+                    concluding.Add name |> ignore
+                    let names = concluding |> Seq.sort |> List.ofSeq
+                    raise (DerivationBoundExceeded names)
 
-                raise (DerivationBoundExceeded concluding)
+                remaining <- remaining - 1
+                concluding.Add name |> ignore
+                let reason = { Rule = name; Premises = premises; Origin = Inferred }
+                let novel, updated = Facts.add fact reason current
+                current <- updated
+                // A further reason for a fact already current enables no new match, so it must not
+                // count as the pass having gained anything (FR-009).
+                if novel then gained <- fact :: gained
 
-            let current, gained =
-                List.fold
-                    (fun (current, gained) (name, fact, premises) ->
-                        let reason = { Rule = name; Premises = premises; Origin = Inferred }
-                        // A further reason for a fact already current enables no new match, so it
-                        // must not count as the pass having gained anything (FR-009).
-                        let isNew = not (Facts.contains fact current)
-                        let current = Facts.add fact reason current
-
-                        if isNew then current, fact :: gained
-                        else current, gained)
-                    (snapshot.Current, [])
-                    considered
+            for rule in snapshot.Pending do
+                let conclusions = rule.Evaluate current snapshot.Index
+                for fact, premises in conclusions do
+                    addConclusion rule.Name fact premises
 
             let gainedConstructs = constructsOf gained
 
             { Current = current
               Index = ParticipantIndex.addFacts gained snapshot.Index
-              Remaining = snapshot.Remaining - List.length considered
+              Remaining = remaining
               Pending =
                 if Set.isEmpty gainedConstructs then []
                 else

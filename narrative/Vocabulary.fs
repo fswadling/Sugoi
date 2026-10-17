@@ -81,19 +81,21 @@ module Vocabulary =
         | Shy -> nameof Shy
         | HotHeaded -> nameof HotHeaded
 
-    /// The participants a fact names, in order: which arguments are people, said by matching on the
-    /// construct rather than by asking the type of each argument, because asking was measured at
-    /// ~17 us a call and this runs once per fact whenever the participant index is built (research
-    /// D30). `HasTrait`'s second argument is a trait, so that one names a single participant.
-    let factParticipants (fact: Fact) : Character list =
+    /// Fold over the participants a fact names, in order: which arguments are people, said by
+    /// matching on the construct rather than by asking the type of each argument, because asking was
+    /// measured at ~17 us a call and this runs once per fact whenever the participant index is built
+    /// (research D30). A fold rather than a list because the index and the character scan both consume
+    /// the participants without needing one allocated per fact. `HasTrait`'s second argument is a
+    /// trait, so that one names a single participant.
+    let foldParticipants (folder: Character -> 'State -> 'State) (state: 'State) (fact: Fact) : 'State =
         match fact with
-        | HasTrait (a, _) -> [ a ]
+        | HasTrait (a, _) -> folder a state
         | Friends (a, b)
         | AttractedTo (a, b)
         | InRelationship (a, b)
         | JealousOf (a, b)
         | FriendshipThreatened (a, b)
-        | BottledUpFeelings (a, b) -> [ a; b ]
+        | BottledUpFeelings (a, b) -> folder b (folder a state)
 
     /// The construct a fact is. `factParticipants`' companion and the same shape: the vocabulary's
     /// own cases said once as a total match, so adding a fact construct is reported here too.

@@ -24,44 +24,22 @@ let private mainPlace : string = GameplayState.startZone
 let private classroomPlace : string = "ArtRoom Evening"
 let private atriumPlace : string = "Island"
 
-let private entity (name: string) : Entity =
-    { Name = name
-      Transform = transformIdentity
-      Enabled = true
-      Visible = true
-      Selectable = true
-      Draggable = true }
-
 // ── Headless fixtures ──
 
 // A device-free manager carrying one whole-model prop asset (`crate`).
 let private propAssets () : Assets.AssetManager =
-    let submeshes = [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
-    let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    props.["crate"] <- residentAsset "crate" submeshes [||]
-    TestSupport.manager IntPtr.Zero (Dictionary()) props (Dictionary())
+    managerWith [] [ "crate", crateAsset () ] []
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Advents = OSet.ofSeq1 []; Mix = Music.empty; Rack = Music.newRack (); Voices = Sound.newVoices Audio.unavailable }
+    headlessSharedWith assets
 
 // A gameplay state seeded with the single `main` zone, as the app starts.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
-
-let private actor (name: string) : Actor =
-    { State =
-        { Base = entity name
-          AssetId = ""
-          ShowCollider = false }
-      Physics = None
-      Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
+    headlessState ()
 
 // A device-free manager carrying one environment (`room`) with a single part.
 let private roomAssets () : Assets.AssetManager =
-    let submeshes = [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
-    let envs = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    envs.["room"] <- residentAsset "room" submeshes [| TestSupport.part "wall" 0 1 |]
-    TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) envs
+    managerWith [] [] [ "room", roomAsset () ]
 
 let private bodyOf (zone: Zone.Zone) (ref: EntityRef) : BodyId =
     (zone.Props.Get(handleOf ref)).Physics.Value.Body
@@ -500,7 +478,7 @@ let ``a switch to a zone naming an unknown environment asset fails loudly`` () =
 let ``deleting a zone and undoing restores its entities, environment and light`` () =
     let assets = roomAssets ()
     // A placed prop asset too, so the round trip covers a prop as well as the environment's own part.
-    assets.Props.["crate"] <- residentAsset "crate" [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |] [||]
+    assets.Props.["crate"] <- crateAsset ()
     let shared = sharedState assets
     let mutable state = newState ()
 
@@ -735,7 +713,7 @@ let ``a batch may span places, applied and reversed as one step`` () =
 [<Fact>]
 let ``clearing the world retires every zone and resets the cue, to one empty active start zone`` () =
     let assets = roomAssets ()
-    assets.Props.["crate"] <- residentAsset "crate" [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |] [||]
+    assets.Props.["crate"] <- crateAsset ()
     let shared = sharedState assets
     let mutable state = newState ()
 
@@ -780,7 +758,7 @@ let ``clearing the world retires every zone and resets the cue, to one empty act
 [<Fact>]
 let ``undoing a clear restores every zone and the cue, and redo clears again`` () =
     let assets = roomAssets ()
-    assets.Props.["crate"] <- residentAsset "crate" [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |] [||]
+    assets.Props.["crate"] <- crateAsset ()
     let shared = sharedState assets
     let mutable state = newState ()
 

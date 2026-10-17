@@ -298,4 +298,6 @@ let apply (model: ActorModel) (pose: PoseFrame) (state: SwayState) (dt: float32)
             pose.Rotation.[joint] <- Quaternion.Normalize(Quaternion.Multiply(Quaternion.Conjugate parentPoseRot, targetPose))
             parentPoseRot <- targetPose
 
+    // The model carries no child index, so the exact affected subtree is not available here; the full
+    // recompose is retained rather than forcing a change (F-27, T055 exclusion).
     do Actor.composeAll model pose

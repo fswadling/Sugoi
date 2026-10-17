@@ -37,10 +37,6 @@ let remove (lru: Lru) (key: string) : unit =
     do lru.Nodes.Remove key |> ignore
 
 
-// The least recently used key, if any.
-let tail (lru: Lru) : string option =
-    if lru.Order.Count = 0 then None else Some lru.Order.Last.Value
-
 // Every key, most-recently-used first.
 let keys (lru: Lru) : string list =
     lru.Order |> Seq.toList

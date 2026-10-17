@@ -180,8 +180,8 @@ undo stack. Commands store **values** (not closures):
   (`specs/049-cue-on-one-history`): its edits are `SetCue` steps — before/after cue values — on the one history,
   pruned on the way into play (D-010). The adventure flags' has landed too (`specs/055-advent-flags`): its edits are
   `Advent` steps — the set before and after the edit — on the same history, carried by `state/Undo.fs` because the
-  set is not a zone's. The scenario is the one surface a project-scoped stack is still owed to, and it is a gap for a
-  surface that does not exist yet rather than for this one.
+  set is not a zone's. The scenario's has landed too (`specs/083-scenario-strings`, `specs/098`): its register, clear
+  and delete edits are `SetScenario` steps on the same history.
   The surfaces expected
   to need one are not among them: the zone registry (D-023) is a direct write, because it is not a scene edit and re-making an entry by hand
   costs less than the stack would. The Inspector's actor animation and morph

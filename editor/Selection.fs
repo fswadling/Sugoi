@@ -82,9 +82,7 @@ let renameRef (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     if name = e.Name then () else
 
     let cmd = Rename (state.ActiveZone, ref, e.Name, name)
-    apply zone state.Physics shared.Assets cmd
-    let undo = UndoStack.push state.Editor.Undo cmd
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.commit shared &state cmd
 
 // Point a waypoint at another (`Some`), or end its chain (`None`), as one undoable
 // step. No-op when it already points there. Selection and drag are left alone: the
@@ -95,9 +93,7 @@ let linkRef (shared: SharedState.SharedState) (state: byref<GameplayState.Gamepl
     if before = next then () else
 
     let cmd = Link (state.ActiveZone, ref, before, next)
-    apply zone state.Physics shared.Assets cmd
-    let undo = UndoStack.push state.Editor.Undo cmd
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.commit shared &state cmd
 
 // Apply `change` to a trigger's authored value as one undoable step, recorded against the
 // ref the edit was made for (which is not always the selected one: a text field can outlive
@@ -113,9 +109,7 @@ let updateTriggerRef (shared: SharedState.SharedState) (state: byref<GameplaySta
     if after = before then () else
 
     let cmd = TriggerSet (state.ActiveZone, ref, before, after)
-    apply zone state.Physics shared.Assets cmd
-    let undo = UndoStack.push state.Editor.Undo cmd
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.commit shared &state cmd
 
 // Apply `change` to the active zone's light as one undoable step (spec 043, FR-006). `before` is
 // the zone's light as it still stands — a control holds its edit in a local until the commit — so
@@ -128,9 +122,7 @@ let setLight (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
     if after = before then () else
 
     let cmd = SetLight (state.ActiveZone, before, after)
-    apply zone state.Physics shared.Assets cmd
-    let undo = UndoStack.push state.Editor.Undo cmd
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.commit shared &state cmd
 
 // Apply `change` to the active zone's sky as one undoable step (spec 092), the pendant of `setLight`: the
 // control holds its edit in a local until the commit, so one drag is one step, and a commit that changes
@@ -142,9 +134,7 @@ let setSkydome (shared: SharedState.SharedState) (state: byref<GameplayState.Gam
     if after = before then () else
 
     let cmd = SetSkydome (state.ActiveZone, before, after)
-    apply zone state.Physics shared.Assets cmd
-    let undo = UndoStack.push state.Editor.Undo cmd
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.commit shared &state cmd
 
 // Bind `ref`'s actor as the active zone's player as one undoable step (spec 045). The ref is checked
 // before any command exists — `playerHandleOf` fails loudly for a non-actor — and binding the actor who
@@ -156,9 +146,7 @@ let setPlayer (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     if after = before then () else
 
     let cmd = SetPlayer (state.ActiveZone, before, after)
-    apply zone state.Physics shared.Assets cmd
-    let undo = UndoStack.push state.Editor.Undo cmd
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.commit shared &state cmd
 
 // Drop a Part selection left dangling by an environment swap: its epoch no longer
 // resolves, so the inspector would silently show nothing. Actor/Prop selections are

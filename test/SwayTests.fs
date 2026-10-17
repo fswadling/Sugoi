@@ -24,7 +24,6 @@ let private chainModel () : Iqm.Model =
       Positions = [| 0.0f; 0.0f; 0.0f |]
       Normals = None
       Uvs = None
-      Tangents = None
       BlendIndices = None
       BlendWeights = None
       Triangles = [||]
@@ -283,7 +282,7 @@ let ``with no motion a chain settles and holds the animated pose`` () =
     // Gravity is always on, so a chain settles to the pose *plus* the droop the spring balances: the
     // promise is that it stops there, not that the offset is zero (FR-004).
     Assert.True(settled < 0.15f, sprintf "the chain did not settle back to the pose: %f rad" settled)
-    Assert.True(abs (settled - early) < 0.01f, sprintf "the chain was still moving: %f then %f" early settled)
+    TestSupport.assertNear 0.01f early settled
 
 // ── bounds, teleports and inertness (FR-007, FR-012, FR-013, FR-015) ──
 
@@ -366,8 +365,4 @@ let ``stepping a chain allocates nothing per frame`` () =
     let state = Sway.createState [| def 0.15f |]
     let world = actorWorld Vector3.Zero 0.3f
     let bodyRot = actorBodyRot 0.3f
-    do step am pose state world bodyRot 100
-    let before = GC.GetAllocatedBytesForCurrentThread()
-    do step am pose state world bodyRot 500
-    let after = GC.GetAllocatedBytesForCurrentThread()
-    Assert.Equal(before, after)
+    TestSupport.assertAllocatesNothing 100 500 (fun () -> step am pose state world bodyRot 1)

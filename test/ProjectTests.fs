@@ -17,22 +17,9 @@ open Entity
 open ScenarioZone
 open ScenarioRegistry
 open ZoneTemplate
+open TestSupport
 
 // ── fixtures ──
-
-let private entity (name: string) : Entity =
-    { Name = name
-      Transform = transformIdentity
-      Enabled = true
-      Visible = true
-      Selectable = true
-      Draggable = true }
-
-// A live actor for the capture-based test (no renderer, which the capture never dereferences).
-let private actor (name: string) : Actor =
-    { State = { Base = entity name; AssetId = "aiko"; ShowCollider = false }
-      Physics = None
-      Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 
 // An authored zone: a light and prop in its staging, an actor, a chained waypoint pair, and a trigger whose cue
 // does something — every shape the file must carry.
@@ -67,21 +54,6 @@ let private cueRoundTrip (cue: Cue) : Cue =
 
 let private tempPath (stem: string) : string =
     Path.Combine(Path.GetTempPath(), sprintf "sugoi-%s-%s.manifest" stem (Guid.NewGuid().ToString "N"))
-
-let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
-
-/// Run `body` with the current directory at a fresh temp dir, so `project.manifest` resolves there. The suite is
-/// serialized (`xunit.runner.json`), so the process-global directory change is safe; the dir is restored and deleted.
-let private withTempDir (body: unit -> unit) : unit =
-    let dir = Path.Combine(Path.GetTempPath(), sprintf "sugoi-project-%s" (Guid.NewGuid().ToString "N"))
-    do Directory.CreateDirectory dir |> ignore
-    let original = Directory.GetCurrentDirectory ()
-    do Directory.SetCurrentDirectory dir
-    try body ()
-    finally
-        do Directory.SetCurrentDirectory original
-        do Directory.Delete(dir, true)
 
 // ── the round trip (FR-003, FR-004, FR-011) ──
 
@@ -164,7 +136,7 @@ let ``a missing file yields the empty library, reports nothing, and is not creat
 
 [<Fact>]
 let ``persist writes on a change and nothing when unchanged, and touches nothing but the library`` () =
-    withTempDir (fun () ->
+    withTempDir (fun _ ->
         // the first persist writes; the same instance again writes nothing
         let registry = library ()
         do Project.persist registry
@@ -172,6 +144,12 @@ let ``persist writes on a change and nothing when unchanged, and touches nothing
         let written = File.GetLastWriteTimeUtc "project.manifest"
         do Project.persist registry
         Assert.Equal(written, File.GetLastWriteTimeUtc "project.manifest")
+
+        // Content-based, so a write cannot hide behind an unchanged timestamp: plant a sentinel and
+        // confirm an unchanged library leaves the file byte-for-byte alone (F-80).
+        do File.WriteAllText("project.manifest", "sentinel")
+        do Project.persist registry
+        Assert.Equal("sentinel", File.ReadAllText "project.manifest")
 
         // a change (a new instance) is written
         do Project.persist (remove "Draft" registry)
@@ -182,13 +160,38 @@ let ``persist writes on a change and nothing when unchanged, and touches nothing
         Assert.Contains("Draft", File.ReadAllText "project.manifest")
 
         // a write and a load touch nothing but the library: the undo history and the zones are untouched
-        let mutable state = newState ()
+        let mutable state = headlessState ()
         let undoBefore = state.Editor.Undo
         let zonesBefore = state.Zones.Count
         do Project.persist state.Scenarios
         state.Scenarios <- Project.loadFrom "project.manifest"
         Assert.Equal(undoBefore, state.Editor.Undo)
         Assert.Equal(zonesBefore, state.Zones.Count))
+
+[<Fact>]
+let ``a failed write is not recorded as written and is retried after the interval`` () =
+    // F-03: a failure must leave the edit pending (so a retry can land it) without attempting or
+    // reporting once per frame. The target is made unwritable by placing a directory where the file
+    // must go; removing it restores the path.
+    withTempDir (fun _ ->
+        do Directory.CreateDirectory "project.manifest" |> ignore
+        let registry = library ()
+        let before = Diagnostics.errorCount ()
+        do Project.persist registry
+        Assert.True(Diagnostics.errorCount () > before)
+        do Directory.Delete("project.manifest", true)
+        Assert.False(File.Exists "project.manifest")
+
+        // below the 0.5 s retry interval: no attempt, so no new report and no file
+        let before = Diagnostics.errorCount ()
+        do Project.persistFrame 0.2 registry
+        Assert.Equal(before, Diagnostics.errorCount ())
+        Assert.False(File.Exists "project.manifest")
+
+        // past the interval: the pending edit is retried and lands
+        do Project.persistFrame 0.4 registry
+        Assert.True(File.Exists "project.manifest")
+        Assert.Equal<string list>(names registry, names (Project.loadFrom "project.manifest")))
 
 // ── a damaged file (FR-009, FR-010) ──
 
@@ -251,7 +254,7 @@ let ``a failed write is reported and leaves the existing good file`` () =
 
 [<Fact>]
 let ``an external edit is picked up, a rename-over save too, and the game's own write is not`` () =
-    withTempDir (fun () ->
+    withTempDir (fun _ ->
         // the game writes the library, so the file holds a baseline
         let registry = library ()
         do Project.persist registry
@@ -275,7 +278,7 @@ let ``an external edit is picked up, a rename-over save too, and the game's own 
         Assert.True((Project.pollExternal 1.0).IsNone)
 
         // installing a reload touches nothing but the library
-        let mutable state = newState ()
+        let mutable state = headlessState ()
         let undoBefore = state.Editor.Undo
         let zonesBefore = state.Zones.Count
         state.Scenarios <- registry
@@ -286,7 +289,7 @@ let ``an external edit is picked up, a rename-over save too, and the game's own 
 
 [<Fact>]
 let ``a damaged or deleted external file leaves the running library alone`` () =
-    withTempDir (fun () ->
+    withTempDir (fun _ ->
         do File.WriteAllText("project.manifest", Project.encode (library ()))
         do ignore (Project.load ()) // establish the baseline
 
@@ -309,7 +312,7 @@ let ``a damaged or deleted external file leaves the running library alone`` () =
 
 [<Fact>]
 let ``the poll gate is pure, defaults to on, and the interval suppresses a second immediate read`` () =
-    withTempDir (fun () ->
+    withTempDir (fun _ ->
         Assert.True((EditorState.create ()).LiveReload)
         Assert.True(Project.pollEnabled true true)
         Assert.False(Project.pollEnabled true false)

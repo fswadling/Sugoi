@@ -13,19 +13,13 @@ open Music
 
 // ── fixtures ──
 
-/// A headless gameplay state, the way `test/AdventTests.fs` builds one.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
+    TestSupport.headlessState ()
 
 /// A headless `SharedState`: a device-free, empty asset manager (whose audio is `unavailable`), an empty
 /// mix and a fresh rack — so a `SetMix` step reconciles nothing and no device is touched.
 let private sharedState () : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    TestSupport.headlessShared ()
 
 /// The panel's write path: one `SetMix` step on the one history.
 let private setMix (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (next: Music.Mix) : unit =
@@ -76,7 +70,6 @@ let ``the start rule resumes a held row and restarts any other`` () =
 let ``a row with no deck reads as stopped, at zero`` () =
     let rack = Music.newRack ()
     Assert.False(Music.isPlaying rack "a")
-    Assert.False(Music.isPaused rack "a")
     Assert.Equal(0.0f, Music.position rack "a")
     Assert.Equal(0.0f, Music.duration rack "a")
 

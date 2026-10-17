@@ -27,30 +27,6 @@ let rayFromScreen (camera: Camera.Camera) (w: float32) (h: float32) (x: float32)
     { Origin = camera.Position
       Dir = Vector3.Normalize(dir) }
 
-// Slab test: the nearest t along the ray that enters the box, or None.
-let intersectAabb (ray: Ray) (center: Vector3) (half: Vector3) : float32 option =
-    let minB = center - half
-    let maxB = center + half
-    let mutable tmin = Single.NegativeInfinity
-    let mutable tmax = Single.PositiveInfinity
-    let mutable ok = true
-
-    let axis (o: float32) (d: float32) (lo: float32) (hi: float32) =
-        if abs d < 1e-8f then
-            if o < lo || o > hi then ok <- false
-        else
-
-        let t1 = (lo - o) / d
-        let t2 = (hi - o) / d
-        tmin <- max tmin (min t1 t2)
-        tmax <- min tmax (max t1 t2)
-        if tmin > tmax then ok <- false
-
-    axis ray.Origin.X ray.Dir.X minB.X maxB.X
-    axis ray.Origin.Y ray.Dir.Y minB.Y maxB.Y
-    axis ray.Origin.Z ray.Dir.Z minB.Z maxB.Z
-    if ok && tmax >= 0.0f then Some (max 0.0f tmin) else None
-
 // Intersect the ray with the plane through `point` with `normal`; returns the
 // hit point, or None if parallel or behind the ray origin.
 let planeIntersect (ray: Ray) (point: Vector3) (normal: Vector3) : Vector3 option =

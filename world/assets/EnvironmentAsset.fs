@@ -83,13 +83,3 @@ let parts (asset: EnvironmentAsset) : EnvironmentPart array =
     match asset.Residency with
     | Resident loaded -> loaded.Parts
     | _ -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)
-
-let bounds (asset: EnvironmentAsset) : Gltf.Bounds =
-    match asset.Residency with
-    | Resident loaded -> loaded.Bounds
-    | _ -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)
-
-let materials (asset: EnvironmentAsset) : Gltf.Material array =
-    match asset.Residency with
-    | Resident loaded -> loaded.Materials
-    | _ -> invalidOp (sprintf "environment asset '%s' is not loaded" asset.Id)

@@ -28,8 +28,6 @@ type VertexArray =
 type Mesh =
     { Name : string
       Material : string
-      FirstVertex : int
-      NumVertices : int
       FirstTriangle : int
       NumTriangles : int }
 
@@ -58,14 +56,13 @@ type Model =
       Positions : float32 array
       Normals : float32 array option
       Uvs : float32 array option
-      Tangents : float32 array option
       BlendIndices : byte array option
       BlendWeights : byte array option
       Triangles : int array
       Joints : Joint array
       Poses : Pose array
       Anims : Anim array
-      FrameChannels : int array
+      FrameChannels : uint16 array
       NumFrameChannels : int
       PoseChannelOffsets : int array }
 
@@ -154,7 +151,6 @@ let load (path: string) : Model =
     if u32 b 0 <> magic then failwith "iqm: not an IQM file"
     if u32 b 16 <> 2u then failwith "iqm: unsupported IQM version"
 
-    let numText = int (u32 b 28)
     let ofsText = int (u32 b 32)
     let numMeshes = int (u32 b 36)
     let ofsMeshes = int (u32 b 40)
@@ -179,8 +175,6 @@ let load (path: string) : Model =
             let off = ofsMeshes + i * 24
             { Name = cstring b ofsText (int (u32 b off))
               Material = cstring b ofsText (int (u32 b (off + 4)))
-              FirstVertex = int (u32 b (off + 8))
-              NumVertices = int (u32 b (off + 12))
               FirstTriangle = int (u32 b (off + 16))
               NumTriangles = int (u32 b (off + 20)) })
 
@@ -219,7 +213,7 @@ let load (path: string) : Model =
 
     // frame channels: uint16 array, num_frames * num_framechannels entries
     let frameChannels =
-        Array.init (numFrames * numFrameChannels) (fun i -> u16 b (ofsFrames + i * 2))
+        Array.init (numFrames * numFrameChannels) (fun i -> uint16 (u16 b (ofsFrames + i * 2)))
 
     // vertex arrays (20 bytes each): type, flags, format, size, offset
     let vertexArrays =
@@ -234,27 +228,27 @@ let load (path: string) : Model =
     let mutable positions = None
     let mutable normals = None
     let mutable uvs = None
-    let mutable tangents = None
     let mutable blendIndices = None
     let mutable blendWeights = None
 
     for va in vertexArrays do
-        let count = numVertexes * va.Size
-        match va.Format with
-        | VertexFormat.Float ->
-            let data = Array.init count (fun i -> f32 b (va.Offset + i * 4))
-            match va.Kind with
-            | Position -> positions <- Some data
-            | Texcoord -> uvs <- Some data
-            | Normal -> normals <- Some data
-            | Tangent -> tangents <- Some data
-            | _ -> failwith "iqm: unexpected float vertex kind"
-        | VertexFormat.Ubyte ->
-            let data = Array.init count (fun i -> b.[va.Offset + i])
-            match va.Kind with
-            | BlendWeights -> blendWeights <- Some data
-            | BlendIndices -> blendIndices <- Some data
-            | _ -> failwith "iqm: unexpected ubyte vertex kind"
+        // Tangents have no runtime consumer, so their data is not decoded at all.
+        if va.Kind <> Tangent then
+            let count = numVertexes * va.Size
+            match va.Format with
+            | VertexFormat.Float ->
+                let data = Array.init count (fun i -> f32 b (va.Offset + i * 4))
+                match va.Kind with
+                | Position -> positions <- Some data
+                | Texcoord -> uvs <- Some data
+                | Normal -> normals <- Some data
+                | _ -> failwith "iqm: unexpected float vertex kind"
+            | VertexFormat.Ubyte ->
+                let data = Array.init count (fun i -> b.[va.Offset + i])
+                match va.Kind with
+                | BlendWeights -> blendWeights <- Some data
+                | BlendIndices -> blendIndices <- Some data
+                | _ -> failwith "iqm: unexpected ubyte vertex kind"
 
     // Per-pose channel offset within a frame (packed by the set bits of each
     // pose's channelmask, in increasing channel order).
@@ -270,7 +264,6 @@ let load (path: string) : Model =
       Positions = match positions with Some p -> p | None -> failwith "iqm: missing POSITION vertex array"
       Normals = normals
       Uvs = uvs
-      Tangents = tangents
       BlendIndices = blendIndices
       BlendWeights = blendWeights
       Triangles = triangles

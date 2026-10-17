@@ -17,7 +17,7 @@ open Command
 
 // The docked panels in focus order. The viewport is a passthru node, not an
 // ImGui window, so it is intentionally absent from this list.
-let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Advent"; "Miscellaneous"; "Zone Registry"; "Scenario"; "Dialogue"; "Cue"; "Sounds" |]
+let private panelNames = [| "Outliner"; "Inspector"; "Asset Browser"; "Advent"; "Miscellaneous"; "Songs"; "Scenario"; "Dialogue"; "Cue"; "Sounds" |]
 
 // Compute the index the focus should move to (forward/backward, wrapping).
 let private nextPanelIndex (forward: bool) : int =
@@ -312,14 +312,15 @@ let handleShortcuts (shared: SharedState.SharedState) (input: Input.Input) (stat
 // On a left press (not ImGui-captured): begin a gizmo drag when the cursor hits
 // a handle on the selection, otherwise pick an entity (a miss clears the selection).
 let private beginDragOrPick (physics: Physics.World) (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
+    // One screen ray serves both the gizmo test and the pick.
+    let r = Viewport.ray state.Camera viewportW viewportH input.MouseX input.MouseY
     let sel = selectedTransform state
     match sel with
-    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick physics state viewportW viewportH input.MouseX input.MouseY }
+    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick physics state r }
     | Some (center, transform) ->
 
-    let r = Viewport.ray state.Camera viewportW viewportH input.MouseX input.MouseY
     match Viewport.gizmoAxisAt state r center with
-    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick physics state viewportW viewportH input.MouseX input.MouseY }
+    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick physics state r }
     | Some axis ->
 
     let normal = if state.Editor.Tool = Rotate then Viewport.axisDir axis else Camera.forward state.Camera

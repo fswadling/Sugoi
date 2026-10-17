@@ -36,6 +36,7 @@ type private Manifest =
       Model : string
       Morphs : string
       Portraits : ActorAsset.PortraitPaths
+      Textures : string
       Sway : Sway.SwayChain array }
 
 // A texture the loader created, with the number of loaded assets currently binding it.
@@ -95,7 +96,12 @@ type AssetManager =
       // durable pin set (never dropped from the pending set, never evicted) that seeds the pool.
       mutable Pool : LoadPool option
       mutable Uploads : Dictionary<AssetId, PendingUpload>
-      mutable PinnedIds : HashSet<AssetId> }
+      mutable PinnedIds : HashSet<AssetId>
+      // Derived name lists, built on first use and dropped whenever the dictionaries change. The
+      // dictionaries remain the source of truth; the lists are immutable, so sharing them is safe.
+      mutable ActorNamesCache : string list option
+      mutable MusicNamesCache : string list option
+      mutable SoundAssetsCache : AudioAsset.AudioAsset list option }
 
 // ── the residency budget ──
 
@@ -111,14 +117,22 @@ let UploadBudgetMs : float = 4.0
 
 // ── scanning ──
 
-let private readManifest (path: string) : string * string * string * string * ActorAsset.PortraitPaths * Sway.SwayChain array =
+/// Run one asset load; a failure is reported and the asset skipped, so one bad file does not deny the
+/// rest (spec 080, US7). `kind` names the report (an asset or an audio asset).
+let private loadOrReport (kind: string) (name: string) (load: unit -> 'T) : 'T option =
+    try Some (load ())
+    with e ->
+        do Diagnostics.reportf "%s '%s': %s (skipped)" kind name e.Message
+        None
+
+let private readManifest (path: string) : Manifest =
     let stem = Path.GetFileNameWithoutExtension(path)
     let manifest = File.ReadAllText(path) |> scvalue<Manifest>
     let id = if String.IsNullOrEmpty manifest.Id then stem else manifest.Id
     let name = if String.IsNullOrEmpty manifest.Name then id else manifest.Name
-    (id, name, manifest.Model, manifest.Morphs, manifest.Portraits, manifest.Sway)
+    { manifest with Id = id; Name = name }
 
-let private scanDir (root: string) (dir: string) : (string * string * string * string * ActorAsset.PortraitPaths * Sway.SwayChain array) array =
+let private scanDir (root: string) (dir: string) : Manifest array =
     let full = Path.Combine(root, dir)
     if not (Directory.Exists(full)) then Array.empty else
     Directory.EnumerateFiles(full, "*.manifest", SearchOption.AllDirectories)
@@ -211,15 +225,23 @@ let private resolveMaterial (loader: Loader) (batch: Gpu.UploadBatch) (imageOf: 
 // Load one actor asset (parse + upload). Raises on a malformed or unsupported asset or a model exceeding
 // the GPU bone palette; the caller reports and skips (spec 080, US7). The actor's IQM meshes each name an
 // albedo texture (their `Material` string); these become per-submesh PBR materials sharing one combined
-// vertex/index buffer.
-let private loadActorAsset (loader: Lazy<Loader>) (root: string) (id: string) (name: string) (modelPath: string) (morphsPath: string) (portraitPaths: ActorAsset.PortraitPaths) (sway: Sway.SwayChain array) : ActorAsset.ActorAsset =
-    if String.IsNullOrEmpty modelPath then
+// vertex/index buffer. A failure after any resource was acquired releases it before raising, so a skipped
+// asset leaves none (F-09).
+let private loadActorAsset (loader: Lazy<Loader>) (root: string) (manifest: Manifest) : ActorAsset.ActorAsset =
+    let id = manifest.Id
+    if String.IsNullOrEmpty manifest.Model then
         failwithf "asset manager: actor asset '%s' has no model path" id
 
     let loader' = loader.Value
-    let actorDir = Path.GetDirectoryName(Path.Combine(root, modelPath))
+    let actorDir = Path.GetDirectoryName(Path.Combine(root, manifest.Model))
+    // A declared texture root is root-relative, like the model and portrait paths; an absent one keeps
+    // the model's own directory as the default (F-04).
+    let declaredTextures =
+        if String.IsNullOrEmpty manifest.Textures then ""
+        else Path.Combine(root, manifest.Textures)
+    let textureDir = ActorAsset.textureDirectory actorDir declaredTextures
     let fallback = Texture.defaultMaterial loader'.White (Vector4(0.85f, 0.75f, 0.65f, 1.0f))
-    let model = Iqm.load (Path.Combine(root, modelPath))
+    let model = Iqm.load (Path.Combine(root, manifest.Model))
     if model.Joints.Length > Gpu.BonesMax then
         failwithf "iqm: model has %d joints, exceeding BonesMax %d" model.Joints.Length Gpu.BonesMax
 
@@ -229,6 +251,16 @@ let private loadActorAsset (loader: Lazy<Loader>) (root: string) (id: string) (n
     let uvs = Option.defaultWith (fun () -> Array.zeroCreate<float32> (vertexCount * 2)) model.Uvs
     let boneIds = Option.defaultWith (fun () -> Array.zeroCreate<byte> (vertexCount * 4)) model.BlendIndices
     let boneWeights = Option.defaultWith (fun () -> Array.zeroCreate<byte> (vertexCount * 4)) model.BlendWeights
+
+    // ── everything below acquires resources; a failure rolls every acquisition back ──
+    let acquiredTextures = ResizeArray<TextureKey>()
+    let mutable createdMesh : Mesh.Mesh option = None
+    let mutable createdMorphBuffer : Gpu.Buffer option = None
+    let loadTracked (path: TextureKey) : Texture.Texture =
+        let t = loadTexture loader' path
+        do acquiredTextures.Add path
+        t
+    try
 
     let submeshes : Mesh.Submesh array =
         if model.Meshes.Length = 0 then
@@ -242,7 +274,7 @@ let private loadActorAsset (loader: Lazy<Loader>) (root: string) (id: string) (n
         |> Array.map (fun mesh ->
             let albedo =
                 if String.IsNullOrEmpty mesh.Material then None
-                else Some (loadTexture loader' (Path.Combine(actorDir, "akane", mesh.Material)))
+                else Some (loadTracked (Path.Combine(textureDir, mesh.Material)))
             { FirstIndex = mesh.FirstTriangle * 3
               IndexCount = mesh.NumTriangles * 3
               Material = Texture.makeMaterial loader'.White (Vector4(1.0f, 1.0f, 1.0f, 1.0f)) 0.0f 0.8f Vector3.Zero albedo None None None
@@ -263,29 +295,31 @@ let private loadActorAsset (loader: Lazy<Loader>) (root: string) (id: string) (n
     // The outline's averaged extrusion directions, derived once from the geometry (spec 041).
     let smoothNormals = Iqm.smoothNormals model.Positions normals
     let mesh = Mesh.create loader'.Device model.Positions normals uvs boneIds boneWeights smoothNormals model.Triangles submeshes
+    createdMesh <- Some mesh
 
     // Morph targets, when the actor manifest names a sidecar: parse the manifest, read its
     // data file, and pack the offsets into the dense per-vertex layout the vertex shader
     // reads. Uploaded once and shared by every instance of the asset.
     let morphs =
-        if String.IsNullOrEmpty morphsPath then None else
+        if String.IsNullOrEmpty manifest.Morphs then None else
 
-        let manifestPath = Path.Combine(root, morphsPath)
-        let manifest = File.ReadAllText manifestPath |> ActorAsset.parseMorphManifest
-        let dataPath = Path.Combine(Path.GetDirectoryName manifestPath, manifest.Data)
+        let manifestPath = Path.Combine(root, manifest.Morphs)
+        let morphManifest = File.ReadAllText manifestPath |> ActorAsset.parseMorphManifest
+        let dataPath = Path.Combine(Path.GetDirectoryName manifestPath, morphManifest.Data)
         let bytes = File.ReadAllBytes dataPath
         if bytes.Length % 4 <> 0 then
             failwithf "morph data '%s' is not a multiple of four bytes" dataPath
         else
 
         let data = Array.init (bytes.Length / 4) (fun i -> BitConverter.ToSingle(bytes, i * 4))
-        let usable = ActorAsset.usableMorphs manifest
+        let usable = ActorAsset.usableMorphs morphManifest
         if usable.Length = 0 then None else
 
         let deltas = ActorAsset.buildMorphDeltas usable data vertexCount
         let deltaBytes = Array.zeroCreate<byte> (deltas.Length * 4)
         do Buffer.BlockCopy(deltas, 0, deltaBytes, 0, deltaBytes.Length)
         let buffer = Gpu.createStorageBuffer loader'.Device deltaBytes
+        createdMorphBuffer <- Some buffer
         let actorMorphs : ActorAsset.ActorMorphs =
             { Names = usable |> Array.map (fun m -> m.Name)
               Count = usable.Length
@@ -296,43 +330,56 @@ let private loadActorAsset (loader: Lazy<Loader>) (root: string) (id: string) (n
     // declaring none is legal and simply means the character cannot speak a portrait line.
     // Loaded once through the shared texture cache, so nothing is re-read per line (FR-010).
     let portraits =
-        let declared = ActorAsset.portraitValues portraitPaths
+        let declared = ActorAsset.portraitValues manifest.Portraits
         let isUnset (_, path: string) = String.IsNullOrEmpty path
         if declared |> List.forall isUnset then None else
 
-        do ActorAsset.requireComplete portraitPaths
-        let loadPortrait (path: string) = loadTexture loader' (Path.Combine(root, path))
+        do ActorAsset.requireComplete manifest.Portraits
+        let loadPortrait (path: string) = loadTracked (Path.Combine(root, path))
         let loaded : ActorAsset.ActorPortraits =
-            { Neutral = loadPortrait portraitPaths.Neutral
-              Happy = loadPortrait portraitPaths.Happy
-              Sad = loadPortrait portraitPaths.Sad
-              Angry = loadPortrait portraitPaths.Angry
-              Surprised = loadPortrait portraitPaths.Surprised }
+            { Neutral = loadPortrait manifest.Portraits.Neutral
+              Happy = loadPortrait manifest.Portraits.Happy
+              Sad = loadPortrait manifest.Portraits.Sad
+              Angry = loadPortrait manifest.Portraits.Angry
+              Surprised = loadPortrait manifest.Portraits.Surprised }
         Some loaded
 
     // Sway chains (spec 091): `Sway.resolveAll` holds the policy and words the failures; the actor's
     // id is here, so the reporting is here. A chain that cannot resolve is dropped, never the
     // character (FR-009, FR-012).
     let swayChains =
-        let struct (defs, messages) = Sway.resolveAll model sway
+        let struct (defs, messages) = Sway.resolveAll model manifest.Sway
         for message in messages do
             do Diagnostics.reportf "asset '%s': %s" id message
         defs
 
-    { Id = id; Name = name; ModelPath = modelPath; Bounds = actorBounds; Mesh = mesh; Model = actorModel; Morphs = morphs; Portraits = portraits; SwayChains = swayChains }
+    { Id = id
+      Name = manifest.Name
+      ModelPath = manifest.Model
+      Bounds = actorBounds
+      Mesh = mesh
+      Model = actorModel
+      Morphs = morphs
+      Portraits = portraits
+      SwayChains = swayChains }
+
+    with _ ->
+        match createdMorphBuffer with
+        | Some buffer -> do Gpu.releaseBuffer loader'.Device buffer
+        | None -> ()
+        match createdMesh with
+        | Some mesh -> do Mesh.release mesh
+        | None -> ()
+        for key in acquiredTextures do do releaseTexture loader' key |> ignore
+        reraise ()
 
 // Scan the actors directory, loading each asset through `loadActorAsset`; a failure is reported and the asset
 // skipped, so one bad file does not deny the rest (spec 080, US7).
 let private loadActors (loader: Lazy<Loader>) (root: string) : Dictionary<AssetId, ActorAsset.ActorAsset> =
     let actors = Dictionary<AssetId, ActorAsset.ActorAsset>()
-    for (id, name, modelPath, morphsPath, portraitPaths, sway) in scanDir root "actors" do
-        let loaded =
-            try Some (loadActorAsset loader root id name modelPath morphsPath portraitPaths sway)
-            with e ->
-                do Diagnostics.reportf "asset '%s': %s (skipped)" id e.Message
-                None
-        match loaded with
-        | Some asset -> actors.[id] <- asset
+    for manifest in scanDir root "actors" do
+        match loadOrReport "asset" manifest.Id (fun () -> loadActorAsset loader root manifest) with
+        | Some asset -> actors.[asset.Id] <- asset
         | None -> ()
     actors
 
@@ -348,7 +395,19 @@ let indexByName (actors: Dictionary<AssetId, ActorAsset.ActorAsset>) : Dictionar
 
 /// The discovered actor names, sorted and de-duplicated — what a speaker chooser offers (`specs/074`).
 let actorNames (manager: AssetManager) : string list =
-    manager.Actors.Values |> Seq.map (fun a -> a.Name) |> Seq.distinct |> Seq.sort |> List.ofSeq
+    match manager.ActorNamesCache with
+    | Some names -> names
+    | None ->
+
+    let names = manager.Actors.Values |> Seq.map (fun a -> a.Name) |> Seq.distinct |> Seq.sort |> List.ofSeq
+    manager.ActorNamesCache <- Some names
+    names
+
+/// Drop the derived name lists after the dictionaries change. The next accessor rebuilds once.
+let invalidateNameCaches (manager: AssetManager) : unit =
+    manager.ActorNamesCache <- None
+    manager.MusicNamesCache <- None
+    manager.SoundAssetsCache <- None
 
 // ── static (environment/prop) asset loading ──
 
@@ -470,17 +529,36 @@ let private printLoad (name: string) (payload: DecodedEnvironment) : unit =
             name (ms payload.QueueNs) (ms payload.ParseNs) (ms payload.DecodeNs)
             (ms t.CreateNs) t.Creates (ms g.StageNs) g.StageBuffers (ms g.MemcpyNs) g.Copies (ms g.SubmitNs) g.Submissions
 
+// Roll a cursor back: abort its batch and release everything it made. Used on failure and on a drop.
+let private releaseCursor (loader: Loader) (cursor: PendingUpload) : unit =
+    match cursor.Batch with
+    | Some batch -> do Gpu.abortUpload batch
+    | None -> ()
+    cursor.Batch <- None
+    for mesh in cursor.Created do StaticMesh.release mesh
+    for key in cursor.Keys do releaseTexture loader key |> ignore
+    do cursor.Created.Clear()
+    do cursor.Keys.Clear()
+
 // The eager (props/actors) build: decode on the render thread and advance the cursor to completion.
+// A failure part-way rolls the cursor back before raising, so a skipped asset leaves no mesh, texture
+// or staging buffer behind (F-09).
 let private buildSync (loader: Loader) (device: Gpu.Device) (modelPath: ModelPath) (includeParts: bool) : EnvironmentLoaded * int64 =
     match AssetLoad.decodeEnvironment "" modelPath with
     | LoadFailed (_, msg) -> failwithf "asset '%s': %s" modelPath msg
     | Decoded payload ->
     let cursor = newCursor "" modelPath payload
+    try
+
     match advanceCursor loader device cursor includeParts Int64.MaxValue with
     | None -> failwithf "asset '%s': the build did not complete" modelPath
     | Some loaded ->
     do printLoad (Path.GetFileNameWithoutExtension modelPath) payload
     loaded, cursor.TextureAdded
+
+    with _ ->
+        do releaseCursor loader cursor
+        reraise ()
 
 
 // The ids evictable this pass, in eviction order: the LRU order walked from the tail with the
@@ -517,23 +595,12 @@ let releaseEnvironment (manager: AssetManager) (assetId: AssetId) : unit =
     do Lru.remove manager.Cache assetId
 
 
-// Roll a cursor back: abort its batch and release everything it made. Used on failure and on a drop.
-let private releaseCursor (manager: AssetManager) (cursor: PendingUpload) : unit =
-    match cursor.Batch with
-    | Some batch -> do Gpu.abortUpload batch
-    | None -> ()
-    cursor.Batch <- None
-    for mesh in cursor.Created do StaticMesh.release mesh
-    for key in cursor.Keys do releaseTexture manager.Loader.Value key |> ignore
-    do cursor.Created.Clear()
-    do cursor.Keys.Clear()
-
 let private ensurePool (manager: AssetManager) : LoadPool =
     match manager.Pool with
     | Some pool -> pool
     | None ->
     let pool = AssetLoad.createPool AssetLoad.loadWorkers AssetLoad.LoadQueueCapacity AssetLoad.decodeEnvironment
-    do AssetLoad.setPinnedPool pool (manager.PinnedIds |> Seq.toList)
+    do AssetLoad.setPinned pool.Queue (manager.PinnedIds |> Seq.toList)
     manager.Pool <- Some pool
     pool
 
@@ -546,7 +613,7 @@ let requestEnvironment (manager: AssetManager) (assetId: AssetId) : unit =
     | Resident _ -> Lru.touch manager.Cache assetId
     | _ ->
     let pool = ensurePool manager
-    let dropped = AssetLoad.requestLoad pool assetId asset.ModelPath
+    let dropped = AssetLoad.request pool.Queue assetId asset.ModelPath
     asset.Residency <- Loading
     // A dropped request may never start (or its payload is discarded); its residency must not stay
     // `Loading` (VR-011).
@@ -555,14 +622,20 @@ let requestEnvironment (manager: AssetManager) (assetId: AssetId) : unit =
         | true, a when a.Residency = Loading -> a.Residency <- NotLoaded
         | _ -> ()
 
-// Replace the pin set (the durable home is the manager; the pool mirrors it).
+// Replace the pin set (the durable home is the manager; the pool mirrors it). An unchanged set is a
+// no-op, so the per-update caller neither allocates nor takes the pool's lock (F-15).
 let setPinned (manager: AssetManager) (pinnedIds: AssetId list) : unit =
+    let unchanged =
+        manager.PinnedIds.Count = List.length pinnedIds
+        && List.forall (fun id -> manager.PinnedIds.Contains id) pinnedIds
+    if unchanged then () else
+
     do manager.PinnedIds.Clear()
     for p in pinnedIds do manager.PinnedIds.Add p |> ignore
     match manager.Pool with
     | None -> ()
     | Some pool ->
-    do AssetLoad.setPinnedPool pool pinnedIds
+    do AssetLoad.setPinned pool.Queue pinnedIds
 
 
 // Install a completed build: mark it resident, account its bytes, touch the LRU, leave the pending
@@ -572,8 +645,8 @@ let private settle (manager: AssetManager) (pool: LoadPool) (assetId: AssetId) (
     asset.Residency <- Resident loaded
     manager.ResidentBytes <- manager.ResidentBytes + loaded.SubmeshBytes + textureAdded
     do Lru.touch manager.Cache assetId
-    do AssetLoad.endUploadOutcome pool assetId
-    do AssetLoad.makeResidentOutcome pool assetId
+    do AssetLoad.endUpload pool.Queue assetId
+    do AssetLoad.makeResident pool.Queue assetId
     do manager.Uploads.Remove assetId |> ignore
     do AssetLoad.releaseSlot pool   // the cursor is done: its payload is now resident
     let pins = manager.PinnedIds |> Seq.toList
@@ -604,17 +677,17 @@ let pump (manager: AssetManager) (budgetMs: float) : unit =
         | Some outcome ->
         match outcome with
         | LoadFailed (assetId, message) ->
-            if AssetLoad.isPendingOutcome pool assetId then
+            if AssetLoad.isPending pool.Queue assetId then
                 do Diagnostics.reportf "environment load failed: %s: %s" assetId message
                 do failAsset manager assetId message
             // The claim is released here (the id leaves the wanted set whether it failed or was
             // dropped). `makeResident` clears the claim, `Pending` and `Uploading`.
-            do AssetLoad.makeResidentOutcome pool assetId
+            do AssetLoad.makeResident pool.Queue assetId
             do AssetLoad.releaseSlot pool   // the decode's slot is no longer needed
 
         | Decoded payload ->
 
-        if AssetLoad.isPendingOutcome pool payload.AssetId then
+        if AssetLoad.isPending pool.Queue payload.AssetId then
             if manager.Uploads.ContainsKey payload.AssetId then
                 // Defensive: a second payload for an id already uploading. The claim is held
                 // from claim until resident, so this cannot normally happen; discard it rather
@@ -628,7 +701,7 @@ let pump (manager: AssetManager) (budgetMs: float) : unit =
         else
             // No longer wanted: discard the decoded payload, release the claim and the slot.
             do resetIfLoading manager payload.AssetId
-            do AssetLoad.makeResidentOutcome pool payload.AssetId
+            do AssetLoad.makeResident pool.Queue payload.AssetId
             do AssetLoad.releaseSlot pool
 
     if manager.Uploads.Count > 0 then
@@ -643,15 +716,15 @@ let pump (manager: AssetManager) (budgetMs: float) : unit =
             |> Seq.toArray
         for assetId in ids do
             if manager.Uploads.ContainsKey assetId then
-                if not (AssetLoad.isPendingOutcome pool assetId) then
+                if not (AssetLoad.isPending pool.Queue assetId) then
                     // Dropped while queued/decoding: discard the cursor, releasing what it made.
-                    do releaseCursor manager manager.Uploads.[assetId]
+                    do releaseCursor manager.Loader.Value manager.Uploads.[assetId]
                     do manager.Uploads.Remove assetId |> ignore
-                    do AssetLoad.makeResidentOutcome pool assetId
+                    do AssetLoad.makeResident pool.Queue assetId
                     do AssetLoad.releaseSlot pool
                     do resetIfLoading manager assetId
                 elif Stopwatch.GetTimestamp() < deadline then
-                    do AssetLoad.beginUploadOutcome pool assetId
+                    do AssetLoad.beginUpload pool.Queue assetId
                     let cursor = manager.Uploads.[assetId]
                     try
                         match advanceCursor manager.Loader.Value manager.Device cursor true deadline with
@@ -661,9 +734,9 @@ let pump (manager: AssetManager) (budgetMs: float) : unit =
                         do printLoad (Path.GetFileNameWithoutExtension cursor.ModelPath) cursor.Payload
 
                     with e ->
-                        do releaseCursor manager cursor
+                        do releaseCursor manager.Loader.Value cursor
                         do manager.Uploads.Remove assetId |> ignore
-                        do AssetLoad.makeResidentOutcome pool assetId
+                        do AssetLoad.makeResident pool.Queue assetId
                         do AssetLoad.releaseSlot pool
                         do failAsset manager assetId e.Message
 
@@ -682,10 +755,6 @@ let hasFailed (manager: AssetManager) (assetId: AssetId) : bool =
     match manager.Environments.TryGetValue assetId with
     | true, asset -> (match asset.Residency with Failed _ -> true | _ -> false)
     | false, _ -> false
-
-// Resident accessor by id (asserts presence; FR-011).
-let submeshes (manager: AssetManager) (assetId: AssetId) : EnvironmentAsset.LoadedSubmesh array =
-    EnvironmentAsset.submeshes manager.Environments.[assetId]
 
 // ── audio (spec 086) ──
 
@@ -760,16 +829,30 @@ let hasAudioFailed (manager: AssetManager) (assetId: AssetId) : bool =
 /// The discovered music assets' ids, sorted — the song panel's picker (spec 087): `Kind = Music`
 /// (spec 086). A failed music asset is still listed: it is a row the author may fix later.
 let musicNames (manager: AssetManager) : string list =
-    [ for KeyValue (id, asset) in manager.AudioAssets do if asset.Class = AudioAsset.Music then id ]
-    |> List.sort
+    match manager.MusicNamesCache with
+    | Some names -> names
+    | None ->
+
+    let names =
+        [ for KeyValue (id, asset) in manager.AudioAssets do if asset.Class = AudioAsset.Music then id ]
+        |> List.sort
+    manager.MusicNamesCache <- Some names
+    names
 
 /// The discovered sound assets (spec 089), sorted by name — the sound panel's rows: `Kind = Sound`
 /// (spec 086). Each carries its id (to play), its name (to show) and its residency (resident =
 /// playable, failed = listed and marked). A failed sound is still listed: it is a row the author may
 /// fix later.
 let soundAssets (manager: AssetManager) : AudioAsset.AudioAsset list =
-    [ for KeyValue (_, asset) in manager.AudioAssets do if asset.Class = AudioAsset.Sound then asset ]
-    |> List.sortBy (fun asset -> asset.Name)
+    match manager.SoundAssetsCache with
+    | Some assets -> assets
+    | None ->
+
+    let assets =
+        [ for KeyValue (_, asset) in manager.AudioAssets do if asset.Class = AudioAsset.Sound then asset ]
+        |> List.sortBy (fun asset -> asset.Name)
+    manager.SoundAssetsCache <- Some assets
+    assets
 
 // Scan all asset kinds into the manager. Actors and props load eagerly; environments are recorded
 // from their manifests only, their models loaded on request (spec 053); audio loads eagerly (sounds
@@ -778,25 +861,29 @@ let scan (root: string) (device: Gpu.Device) (audio: Audio.Context) : AssetManag
     let loader = lazy (createLoader device)
 
     let props = Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>()
-    for (id, name, modelPath, _, _, _) in scanDir root "props" do
-        try
-            if String.IsNullOrEmpty modelPath then
-                failwithf "asset manager: prop asset '%s' has no model path" id
-            let asset = metadataOnly id name (Path.Combine(root, modelPath))
-            let loaded, _ = buildSync loader.Value device asset.ModelPath false
-            asset.Residency <- Resident loaded
-            props.[id] <- asset
-        with e ->
-            do Diagnostics.reportf "asset '%s': %s (skipped)" id e.Message
+    for manifest in scanDir root "props" do
+        let loaded =
+            loadOrReport "asset" manifest.Id (fun () ->
+                if String.IsNullOrEmpty manifest.Model then
+                    failwithf "asset manager: prop asset '%s' has no model path" manifest.Id
+                let asset = metadataOnly manifest.Id manifest.Name (Path.Combine(root, manifest.Model))
+                let loaded, _ = buildSync loader.Value device asset.ModelPath false
+                asset.Residency <- Resident loaded
+                asset)
+        match loaded with
+        | Some asset -> props.[asset.Id] <- asset
+        | None -> ()
 
     let environments = Dictionary<AssetId, EnvironmentAsset.EnvironmentAsset>()
-    for (id, name, modelPath, _, _, _) in scanDir root "environments" do
-        try
-            if String.IsNullOrEmpty modelPath then
-                failwithf "asset manager: environment asset '%s' has no model path" id
-            environments.[id] <- metadataOnly id name (Path.Combine(root, modelPath))
-        with e ->
-            do Diagnostics.reportf "asset '%s': %s (skipped)" id e.Message
+    for manifest in scanDir root "environments" do
+        let loaded =
+            loadOrReport "asset" manifest.Id (fun () ->
+                if String.IsNullOrEmpty manifest.Model then
+                    failwithf "asset manager: environment asset '%s' has no model path" manifest.Id
+                metadataOnly manifest.Id manifest.Name (Path.Combine(root, manifest.Model)))
+        match loaded with
+        | Some asset -> environments.[asset.Id] <- asset
+        | None -> ()
 
     let actors = loadActors loader root
     let actorsByName = indexByName actors
@@ -805,12 +892,8 @@ let scan (root: string) (device: Gpu.Device) (audio: Audio.Context) : AssetManag
     // manifest or an authoring error is reported and skipped; a decode failure marks the asset failed.
     let audioAssets = Dictionary<AssetId, AudioAsset.AudioAsset>()
     for manifestPath in audioManifestPaths root do
-        let loaded =
-            try Some (loadAudioAsset audio root manifestPath)
-            with e ->
-                do Diagnostics.reportf "audio asset '%s': %s (skipped)" (Path.GetFileNameWithoutExtension manifestPath) e.Message
-                None
-        match loaded with
+        let name = Path.GetFileNameWithoutExtension manifestPath
+        match loadOrReport "audio asset" name (fun () -> loadAudioAsset audio root manifestPath) with
         | Some asset ->
             audioAssets.[asset.Id] <- asset
             if audioDebug then do reportAudio asset
@@ -829,7 +912,10 @@ let scan (root: string) (device: Gpu.Device) (audio: Audio.Context) : AssetManag
       ResidentBytes = 0L
       Pool = None
       Uploads = Dictionary<AssetId, PendingUpload>()
-      PinnedIds = HashSet<AssetId>() }
+      PinnedIds = HashSet<AssetId>()
+      ActorNamesCache = None
+      MusicNamesCache = None
+      SoundAssetsCache = None }
 
 // Release the GPU resources the manager loaded. The pool is stopped first (FR-011), so no worker is
 // live while the device is torn down; an in-flight cursor is rolled back with the rest.
@@ -839,8 +925,9 @@ let release (manager: AssetManager) : unit =
         do AssetLoad.stopPool pool
         manager.Pool <- None
     | None -> ()
-    for KeyValue (_, cursor) in manager.Uploads do releaseCursor manager cursor
+    for KeyValue (_, cursor) in manager.Uploads do releaseCursor manager.Loader.Value cursor
     do manager.Uploads.Clear()
+    do invalidateNameCaches manager
 
     let releaseAsset (asset: EnvironmentAsset.EnvironmentAsset) : unit =
         match asset.Residency with

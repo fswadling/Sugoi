@@ -30,7 +30,7 @@ type SharedState =
       // decks. Game-wide, so music plays across a screen change; the decks are reconciled on every
       // `SetMix` (specs/087 History) and freed in `Music.release` before the mixer (specs/087 Engine).
       mutable Mix : Music.Mix
-      mutable Rack : Music.Rack
+      Rack : Music.Rack
       // The one-shot sound pool (spec 089): a fixed set of playback tracks reused round-robin, game-wide
       // like the mix's rack and freed before the mixer. Runtime only — nothing authors it.
       Voices : Sound.Voices }

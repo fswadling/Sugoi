@@ -62,26 +62,29 @@ module Facts =
         | FromEvent e -> Canonical.eventText e
         | FromFact f -> Canonical.factText f
 
-    /// The participants a fact names. The knowledge of which arguments are people lives in
-    /// `Vocabulary`, beside the event-side equivalent, so this is a match rather than a reflection
-    /// call per fact (research D30).
-    let participants (fact: Fact) : Character list = Vocabulary.factParticipants fact
-
-    /// Add a reason for a fact. A further reason for a fact already current enables no new match,
-    /// so a caller that needs to know whether the *fact* was new asks `contains` before adding
-    /// (FR-009).
+    /// Add a reason for a fact, returning whether the fact itself was absent and the new set. A
+    /// further reason for a fact already current enables no new match, so novelty — not reason
+    /// insertion — is what a caller such as the fixpoint reacts to (FR-009, FR-045).
     ///
     /// The fact goes into canonical participant order first, so a rule that happens to write the two
-    /// names the other way round adds a reason to the existing fact rather than a second fact.
-    let add (fact: Fact) (reason: Reason) (set: Set) : Set =
+    /// names the other way round adds a reason to the existing fact rather than a second fact. The
+    /// insert is one `Map.change`, so determining novelty and inserting are one traversal.
+    let add (fact: Fact) (reason: Reason) (set: Set) : bool * Set =
         let fact = Vocabulary.sortParticipants fact
+        let mutable novel = false
 
-        match Map.tryFind fact set with
-        | None -> Map.add fact [ reason ] set
-        | Some reasons ->
+        let updated =
+            set
+            |> Map.change fact (function
+                | None ->
+                    novel <- true
+                    Some [ reason ]
+                | Some reasons ->
 
-        if List.exists (fun held -> compareReasons held reason = 0) reasons then set
-        else Map.add fact (List.sortWith compareReasons (reason :: reasons)) set
+                if List.exists (fun held -> compareReasons held reason = 0) reasons then Some reasons
+                else Some(List.sortWith compareReasons (reason :: reasons)))
+
+        novel, updated
 
     /// Whether a fact is currently recorded. The canonical participant order is applied first, so
     /// asking with either wording of a mutual fact gets the same answer (FR-009, research D22).
@@ -93,11 +96,13 @@ module Facts =
     /// rule holds for the same fact alone. That is what keeps a fact that is also inferred, and it
     /// is FR-011 read at the level of reasons rather than facts (research D19). Withdrawing
     /// something that is not there is a no-op.
-    let withdraw (rule: string) (fact: Fact) (set: Set) : Set =
+    /// The fact is removed when no reason is left, which the returned flag reports so a caller can
+    /// tell a reason edit from a change to the fact set itself.
+    let withdraw (rule: string) (fact: Fact) (set: Set) : bool * Set =
         let fact = Vocabulary.sortParticipants fact
 
         match Map.tryFind fact set with
-        | None -> set
+        | None -> false, set
         | Some reasons ->
 
         let remaining =
@@ -105,16 +110,19 @@ module Facts =
             |> List.filter (fun held ->
                 not (held.Origin = Projected && String.Equals(held.Rule, rule, StringComparison.Ordinal)))
 
-        if List.isEmpty remaining then Map.remove fact set
-        else Map.add fact remaining set
+        if List.isEmpty remaining then true, Map.remove fact set
+        else false, Map.add fact remaining set
 
     /// The set with every reason a rule put there removed: what the events amount to, with nothing
     /// the rules concluded. A fact left with no reasons goes, so a fact that was only inferred
     /// disappears here and the fixpoint concludes it again if it still follows (research D7).
     let dropInferred (set: Set) : Set =
         set
-        |> Map.map (fun _ reasons -> reasons |> List.filter (fun held -> held.Origin = Projected))
-        |> Map.filter (fun _ reasons -> not (List.isEmpty reasons))
+        |> Map.fold
+            (fun kept fact reasons ->
+                let projected = reasons |> List.filter (fun held -> held.Origin = Projected)
+                if List.isEmpty projected then kept else Map.add fact projected kept)
+            Map.empty
 
     /// Every reason currently supporting a fact. Empty when the fact is not current. This is what the
     /// running game reads when a player asks why a fact holds (FR-010, clarification 2).
@@ -127,8 +135,10 @@ module Facts =
     /// What is withheld from a player or a character is the caller's decision, not the engine's
     /// (FR-015).
     let ofCharacter (character: Character) (set: Set) : Fact list =
+        let names = Vocabulary.foldParticipants (fun participant found -> found || participant = character) false
+
         [ for fact, _ in Map.toList set do
-            if List.contains character (participants fact) then yield fact ]
+            if names fact then yield fact ]
 
     /// Every current fact, in the order the values have: by construct, then by the arguments. That is
     /// the order the set is already stored in, so this is a comprehension rather than a sort — and

@@ -59,8 +59,8 @@ let ``a mutual fact is one fact whichever way its names are ordered`` () =
 [<Fact>]
 let ``a mutual fact written the other way round finds the fact rather than making one`` () =
     let reason = { Rule = "seeded"; Premises = []; Origin = Projected }
-    let held = Facts.add (Friends(akane, aiko)) reason Facts.empty
-    let again = Facts.add (Friends(aiko, akane)) reason held
+    let _, held = Facts.add (Friends(akane, aiko)) reason Facts.empty
+    let _, again = Facts.add (Friends(aiko, akane)) reason held
 
     // The second wording added a reason to the one fact rather than a second fact.
     Assert.Equal<Fact>([ Friends(aiko, akane) ], Facts.toList again)
@@ -100,7 +100,7 @@ let ``the ordering is the same in every culture`` () =
           InRelationship(akane, shinji)
           JealousOf(aiko, akane)
           BottledUpFeelings(aiko, akane) ]
-        |> List.fold (fun set fact -> Facts.add fact { Rule = "seeded"; Premises = []; Origin = Projected } set) Facts.empty
+        |> List.fold (fun set fact -> Facts.add fact { Rule = "seeded"; Premises = []; Origin = Projected } set |> snd) Facts.empty
         |> Facts.toList
         |> List.map Canonical.factText
 

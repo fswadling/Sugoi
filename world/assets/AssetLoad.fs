@@ -143,11 +143,16 @@ let request (q: LoadQueue) (assetId: AssetId) (modelPath: ModelPath) : AssetId l
         List.ofSeq dropped)
 
 // Replace the pin set. The gameplay layer owns it and narrows it to the active environment every
-// frame, so it never accumulates the ids of environments that are no longer in use.
+// frame, so it never accumulates the ids of environments that are no longer in use. An unchanged set
+// is a no-op, so the per-update caller does no clear or refill (F-15).
 let setPinned (q: LoadQueue) (pinnedIds: AssetId list) : unit =
     lock q.Gate (fun () ->
-        q.Pinned.Clear()
-        for p in pinnedIds do q.Pinned.Add p |> ignore)
+        let unchanged =
+            q.Pinned.Count = List.length pinnedIds
+            && List.forall (fun id -> q.Pinned.Contains id) pinnedIds
+        if not unchanged then
+            q.Pinned.Clear()
+            for p in pinnedIds do q.Pinned.Add p |> ignore)
 
 // Claim the most-recently-requested claimable id (with its model path and request time), or None.
 // Called under the worker's wait, so it is atomic with respect to `request`/`makeResident`.
@@ -165,8 +170,6 @@ let claimNext (q: LoadQueue) : (AssetId * ModelPath) option =
 
 let isPending (q: LoadQueue) (assetId: AssetId) : bool = lock q.Gate (fun () -> Lru.contains q.Pending assetId)
 let isClaimed (q: LoadQueue) (assetId: AssetId) : bool = lock q.Gate (fun () -> q.Claimed.Contains assetId)
-let claimedCount (q: LoadQueue) : int = lock q.Gate (fun () -> q.Claimed.Count)
-let pins (q: LoadQueue) : AssetId list = lock q.Gate (fun () -> List.ofSeq q.Pinned)
 
 // The id's GPU work is in progress (at most one, because the pump builds one cursor at a time). A
 // claimed id that reaches this point stays claimed until it is resident, so it cannot be re-decoded.
@@ -254,9 +257,6 @@ let createPool (workers: int) (capacity: int) (decode: AssetId -> ModelPath -> L
             t)
     { Queue = q; Ready = ready; Workers = threads; Stopping = stopping; Slots = slots; Stop = stop; ActiveDecodes = activeDecodes }
 
-let requestLoad (pool: LoadPool) (assetId: AssetId) (modelPath: ModelPath) : AssetId list =
-    request pool.Queue assetId modelPath
-
 // Consume a posted outcome. The outstanding-payload slot is **not** released here: if the payload
 // becomes a cursor it must stay bounded until the cursor settles (`releaseSlot`).
 let tryTakeReady (pool: LoadPool) : LoadOutcome option =
@@ -272,12 +272,6 @@ let releaseSlot (pool: LoadPool) : unit = pool.Slots.Release() |> ignore
 // Decodes running right now (FR-009's bound). Not the claim count: a worker may hold a claim across
 // the upload without decoding.
 let inFlight (pool: LoadPool) : int = pool.ActiveDecodes.Value
-
-let isPendingOutcome (pool: LoadPool) (assetId: AssetId) : bool = isPending pool.Queue assetId
-let makeResidentOutcome (pool: LoadPool) (assetId: AssetId) : unit = makeResident pool.Queue assetId
-let beginUploadOutcome (pool: LoadPool) (assetId: AssetId) : unit = beginUpload pool.Queue assetId
-let endUploadOutcome (pool: LoadPool) (assetId: AssetId) : unit = endUpload pool.Queue assetId
-let setPinnedPool (pool: LoadPool) (pinnedIds: AssetId list) : unit = setPinned pool.Queue pinnedIds
 
 // Stop the workers: cancel any slot wait, wake any gate wait, then join with a short bounded timeout. A
 // worker mid-decode is abandoned — it touches only managed memory, so its payload is simply dropped.

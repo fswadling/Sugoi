@@ -4,36 +4,20 @@ open Xunit
 open System.Numerics
 open Camera
 open Raycast
-
-let private assertVec3 (expected: Vector3) (actual: Vector3) =
-    Assert.True((expected - actual).Length() < 1e-4f, sprintf "expected %A, got %A" expected actual)
+open TestSupport
 
 [<Fact>]
 let ``rayFromScreen points at the camera forward at the centre`` () =
     let camera = Camera.create (Vector3(0.0f, 0.0f, 10.0f)) Vector3.Zero
     let ray = Raycast.rayFromScreen camera 1280.0f 720.0f 640.0f 360.0f
-    assertVec3 (Vector3(0.0f, 0.0f, 10.0f)) ray.Origin
-    assertVec3 (Vector3(0.0f, 0.0f, -1.0f)) ray.Dir
-
-[<Fact>]
-let ``intersectAabb hits a box the ray points at`` () =
-    let ray : Ray = { Origin = Vector3(0.0f, 0.0f, 10.0f); Dir = Vector3(0.0f, 0.0f, -1.0f) }
-    let hit = Raycast.intersectAabb ray Vector3.Zero (Vector3(0.5f, 0.5f, 0.5f))
-    Assert.True(Option.isSome hit)
-    let t = Option.get hit
-    Assert.True(abs (t - 9.5f) < 1e-4f)
-
-[<Fact>]
-let ``intersectAabb misses a box off-axis`` () =
-    let ray : Ray = { Origin = Vector3(0.0f, 0.0f, 10.0f); Dir = Vector3(0.0f, 0.0f, -1.0f) }
-    let hit = Raycast.intersectAabb ray (Vector3(5.0f, 0.0f, 0.0f)) (Vector3(0.5f, 0.5f, 0.5f))
-    Assert.True(Option.isNone hit)
+    assertVec3 1e-4f (Vector3(0.0f, 0.0f, 10.0f)) ray.Origin
+    assertVec3 1e-4f (Vector3(0.0f, 0.0f, -1.0f)) ray.Dir
 
 [<Fact>]
 let ``planeIntersect returns the hit point`` () =
     let ray : Ray = { Origin = Vector3(0.0f, 0.0f, 10.0f); Dir = Vector3(0.0f, 0.0f, -1.0f) }
     match Raycast.planeIntersect ray Vector3.Zero (Vector3(0.0f, 0.0f, 1.0f)) with
-    | Some p -> assertVec3 Vector3.Zero p
+    | Some p -> assertVec3 1e-4f Vector3.Zero p
     | None -> Assert.True(false, "expected a hit")
 
 [<Fact>]

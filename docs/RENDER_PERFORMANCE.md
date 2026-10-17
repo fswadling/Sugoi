@@ -496,7 +496,7 @@ Mapping to Sugoi:
 | Sugoi (now) | Nu |
 |---|---|
 | 1 instanced draw per unique submesh identity (521 → 191) | ~1 instanced draw per unique surface |
-| grouping rebuilt per frame (v1) | baked once at freeze for static hierarchies |
+| grouping rebuilt only when the scene changes (spec 098) | baked once at freeze for static hierarchies |
 | per-instance data in one vertex buffer; one shared `viewProj` push | per-instance data in one buffer |
 | `Shell.fs` logs `draws`/`instances` | `Hl.ReportDrawCall` etc. |
 | frustum cull per part (tried, reverted) | per-instance cull inside the batch |
@@ -505,7 +505,8 @@ Differences that matter: Nu renders through OpenGL, this project through
 SDL_GPU/Vulkan (whose per-draw CPU cost is the §6 root cause), and Nu defers the
 opaque bulk into a G-buffer while this project is forward per-submesh. Neither
 changes the conclusion: collapse the draw calls. Nu's *freeze* concept is worth
-copying only as the optional §7 step 3 cache; the v1 plan is a per-frame gather.
+copying only as the optional §7 step 3 cache; the v1 plan now gathers only when
+the static scene changes (spec 098), not every frame.
 
 **Caveat:** this is a source-read of `Repos/Nu`, not a measured run — treat the
 "in budget" claim as inference from the design, not a benchmark.

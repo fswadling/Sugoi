@@ -23,6 +23,21 @@ let private shinji = Shinji
 
 let private engine = Engine.create Rules.empty
 
+/// A rule set whose derivation counts its evaluations, so a test can observe whether a commit ran
+/// a derivation pass at all. The counter is per call: no module state is shared between tests.
+let private countedRules () =
+    let evaluations = ref 0
+
+    let countFriends =
+        Rules.derivation "count-friends" [ FactKind.Friends ] (fun facts ->
+            facts {
+                let! struct (a, b) = Facts.Sources.friendsOf aiko
+                evaluations.Value <- evaluations.Value + 1
+                yield Fact.BottledUpFeelings(a, b)
+            })
+
+    evaluations, { Projections = [ NarrativeTestSupport.befriended ]; Derivations = [ countFriends ] }
+
 [<Fact>]
 let ``an event naming a character who has not arrived is accepted`` () =
     // Arrival is narrative content, not a gate: any event naming any roster member is
@@ -98,6 +113,30 @@ let ``an event that concludes nothing is accepted rather than refused`` () =
             (GameTime 1, FriendshipStarted(aiko, akane)) ]
     Assert.Equal(3, List.length (Engine.history committed))
     Assert.Empty(Engine.facts committed)
+
+[<Fact>]
+let ``a commit that matches no projection appends history and leaves the facts untouched`` () =
+    // F-81: no projection reads `Arrived`, so no derivation pass can change anything and the
+    // fact map is carried over rather than rebuilt.
+    let evaluations, rules = countedRules ()
+    let seeded = Engine.commit (Engine.create rules) (GameTime 0, FriendshipStarted(aiko, akane))
+    let after = Engine.commit seeded (GameTime 1, Arrived aiko)
+
+    Assert.Equal(2, List.length (Engine.history after))
+    Assert.Same(seeded.Facts, after.Facts)
+    Assert.Equal(1, evaluations.Value)
+
+[<Fact>]
+let ``a projection that only changes reasons does not run a derivation pass`` () =
+    // F-81: the reversed event establishes the same `Friends` fact with a second event reason.
+    // The projected set is unchanged, so the fixpoint result cannot move and is not recomputed.
+    let evaluations, rules = countedRules ()
+    let seeded = Engine.commit (Engine.create rules) (GameTime 0, FriendshipStarted(aiko, akane))
+    let after = Engine.commit seeded (GameTime 1, FriendshipStarted(akane, aiko))
+
+    Assert.Equal(1, evaluations.Value)
+    Assert.Equal(2, Engine.reasonsFor after (Fact.Friends(aiko, akane)) |> List.length)
+    Assert.Contains(Fact.BottledUpFeelings(aiko, akane), Engine.facts after)
 
 [<Fact>]
 let ``an arrival recorded twice is accepted`` () =

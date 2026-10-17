@@ -12,36 +12,14 @@ open System.Numerics
 open Xunit
 open Command
 open Entity
+open TestSupport
 
 // A device-free shared state: a sky edit touches no asset and no body.
 let private sharedState () : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    headlessShared ()
 
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
-    let zones = Dictionary<string, Zone.Zone>()
-    zones.[GameplayState.startZone] <- zone
-    { Camera = Camera.create Vector3.Zero Vector3.Zero
-      DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
-      GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
-      Ui = Unchecked.defaultof<Ui.Ui>
-      Skydome = Unchecked.defaultof<Skydome.Skydome>
-      Dialogue = Dialogue.empty
-      Zones = zones
-      Scenarios = ScenarioRegistry.create ()
-      Physics = Physics.create ()
-      ActiveZone = GameplayState.startZone
-      Editor = EditorState.create ()
-      Editing = true
-      Follow = Systems.createFollow ()
-      InteractableTrigger = ValueNone
-      Cue = Cue.Fin
-      PlayTime = 0.0
-      Fade = 0.0f }
+    stateWithZone zone
 
 // ── the value (FR-001, FR-005) ──
 

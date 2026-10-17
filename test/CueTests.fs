@@ -15,6 +15,7 @@ open Prime
 open Cue
 open CueEngine
 open Entity
+open TestSupport
 
 // The zones these tests name (spec 079: a zone is a string).
 let private mainPlace : string = GameplayState.startZone
@@ -24,32 +25,17 @@ let private classroomPlace : string = "Island"
 // ── Headless fixtures ──
 
 let private sharedState () : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    TestSupport.headlessShared ()
 
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
-
-// Shared assets and flags for the file: the zones these tests build are empty, so a switch only walks an
-// empty body map and nothing leaks between tests. The physics world is each state's own. The test runner
-// serializes collections anyway.
-let private shared = sharedState ()
+    TestSupport.headlessState ()
 
 let private withCue (cue: Cue) : GameplayState.GameplayState =
     let mutable state = newState ()
     state.Cue <- cue
     state
 
-/// Authoring sugar: a list of ops as the cue they denote.
-let private seqOf (cues: Cue list) : Cue =
-    match cues with
-    | [] -> Fin
-    | [ only ] -> only
-    | head :: tail -> Sequence(head, FDeque.ofList tail)
+
 
 /// A waypoint named `name` at `position`, facing `rotation`, in the state's active zone.
 let private placeWaypoint (state: GameplayState.GameplayState) (name: string) (position: Vector3) (rotation: Quaternion) : EntityRef =
@@ -67,82 +53,9 @@ let private placeWaypoint (state: GameplayState.GameplayState) (name: string) (p
 // touches the LRU and never opens the async pool (no device, no threads), and whose registry can be given
 // a template for a place. Enough to exercise the cue's add-and-stream and preload paths headlessly.
 let private residentShared () : SharedState.SharedState =
-    let environments = Dictionary<System.String, EnvironmentAsset.EnvironmentAsset>()
-    let submesh = TestSupport.loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |]
-    environments.["room"] <- TestSupport.residentAsset "room" [| submesh |] [| TestSupport.part "wall" 0 1 |]
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) environments
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    headlessSharedWith (managerWith [] [] [ "room", roomAsset () ])
 
-/// A line's ending set and timeout as a test reads it: the author-facing summary, with the duration
-/// appended when one is set so a timeout without `ByTimeout` is still visible.
-let private describeEndings (endings: Set<Dialogue.Ending>) (timeout: float voption) : string =
-    let summary = Dialogue.summary endings timeout
-    match timeout with
-    | ValueSome seconds -> sprintf "%s@%g" summary seconds
-    | ValueNone -> summary
 
-/// The cue as a person (or the editor's panel) reads it. The in-flight `WaitState` renders as the `Wait`
-/// it came from: the view is what is left to run, and its front is the running op.
-let rec private describe (cue: Cue) : string =
-    match cue with
-    | Fin -> "Fin"
-    | Sequence (current, rest) ->
-        let parts = Seq.append (Seq.singleton (describe current)) (FDeque.toSeq rest |> Seq.map describe)
-        "Seq[" + String.concat ", " parts + "]"
-    | Parallel (l, r) -> sprintf "Par(%s, %s)" (describe l) (describe r)
-    | Fork c -> sprintf "Fork(%s)" (describe c)
-    | Wait s | WaitState (s, _) -> sprintf "Wait %g" s
-    | FadeOut d | FadeOutState (_, d, _) -> sprintf "FadeOut %g" d
-    | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
-    | Exposit (t, _) -> sprintf "Exposit(%s)" t
-    | ExpositWith (t, _, e, tm) -> sprintf "ExpositWith(%s,%s)" t (describeEndings e tm)
-    | ExpositWait (t, _, e, tm) | ExpositWaitState (t, _, e, tm) -> sprintf "ExpositWait(%s,%s)" t (describeEndings e tm)
-    | CloseExposition -> "CloseExposition"
-    | Print t -> sprintf "Print(%s)" t
-    | SetZone z -> sprintf "Zone(%s)" (z)
-    | RemoveZone z -> sprintf "RemoveZone(%s)" (z)
-    | AddActor (p, a, asset, w) -> sprintf "AddActor(%s,%s,%s,%s)" (p) a asset w
-    | RemoveActor (p, a) -> sprintf "RemoveActor(%s,%s)" (p) a
-    | Animate (p, a, clip, _, d) -> sprintf "Animate(%s,%s,%s,%g)" (p) a clip d
-    | CrossFadeAnimation (p, a, f, t, _, d) -> sprintf "CrossFadeAnimation(%s,%s,%s,%s,%g)" (p) a f t d
-    | Morph (p, a, m, _, d) -> sprintf "Morph(%s,%s,%s,%g)" (p) a m d
-    | CrossFadeMorph (p, a, f, t, _, d) -> sprintf "CrossFadeMorph(%s,%s,%s,%s,%g)" (p) a f t d
-    | BlendState (a, _, _, morph, f, t, _, _, _, _, _) ->
-        if f = t then sprintf "%s(%s,%s)" (if morph then "Morph" else "Animate") a f
-        else sprintf "%s(%s,%s,%s)" (if morph then "CrossFadeMorph" else "CrossFadeAnimation") a f t
-    | MoveActor (a, p, _, _, _) -> sprintf "MoveActor(%s,%s)" a p
-    | MoveActorState (a, _, _, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" a
-    | RotateActor (a, w, d) -> sprintf "RotateActor(%s,%s,%g)" a w d
-    | RotateActorState (a, _, _, _, _, _, _) -> sprintf "RotateActor(%s)" a
-    | EnablePlayer (p, a) -> sprintf "EnablePlayer(%s,%s)" (p) a
-    | DisablePlayer (p, a) -> sprintf "DisablePlayer(%s,%s)" (p) a
-    | EnableTrigger (p, t) -> sprintf "EnableTrigger(%s,%s)" (p) t
-    | DisableTrigger (p, t) -> sprintf "DisableTrigger(%s,%s)" (p) t
-    | SetCamera (p, w) -> sprintf "SetCamera(%s,%s)" (p) w
-    | FlyCamera (p, path, _) -> sprintf "FlyCamera(%s,%s)" (p) path
-    | FlyCameraState (path, _, _, _, _) -> sprintf "FlyCamera(%s)" path
-    | AddAdvent m -> sprintf "Add(%s)" m
-    | RemoveAdvent m -> sprintf "Remove(%s)" m
-    | Await m | AwaitState m -> sprintf "Await(%s)" m
-    | If (m, t, e) -> sprintf "If(%s, %s, %s)" m (describe t) (describe e)
-    | ForkScenario scenario -> sprintf "ForkScenario(%s)" scenario
-    | AddMusic song -> sprintf "AddMusic(%s)" song
-    | RemoveMusic song -> sprintf "RemoveMusic(%s)" song
-    | PlayMusic song -> sprintf "PlayMusic(%s)" song
-    | StopMusic song -> sprintf "StopMusic(%s)" song
-    | PlayBed -> "PlayBed"
-    | StopBed -> "StopBed"
-    | SetMusicLevel (song, level, d) -> sprintf "SetMusicLevel(%s,%g,%g)" song level d
-    | SetMusicMaster (level, d) -> sprintf "SetMusicMaster(%g,%g)" level d
-    | MusicLevelState (song, _, target, d, _) -> sprintf "MusicLevelState(%s,%g,%g)" song target d
-    | MusicMasterState (_, target, d, _) -> sprintf "MusicMasterState(%g,%g)" target d
-    | CrossFadeMusic (fromSong, toSong, d) -> sprintf "CrossFadeMusic(%s,%s,%g)" fromSong toSong d
-    | CrossFadeMusicState (fromSong, toSong, _, _, d, _) -> sprintf "CrossFadeMusicState(%s,%s,%g)" fromSong toSong d
-    | PlaySound sound -> sprintf "PlaySound(%s)" sound
 
 /// The nodes actually in flight. The queue behind a sequence's current op is data, not live nodes, so a
 /// long cue costs no more than a short one.
@@ -158,6 +71,7 @@ let rec private liveCount (cue: Cue) : int =
 
 [<Fact>]
 let ``a sequence runs each op at the step the cue asks for`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Wait 2.0; Exposit("hello", Dialogue.Kind.Dialogue); Wait 1.0 ])
 
     tick shared &state 0.0
@@ -177,6 +91,7 @@ let ``a sequence runs each op at the step the cue asks for`` () =
 
 [<Fact>]
 let ``two branches run at once and the point is Fin only when both have`` () =
+    let shared = sharedState ()
     let mutable state = withCue (Parallel(Wait 1.0, Wait 2.0))
 
     tick shared &state 0.0
@@ -190,6 +105,7 @@ let ``two branches run at once and the point is Fin only when both have`` () =
 
 [<Fact>]
 let ``a cue of no-progress ops is Fin within one step`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Exposit("a", Dialogue.Kind.Dialogue); Exposit("b", Dialogue.Kind.Dialogue) ])
     tick shared &state 0.0
     Assert.Equal("Fin", describe state.Cue)
@@ -199,6 +115,7 @@ let ``a cue of no-progress ops is Fin within one step`` () =
 
 [<Fact>]
 let ``an exposit writes the authored text and kind, for each presentation`` () =
+    let shared = sharedState ()
     // a plain dialogue line
     let mutable plain = withCue (Exposit("hello", Dialogue.Kind.Dialogue))
     tick shared &plain 0.0
@@ -221,6 +138,7 @@ let ``an exposit writes the authored text and kind, for each presentation`` () =
 
 [<Fact>]
 let ``an exposit costs no time and a later one replaces it`` () =
+    let shared = sharedState ()
     let second = Dialogue.Kind.PortraitDialogue("Yuki", Dialogue.Emotion.Sad)
     let mutable state = withCue (seqOf [ Exposit("first", Dialogue.Kind.Dialogue); Exposit("second", second) ])
     tick shared &state 0.0
@@ -232,6 +150,7 @@ let ``an exposit costs no time and a later one replaces it`` () =
 
 [<Fact>]
 let ``a portrait line whose speaker is unbound is written and does not block`` () =
+    let shared = sharedState ()
     // `shared` binds no cast member and loads no asset, so the portrait cannot resolve: the view will leave
     // it undrawn and the panel will explain (`specs/038`). The op itself still writes the line and the run
     // continues — authoring a line before its art is bound must not break a cue.
@@ -253,6 +172,7 @@ let private assertLine (text: string) (endings: Set<Dialogue.Ending>) (timeout: 
 
 [<Fact>]
 let ``an exposit writes the cue-managed line at the moment it is reached`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Wait 1.0; Exposit("hello", Dialogue.Kind.Dialogue) ])
     tick shared &state 0.0
     Assert.False state.Dialogue.Shown
@@ -263,6 +183,7 @@ let ``an exposit writes the cue-managed line at the moment it is reached`` () =
 
 [<Fact>]
 let ``an exposit with writes any ending set and costs no time`` () =
+    let shared = sharedState ()
     let nonWaiting =
         [ Set.empty, ValueNone
           Set.singleton Dialogue.ByPlayer, ValueNone
@@ -277,6 +198,7 @@ let ``an exposit with writes any ending set and costs no time`` () =
 
 [<Fact>]
 let ``a waiting exposit holds the cue until the line goes`` () =
+    let shared = sharedState ()
     let mutable state = withCue (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone))
     tick shared &state 0.0
     assertLine "hi" (Set.singleton Dialogue.ByPlayer) ValueNone 0.0 state.Dialogue
@@ -292,6 +214,7 @@ let ``a waiting exposit holds the cue until the line goes`` () =
 
 [<Fact>]
 let ``a waiting sequence advances to its next line on the tick the current line ends`` () =
+    let shared = sharedState ()
     // the dialogue tick runs before the cue tick in the play frame, so a close observed in this
     // frame's updateDialogue lets the waiting op complete and the next line begin in the same tick
     let cases =
@@ -315,6 +238,7 @@ let ``a waiting sequence advances to its next line on the tick the current line 
 
 [<Fact>]
 let ``a waiting cue-managed line ignores the player and waits for an explicit close`` () =
+    let shared = sharedState ()
     let mutable state = withCue (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.empty, ValueNone))
     tick shared &state 0.0
 
@@ -333,6 +257,7 @@ let ``a waiting cue-managed line ignores the player and waits for an explicit cl
 
 [<Fact>]
 let ``a close exposition op clears a line whatever its runtime conditions are`` () =
+    let shared = sharedState ()
     let lines =
         [ Set.empty, ValueNone
           Set.singleton Dialogue.ByPlayer, ValueNone
@@ -350,6 +275,7 @@ let ``a close exposition op clears a line whatever its runtime conditions are`` 
 
 [<Fact>]
 let ``a replacement line keeps the waiting op waiting`` () =
+    let shared = sharedState ()
     // the wait is "the screen line is gone", not a line identity: a later write replaces `first` and the
     // waiting op is still waiting on the replacement
     let mutable state = withCue (Parallel(ExpositWait("first", Dialogue.Kind.Dialogue, Set.empty, ValueNone),
@@ -368,6 +294,7 @@ let ``a replacement line keeps the waiting op waiting`` () =
 
 [<Fact>]
 let ``a parallel close before the waiting branch is consumed before the line exists`` () =
+    let shared = sharedState ()
     // `stepParallel` advances the left side first: a close on the left clears whatever was there, then the
     // waiting op writes its line — so the line is shown and the wait continues
     let mutable state = withCue (Parallel(CloseExposition, ExpositWait("hi", Dialogue.Kind.Dialogue, Set.empty, ValueNone)))
@@ -380,6 +307,7 @@ let ``a parallel close before the waiting branch is consumed before the line exi
 
 [<Fact>]
 let ``a parallel close after the waiting branch clears the line in the same tick, and the wait ends next tick`` () =
+    let shared = sharedState ()
     // the other order: the wait writes the line, then the close clears it in the same step. The waiting op
     // already answered for this tick, so it observes the clear on the next one.
     let mutable state = withCue (Parallel(ExpositWait("hi", Dialogue.Kind.Dialogue, Set.empty, ValueNone), CloseExposition))
@@ -392,6 +320,7 @@ let ``a parallel close after the waiting branch clears the line in the same tick
 
 [<Fact>]
 let ``a timed non-waiting line still clears after the cue is Fin`` () =
+    let shared = sharedState ()
     // the timer is screen state, not cue state: the cue is over, and the line still ends on its own
     let mutable state = withCue (ExpositWith("bye", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByTimeout, ValueSome 2.0))
     tick shared &state 0.0
@@ -406,35 +335,27 @@ let ``a timed non-waiting line still clears after the cue is Fin`` () =
 
 [<Fact>]
 let ``an idle waiting exposit allocates nothing per tick`` () =
+    let shared = sharedState ()
     let mutable state = withCue (ExpositWait("hi", Dialogue.Kind.Dialogue, Set.singleton Dialogue.ByPlayer, ValueNone))
     tick shared &state 0.0
     for _ in 1 .. 50 do tick shared &state 0.5
 
-    let before = GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do tick shared &state 0.5
-    let bytes = GC.GetAllocatedBytesForCurrentThread() - before
-    Assert.Equal(0L, bytes)
+    assertAllocatesNothing 50 2000 (fun () -> tick shared &state 0.5)
 
 [<Fact>]
 let ``the dialogue tick with a closed or cue-managed line allocates nothing`` () =
+    let shared = sharedState ()
     let closed = { Dialogue.empty with Shown = false; Endings = Set.empty }
     let mutable line = closed
-    for _ in 1 .. 100 do do Systems.updateDialogue false false 1.0 &line
-    let before = GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do do Systems.updateDialogue false false 1.0 &line
-    let closedBytes = GC.GetAllocatedBytesForCurrentThread() - before
-    Assert.Equal(0L, closedBytes)
+    assertAllocatesNothing 100 2000 (fun () -> Systems.updateDialogue false false 1.0 &line)
 
     let cueManaged = { Dialogue.empty with Shown = true; Endings = Set.empty }
     let mutable kept = cueManaged
-    for _ in 1 .. 100 do do Systems.updateDialogue true false 1.0 &kept
-    let before = GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do do Systems.updateDialogue true false 1.0 &kept
-    let cueManagedBytes = GC.GetAllocatedBytesForCurrentThread() - before
-    Assert.Equal(0L, cueManagedBytes)
+    assertAllocatesNothing 100 2000 (fun () -> Systems.updateDialogue true false 1.0 &kept)
 
 [<Fact>]
 let ``an authored Fin in a sequence is skipped rather than stopping it`` () =
+    let shared = sharedState ()
     // `Fin` means "nothing to run", so a `Fin` written into a queue is a *hole* the walk carries past in the
     // same step — it does not terminate the sequence. (The type system cannot say "terminal, and last", so
     // this is a rule about the walk rather than a rule the type enforces: FR-017.)
@@ -455,6 +376,7 @@ let ``an authored Fin in a sequence is skipped rather than stopping it`` () =
 
 [<Fact>]
 let ``Fin stays Fin`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Wait 1.0 ])
     tick shared &state 0.0
     tick shared &state 1.0
@@ -465,6 +387,7 @@ let ``Fin stays Fin`` () =
 
 [<Fact>]
 let ``the same authored value can be run again from the start`` () =
+    let shared = sharedState ()
     let cue = seqOf [ Wait 2.0; Exposit("again", Dialogue.Kind.Dialogue); Wait 1.0 ]
 
     let run () =
@@ -483,6 +406,7 @@ let ``the same authored value can be run again from the start`` () =
 
 [<Fact>]
 let ``two runs of the same cue against the same clock agree after every step`` () =
+    let shared = sharedState ()
     let cue = seqOf [ Wait 2.0; Exposit("hi", Dialogue.Kind.Dialogue); Wait 1.0; SetZone mainPlace ]
     let mutable a = withCue cue
     let mutable b = withCue cue
@@ -498,6 +422,7 @@ let ``two runs of the same cue against the same clock agree after every step`` (
 
 [<Fact>]
 let ``a set camera op frames from its waypoint and costs no time`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     // the waypoint's arrow faces +X: `-UnitZ` rotated -90° about +Y (the Viewport arrow convention)
     let rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, -MathF.PI / 2.0f)
@@ -516,6 +441,7 @@ let ``a set camera op frames from its waypoint and costs no time`` () =
 
 [<Fact>]
 let ``a set camera op with no such waypoint performs nothing`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     let before = state.Camera.Position
     let performsNothing (cue: Cue) =
@@ -528,6 +454,7 @@ let ``a set camera op with no such waypoint performs nothing`` () =
 
 [<Fact>]
 let ``a set camera op resolves names only in the named place`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     GameplayState.addZone shared &state atriumPlace // atrium is now active
     do ignore (placeWaypoint state "arch" Vector3.Zero Quaternion.Identity)
@@ -548,6 +475,7 @@ let ``a set camera op resolves names only in the named place`` () =
 
 [<Fact>]
 let ``a fly camera op travels its chain and lands on the last waypoint`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     let zone = GameplayState.activeZone state
     let a = placeWaypoint state "a" (Vector3(0.0f, 0.0f, 0.0f)) Quaternion.Identity
@@ -570,6 +498,7 @@ let ``a fly camera op travels its chain and lands on the last waypoint`` () =
 
 [<Fact>]
 let ``a flight is pinned to the path it resolved`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     let zone = GameplayState.activeZone state
     let a = placeWaypoint state "a" (Vector3(0.0f, 0.0f, 0.0f)) Quaternion.Identity
@@ -585,6 +514,7 @@ let ``a flight is pinned to the path it resolved`` () =
 
 [<Fact>]
 let ``a fly camera op with a bad path or speed performs nothing`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     do ignore (placeWaypoint state "solo" Vector3.Zero Quaternion.Identity)
     let before = state.Camera.Position
@@ -599,6 +529,7 @@ let ``a fly camera op with a bad path or speed performs nothing`` () =
 
 [<Fact>]
 let ``a cyclic chain terminates`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     let zone = GameplayState.activeZone state
     let a = placeWaypoint state "a" (Vector3(0.0f, 0.0f, 0.0f)) Quaternion.Identity
@@ -613,6 +544,7 @@ let ``a cyclic chain terminates`` () =
 
 [<Fact>]
 let ``a flight in progress allocates nothing per tick`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     let zone = GameplayState.activeZone state
     let a = placeWaypoint state "a" (Vector3(0.0f, 0.0f, 0.0f)) Quaternion.Identity
@@ -623,15 +555,13 @@ let ``a flight in progress allocates nothing per tick`` () =
     tick shared &state 0.0
     for _ in 1 .. 50 do tick shared &state 0.5
 
-    let before = GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do tick shared &state 0.5
-    let bytes = GC.GetAllocatedBytesForCurrentThread() - before
-    Assert.Equal(0L, bytes)
+    assertAllocatesNothing 50 2000 (fun () -> tick shared &state 0.5)
 
 // ── the fade ops (spec 060): the level over a timeline, the part-way start, the exact endpoint ──
 
 [<Fact>]
 let ``a fade out darkens to black over its duration and a fade in clears it`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     state.Fade <- 0.0f
     state.Cue <- FadeOut 2.0
@@ -654,6 +584,7 @@ let ``a fade out darkens to black over its duration and a fade in clears it`` ()
 
 [<Fact>]
 let ``a fade starts from the level it finds, not an endpoint`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     state.Fade <- 0.4f
     state.Cue <- FadeOut 2.0
@@ -673,6 +604,7 @@ let ``a fade starts from the level it finds, not an endpoint`` () =
 
 [<Fact>]
 let ``a fade of zero or less is over before it begins`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     state.Fade <- 0.3f
     state.Cue <- FadeOut 0.0
@@ -688,21 +620,20 @@ let ``a fade of zero or less is over before it begins`` () =
 
 [<Fact>]
 let ``a fade in flight allocates nothing per tick`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     state.Fade <- 0.0f
     state.Cue <- FadeOut 1000.0
     tick shared &state 0.0
     for _ in 1 .. 50 do tick shared &state 0.5
 
-    let before = GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do tick shared &state 0.5
-    let bytes = GC.GetAllocatedBytesForCurrentThread() - before
-    Assert.Equal(0L, bytes)
+    assertAllocatesNothing 50 2000 (fun () -> tick shared &state 0.5)
 
 // ══════ The advent ops (spec 056; a string set, spec 082) — milestones drive a cue ══════
 
 [<Fact>]
 let ``an add advent op sets the flag and costs no time`` () =
+    let shared = sharedState ()
     shared.Advents <- OSet.ofSeq1 []
     let mutable state = newState ()
     state.Cue <- seqOf [ AddAdvent "MetAiko"; Exposit("after", Dialogue.Kind.Dialogue) ]
@@ -713,6 +644,7 @@ let ``an add advent op sets the flag and costs no time`` () =
 
 [<Fact>]
 let ``a remove advent op clears the flag, and both writes are idempotent`` () =
+    let shared = sharedState ()
     shared.Advents <- OSet.ofSeq1 [ "MetAiko" ]
     let mutable state = newState ()
     state.Cue <- seqOf [ RemoveAdvent "MetAiko"; AddAdvent "MetAkane" ]
@@ -728,6 +660,7 @@ let ``a remove advent op clears the flag, and both writes are idempotent`` () =
 
 [<Fact>]
 let ``an await op waits until its flag is set, then continues`` () =
+    let shared = sharedState ()
     shared.Advents <- OSet.ofSeq1 []
     let mutable state = newState ()
     state.Cue <- seqOf [ Await "MetAkane"; Exposit("after", Dialogue.Kind.Dialogue) ]
@@ -743,6 +676,7 @@ let ``an await op waits until its flag is set, then continues`` () =
 
 [<Fact>]
 let ``an await of an already-set flag costs no time`` () =
+    let shared = sharedState ()
     shared.Advents <- OSet.ofSeq1 [ "MetAiko" ]
     let mutable state = newState ()
     state.Cue <- seqOf [ Await "MetAiko"; Exposit("after", Dialogue.Kind.Dialogue) ]
@@ -752,6 +686,7 @@ let ``an await of an already-set flag costs no time`` () =
 
 [<Fact>]
 let ``an add earlier in the same cue satisfies a later await in the same step`` () =
+    let shared = sharedState ()
     shared.Advents <- OSet.ofSeq1 []
     let mutable state = newState ()
     state.Cue <- seqOf [ AddAdvent "MetAiko"; Await "MetAiko"; Exposit("after", Dialogue.Kind.Dialogue) ]
@@ -761,6 +696,7 @@ let ``an add earlier in the same cue satisfies a later await in the same step`` 
 
 [<Fact>]
 let ``clearing the flag while waiting leaves the await waiting`` () =
+    let shared = sharedState ()
     shared.Advents <- OSet.ofSeq1 []
     let mutable state = newState ()
     state.Cue <- Await "MetAiko"
@@ -775,19 +711,18 @@ let ``clearing the flag while waiting leaves the await waiting`` () =
 
 [<Fact>]
 let ``a waiting await allocates nothing per step`` () =
+    let shared = sharedState ()
     shared.Advents <- OSet.ofSeq1 []
     let mutable state = newState ()
     state.Cue <- Await "MetAiko"
     tick shared &state 0.0
     for _ in 1 .. 50 do tick shared &state 1.0
 
-    let before = GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do tick shared &state 1.0
-    let bytes = GC.GetAllocatedBytesForCurrentThread() - before
-    Assert.Equal(0L, bytes)
+    assertAllocatesNothing 50 2000 (fun () -> tick shared &state 1.0)
 
 [<Fact>]
 let ``an if runs the branch its flag selects`` () =
+    let shared = sharedState ()
     shared.Advents <- OSet.ofSeq1 []
     let mutable state = newState ()
     state.Cue <- If("MetAiko", Exposit("then", Dialogue.Kind.Dialogue), Exposit("else", Dialogue.Kind.Dialogue))
@@ -802,6 +737,7 @@ let ``an if runs the branch its flag selects`` () =
 
 [<Fact>]
 let ``an if's Fin branch costs no time and a timed branch begins in its place`` () =
+    let shared = sharedState ()
     shared.Advents <- OSet.ofSeq1 [ "MetAiko" ]
     let mutable state = newState ()
     state.Cue <- seqOf [ If("MetAiko", Fin, Exposit("nefarious", Dialogue.Kind.Dialogue)); Wait 1.0 ]
@@ -818,6 +754,7 @@ let ``an if's Fin branch costs no time and a timed branch begins in its place`` 
 
 [<Fact>]
 let ``an if nests inside a sequence and the untaken branch never runs`` () =
+    let shared = sharedState ()
     shared.Advents <- OSet.ofSeq1 [ "MetAiko" ]
     let mutable state = newState ()
     state.Cue <- seqOf [ If("MetAiko", Exposit("then", Dialogue.Kind.Dialogue), Exposit("nefarious", Dialogue.Kind.Dialogue)); Exposit("after", Dialogue.Kind.Dialogue) ]
@@ -829,6 +766,7 @@ let ``an if nests inside a sequence and the untaken branch never runs`` () =
 
 [<Fact>]
 let ``a fork detaches beside the sequence and both run`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Wait 1.0; Fork(Wait 2.0); Wait 3.0 ])
 
     tick shared &state 0.0
@@ -842,7 +780,31 @@ let ``a fork detaches beside the sequence and both run`` () =
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
+let ``a blocked fork keeps its rewritten parallel shape across idle ticks`` () =
+    // F-28: once a fork is rewritten as `Parallel(remainder, branch)`, an idle tick hands that shape
+    // back rather than rebuilding it from the `Fork` again.
+    let shared = sharedState ()
+    let mutable state = withCue (seqOf [ Wait 1.0; Fork(Wait 2.0); Wait 3.0 ])
+    tick shared &state 0.0
+    tick shared &state 1.0
+    let shape = describe state.Cue
+    Assert.Equal("Par(Seq[Wait 3], Wait 2)", shape)
+
+    for _ in 1 .. 100 do tick shared &state 1.0
+    Assert.Equal(shape, describe state.Cue)
+    Assert.Equal(4, liveCount state.Cue) // the parallel and its two live waits, and the queued wait
+
+[<Fact>]
+let ``an idle blocked fork allocates nothing per tick`` () =
+    let shared = sharedState ()
+    let mutable state = withCue (seqOf [ Wait 1.0; Fork(Wait 2.0); Wait 3.0 ])
+    tick shared &state 0.0
+    tick shared &state 1.0
+    assertAllocatesNothing 50 2000 (fun () -> tick shared &state 1.0)
+
+[<Fact>]
 let ``a cue forked in runs beside the running one without disturbing it`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Wait 5.0; Exposit("queued", Dialogue.Kind.Dialogue) ])
     tick shared &state 0.0
 
@@ -863,16 +825,19 @@ let ``a cue forked in runs beside the running one without disturbing it`` () =
 
 [<Fact>]
 let ``forking into Fin makes the arriving cue the cue`` () =
+    let shared = sharedState ()
     Assert.Equal("Exposit(arrived)", describe (forkInto (Exposit("arrived", Dialogue.Kind.Dialogue)) Fin))
 
 [<Fact>]
 let ``a forked cue carries no knowledge of its host`` () =
+    let shared = sharedState ()
     let joined = Exposit("j", Dialogue.Kind.Dialogue)
     Assert.Equal("Par(Wait 5, Exposit(j))", describe (forkInto joined (Wait 5.0)))
     Assert.Equal("Par(Wait 6, Exposit(j))", describe (forkInto joined (Wait 6.0)))
 
 [<Fact>]
 let ``past forks do not accumulate in the cue`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Wait 100.0; Exposit("done", Dialogue.Kind.Dialogue) ])
     tick shared &state 0.0
     let running = describe state.Cue
@@ -887,6 +852,7 @@ let ``past forks do not accumulate in the cue`` () =
 
 [<Fact>]
 let ``a Fork outside a sequence runs its inner cue`` () =
+    let shared = sharedState ()
     let mutable state = withCue (Fork(Wait 1.0))
     do tick shared &state 0.0
     Assert.False(state.Cue.IsFin, "the fork's inner cue began")
@@ -897,6 +863,7 @@ let ``a Fork outside a sequence runs its inner cue`` () =
 
 [<Fact>]
 let ``a switch happens at its place and everything after it still runs`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Wait 1.0; SetZone classroomPlace; Wait 1.0 ])
     GameplayState.addZone shared &state classroomPlace
     GameplayState.switchZone shared &state mainPlace
@@ -914,6 +881,7 @@ let ``a switch happens at its place and everything after it still runs`` () =
 
 [<Fact>]
 let ``a detached branch's switch while the sequence waits leaves both running`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Fork(SetZone classroomPlace); Wait 5.0 ])
     GameplayState.addZone shared &state classroomPlace
     GameplayState.switchZone shared &state mainPlace
@@ -925,6 +893,7 @@ let ``a detached branch's switch while the sequence waits leaves both running`` 
 
 [<Fact>]
 let ``a switch to an absent place performs nothing`` () =
+    let shared = sharedState ()
     // spec 062 FR-008: the cue no-op rule 061 deferred — a cue op on a place that is not present does not throw.
     let mutable state = withCue (seqOf [ SetZone atriumPlace ])
     tick shared &state 0.0
@@ -936,6 +905,7 @@ let ``a switch to an absent place performs nothing`` () =
 
 [<Fact>]
 let ``a remove op makes a present inactive zone absent, and is a no-op for the active or an absent zone`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ RemoveZone atriumPlace ])
     GameplayState.addZone shared &state atriumPlace
     GameplayState.switchZone shared &state mainPlace
@@ -956,6 +926,7 @@ let ``a remove op makes a present inactive zone absent, and is a no-op for the a
 
 [<Fact>]
 let ``every zone op on a zone it cannot act on performs nothing and the cue still finishes`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf
         [ RemoveZone atriumPlace     // absent
           RemoveZone mainPlace       // the active zone
@@ -968,6 +939,7 @@ let ``every zone op on a zone it cannot act on performs nothing and the cue stil
 
 [<Fact>]
 let ``the cue resumes rather than restarts across an edit`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Wait 10.0 ])
     tick shared &state 0.0
 
@@ -986,51 +958,19 @@ let ``the cue resumes rather than restarts across an edit`` () =
 let private actorShared () : SharedState.SharedState =
     let anim (name: string) : Iqm.Anim =
         { Name = name; FirstFrame = 0; NumFrames = 2; FrameRate = 24.0f; Loop = true }
-    let model : Iqm.Model =
-        { Meshes = [||]
-          Positions = [||]
-          Normals = None
-          Uvs = None
-          Tangents = None
-          BlendIndices = None
-          BlendWeights = None
-          Triangles = [||]
-          Joints = [||]
-          Poses = [||]
-          Anims = [| anim "Idle"; anim "Jog" |]
-          FrameChannels = [||]
-          NumFrameChannels = 0
-          PoseChannelOffsets = [||] }
+    let model = { emptyModel () with Anims = [| anim "Idle"; anim "Jog" |] }
     let morphs : ActorAsset.ActorMorphs =
         { Names = [| "Smile" |]; Count = 1; Buffer = Unchecked.defaultof<Gpu.Buffer> }
-    let asset : ActorAsset.ActorAsset =
-        { Id = "aiko"
-          Name = "aiko"
-          ModelPath = ""
-          Bounds = { Min = Vector3.Zero; Max = Vector3.One }
-          Mesh = Unchecked.defaultof<Mesh.Mesh>
-          Model = Actor.createModel model
-          Morphs = Some morphs
-          Portraits = None; SwayChains = [||] }
-    let actors = Dictionary<string, ActorAsset.ActorAsset>()
-    actors.["aiko"] <- asset
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero actors (Dictionary()) (Dictionary())
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    let asset =
+        { actorAsset "aiko" with
+            Bounds = { Min = Vector3.Zero; Max = Vector3.One }
+            Model = Actor.createModel model
+            Morphs = Some morphs }
+    headlessSharedWith (managerWith [ "aiko", asset ] [] [])
 
 /// A waypoint named `name` at `position`, facing `rotation`, in `zone`.
 let private waypointIn (zone: Zone.Zone) (name: string) (position: Vector3) (rotation: Quaternion) : EntityRef =
-    let entity : Entity =
-        { Name = name
-          Transform = { transformIdentity with Position = position; Rotation = rotation }
-          Enabled = true
-          Visible = true
-          Selectable = true
-          Draggable = true }
-    Zone.spawnWaypoint zone entity
+    Zone.spawnWaypoint zone { entity name with Transform = { transformIdentity with Position = position; Rotation = rotation } }
 
 /// The `(zone, ref)` an actor resolves to by name, scanning the present zones — the test's own convenience
 /// (the engine resolves per zone now, spec 075), or `None`.
@@ -1066,8 +1006,7 @@ let private morphWeight (zone: Zone.Zone) (ref: EntityRef) (name: string) : floa
     let actor = &zone.Actors.Get(handleOf ref)
     ActorRender.tryMorphWeight &actor.Renderer name
 
-let private weightOr (fallback: float32) (weight: float32 option) : float32 =
-    match weight with Some w -> w | None -> fallback
+
 
 let private bodyOf (zone: Zone.Zone) (ref: EntityRef) : Physics.BodyId =
     (zone.Actors.Get(handleOf ref)).Physics.Value.Body
@@ -1276,6 +1215,7 @@ let ``an add into an inactive place then a switch composes, and add then remove 
 
 [<Fact>]
 let ``peak live nodes do not grow with the cue's length`` () =
+    let shared = sharedState ()
     // A cue of `count` waits, driven a step at a time to completion: the peak number of live nodes.
     let peakOver (count: int) : int =
         let mutable state = withCue (seqOf (List.replicate count (Wait 5.0)))
@@ -1291,6 +1231,7 @@ let ``peak live nodes do not grow with the cue's length`` () =
 
 [<Fact>]
 let ``200,000 no-progress ops in a row do not grow the stack`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf (List.replicate 200000 (Exposit("x", Dialogue.Kind.Dialogue))))
     tick shared &state 0.0 // one tick must consume the whole run
     Assert.Equal("Fin", describe state.Cue)
@@ -1299,6 +1240,7 @@ let ``200,000 no-progress ops in a row do not grow the stack`` () =
 
 [<Fact>]
 let ``an idle tick allocates nothing, flat and several sequences deep, and Fin costs nothing`` () =
+    let shared = sharedState ()
     let mutable flat = withCue (seqOf [ Wait 100.0; Exposit("later", Dialogue.Kind.Dialogue) ])
     let mutable deep = withCue (seqOf [ seqOf [ seqOf [ Wait 100.0 ] ]; Exposit("later", Dialogue.Kind.Dialogue) ])
     let mutable fin = withCue Fin
@@ -1308,24 +1250,13 @@ let ``an idle tick allocates nothing, flat and several sequences deep, and Fin c
         tick shared &deep 1.0
         tick shared &fin 1.0
 
-    let beforeFlat = GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do tick shared &flat 1.0
-    let flatBytes = GC.GetAllocatedBytesForCurrentThread() - beforeFlat
-
-    let beforeDeep = GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do tick shared &deep 1.0
-    let deepBytes = GC.GetAllocatedBytesForCurrentThread() - beforeDeep
-
-    let beforeFin = GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do tick shared &fin 1.0
-    let finBytes = GC.GetAllocatedBytesForCurrentThread() - beforeFin
-
-    Assert.Equal(0L, flatBytes)
-    Assert.Equal(0L, deepBytes)
-    Assert.Equal(0L, finBytes)
+    assertAllocatesNothing 50 2000 (fun () -> tick shared &flat 1.0)
+    assertAllocatesNothing 50 2000 (fun () -> tick shared &deep 1.0)
+    assertAllocatesNothing 50 2000 (fun () -> tick shared &fin 1.0)
 
 [<Fact>]
 let ``a tick that completes an op allocates a bounded amount that does not grow with the cue`` () =
+    let shared = sharedState ()
     let perOp (count: int) : int64 =
         let mutable state = withCue (seqOf (List.replicate count (Wait 0.0)))
         let before = GC.GetAllocatedBytesForCurrentThread()
@@ -1345,6 +1276,7 @@ let ``a tick that completes an op allocates a bounded amount that does not grow 
 
 [<Fact>]
 let ``Fin reports itself, not nothing to change`` () =
+    let shared = sharedState ()
     // `ValueSome Fin` and deliberately *not* `ValueNone`: the fixed point is a value the walk can hand on,
     // so a `Fin` hole at the front of a sequence is skipped rather than read as "still working, unmoved".
     let mutable state = newState ()
@@ -1354,6 +1286,7 @@ let ``Fin reports itself, not nothing to change`` () =
 
 [<Fact>]
 let ``an op still in flight reports nothing to change`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     match advance shared &state 0.0 (WaitState(5.0, 10.0)) with // not due at t=0
     | ValueSome c -> Assert.Fail(sprintf "expected the wait to stay put, got %s" (describe c))
@@ -1361,6 +1294,7 @@ let ``an op still in flight reports nothing to change`` () =
 
 [<Fact>]
 let ``a wait coming due reports Fin`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     match advance shared &state 10.0 (WaitState(5.0, 10.0)) with
     | ValueSome c -> Assert.Equal("Fin", describe c)
@@ -1368,6 +1302,7 @@ let ``a wait coming due reports Fin`` () =
 
 [<Fact>]
 let ``a sequence reports the moved-up queue even when its new front is in flight`` () =
+    let shared = sharedState ()
     // The queue's front is data, so stepping *onto* a new front changes the sequence even though that op
     // itself reports nothing: the answer is the sequence with the new front, not `ValueNone`.
     let mutable state = newState ()
@@ -1408,17 +1343,17 @@ let ``an animate op moves a clip's weight to the target over its duration and la
     let mutable state = newState ()
     let ref = placeAiko shared &state
     let zone = GameplayState.activeZone state
-    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog")) // the asset defines Jog, but she holds it at 0
+    Assert.Equal(Some 0.0f, clipWeight zone ref "Jog") // the asset defines Jog, but she holds it at 0
 
     state.Cue <- Animate(mainPlace, "Aiko", "Jog", 1.0f, 2.0)
     tick shared &state 0.0
-    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog")) // begun; the first tick writes nothing yet
+    Assert.Equal(Some 0.0f, clipWeight zone ref "Jog") // begun; the first tick writes nothing yet
 
     tick shared &state 1.0
-    Assert.Equal(0.5f, weightOr -1.0f (clipWeight zone ref "Jog"))
+    Assert.Equal(Some 0.5f, clipWeight zone ref "Jog")
 
     tick shared &state 2.0
-    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
+    Assert.Equal(Some 1.0f, clipWeight zone ref "Jog")
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
@@ -1427,18 +1362,18 @@ let ``a cross fade takes one clip out as another comes in, reaching the target a
     let mutable state = newState ()
     let ref = placeAiko shared &state
     let zone = GameplayState.activeZone state
-    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Idle")) // created holding Idle at full weight
+    Assert.Equal(Some 1.0f, clipWeight zone ref "Idle") // created holding Idle at full weight
 
     state.Cue <- CrossFadeAnimation(mainPlace, "Aiko", "Idle", "Jog", 1.0f, 2.0)
     tick shared &state 0.0
 
     tick shared &state 1.0
-    Assert.Equal(0.5f, weightOr -1.0f (clipWeight zone ref "Idle"))
-    Assert.Equal(0.5f, weightOr -1.0f (clipWeight zone ref "Jog"))
+    Assert.Equal(Some 0.5f, clipWeight zone ref "Idle")
+    Assert.Equal(Some 0.5f, clipWeight zone ref "Jog")
 
     tick shared &state 2.0
-    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Idle"))
-    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
+    Assert.Equal(Some 0.0f, clipWeight zone ref "Idle")
+    Assert.Equal(Some 1.0f, clipWeight zone ref "Jog")
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
@@ -1447,15 +1382,15 @@ let ``a morph op blends a morph slot the same way`` () =
     let mutable state = newState ()
     let ref = placeAiko shared &state
     let zone = GameplayState.activeZone state
-    Assert.Equal(0.0f, weightOr -1.0f (morphWeight zone ref "Smile"))
+    Assert.Equal(Some 0.0f, morphWeight zone ref "Smile")
 
     state.Cue <- Morph(mainPlace, "Aiko", "Smile", 1.0f, 2.0)
     tick shared &state 0.0
     tick shared &state 1.0
-    Assert.Equal(0.5f, weightOr -1.0f (morphWeight zone ref "Smile"))
+    Assert.Equal(Some 0.5f, morphWeight zone ref "Smile")
 
     tick shared &state 2.0
-    Assert.Equal(1.0f, weightOr -1.0f (morphWeight zone ref "Smile"))
+    Assert.Equal(Some 1.0f, morphWeight zone ref "Smile")
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
@@ -1477,9 +1412,9 @@ let ``an in-flight blend keeps the place it began in across a zone switch`` () =
     GameplayState.switchZone shared &state atriumPlace
     Assert.Equal(atriumPlace, state.ActiveZone)
     tick shared &state 1.0
-    Assert.Equal(0.5f, weightOr -1.0f (clipWeight mainZone ref "Jog"))
+    Assert.Equal(Some 0.5f, clipWeight mainZone ref "Jog")
     tick shared &state 2.0
-    Assert.Equal(1.0f, weightOr -1.0f (clipWeight mainZone ref "Jog"))
+    Assert.Equal(Some 1.0f, clipWeight mainZone ref "Jog")
     Assert.Equal("Fin", describe state.Cue)
 
 [<Fact>]
@@ -1493,8 +1428,8 @@ let ``a blend of an unknown clip or morph name, and of a missing actor, performs
     tick shared &state 0.0
 
     Assert.Equal("Fin", describe state.Cue)
-    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Idle")) // untouched
-    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
+    Assert.Equal(Some 1.0f, clipWeight zone ref "Idle") // untouched
+    Assert.Equal(Some 0.0f, clipWeight zone ref "Jog")
 
 [<Fact>]
 let ``a blend is a runtime effect, not a step on the undo history`` () =
@@ -1528,8 +1463,8 @@ let ``a move op drives the actor along the chain and arrives at the last waypoin
     tick shared &state 0.0
 
     // the moving clip is preset, the idle clip off, and the op is in flight
-    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
-    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Idle"))
+    Assert.Equal(Some 1.0f, clipWeight zone ref "Jog")
+    Assert.Equal(Some 0.0f, clipWeight zone ref "Idle")
 
     let dt = 0.02f
     let mutable now = 0.0
@@ -1541,8 +1476,8 @@ let ``a move op drives the actor along the chain and arrives at the last waypoin
     Assert.Equal("Fin", describe state.Cue)
     let struct (position, _) = Physics.getBodyTransform state.Physics body
     Assert.True(abs (position.X - 4.0f) < 0.5f, sprintf "expected the last waypoint, got %A" position)
-    Assert.Equal(1.0f, weightOr -1.0f (clipWeight zone ref "Idle")) // arrived idle
-    Assert.Equal(0.0f, weightOr -1.0f (clipWeight zone ref "Jog"))
+    Assert.Equal(Some 1.0f, clipWeight zone ref "Idle") // arrived idle
+    Assert.Equal(Some 0.0f, clipWeight zone ref "Jog")
 
 [<Fact>]
 let ``a move op walks to a single waypoint and turns to face its arrow`` () =
@@ -1710,15 +1645,9 @@ let ``stepping an in-flight move allocates nothing per tick`` () =
     // Warm up the JIT, then measure the current thread's allocated bytes across pure steps, all within the
     // 2-second move (spec 074 FR-016): the step reuses the carried slot, so it allocates nothing.
     let mutable now = 0.0
-    for _ in 1 .. 100 do
+    assertAllocatesNothing 100 1000 (fun () ->
         now <- now + 0.001
-        tick shared &state now
-    let before = System.GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 1000 do
-        now <- now + 0.001
-        tick shared &state now
-    let after = System.GC.GetAllocatedBytesForCurrentThread()
-    Assert.Equal(0L, after - before)
+        tick shared &state now)
 
 [<Fact>]
 let ``stepping an in-flight rotate allocates nothing per tick`` () =
@@ -1732,15 +1661,9 @@ let ``stepping an in-flight rotate allocates nothing per tick`` () =
     Assert.True((match state.Cue with RotateActorState _ -> true | _ -> false), "expected the rotate to begin")
 
     let mutable now = 0.0
-    for _ in 1 .. 100 do
+    assertAllocatesNothing 100 1000 (fun () ->
         now <- now + 0.0005
-        tick shared &state now
-    let before = System.GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 1000 do
-        now <- now + 0.0005
-        tick shared &state now
-    let after = System.GC.GetAllocatedBytesForCurrentThread()
-    Assert.Equal(0L, after - before)
+        tick shared &state now)
 
 [<Fact>]
 let ``stepping an in-flight morph blend allocates nothing per tick`` () =
@@ -1753,15 +1676,9 @@ let ``stepping an in-flight morph blend allocates nothing per tick`` () =
 
     // The morph path of `writeBlend`/`setMorphWeight`, the one the move guard does not reach (spec 074 SC-008).
     let mutable now = 0.0
-    for _ in 1 .. 100 do
+    assertAllocatesNothing 100 1000 (fun () ->
         now <- now + 0.001
-        tick shared &state now
-    let before = System.GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 1000 do
-        now <- now + 0.001
-        tick shared &state now
-    let after = System.GC.GetAllocatedBytesForCurrentThread()
-    Assert.Equal(0L, after - before)
+        tick shared &state now)
 
 // ══════ The player toggle ops (spec 066) ══════
 
@@ -1807,6 +1724,7 @@ let private triggerEnabled (state: GameplayState.GameplayState) (ref: EntityRef)
 
 [<Fact>]
 let ``a disable trigger op flips the flag and an enable trigger op restores it`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     let ref = spawnTrigger state "area"
     Assert.True(triggerEnabled state ref)
@@ -1822,6 +1740,7 @@ let ``a disable trigger op flips the flag and an enable trigger op restores it``
 
 [<Fact>]
 let ``a redundant toggle, a missing name and an absent place perform nothing`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     let ref = spawnTrigger state "area"
     state.Cue <- DisableTrigger(mainPlace, "area")
@@ -1849,6 +1768,7 @@ let ``a redundant toggle, a missing name and an absent place perform nothing`` (
 
 [<Fact>]
 let ``a trigger op is a runtime effect, not a step on the undo history`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     do ignore (spawnTrigger state "area")
     let undoBefore = List.length state.Editor.Undo.Applied
@@ -1859,12 +1779,14 @@ let ``a trigger op is a runtime effect, not a step on the undo history`` () =
 
 [<Fact>]
 let ``a print op is a no-progress leaf that ends the tick it is reached`` () =
+    let shared = sharedState ()
     let mutable state = withCue (seqOf [ Print "hello"; Wait 1.0 ])
     tick shared &state 0.0
     Assert.Equal("Seq[Wait 1]", describe state.Cue)
 
 [<Fact>]
 let ``a print op is not a step on the undo history`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     let undoBefore = List.length state.Editor.Undo.Applied
     state.Cue <- Print "hello"
@@ -1876,6 +1798,7 @@ let ``a print op is not a step on the undo history`` () =
 // complete, and the whole cue must still reach `Fin` without throwing (spec 080, US2; SC-003).
 [<Fact>]
 let ``a cue of many op kinds reaches Fin without throwing`` () =
+    let shared = sharedState ()
     let mutable state = newState ()
     state.Cue <-
         seqOf
@@ -1908,6 +1831,7 @@ let private addResidentSound (sh: SharedState.SharedState) (id: string) : unit =
 
 [<Fact>]
 let ``a play-sound op plays the named sound on the voice pool and reaches Fin`` () =
+    let shared = sharedState ()
     let sh = sharedState ()
     do addResidentSound sh "beep"
     let mutable state = newState ()
@@ -1919,6 +1843,7 @@ let ``a play-sound op plays the named sound on the voice pool and reaches Fin`` 
 
 [<Fact>]
 let ``a second play-sound op overlaps the first on the next voice`` () =
+    let shared = sharedState ()
     let sh = sharedState ()
     do addResidentSound sh "beep"
     let mutable state = newState ()
@@ -1930,6 +1855,7 @@ let ``a second play-sound op overlaps the first on the next voice`` () =
 
 [<Fact>]
 let ``a play-sound op naming an unresolvable sound is a quiet no-op`` () =
+    let shared = sharedState ()
     // the mixer is unavailable and no sound is resident, so the op names nothing playable (US3/AC1-2)
     let sh = sharedState ()
     let mutable state = newState ()
@@ -1940,6 +1866,7 @@ let ``a play-sound op naming an unresolvable sound is a quiet no-op`` () =
 
 [<Fact>]
 let ``a play-sound op naming a music-class or failed asset is a quiet no-op`` () =
+    let shared = sharedState ()
     let sh = sharedState ()
     sh.Assets.AudioAssets.["theme"] <- audioAsset "theme" AudioAsset.Music AudioAsset.Reference
     sh.Assets.AudioAssets.["bad"] <- audioAsset "bad" AudioAsset.Sound (AudioAsset.Failed "corrupt")
@@ -1951,6 +1878,7 @@ let ``a play-sound op naming a music-class or failed asset is a quiet no-op`` ()
 
 [<Fact>]
 let ``the sound op renders, defaults, and carries no place`` () =
+    let shared = sharedState ()
     let labelOf (cue: Cue) : string = (List.head (CueTree.rows cue)).Label
     Assert.Equal("Play sound: beep", labelOf (PlaySound "beep"))
     Assert.Equal("Play sound", labelOf (PlaySound "")) // unnamed: no dangling colon
@@ -1960,6 +1888,7 @@ let ``the sound op renders, defaults, and carries no place`` () =
 
 [<Fact>]
 let ``a play-sound op plays the resident handle and never re-decodes`` () =
+    let shared = sharedState ()
     // The sound has no file path at all, yet it plays: the op reads the decoded handle (spec 086/089), never
     // the file. Were it to load from disk, the empty path — and `Audio.unavailable.LoadSound`, which raises —
     // would fail the tick, so a clean `Fin` here is the no-re-decode guarantee (FR-002/T007).
@@ -1974,6 +1903,7 @@ let ``a play-sound op plays the resident handle and never re-decodes`` () =
 
 [<Fact>]
 let ``the cue chooser's source lists the sound-class assets and no music`` () =
+    let shared = sharedState ()
     // `Assets.soundAssets` is the source the cue editor's sound chooser offers (T008/SC-004): a music-class
     // asset is not a sound and is excluded.
     let sh = sharedState ()

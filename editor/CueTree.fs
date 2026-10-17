@@ -14,6 +14,7 @@ module CueTree
 // only while editing, when the play chain is stopped, so nothing here is on the game loop's path.
 
 open System
+open System.Collections.Generic
 open System.Numerics
 open Prime
 open Cue
@@ -153,9 +154,9 @@ let children (cue: Cue) : Cue list =
 /// carries no node of its own. The one thing the author is *told*, so it is a function of the cue alone
 /// (`FR-002`, `FR-007`).
 ///
-/// List-based and allocating on purpose: this runs while the editor is open and the play chain is stopped, so
-/// it is a cold path, and the constitution's guidance ("clarity first, then measure") is about the frame
-/// loop. Keeping it one function is also what stops the drawing and the assertion from drifting apart.
+/// List-based by design: an unchanged cue reuses the cached model (below), so the build runs only when the
+/// cue value changes. Keeping it one function is also what stops the drawing and the assertion from drifting
+/// apart.
 let rows (cue: Cue) : Row list =
     let nodeRow (path: int list) (depth: int) (node: Cue) : Row =
         { Path = path; Depth = depth; Label = label node; Locked = executing node; Branch = "" }
@@ -183,6 +184,19 @@ let rows (cue: Cue) : Row list =
 /// sharing that would otherwise only be inspectable is asserted headlessly too.
 let rowId (idPrefix: string) (path: int list) : string =
     idPrefix + "/" + String.concat "." (List.map string path)
+
+// One cached model per drawing surface (`"cue"`, `"triggercue"`), so the Cue panel and a trigger's inline
+// editor never evict each other. An unchanged cue is the same value, so its equality check is a reference
+// check and the row labels are not rebuilt.
+let private rowsCache = Dictionary<string, Cue * Row list>()
+
+let private rowsFor (idPrefix: string) (cue: Cue) : Row list =
+    match rowsCache.TryGetValue idPrefix with
+    | true, (cached, cachedRows) when cached = cue -> cachedRows
+    | _ ->
+        let built = rows cue
+        rowsCache.[idPrefix] <- cue, built
+        built
 
 // ── where a node is, and how it is written back ──
 
@@ -577,8 +591,6 @@ let placeOf (cue: Cue) : string voption =
 
 // ── the drawing ──
 
-let private selectable (label: string) (selected: bool) : bool =
-    ImGui.selectableBool(label, selected, 0, ImGui.ImVec2(0.0f, 0.0f))
 
 /// Draw the cue as selectable rows, indented by depth, and return the path of the row clicked this frame, if
 /// any. The rows go straight into the window, which scrolls, so a cue of any size is scrolled rather than
@@ -590,11 +602,11 @@ let private selectable (label: string) (selected: bool) : bool =
 /// because no node is behind it.
 let drawTree (idPrefix: string) (selection: int list option) (focusPath: int list option) (cue: Cue) : int list option =
     let mutable clicked = None
-    for row in rows cue do
+    for row in rowsFor idPrefix cue do
         // Spaces indent the label because the binding has no `indent`.
         let indent = String.replicate (row.Depth * 2) " "
         if row.Branch <> "" then
-            do ImGui.text (indent + row.Branch)
+            do ImGui.textUnformatted (indent + row.Branch)
         else
             // A structural edit re-focuses the newly selected node's row, so Tab resumes from it rather than
             // restarting at the top of the panel (the caller asks for this the frame after an Add Child / Remove).
@@ -602,7 +614,7 @@ let drawTree (idPrefix: string) (selection: int list option) (focusPath: int lis
             // `##` separates what is shown from the widget's id, which is what keeps two co-visible cues apart
             // (the reference's own row idiom).
             let text = indent + row.Label + "##" + rowId idPrefix row.Path
-            if selectable text (selection = Some row.Path) then clicked <- Some row.Path
+            if ImGui.selectable text (selection = Some row.Path) then clicked <- Some row.Path
     clicked
 
 /// One draggable number, committing when the gesture ends **and** the value actually moved — one gesture, one
@@ -651,12 +663,6 @@ let endingControls (idSuffix: string) (endings: Set<Dialogue.Ending>) (timeout: 
 let matches (filter: string) (name: string) : bool =
     filter = "" || name.Contains(filter, StringComparison.OrdinalIgnoreCase)
 
-/// The filter text a combo's buffer holds, read up to its NUL.
-let private comboFilterText (buffer: byte[]) : string =
-    let zero = Array.IndexOf(buffer, 0uy)
-    let length = if zero < 0 then buffer.Length else zero
-    if length = 0 then "" else System.Text.Encoding.UTF8.GetString(buffer, 0, length)
-
 /// A combo with a filter field (spec 068): type to narrow `items` by the name `nameOf` gives (case-insensitive
 /// substring); Enter takes the top match and closes the dropdown; a click picks as today. `buffer` belongs to the
 /// caller and is cleared when the dropdown appears, so a newly opened combo starts unfiltered.
@@ -666,11 +672,11 @@ let filteredCombo (buffer: byte[]) (label: string) (preview: string) (items: 'a 
             do Array.Clear(buffer, 0, buffer.Length)
             do ImGui.setKeyboardFocusHere(0)
         let submitted = ImGui.inputText("##filter" + label, buffer, unativeint buffer.Length, ImGui.enterReturnsTrue, IntPtr.Zero, IntPtr.Zero)
-        let query = comboFilterText buffer
+        let query = ImGui.bufferText buffer
         let visible = items |> List.filter (fun item -> matches query (nameOf item))
         for item in visible do
             let name = nameOf item
-            if selectable (name + "##" + label + name) (item = current) && item <> current then
+            if ImGui.selectable (name + "##" + label + name) (item = current) && item <> current then
                 do onPick item
         match visible with
         | top :: _ when submitted ->
@@ -688,10 +694,10 @@ let filteredNameCombo (buffer: byte[]) (label: string) (preview: string) (items:
             do Array.Clear(buffer, 0, buffer.Length)
             do ImGui.setKeyboardFocusHere(0)
         let submitted = ImGui.inputText("##filter" + label, buffer, unativeint buffer.Length, ImGui.enterReturnsTrue, IntPtr.Zero, IntPtr.Zero)
-        let query = comboFilterText buffer
+        let query = ImGui.bufferText buffer
         let visible = items |> List.filter (matches query)
         for item in visible do
-            if selectable (item + "##" + label + item) (item = current) && item <> current then
+            if ImGui.selectable (item + "##" + label + item) (item = current) && item <> current then
                 do onPick item
         if submitted then
             match visible with
@@ -700,6 +706,41 @@ let filteredNameCombo (buffer: byte[]) (label: string) (preview: string) (items:
             | [] -> ()
             do ImGui.closeCurrentPopup()
         do ImGui.endCombo()
+
+/// The one dialogue kind/speaker/expression control: the presentation is chosen from the closed vocabulary, and
+/// a portrait line then offers a speaker (typed or picked from the discovered actor names) and an expression.
+/// Re-choosing the current presentation does not clobber a chosen portrait pair. Returns the next kind; the caller
+/// commits it (the control itself performs no edit), so the Dialogue panel and the cue editor share one rule.
+let dialogueControl (filter: byte[]) (names: string list) (idSuffix: string) (kind: Dialogue.Kind) : Dialogue.Kind =
+    let mutable next = kind
+    let presentation =
+        match kind with
+        | Dialogue.Kind.PortraitDialogue _ -> "Portrait"
+        | Dialogue.Kind.Dialogue -> "Dialogue"
+        | Dialogue.Kind.Thought -> "Thought"
+
+    filteredCombo filter ("Presentation##" + idSuffix) presentation [ "Dialogue"; "Thought"; "Portrait" ] id presentation (fun choice ->
+        next <-
+            match choice, kind with
+            | "Dialogue", Dialogue.Kind.Dialogue -> kind
+            | "Thought", Dialogue.Kind.Thought -> kind
+            | "Portrait", Dialogue.Kind.PortraitDialogue _ -> kind
+            | "Dialogue", _ -> Dialogue.Kind.Dialogue
+            | "Thought", _ -> Dialogue.Kind.Thought
+            | _ -> Dialogue.Kind.PortraitDialogue(List.tryHead names |> Option.defaultValue "", Dialogue.Emotion.Neutral))
+
+    match next with
+    | Dialogue.Kind.PortraitDialogue (speaker, emotion) ->
+        filteredNameCombo filter ("Speaker##" + idSuffix) speaker names speaker (fun candidate ->
+            next <- Dialogue.Kind.PortraitDialogue(candidate, emotion))
+        match next with
+        | Dialogue.Kind.PortraitDialogue (speaker, emotion) ->
+            filteredCombo filter ("Expression##" + idSuffix) (Dialogue.emotionName emotion) Dialogue.emotions Dialogue.emotionName emotion (fun candidate ->
+                next <- Dialogue.Kind.PortraitDialogue(speaker, candidate))
+        | _ -> ()
+    | _ -> ()
+
+    next
 
 /// Draw the property editor for the node at `selection`, committing each accepted change through `commit`,
 /// which is handed the **next cue** outright — the control owns the rebuild (replacing a node, appending to
@@ -753,7 +794,7 @@ let drawEditor
                 do Array.Clear(filter, 0, filter.Length)
                 do ImGui.setKeyboardFocusHere(0)
             let submitted = ImGui.inputText("##filterKind##" + idBase, filter, unativeint filter.Length, ImGui.enterReturnsTrue, IntPtr.Zero, IntPtr.Zero)
-            let query = comboFilterText filter
+            let query = ImGui.bufferText filter
             let offered =
                 if query = "" then
                     // categories: a separator divides each group, since ImGui combos have no submenus and the op
@@ -763,14 +804,14 @@ let drawEditor
                         if not first then do ImGui.separator()
                         first <- false
                         for kind in groupKinds do
-                            if selectable kind (kind = current) && kind <> current then
+                            if ImGui.selectable kind (kind = current) && kind <> current then
                                 do commit (withAt selection (defaultOfKind defaultPlace kind) cue)
                     []
                 else
                     // flat while filtering
                     let visible = kinds |> Array.toList |> List.collect snd |> List.filter (matches query)
                     for kind in visible do
-                        if selectable kind (kind = current) && kind <> current then
+                        if ImGui.selectable kind (kind = current) && kind <> current then
                             do commit (withAt selection (defaultOfKind defaultPlace kind) cue)
                     visible
             match offered with
@@ -815,33 +856,11 @@ let drawEditor
                 do commit (withAt selection (withAdvent (candidate.Trim()) node) cue))
 
         | Exposit (_, kind) | ExpositWith (_, kind, _, _) | ExpositWait (_, kind, _, _) ->
-            // the presentation, chosen from the closed vocabularies: the expression is closed, and the speaker
-            // is a plain string offered from the discovered actor names (`specs/074`), so neither needs a zone
-            // or a placed actor. Re-choosing the current kind must not clobber a portrait pair, so the kind is
-            // written only when it actually changes (the Dialogue panel's rule for its own kind combo).
-            let presentation =
-                match kind with
-                | Dialogue.Kind.PortraitDialogue _ -> "Portrait"
-                | Dialogue.Kind.Dialogue -> "Dialogue"
-                | Dialogue.Kind.Thought -> "Thought"
-            filteredCombo filter ("Presentation##" + idBase) presentation [ "Dialogue"; "Thought"; "Portrait" ] id presentation (fun choice ->
-                let next =
-                    match choice with
-                    | "Dialogue" -> Dialogue.Kind.Dialogue
-                    | "Thought" -> Dialogue.Kind.Thought
-                    | _ -> Dialogue.Kind.PortraitDialogue(List.tryHead names |> Option.defaultValue "", Dialogue.Emotion.Neutral)
-                do commit (withAt selection (withExpositKind next node) cue))
-
-            // the speaker and the expression are meaningful only for a portrait line, so they are offered only
-            // for that kind: a plain line or a thought has neither. The speaker is a plain string, chosen from
-            // the discovered actor names — no roster.
-            match kind with
-            | Dialogue.Kind.PortraitDialogue (speaker, emotion) ->
-                filteredNameCombo filter ("Speaker##" + idBase) speaker names speaker (fun candidate ->
-                    do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(candidate, emotion)) node) cue))
-                filteredCombo filter ("Expression##" + idBase) (Dialogue.emotionName emotion) Dialogue.emotions Dialogue.emotionName emotion (fun candidate ->
-                    do commit (withAt selection (withExpositKind (Dialogue.Kind.PortraitDialogue(speaker, candidate)) node) cue))
-            | _ -> ()
+            // the shared kind/speaker/expression control (`dialogueControl`), so the Dialogue panel and this
+            // editor cannot diverge. A re-chosen presentation keeps an existing portrait pair (the control's rule).
+            let nextKind = dialogueControl filter names idBase kind
+            if nextKind <> kind then
+                do commit (withAt selection (withExpositKind nextKind node) cue)
 
             // the ending set and timeout: one accepted change is one `SetCue` step
             let endings, timeout =

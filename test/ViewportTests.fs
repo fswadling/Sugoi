@@ -43,7 +43,9 @@ let ``entering play empties the reference grid`` () =
 [<Fact>]
 let ``the reference grid matches the pre-feature grid while editing`` () =
     // The grid the editor drew before this feature: the same build, from an empty accumulator.
-    let reference = DebugDraw.clear (gridDraw ()) |> DebugDraw.drawGrid
+    let mutable referenceDraw = DebugDraw.clear (gridDraw ())
+    DebugDraw.drawGrid &referenceDraw
+    let reference = referenceDraw
 
     // A fresh state (the editor is active by default).
     let mutable fresh = newState (gridDraw ())

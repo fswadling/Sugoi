@@ -10,6 +10,7 @@ module Zone
 // created/destroyed on spawn/remove and recreated on transform change, so
 // colliders never drift from the rendered geometry.
 
+open System
 open System.Collections.Generic
 open System.Numerics
 open Entity
@@ -52,14 +53,28 @@ type Zone =
         | Active environment | Awaiting environment -> Some environment
         | NoEnvironment -> None
 
+// The capacities a fresh zone is built with. Exported so a capacity pre-check (the scenario fork) reads
+// the same numbers without allocating a throwaway zone (F-44).
+[<Literal>]
+let ActorsCapacity = 64u
+
+[<Literal>]
+let WaypointsCapacity = 128u
+
+[<Literal>]
+let TriggersCapacity = 32u
+
+[<Literal>]
+let PropsCapacity = 32u
+
 let create () : Zone =
-    { Actors = SlotMap<Actor>(64u)
+    { Actors = SlotMap<Actor>(ActorsCapacity)
       EnvironmentState = NoEnvironment
       Light = Texture.defaultLight
       Skydome = Skydome.defaultSettings
-      Props = SlotMap<Prop>(32u)
-      Waypoints = SlotMap<Waypoint>(128u)
-      Triggers = SlotMap<Trigger>(32u)
+      Props = SlotMap<Prop>(PropsCapacity)
+      Waypoints = SlotMap<Waypoint>(WaypointsCapacity)
+      Triggers = SlotMap<Trigger>(TriggersCapacity)
       Batch = EnvironmentBatch.create ()
       NextEnvironmentEpoch = 0u
       BodyToEntity = Dictionary<Physics.BodyId, EntityRef>()
@@ -69,8 +84,8 @@ let create () : Zone =
 
 // Gather this zone's static scene through its own batch. The one place that binds a
 // zone to its batch (the batch itself does not reference `Zone`). Created without a
-// device; the buffer is allocated on first gather.
-let gatherStatic (device: Gpu.Device) (zone: Zone) : unit =
+// device; the buffer is allocated on first gather. True when the batch rebuilt (dirty).
+let gatherStatic (device: Gpu.Device) (zone: Zone) : bool =
     let parts =
         match zone.EnvironmentState with
         | Active environment -> ValueSome environment.Parts
@@ -214,7 +229,7 @@ let private meshBody (world: Physics.World) (collider: MeshCollider) (transform:
 // The world-space centre of an actor's capsule: the entity position is the feet,
 // so the capsule (cylinder half-height + hemisphere radius) sits above it.
 let capsuleCenter (transform: Transform) (collider: CapsuleCollider) : Vector3 =
-    transform.Position + Vector3(0.0f, collider.HalfHeight + collider.Radius, 0.0f)
+    transform.Position + Entity.capsuleOffset collider
 
 let private capsuleBody (world: Physics.World) (collider: CapsuleCollider) (transform: Transform) : Physics.BodyId =
     // `createCapsuleBody` builds at identity rotation, so the transform's facing is written onto the body here:
@@ -338,6 +353,13 @@ let private defaultTrigger (entity: Entity) : TriggerState =
       Prompt = ""
       Cue = Cue.Fin }
 
+// The authored asset binding a prop state carries. One constructor, so the fields cannot drift
+// between a spawn, a restore and an environment part (F-58).
+let private bindingOf (state: PropState) : AssetBinding =
+    { AssetId = state.AssetId
+      SubmeshIndex = state.SubmeshIndex
+      SubmeshCount = state.SubmeshCount }
+
 // Change a mesh-backed entity's transform in `map` (a placed prop or an
 // environment part), keeping its body in step. A mesh shape bakes the entity
 // scale into its vertices, so a move or rotate updates the existing body in
@@ -358,6 +380,7 @@ let private setMeshTransform (zone: Zone) (world: Physics.World) (map: SlotMap<P
         | None -> None
     do mapBody zone attachment ref
     p <- { p with State.Base.Transform = transform; Physics = attachment }
+    do EnvironmentBatch.markDirty zone.Batch
 
 // Change an existing entity's transform at the ref (Actor/Prop/Part/Waypoint/Trigger),
 // recreating its body so it follows. No-op for other kinds or a stale/absent ref.
@@ -367,10 +390,16 @@ let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform
         if not (isAlive zone ref) then () else
 
         let a = &zone.Actors.Get(handleOf ref)
-        do destroyBody world zone a.Physics
         let attachment =
             match a.Physics with
-            | Some ph -> Some { ph with Body = capsuleBody world ph.Collider transform }
+            // The capsule shape is independent of the entity's scale, so a move or rotate writes the
+            // body's transform in place; only a scale change rebuilds the body (F-06).
+            | Some ph when a.State.Base.Transform.Scale = transform.Scale ->
+                do Physics.setBodyTransform world ph.Body (capsuleCenter transform ph.Collider) transform.Rotation
+                Some ph
+            | Some ph ->
+                do destroyBody world zone a.Physics
+                Some { ph with Body = capsuleBody world ph.Collider transform }
             | None -> None
         do mapBody zone attachment ref
         a <- { a with State.Base.Transform = transform; Physics = attachment }
@@ -478,13 +507,14 @@ let occupyActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager
 
 let occupyProp (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (state: PropState) : unit =
     do ensureSlotFree zone.Props ref
-    let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
+    let binding = bindingOf state
     let renderer = propRenderer zone assets binding
     let attachment = attachPropPhysics world zone assets binding state.Base.Transform
     do zone.Props.Occupy(handleOf ref, { State = state
                                          Physics = attachment
                                          Renderer = renderer })
     do mapBody zone attachment ref
+    do EnvironmentBatch.markDirty zone.Batch
 
 // A part restore only runs while the environment it names is loaded: swaps are commands
 // and the stack is LIFO, so a swap is undone before the part commands that followed it.
@@ -494,13 +524,14 @@ let occupyPart (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager)
     | None -> failwithf "occupyPart: part ref %A does not belong to the loaded environment" ref
     | Some parts ->
     do ensureSlotFree parts ref
-    let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
+    let binding = bindingOf state
     let renderer = propRenderer zone assets binding
     let attachment = attachPropPhysics world zone assets binding state.Base.Transform
     do parts.Occupy(handleOf ref, { State = state
                                     Physics = attachment
                                     Renderer = renderer })
     do mapBody zone attachment ref
+    do EnvironmentBatch.markDirty zone.Batch
 
 // Toggle an actor's collider overlay. A direct write rather than a command: the overlay
 // is an editor visualisation preference, not a scene edit, so toggling it is not an undo
@@ -528,7 +559,8 @@ let private removeMeshEntity (zone: Zone) (world: Physics.World) (map: SlotMap<P
         // Copy the attachment out first: `Remove` mutates the slot.
         let physics = (map.Get(handleOf ref)).Physics
         do destroyBody world zone physics
-        do map.Remove(handleOf ref, Some Prop.releaseRenderer)
+        do map.Remove(handleOf ref, None)
+        do EnvironmentBatch.markDirty zone.Batch
 
 let removeActor (zone: Zone) (world: Physics.World) (ref: EntityRef) : unit =
     if zone.Actors.IsAlive(handleOf ref) then
@@ -562,18 +594,32 @@ let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager)
     do mapBody zone attachment ref
     ref
 
+/// Detach an actor body from the simulation without destroying it: the actor was built into a place that
+/// is not active, so it must not simulate. A body already detached is untouched.
+let detachActorBody (world: Physics.World) (zone: Zone) (ref: EntityRef) : unit =
+    if zone.Actors.IsAlive(handleOf ref) then
+        let actor = &zone.Actors.Get(handleOf ref)
+        match actor.Physics with
+        | Some ph when Physics.isAdded world ph.Body -> do Physics.removeBody world ph.Body
+        | _ -> ()
+
+// The first live slot whose payload satisfies `nameOf`, in slot order, or `None`. The one by-name scan
+// shared by actors, waypoints and triggers; it stops at the first match (F-57).
+let private tryRefByName (slots: Span<Slot<'T>>) (nameOf: 'T -> string) (makeRef: uint32 -> uint32 -> EntityRef) (name: string) : EntityRef option =
+    let mutable found = None
+    let mutable i = 0
+    while found.IsNone && i < slots.Length do
+        let slot = &slots.[i]
+        if slot.Alive && nameOf slot.Value = name then
+            found <- Some (makeRef (uint32 i) slot.Generation)
+        i <- i + 1
+    found
+
 // The first live actor named `name`, in slot order, or None when there is none. Names are not required to be
 // unique: the first match wins, deterministically. Used by the cue's actor ops to resolve the actor an author
 // names (spec 072).
 let tryActorByName (zone: Zone) (name: string) : EntityRef option =
-    let slots = zone.Actors.Slots
-    let mutable found = None
-    for i in 0 .. slots.Length - 1 do
-        if found.IsNone then
-            let slot = &slots.[i]
-            if slot.Alive && slot.Value.State.Base.Name = name then
-                found <- Some (actorRef (uint32 i) slot.Generation)
-    found
+    tryRefByName zone.Actors.Slots (fun actor -> actor.State.Base.Name) actorRef name
 
 // Build a mesh-backed prop value from an entity + binding, with no resources yet
 // (used while building an environment's parts map; activation attaches them).
@@ -591,6 +637,7 @@ let spawnPropBinding (zone: Zone) (world: Physics.World) (assets: Assets.AssetMa
     let handle = zone.Props.Add(prop)
     let ref = propRef handle.Index handle.Generation
     do mapBody zone attachment ref
+    do EnvironmentBatch.markDirty zone.Batch
     ref
 
 // Spawn a placed prop asset (whole model).
@@ -650,25 +697,26 @@ let setWaypointNext (zone: Zone) (ref: EntityRef) (next: EntityRef option) : uni
 // required to be unique: the first match wins, deterministically. Used by the cue's camera ops to
 // resolve the waypoint an author typed into a cue (`state/CueEngine.fs`).
 let tryWaypointByName (zone: Zone) (name: string) : EntityRef option =
-    let slots = zone.Waypoints.Slots
-    let mutable found = None
-    for i in 0 .. slots.Length - 1 do
-        if found.IsNone then
-            let slot = &slots.[i]
-            if slot.Alive && slot.Value.Base.Name = name then
-                found <- Some (waypointRef (uint32 i) slot.Generation)
-    found
+    tryRefByName zone.Waypoints.Slots (fun waypoint -> waypoint.Base.Name) waypointRef name
 
-// The chain starting at `start`, following `Next` links to the end, `start` first. Bounded by the
-// zone's live waypoint count, so a chain that loops back on itself terminates rather than running
-// forever. The caller resolves `start` with `tryWaypointByName`.
-let waypointChain (zone: Zone) (start: EntityRef) : EntityRef list =
-    let rec go (ref: EntityRef) (acc: EntityRef list) (remaining: int) =
-        if remaining <= 0 then List.rev acc else
-        match waypointNext zone ref with
-        | Some next -> go next (next :: acc) (remaining - 1)
-        | None -> List.rev acc
-    go start [ start ] (int zone.Waypoints.Count)
+// The chain starting at `start`, following `Next` links to the end, `start` first. Built in one pass
+// (an array, so callers index it in constant time); bounded by the zone's live waypoint count, so a
+// chain that loops back on itself terminates rather than running forever. The caller resolves `start`
+// with `tryWaypointByName`.
+let waypointChain (zone: Zone) (start: EntityRef) : EntityRef array =
+    let chain = ResizeArray<EntityRef>(int zone.Waypoints.Count + 1)
+    let mutable current = start
+    let mutable remaining = int zone.Waypoints.Count
+    let mutable more = true
+    do chain.Add current
+    while more && remaining > 0 do
+        match waypointNext zone current with
+        | Some next ->
+            do chain.Add next
+            current <- next
+            remaining <- remaining - 1
+        | None -> more <- false
+    chain.ToArray()
 
 // ── Triggers ──
 
@@ -701,14 +749,7 @@ let setTrigger (zone: Zone) (ref: EntityRef) (state: TriggerState) : unit =
 // first match wins, deterministically. Used by the cue's trigger ops to resolve the trigger an author names
 // (`state/CueEngine.fs`).
 let tryTriggerByName (zone: Zone) (name: string) : EntityRef option =
-    let slots = zone.Triggers.Slots
-    let mutable found = None
-    for i in 0 .. slots.Length - 1 do
-        if found.IsNone then
-            let slot = &slots.[i]
-            if slot.Alive && slot.Value.State.Base.Name = name then
-                found <- Some (triggerRef (uint32 i) slot.Generation)
-    found
+    tryRefByName zone.Triggers.Slots (fun trigger -> trigger.State.Base.Name) triggerRef name
 
 // ── Environment parts ──
 //
@@ -724,7 +765,7 @@ let private attachPart (zone: Zone) (world: Physics.World) (assets: Assets.Asset
     let parts = environment.Parts
     let p = &parts.Get(handle)
     let transform = p.State.Base.Transform
-    let binding = { AssetId = p.State.AssetId; SubmeshIndex = p.State.SubmeshIndex; SubmeshCount = p.State.SubmeshCount }
+    let binding = bindingOf p.State
     let renderer = propRenderer zone assets binding
     let attachment = attachPropPhysics world zone assets binding transform
     p.Renderer <- renderer
@@ -740,6 +781,7 @@ let spawnPartBinding (zone: Zone) (world: Physics.World) (assets: Assets.AssetMa
     let handle = environment.Parts.Add(meshProp entity binding)
     let ref = partRef environment.Epoch handle.Index handle.Generation
     do attachPart zone world assets environment handle
+    do EnvironmentBatch.markDirty zone.Batch
     ref
 
 // Parts carry headroom beyond the count an environment starts with: `spawnPartBinding` adds to this
@@ -752,8 +794,7 @@ let private partsCapacity = 512u
 let private partsOf (states: PropState array) : SlotMap<Prop> =
     let parts = SlotMap<Prop>(max partsCapacity (uint32 states.Length))
     for state in states do
-        let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
-        do parts.Add(meshProp state.Base binding) |> ignore
+        do parts.Add(meshProp state.Base (bindingOf state)) |> ignore
     parts
 
 // The authored part states an environment asset starts with: one per mesh-bearing node, with the
@@ -765,13 +806,8 @@ let private assetPartStates (asset: EnvironmentAsset.EnvironmentAsset) : PropSta
         let mutable rotation = Quaternion.Identity
         let mutable translation = Vector3.Zero
         do Matrix4x4.Decompose(part.World, &scale, &rotation, &translation) |> ignore
-        { Base =
-            { Name = if part.Name = "" then part.HierarchyPath else part.Name
-              Transform = { Position = translation; Rotation = rotation; Scale = scale }
-              Enabled = true
-              Visible = true
-              Selectable = true
-              Draggable = true }
+        let transform : Transform = { Position = translation; Rotation = rotation; Scale = scale }
+        { Base = baseEntity (if part.Name = "" then part.HierarchyPath else part.Name) transform
           AssetId = None
           SubmeshIndex = part.SubmeshIndex
           SubmeshCount = part.SubmeshCount })
@@ -809,9 +845,7 @@ let private deactivateEnvironment (zone: Zone) (world: Physics.World) : unit =
     for i in 0 .. slots.Length - 1 do
         let slot = &slots.[i]
         if slot.Alive then
-            let p = slot.Value
-            do destroyBody world zone p.Physics
-            do Prop.releaseRenderer p
+            do destroyBody world zone slot.Value.Physics
     do clearPartAttachments environment
     zone.EnvironmentState <- NoEnvironment
 
@@ -824,6 +858,7 @@ let private activateEnvironment (zone: Zone) (world: Physics.World) (assets: Ass
         let slot = &slots.[i]
         if slot.Alive then
             do attachPart zone world assets environment { Index = uint32 i; Generation = slot.Generation }
+    do EnvironmentBatch.markDirty zone.Batch
 
 // Materialise an asset-authored environment's parts when the asset lands: only `FromAsset` with an
 // empty map, so a registered template (which may deliberately hold a subset) is never filled from the
@@ -831,8 +866,7 @@ let private activateEnvironment (zone: Zone) (world: Physics.World) (assets: Ass
 let private materialiseParts (assets: Assets.AssetManager) (environment: Environment) : unit =
     if environment.PartsSource = FromAsset && environment.Parts.Count = 0u then
         for state in assetPartStates assets.Environments.[environment.AssetId] do
-            let binding = { AssetId = state.AssetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
-            do environment.Parts.Add(meshProp state.Base binding) |> ignore
+            do environment.Parts.Add(meshProp state.Base (bindingOf state)) |> ignore
 
 // Swap the current environment for `environment` (None clears it): request residency, tear down the
 // outgoing parts, then make the incoming one current — activating it now if its asset is already
@@ -841,6 +875,7 @@ let setEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetMana
     match environment with
     | Some incoming -> do Assets.requestEnvironment assets incoming.AssetId
     | None -> ()
+    do EnvironmentBatch.reset zone.Batch
     do deactivateEnvironment zone world
     match environment with
     | None -> ()
@@ -916,6 +951,7 @@ let occupyZone (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManage
     for ref, trigger in contents.Triggers do occupyTrigger zone ref trigger
     zone.Light <- contents.Light
     zone.Player <- contents.Player
+    do EnvironmentBatch.markDirty zone.Batch
 
 /// The contents of a fresh, empty zone — what a reset installs as the new `start` place (spec 084).
 let emptyContents : ZoneContents =
@@ -931,13 +967,7 @@ let loadEnvironment (zone: Zone) (world: Physics.World) (assets: Assets.AssetMan
     do Assets.requestEnvironment assets assetId
     let epoch = zone.NextEnvironmentEpoch + 1u
     zone.NextEnvironmentEpoch <- epoch
-    let baseEntity : Entity =
-        { Name = asset.Name
-          Transform = transformIdentity
-          Enabled = true
-          Visible = true
-          Selectable = true
-          Draggable = true }
+    let baseEntity = Entity.baseEntity asset.Name transformIdentity
     // Asset-authored: an empty parts map, materialised when the asset lands (`FromAsset`).
     let environment = buildEnvironment assetId baseEntity asset.Orientation [||] FromAsset epoch
     do setEnvironment zone world assets (Some environment)
@@ -968,7 +998,7 @@ let loadTemplate (zone: Zone) (world: Physics.World) (assets: Assets.AssetManage
             match state.AssetId with
             | Some assetId -> assetId
             | None -> failwith "loadTemplate: a recorded prop must name an asset"
-        let binding = { AssetId = Some assetId; SubmeshIndex = state.SubmeshIndex; SubmeshCount = state.SubmeshCount }
+        let binding = { bindingOf state with AssetId = Some assetId }
         do ignore (spawnPropBinding zone world assets state.Base binding)
 
 // ── Zone-level physics lifecycle ──
@@ -977,98 +1007,58 @@ let loadTemplate (zone: Zone) (world: Physics.World) (assets: Assets.AssetManage
 // the incoming zone's, without destroying bodies or shapes (Jolt's RemoveBody/
 // AddBody). Deletion is the only place bodies are destroyed.
 
-let deactivatePhysics (zone: Zone) (world: Physics.World) : unit =
-    let detach (attachment: PhysicsAttachment<'T> option) : unit =
-        match attachment with
-        | Some ph -> Physics.removeBody world ph.Body
-        | None -> ()
-
+/// Walk every entity the zone owns — its actors, placed props and the environment's parts — passing
+/// each live payload to the matching handler. The three body lifecycle operations share this one
+/// traversal (F-56).
+let private forEachEntity (zone: Zone) (onActor: Actor -> unit) (onProp: Prop -> unit) : unit =
     let actorSlots = zone.Actors.Slots
     for i in 0 .. actorSlots.Length - 1 do
         let slot = &actorSlots.[i]
-        if slot.Alive then
-            detach slot.Value.Physics
+        if slot.Alive then onActor slot.Value
 
     let propSlots = zone.Props.Slots
     for i in 0 .. propSlots.Length - 1 do
         let slot = &propSlots.[i]
-        if slot.Alive then
-            detach slot.Value.Physics
+        if slot.Alive then onProp slot.Value
 
     match zone.Environment with
     | Some environment ->
         let partSlots = environment.Parts.Slots
         for i in 0 .. partSlots.Length - 1 do
             let slot = &partSlots.[i]
-            if slot.Alive then
-                detach slot.Value.Physics
+            if slot.Alive then onProp slot.Value
     | None -> ()
+
+let deactivatePhysics (zone: Zone) (world: Physics.World) : unit =
+    let detach (attachment: PhysicsAttachment<'T> option) : unit =
+        match attachment with
+        | Some ph -> Physics.removeBody world ph.Body
+        | None -> ()
+    do forEachEntity zone (fun a -> detach a.Physics) (fun p -> detach p.Physics)
 
 let activatePhysics (zone: Zone) (world: Physics.World) : unit =
     let attach (attachment: PhysicsAttachment<'T> option) : unit =
         match attachment with
         | Some ph -> Physics.addBody world ph.Body
         | None -> ()
-
-    let actorSlots = zone.Actors.Slots
-    for i in 0 .. actorSlots.Length - 1 do
-        let slot = &actorSlots.[i]
-        if slot.Alive then
-            attach slot.Value.Physics
-
-    let propSlots = zone.Props.Slots
-    for i in 0 .. propSlots.Length - 1 do
-        let slot = &propSlots.[i]
-        if slot.Alive then
-            attach slot.Value.Physics
-
-    match zone.Environment with
-    | Some environment ->
-        let partSlots = environment.Parts.Slots
-        for i in 0 .. partSlots.Length - 1 do
-            let slot = &partSlots.[i]
-            if slot.Alive then
-                attach slot.Value.Physics
-    | None -> ()
-
+    do forEachEntity zone (fun a -> attach a.Physics) (fun p -> attach p.Physics)
     Physics.optimizeBroadPhase world
 
 // Delete-time cleanup: destroy every body the zone owns (it is inactive, so the
-// bodies are detached), release every renderer and the zone's static-scene batch,
-// and drop the body map. Nothing here is undoable.
+// bodies are detached), release every actor renderer and the zone's static-scene
+// batch, and drop the body map. Nothing here is undoable.
 let release (zone: Zone) (world: Physics.World) (device: Gpu.Device) : unit =
-    let actorSlots = zone.Actors.Slots
-    for i in 0 .. actorSlots.Length - 1 do
-        let slot = &actorSlots.[i]
-        if slot.Alive then
-            let a = &slot.Value
-            match a.Physics with
-            | Some ph -> do Physics.releaseBody world ph.Body
-            | None -> ()
-            do ActorEntity.releaseRenderer a
+    let releaseActor (a: Actor) : unit =
+        match a.Physics with
+        | Some ph -> do Physics.releaseBody world ph.Body
+        | None -> ()
+        do ActorEntity.releaseRenderer a
+    let releaseProp (p: Prop) : unit =
+        match p.Physics with
+        | Some ph -> do Physics.releaseBody world ph.Body
+        | None -> ()
+    do forEachEntity zone releaseActor releaseProp
 
-    let propSlots = zone.Props.Slots
-    for i in 0 .. propSlots.Length - 1 do
-        let slot = &propSlots.[i]
-        if slot.Alive then
-            let p = &slot.Value
-            match p.Physics with
-            | Some ph -> do Physics.releaseBody world ph.Body
-            | None -> ()
-            do Prop.releaseRenderer p
-
-    match zone.Environment with
-    | Some environment ->
-        let partSlots = environment.Parts.Slots
-        for i in 0 .. partSlots.Length - 1 do
-            let slot = &partSlots.[i]
-            if slot.Alive then
-                let p = &slot.Value
-                match p.Physics with
-                | Some ph -> do Physics.releaseBody world ph.Body
-                | None -> ()
-                do Prop.releaseRenderer p
-    | None -> ()
-
+    do EnvironmentBatch.reset zone.Batch
     do EnvironmentBatch.release device zone.Batch
     do zone.BodyToEntity.Clear()

@@ -12,25 +12,6 @@ open Narrative
 
 let private unitRules = [ Cast.rules; Romance.rules; Friendship.rules ]
 
-/// Every observable thing the engine will say, rendered canonically. This is the shape the
-/// report takes, so byte-identity across permutations can be asserted before the report
-/// rendering exists.
-let private render (engine: Engine.Engine) : string =
-    let lines =
-        [ for fact in Engine.facts engine do
-            yield sprintf "fact %s" (Canonical.factText fact)
-            for reason in Engine.reasonsFor engine fact do
-                let premises =
-                    reason.Premises
-                    |> List.map Facts.premiseText
-                    |> List.sortWith Canonical.ordinal
-                    |> String.concat " + "
-                yield sprintf "  %s <- %s" reason.Rule premises
-          for committed in Engine.history engine do
-            yield sprintf "event %d %s" committed.Index (Canonical.eventText committed.Event) ]
-
-    String.concat "\n" lines
-
 /// Every ordering of the units, permuted by index because a rule set holds functions and so
 /// has no structural equality to permute by.
 let private permutations (count: int) : int list list =
@@ -46,8 +27,10 @@ let private permutations (count: int) : int list list =
 
 [<Fact>]
 let ``SC-007: every permutation of unit order produces identical output`` () =
+    // The report is the observable rendering, so byte-identity across permutations is asserted
+    // through the harness rather than through a second renderer (F-76).
     let baseline =
-        render (List.fold Engine.commit (Engine.create NarrativeTestSupport.mvpRules) NarrativeTestSupport.headline)
+        Harness.report (List.fold Engine.commit (Engine.create NarrativeTestSupport.mvpRules) NarrativeTestSupport.headline)
 
     for order in permutations (List.length unitRules) do
         let units = order |> List.map (fun i -> unitRules[i])
@@ -55,7 +38,7 @@ let ``SC-007: every permutation of unit order produces identical output`` () =
         let engine =
             List.fold Engine.commit (Engine.create (Rules.combine units)) NarrativeTestSupport.headline
 
-        Assert.Equal(baseline, render engine)
+        Assert.Equal(baseline, Harness.report engine)
 
 [<Fact>]
 let ``a rule in one unit reads a fact another unit concluded`` () =
@@ -116,3 +99,21 @@ let ``two rules of the same name are refused`` () =
 [<Fact>]
 let ``combining the shipped units declares each rule name once`` () =
     Rules.combine unitRules |> ignore
+
+[<Fact>]
+let ``each derivation declares every construct it reads, nested bindings included`` () =
+    // T106, F-08: the pass restriction can only re-enable a rule when its nested premises are on
+    // the declared list, so the shipped rules state the complete set.
+    let mentions (derivation: Derivation) = Set.ofList derivation.Mentions
+
+    Assert.Equal<Set<FactKind>>(
+        Set.ofList [ FactKind.JealousOf; FactKind.Friends ],
+        mentions Friendship.threatened)
+
+    Assert.Equal<Set<FactKind>>(
+        Set.ofList [ FactKind.FriendshipThreatened; FactKind.HasTrait ],
+        mentions Friendship.bottledUp)
+
+    Assert.Equal<Set<FactKind>>(
+        Set.ofList [ FactKind.AttractedTo; FactKind.InRelationship ],
+        mentions Romance.jealousy)

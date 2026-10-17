@@ -20,14 +20,20 @@ module ParticipantIndex =
 
     let empty : ParticipantIndex = Map.empty
 
-    /// File a fact under every participant it names.
+    /// File a fact under every participant it names. A `Map.change` per participant rather than a
+    /// lookup followed by an add, and a fold rather than a participant list allocated per fact.
     let add (fact: Fact) (index: ParticipantIndex) : ParticipantIndex =
         let kind = Vocabulary.factKind fact
 
-        (index, Vocabulary.factParticipants fact)
-        ||> List.fold (fun acc participant ->
-            let key = kind, participant
-            Map.add key (fact :: defaultArg (Map.tryFind key acc) []) acc)
+        Vocabulary.foldParticipants
+            (fun participant index ->
+                let key = kind, participant
+
+                index
+                |> Map.change key (function
+                    | Some facts -> Some(fact :: facts)
+                    | None -> Some [ fact ]))
+            index fact
 
     /// Add a run of facts. Sound for a fixpoint pass, which only ever adds facts: nothing already
     /// indexed can have gone stale, so the index can be extended rather than rebuilt per pass.

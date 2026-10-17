@@ -16,61 +16,16 @@ open Entity
 open ScenarioRegistry
 open ScenarioZone
 open ZoneTemplate
+open TestSupport
 
 // ── fixtures ──
 
-// A zero model: enough for `ActorRender.create` to hold no clip and pose nothing.
-let private emptyModel () : Iqm.Model =
-    { Meshes = [||]
-      Positions = [||]
-      Normals = None
-      Uvs = None
-      Tangents = None
-      BlendIndices = None
-      BlendWeights = None
-      Triangles = [||]
-      Joints = [||]
-      Poses = [||]
-      Anims = [||]
-      FrameChannels = [||]
-      NumFrameChannels = 0
-      PoseChannelOffsets = [||] }
-
-// An actor asset in the loaded shape, its GPU mesh defaulted: `createActorRender` builds a per-instance
-// renderer from it, and the zero-device buffers it creates are never read here.
-let private actorAsset (id: string) : ActorAsset.ActorAsset =
-    { Id = id
-      Name = id
-      ModelPath = ""
-      Bounds = { Min = Vector3.Zero; Max = Vector3.One }
-      Mesh = Unchecked.defaultof<Mesh.Mesh>
-      Model = Actor.createModel (emptyModel ())
-      Morphs = None
-      Portraits = None; SwayChains = [||] }
-
 /// A device-free `SharedState`: a fabricated actor asset, a resident environment asset, and an empty flag set.
 let private sharedState () : SharedState.SharedState =
-    let actors = Dictionary<string, ActorAsset.ActorAsset>()
-    actors.["aiko"] <- actorAsset "aiko"
-    let environments = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    environments.["island-env"] <- TestSupport.residentAsset "island-env" [||] [||]
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero actors (Dictionary()) environments
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    headlessSharedWith (managerWith [ "aiko", actorAsset "aiko" ] [] [ "island-env", residentAsset "island-env" [||] [||] ])
 
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
-
-let private entity (name: string) : Entity =
-    { Name = name
-      Transform = transformIdentity
-      Enabled = true
-      Visible = true
-      Selectable = true
-      Draggable = true }
+    headlessState ()
 
 let private triggerState (name: string) : TriggerState =
     { Base = entity name; Radius = 1.0f; Height = 2.0f; Interactable = false; Prompt = ""; Cue = Cue.Fin }

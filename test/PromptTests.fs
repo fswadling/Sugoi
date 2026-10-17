@@ -42,3 +42,8 @@ let ``a tall wrapped block still sits on screen`` () =
     let r = PromptRender.layout 1280.0f 720.0f 400.0f 72.0f
     Assert.True(r.Y >= 0.0f)
     Assert.True(r.Y + r.H <= 720.0f)
+
+[<Fact>]
+let ``the prompt layout allocates nothing per call`` () =
+    // The prompt is laid out every drawn frame; its placement must be a pure struct computation.
+    TestSupport.assertAllocatesNothing 1000 10000 (fun () -> PromptRender.layout 1280.0f 720.0f 120.0f 24.0f |> ignore)

@@ -51,7 +51,7 @@ module History =
         | [] -> 1
         | newest :: _ -> newest.Index + 1
 
-    let lastTime (state: State) : GameTime option =
+    let private lastTime (state: State) : GameTime option =
         match state with
         | [] -> None
         | newest :: _ -> Some newest.Time

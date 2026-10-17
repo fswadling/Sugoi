@@ -12,7 +12,7 @@ type Slot<'T> =
     { mutable Value : 'T
       Generation : uint32
       Alive : bool
-      NextFree : uint32 }
+      mutable NextFree : uint32 }
 
 [<Struct>]
 type Handle =
@@ -38,11 +38,12 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
     let mutable activeCount = 0u
     let mutable freeHead = if slotCount > 0 then 0u else noneIndex
 
-    // The backing slots, for systems that scan directly. `Value` is the only mutable
-    // field, so a scan can write a payload in place through `&slots.[i]` without being
-    // able to poke `Generation`, `Alive` or `NextFree` and desync the free list.
-    // Replacing a whole slot (`slots.[i] <- { ... }`) is still possible and still wrong;
-    // that is what `Add`/`Free`/`Occupy` are for.
+    // The backing slots, for systems that scan directly. `Value` and `NextFree` are the
+    // mutable fields: a scan can write a payload in place through `&slots.[i]`, and
+    // `Occupy` can relink a dead slot without copying its payload. `Generation` and
+    // `Alive` stay immutable so a scan cannot desync the free list. Replacing a whole
+    // slot (`slots.[i] <- { ... }`) is still possible and still wrong; that is what
+    // `Add`/`Free`/`Occupy` are for.
     member _.Slots : Span<Slot<'T>> = Span<Slot<'T>>(slots)
 
     member _.Count : uint32 = activeCount
@@ -77,14 +78,9 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
     member this.Get(handle: Handle) : byref<'T> =
         &slots.[this.CheckedSlot(handle)].Value
 
-    member _.Free(handle: Handle) : unit =
-        if handle.Index >= uint32 slots.Length then
-            invalidOp "slot map handle is out of range"
-
-        let index = int handle.Index
+    member this.Free(handle: Handle) : unit =
+        let index = this.CheckedSlot(handle)
         let slot = slots.[index]
-        if not slot.Alive || slot.Generation <> handle.Generation then
-            invalidOp "slot map handle is stale"
 
         // bump the generation so old handles go stale, then push onto the free list
         slots.[index] <- { slot with Generation = slot.Generation + 1u; Alive = false; NextFree = freeHead }
@@ -97,7 +93,7 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
     member inline this.IteriAlive([<InlineIfLambda>] f: uint32 -> uint32 -> 'T -> unit) : unit =
         let slots = this.Slots
         for i in 0 .. slots.Length - 1 do
-            let slot = slots.[i]
+            let slot = &slots.[i]
             if slot.Alive then f (uint32 i) slot.Generation slot.Value
 
     // ── Editor-facing access ──
@@ -135,7 +131,7 @@ type SlotMap<'T when 'T : struct>(capacity: uint) =
         let mutable head = noneIndex
         for j = slots.Length - 1 downto 0 do
             if not slots.[j].Alive then
-                slots.[j] <- { slots.[j] with NextFree = head }
+                slots.[j].NextFree <- head
                 head <- uint32 j
         activeCount <- activeCount + 1u
         freeHead <- head

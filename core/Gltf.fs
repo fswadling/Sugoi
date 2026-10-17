@@ -52,10 +52,6 @@ type Model =
 
 // ── glTF component-type / accessor tables ──
 
-let private ctByte = 5120
-let private ctUByte = 5121
-let private ctUShort = 5123
-let private ctUInt = 5125
 let private ctFloat = 5126
 
 let private componentSize ct =
@@ -109,6 +105,14 @@ let private optString (e: JsonElement) (name: string) : string =
     match e.TryGetProperty(name) with
     | true, v -> v.GetString()
     | false, _ -> ""
+
+// Read the named array of JSON numbers, raising unless it has exactly `n` components. The one
+// decoder behind material factors, node vectors and rotations.
+let private floatArray (e: JsonElement) (name: string) (n: int) : float32 array =
+    let v = req e name
+    let c = v.EnumerateArray() |> Seq.map (fun x -> x.GetSingle()) |> Seq.toArray
+    if c.Length <> n then failwithf "gltf: %s must have %d components" name n
+    c
 
 // ── parsed descriptor records ──
 
@@ -207,10 +211,7 @@ let load (path: string) : Model =
     let floatList (e: JsonElement) (name: string) (n: int) (def: float32 array) : float32 array =
         match e.TryGetProperty(name) with
         | false, _ -> def
-        | true, v ->
-        let c = v.EnumerateArray() |> Seq.map _.GetSingle() |> Seq.toArray
-        if c.Length <> n then failwithf "gltf: %s must have %d components" name n
-        c
+        | true, _ -> floatArray e name n
 
     let materials =
         optArray root "materials"
@@ -239,16 +240,14 @@ let load (path: string) : Model =
             if n.TryGetProperty("matrix") |> fst then failwith "gltf: node matrix unsupported (use TRS)"
             let vec3 (name: string) (def: Vector3) : Vector3 =
                 match n.TryGetProperty(name) with
-                | true, v ->
-                    let c = v.EnumerateArray() |> Seq.map (fun x -> x.GetSingle()) |> Seq.toArray
-                    if c.Length <> 3 then failwithf "gltf: %s must have 3 components" name
+                | true, _ ->
+                    let c = floatArray n name 3
                     Vector3(c.[0], c.[1], c.[2])
                 | false, _ -> def
             let rotation =
                 match n.TryGetProperty("rotation") with
-                | true, v ->
-                    let c = v.EnumerateArray() |> Seq.map (fun x -> x.GetSingle()) |> Seq.toArray
-                    if c.Length <> 4 then failwith "gltf: rotation must have 4 components"
+                | true, _ ->
+                    let c = floatArray n "rotation" 4
                     Quaternion(c.[0], c.[1], c.[2], c.[3])
                 | false, _ -> Quaternion.Identity
             { Name = optString n "name"

@@ -82,6 +82,11 @@ type ActorAsset =
 [<Literal>]
 let MorphManifestVersion = 1
 
+/// The directory an actor's textures resolve from: the manifest's declared root-relative directory
+/// when present, otherwise the model's own directory.
+let textureDirectory (modelDirectory: string) (declared: string) : string =
+    if System.String.IsNullOrEmpty declared then modelDirectory else declared
+
 // Parse a morph manifest's text. Raises on a malformed document or an unknown version.
 let parseMorphManifest (text: string) : MorphManifest =
     let manifest = scvalue<MorphManifest> text

@@ -26,8 +26,3 @@ let create (asset: EnvironmentAsset.EnvironmentAsset) (orientation: Quaternion) 
       OrientationMatrix = Matrix4x4.CreateFromQuaternion(orientation)
       SubmeshIndex = submeshIndex
       SubmeshCount = submeshCount }
-
-// No per-instance GPU buffers: the static submesh buffers live on the shared
-// `EnvironmentAsset` (manager-owned). Kept as the seam where per-prop buffers
-// would free in later phases.
-let release (_r: EnvironmentRender) : unit = ()

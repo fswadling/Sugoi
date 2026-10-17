@@ -11,6 +11,7 @@ open System.Numerics
 open Entity
 open SlotMap
 open Systems
+open TestSupport
 
 // A frame's input with only the held-key mask set.
 let private input (held: Input.KeyMask) : Input.Input =
@@ -47,26 +48,17 @@ let ``locomotionClip is idle with no movement key held`` () =
 [<Fact>]
 let ``cameraPose sits behind and above the player`` () =
     let follow = createFollow ()
-    let (cameraPosition, target) = cameraPose Vector3.Zero 0.0f follow
+    let struct (cameraPosition, target) = cameraPose Vector3.Zero 0.0f follow
     // Yaw 0 faces +Z, so the camera is behind (-Z) and above (+Y).
     Assert.True(cameraPosition.Z < 0.0f, sprintf "expected camera behind, got %A" cameraPosition)
     Assert.True(cameraPosition.Y > 0.0f, sprintf "expected camera above, got %A" cameraPosition)
     Assert.Equal(Vector3(0.0f, follow.Height, 0.0f), target)
 
-// A minimal actor value for liveness tests (its renderer is never touched).
-let private actor (name: string) : Actor =
-    { State =
-        { Base =
-            { Name = name
-              Transform = transformIdentity
-              Enabled = true
-              Visible = true
-              Selectable = true
-              Draggable = true }
-          AssetId = ""
-          ShowCollider = false }
-      Physics = None
-      Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
+[<Fact>]
+let ``cameraPose allocates nothing per frame`` () =
+    // The follow camera is built every play frame; its pose must be a pure struct computation.
+    let follow = createFollow ()
+    TestSupport.assertAllocatesNothing 100 10000 (fun () -> cameraPose Vector3.Zero 0.5f follow |> ignore)
 
 [<Fact>]
 let ``isPlayerLive is true only for a live designated actor`` () =

@@ -1,5 +1,6 @@
 module InputTests
 
+open System
 open Xunit
 open Input
 
@@ -16,6 +17,13 @@ let ``Key.mask assigns a unique bit to every key`` () =
     let masks = keys |> List.map Key.mask
     let distinct = masks |> List.distinct |> List.length
     Assert.Equal(List.length masks, distinct)
+
+[<Fact>]
+let ``Key.Digit outside 1..3 raises rather than colliding with another key's bit`` () =
+    // The digit keys occupy bits 13..15. A digit outside that window would alias one of them (or be
+    // shifted out of the mask), so it is rejected at the abstraction rather than silently colliding.
+    for digit in [ 0; 4; 10 ] do
+        Assert.Throws<ArgumentException>(fun () -> Key.mask (Key.Digit digit) |> ignore) |> ignore
 
 [<Fact>]
 let ``isCtrl is true when either control key is held`` () =

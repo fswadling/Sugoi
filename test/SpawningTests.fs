@@ -16,58 +16,22 @@ open Gltf
 open Physics
 open TestSupport
 
-let private entity (name: string) : Entity =
-    { Name = name
-      Transform = transformIdentity
-      Enabled = true
-      Visible = true
-      Selectable = true
-      Draggable = true }
-
-// ── Headless asset fixture ──
+// ── Headless rigs ──
 // Only the fields the collider/render paths read are populated; a zero Device is
-// safe because `EnvironmentRender.create` never dereferences it.
-
-// A one-triangle room whose single part covers submesh 0.
-let private roomAsset () : EnvironmentAsset.EnvironmentAsset =
-    residentAsset "room" [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |] [| TestSupport.part "wall" 0 1 |]
-
-// A whole-model placed prop asset, so a created prop builds a mesh collider and a body.
-let private propAsset () : EnvironmentAsset.EnvironmentAsset =
-    residentAsset "crate" [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |] [||]
+// safe because `EnvironmentRender.create` never dereferences it. Tests that read no asset use `bareShared`.
 
 let private headlessAssets () : Assets.AssetManager =
-    let environments = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    environments.["room"] <- roomAsset ()
-    let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    props.["crate"] <- propAsset ()
-    TestSupport.manager IntPtr.Zero (Dictionary()) props environments
+    managerWith [] [ "crate", crateAsset () ] [ "room", roomAsset () ]
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Advents = OSet.ofSeq1 []; Mix = Music.empty; Rack = Music.newRack (); Voices = Sound.newVoices Audio.unavailable }
+    headlessSharedWith assets
 
-// A minimal gameplay state: the fake draws are never touched on these paths. The
-// zone is installed under a name with exactly one active zone.
+/// A device-free shared state with no assets: enough for the waypoint/trigger/duplicate paths.
+let private bareShared () : SharedState.SharedState =
+    headlessShared ()
+
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
-    let zones = Dictionary<string, Zone.Zone>()
-    zones.[GameplayState.startZone] <- zone
-    { Camera = Camera.create Vector3.Zero Vector3.Zero
-      DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
-      GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
-      Ui = Unchecked.defaultof<Ui.Ui>
-      Skydome = Unchecked.defaultof<Skydome.Skydome>
-      Dialogue = Dialogue.empty
-      Zones = zones
-      Scenarios = ScenarioRegistry.create ()
-      Physics = Physics.create ()
-      ActiveZone = GameplayState.startZone
-      Editor = EditorState.create ()
-      Editing = true
-      Follow = Systems.createFollow ()
-      InteractableTrigger = ValueNone
-      Cue = Cue.Fin
-      PlayTime = 0.0
-      Fade = 0.0f }
+    stateWithZone zone
 
 // ── Create ──
 
@@ -92,11 +56,10 @@ let ``a create carries the authored value it was given, and redo rebuilds the re
     Assert.True(Option.isSome (zone.Props.Get(handleOf ref)).Physics)
 
     // Undo destroys the entity and its body, redo rebuilds both from the recorded value.
-    let undone = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
+    do Undo.undoHistory shared &state
     Assert.False(Zone.isAlive zone ref)
 
-    let redone = UndoStack.redo undone zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = redone }
+    do Undo.redoHistory shared &state
 
     Assert.True(Zone.isAlive zone ref)
     Assert.Equal(live, (zone.Props.Get(handleOf ref)).State)
@@ -106,8 +69,7 @@ let ``a create carries the authored value it was given, and redo rebuilds the re
 let ``a create is refused when the kind's map is at capacity`` () =
     // spec 080, US5: filling a kind to its fixed capacity must refuse the next create rather than let
     // `SlotMap.Add` raise. Triggers cap at 32; fill the map directly, then create through `Spawning`.
-    let assets = headlessAssets ()
-    let shared = sharedState assets
+    let shared = bareShared ()
     let zone = Zone.create ()
     let mutable state = gameplayState zone
     for i in 1 .. int zone.Triggers.Capacity do
@@ -151,8 +113,7 @@ let ``duplicating a part spawns a copy, selects it, and pushes the reversing com
 
 [<Fact>]
 let ``duplicating a waypoint spawns a copy, selects it, and pushes the reversing command`` () =
-    let assets = headlessAssets ()
-    let shared = sharedState assets
+    let shared = bareShared ()
     let zone = Zone.create ()
     let source = Zone.spawnWaypoint zone (entity "start")
     let mutable state = gameplayState zone
@@ -175,8 +136,7 @@ let ``duplicating a waypoint spawns a copy, selects it, and pushes the reversing
 
 [<Fact>]
 let ``a duplicate records the copy's own authored value, so redo restores the copy`` () =
-    let assets = headlessAssets ()
-    let shared = sharedState assets
+    let shared = bareShared ()
     let zone = Zone.create ()
     let source = Zone.spawnWaypoint zone (entity "start")
     let mutable state = gameplayState zone
@@ -193,19 +153,17 @@ let ``a duplicate records the copy's own authored value, so redo restores the co
         Assert.Equal("start-copy", recorded.Base.Name)
     | other -> Assert.Fail(sprintf "expected exactly one WaypointCreate command, got %A" other)
 
-    let undone = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
+    do Undo.undoHistory shared &state
     Assert.False(Zone.isAlive zone copy)
 
-    let redone = UndoStack.redo undone zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = redone }
+    do Undo.redoHistory shared &state
 
     Assert.True(Zone.isAlive zone copy)
     Assert.Equal("start-copy", (Zone.tryEntityAt zone copy).Value.Name)
 
 [<Fact>]
 let ``deleting a waypoint and undoing restores its transform at the recorded slot`` () =
-    let assets = headlessAssets ()
-    let shared = sharedState assets
+    let shared = bareShared ()
     let zone = Zone.create ()
     let moved =
         { transformIdentity with
@@ -218,8 +176,7 @@ let ``deleting a waypoint and undoing restores its transform at the recorded slo
     Assert.False(Zone.isAlive zone ref)
 
     // Undo re-occupies the recorded slot with the entity the delete captured.
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
 
     Assert.True(Zone.isAlive zone ref)
     Assert.Equal(moved.Position, (Zone.tryEntityAt zone ref).Value.Transform.Position)
@@ -227,8 +184,7 @@ let ``deleting a waypoint and undoing restores its transform at the recorded slo
 
 [<Fact>]
 let ``adding a next waypoint links it and undoes as one step`` () =
-    let assets = headlessAssets ()
-    let shared = sharedState assets
+    let shared = bareShared ()
     let zone = Zone.create ()
     let a = Zone.spawnWaypoint zone (entity "a")
     let mutable state = gameplayState zone
@@ -249,21 +205,18 @@ let ``adding a next waypoint links it and undoes as one step`` () =
     | other -> Assert.Fail(sprintf "expected exactly one LinkSpawn command, got %A" other)
 
     // One undo removes the new waypoint and restores the chain end it extended.
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
     Assert.Equal(1u, zone.Waypoints.Count)
     Assert.True(Option.isNone (Zone.waypointNext zone a))
 
     // Redo reapplies both halves at the recorded ref.
-    let redo = UndoStack.redo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = redo }
+    do Undo.redoHistory shared &state
     Assert.Equal(2u, zone.Waypoints.Count)
     Assert.Equal(Some b, Zone.waypointNext zone a)
 
 [<Fact>]
 let ``extending a waypoint that already has a next restores the previous one on undo`` () =
-    let assets = headlessAssets ()
-    let shared = sharedState assets
+    let shared = bareShared ()
     let zone = Zone.create ()
     let a = Zone.spawnWaypoint zone (entity "a")
     let original = Zone.spawnWaypoint zone (entity "original")
@@ -277,15 +230,13 @@ let ``extending a waypoint that already has a next restores the previous one on 
     Assert.Equal(Some b, Zone.waypointNext zone a)
 
     // Undo puts the previous next back, not none.
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
     Assert.Equal(Some original, Zone.waypointNext zone a)
     Assert.True(Option.isNone (Zone.tryEntityAt zone b))
 
 [<Fact>]
 let ``a duplicated waypoint carries the link to the same successor`` () =
-    let assets = headlessAssets ()
-    let shared = sharedState assets
+    let shared = bareShared ()
     let zone = Zone.create ()
     let a = Zone.spawnWaypoint zone (entity "a")
     let b = Zone.spawnWaypoint zone (entity "b")
@@ -309,8 +260,7 @@ let ``a duplicated waypoint carries the link to the same successor`` () =
 
 [<Fact>]
 let ``duplicating a trigger copies its payload but not its runtime state`` () =
-    let assets = headlessAssets ()
-    let shared = sharedState assets
+    let shared = bareShared ()
     let zone = Zone.create ()
     let source = Zone.spawnTrigger zone (entity "area")
     let payload = Zone.captureTrigger zone source
@@ -339,8 +289,7 @@ let ``duplicating a trigger copies its payload but not its runtime state`` () =
 
 [<Fact>]
 let ``deleting a trigger and undoing restores its authored shape`` () =
-    let assets = headlessAssets ()
-    let shared = sharedState assets
+    let shared = bareShared ()
     let zone = Zone.create ()
     let ref = Zone.spawnTrigger zone (entity "area")
     let payload = Zone.captureTrigger zone ref
@@ -356,8 +305,7 @@ let ``deleting a trigger and undoing restores its authored shape`` () =
     | [ TriggerDelete (_, _, recorded) ] -> Assert.Equal(5.0f, recorded.Radius)
     | other -> Assert.Fail(sprintf "expected exactly one TriggerDelete command, got %A" other)
 
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
 
     let restored = (Zone.tryTriggerAt zone ref).Value
     Assert.Equal(5.0f, restored.State.Radius)
@@ -367,8 +315,7 @@ let ``deleting a trigger and undoing restores its authored shape`` () =
 
 [<Fact>]
 let ``duplicating a kind with no entity fails loudly`` () =
-    let assets = headlessAssets ()
-    let shared = sharedState assets
+    let shared = bareShared ()
     let zone = Zone.create ()
     let mutable state = gameplayState zone
 

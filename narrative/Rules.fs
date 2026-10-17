@@ -22,21 +22,26 @@ module Projection =
 
     /// Remove from the projected facts what this projection's withdrawing pattern matches on this
     /// event, instantiated through the event's own bindings (research D19). A projection that
-    /// declares no withdrawal, or whose pattern does not match, leaves the set alone.
-    let withdraw (event: Event) (facts: Facts.Set) (projection: Projection) : Facts.Set =
+    /// declares no withdrawal, or whose pattern does not match, leaves the set alone. The flag says
+    /// whether a fact left the set, which is how a commit tells a reason edit from a
+    /// derivation-changing edit.
+    let withdraw (event: Event) (facts: Facts.Set) (projection: Projection) : struct (bool * Facts.Set) =
         match projection.Withdraws event with
-        | None -> facts
-        | Some fact -> Facts.withdraw projection.Name fact facts
+        | None -> struct (false, facts)
+        | Some fact ->
+            let removed, facts = Facts.withdraw projection.Name fact facts
+            struct (removed, facts)
 
     /// Add to the projected facts what this projection's establishing pattern matches on this event,
     /// with the event itself as the reason (FR-010). A projection that does not match leaves the set
-    /// alone.
-    let establish (event: Event) (facts: Facts.Set) (projection: Projection) : Facts.Set =
+    /// alone. Novelty is the fact entering the set, not a further reason for one already there.
+    let establish (event: Event) (facts: Facts.Set) (projection: Projection) : struct (bool * Facts.Set) =
         match projection.Establishes event with
-        | None -> facts
+        | None -> struct (false, facts)
         | Some fact ->
         let reason = { Rule = projection.Name; Premises = [ FromEvent event ]; Origin = Projected }
-        Facts.add fact reason facts
+        let novel, facts = Facts.add fact reason facts
+        struct (novel, facts)
 
 /// The parts of a projection. Named rather than positional because the establishing and
 /// withdrawing patterns have the same type, so positional arguments could be swapped
@@ -52,16 +57,14 @@ type ProjectionParts<'T> =
 /// restates (FR-010, research D24).
 type Derivation =
     { Name : string
-      /// Evaluate against a fact set: the conclusions with the premises each applied to,
-      /// and the constructs the rule read. The index is the participant index for that set,
-      /// handed in so every rule in a pass shares one build of it rather than making its
-      /// own. The reads are recorded at binding time, so they are complete whether or not
-      /// anything matched (research D7).
-      Evaluate : Facts.Set -> ParticipantIndex -> (Fact * Premise list) array * FactKind list
-      /// The constructs this rule reads. Used to skip rules that cannot have changed. Captured
-      /// once, at declaration, rather than on every commit: a rule's bindings are fixed by its
-      /// notation — the body receives only the builder, which does not expose the fact set — so
-      /// what it reads cannot vary between evaluations.
+      /// Evaluate against a fact set: the conclusions with the premises each applied to. The index
+      /// is the participant index for that set, handed in so every rule in a pass shares one build
+      /// of it rather than making its own (research D7).
+      Evaluate : Facts.Set -> ParticipantIndex -> (Fact * Premise list) array
+      /// The constructs this rule reads, including every source bound by a nested `let!`. Used to
+      /// skip rules that cannot have changed and to re-enable a rule when a later pass gains a
+      /// premise it reads (F-08). Declared by the author because the constructs a body reaches
+      /// cannot be discovered without running it against facts that contain them all.
       Mentions : FactKind list }
 
 /// A rule set: rules, and nothing else. Where its rules came from is not observable when
@@ -104,15 +107,8 @@ module Rules =
     /// than restated by the author — which would be one place per rule to get attribution
     /// quietly wrong, since the conclusion would still be correct (FR-010, research D24).
     type DerivationBuilder(facts: Facts.Set, lookup: ParticipantIndex) =
-        let reads = ResizeArray<FactKind>()
-
-        /// The constructs this rule read. Recorded when a source is bound rather than when
-        /// it matches, so a rule that matched nothing still reports what it looked at
-        /// (research D7).
-        member _.Reads : FactKind list = List.ofSeq reads
 
         member _.Bind(source: Facts.Source<'T>, body: 'T -> (Fact * Premise list) array) : (Fact * Premise list) array =
-            reads.Add source.Kind
             // A reusable accumulator rather than a list comprehension: a join produces one
             // candidate per matching pair, and at a populated fact set that is tens of
             // thousands per commit, so the difference is measured rather than stylistic.
@@ -131,17 +127,16 @@ module Rules =
         member _.Combine(a: (Fact * Premise list) array, b: (Fact * Premise list) array) = Array.append a b
         member _.Delay(f: unit -> (Fact * Premise list) array) = f ()
 
-    /// Declare a derivation. `body` runs once per evaluation, so the constructs it read are
-    /// per-evaluation rather than state carried between commits. `Mentions` is captured once,
-    /// against the empty fact set, where every bound source is still visited (research D7).
-    let derivation (name: string) (body: DerivationBuilder -> (Fact * Premise list) array) : Derivation =
-        let evaluate facts lookup =
-            let builder = DerivationBuilder(facts, lookup)
-            body builder, builder.Reads
+    /// Declare a derivation. `body` runs once per evaluation. `mentions` is the complete set of
+    /// constructs the body reads, including every nested `let!`, declared alongside the rule rather
+    /// than probed from an empty fact set — a probe cannot see a nested source because nothing
+    /// matched the source that binds it (F-08).
+    let derivation (name: string) (mentions: FactKind list) (body: DerivationBuilder -> (Fact * Premise list) array) : Derivation =
+        let evaluate facts lookup = body (DerivationBuilder(facts, lookup))
 
         { Name = name
           Evaluate = evaluate
-          Mentions = snd (evaluate Facts.empty ParticipantIndex.empty) }
+          Mentions = mentions }
 
     /// Declare a projection from its named parts. Deliberately not a computation
     /// expression: there is no sequencing to express, and with a single premise there is

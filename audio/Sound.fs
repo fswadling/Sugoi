@@ -14,7 +14,7 @@ open AudioAsset
 
 /// The bound on simultaneous one-shots — the pool's fixed capacity (FR-003). Not authored, not exposed.
 [<Literal>]
-let capacity = 16
+let private capacity = 16
 
 /// The one-shot playback pool: a fixed set of tracks reused round-robin.
 type Voices =

@@ -10,7 +10,6 @@ module DebugDraw
 // M11..M44 floats are already correct for `u.viewProj * vec4(aPosition, 1.0)`.
 
 open System
-open System.IO
 open System.Numerics
 open System.Runtime.InteropServices
 open SDL3
@@ -38,28 +37,16 @@ type DebugDraw =
       Data : float32 array
       StagingBytes : byte array
       UniformBytes : byte array
-      Count : int }
+      mutable Count : int }
 
 // ── GPU resource construction ──
-
-let private loadShader (device: Gpu.Device) (stage: SDL.GPUShaderStage) (path: string) (uniformBuffers: uint32) : Gpu.Shader =
-    let code = File.ReadAllBytes(path)
-    let mutable info = SDL.GPUShaderCreateInfo()
-    info.Format <- SDL.GPUShaderFormat.SPIRV
-    info.Stage <- stage
-    info.NumSamplers <- 0u
-    info.NumStorageTextures <- 0u
-    info.NumStorageBuffers <- 0u
-    info.NumUniformBuffers <- uniformBuffers
-    info.Props <- 0u
-    SDL.CreateGPUShader(device, &info, ReadOnlySpan<byte>(code), "main")
 
 // `depthTest` selects a pipeline that depth-tests against the scene (used for
 // editor markers/gizmos drawn after meshes, so they are occluded when behind
 // geometry). Depth writes stay off so the lines don't pollute the depth buffer.
 let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFormat: SDL.GPUTextureFormat) (depthTest: bool) : DebugDraw =
-    let vertexShader = loadShader device SDL.GPUShaderStage.Vertex "shaders/line.vert.spv" 1u
-    let fragmentShader = loadShader device SDL.GPUShaderStage.Fragment "shaders/line.frag.spv" 0u
+    let vertexShader = Gpu.loadShader device SDL.GPUShaderStage.Vertex "shaders/line.vert.spv" 1u 0u 0u
+    let fragmentShader = Gpu.loadShader device SDL.GPUShaderStage.Fragment "shaders/line.frag.spv" 0u 0u 0u
 
     // One vertex buffer, 28-byte stride: float3 position + float4 color.
     let mutable vbufDesc = SDL.GPUVertexBufferDescription()
@@ -97,47 +84,18 @@ let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFo
     let attrs = [| attr0; attr1 |]
     let colorTargets = [| colorTarget |]
 
-    let mutable info = SDL.GPUGraphicsPipelineCreateInfo()
-    info.VertexShader <- vertexShader
-    info.FragmentShader <- fragmentShader
-    info.PrimitiveType <- SDL.GPUPrimitiveType.LineList
-    info.RasterizerState <- raster
-    info.MultisampleState <- ms
-
-    if depthTest then
-        let mutable depth = SDL.GPUDepthStencilState()
-        depth.EnableDepthTest <- true
-        depth.EnableDepthWrite <- false
-        depth.CompareOp <- SDL.GPUCompareOp.LessOrEqual
-        info.DepthStencilState <- depth
-
-    // Pin the input/description arrays so their native pointers can be stored in
-    // the vertex-input/target-info structs (required to attach a depth target).
-    let vbufHandle = GCHandle.Alloc(vbufDescs, GCHandleType.Pinned)
-    let attrHandle = GCHandle.Alloc(attrs, GCHandleType.Pinned)
-    let colorHandle = GCHandle.Alloc(colorTargets, GCHandleType.Pinned)
+    let depthStencil =
+        if depthTest then
+            let mutable depth = SDL.GPUDepthStencilState()
+            depth.EnableDepthTest <- true
+            depth.EnableDepthWrite <- false
+            depth.CompareOp <- SDL.GPUCompareOp.LessOrEqual
+            ValueSome depth
+        else
+            ValueNone
 
     let pipeline =
-        try
-            let mutable vertexInput = SDL.GPUVertexInputState()
-            vertexInput.VertexBufferDescriptions <- vbufHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexBuffers <- 1u
-            vertexInput.VertexAttributes <- attrHandle.AddrOfPinnedObject()
-            vertexInput.NumVertexAttributes <- 2u
-            info.VertexInputState <- vertexInput
-
-            let mutable targetInfo = SDL.GPUGraphicsPipelineTargetInfo()
-            targetInfo.ColorTargetDescriptions <- colorHandle.AddrOfPinnedObject()
-            targetInfo.NumColorTargets <- 1u
-            targetInfo.DepthStencilFormat <- depthFormat
-            targetInfo.HasDepthStencilTarget <- depthTest
-            info.TargetInfo <- targetInfo
-
-            SDL.CreateGPUGraphicsPipeline(device, &info)
-        finally
-            vbufHandle.Free()
-            attrHandle.Free()
-            colorHandle.Free()
+        Gpu.createGraphicsPipeline device vertexShader fragmentShader SDL.GPUPrimitiveType.LineList vbufDescs attrs colorTargets raster ms depthStencil depthFormat
 
     let byteSize = uint32 (capacity * floatsPerVertex * 4)
 
@@ -170,7 +128,9 @@ let create (device: Gpu.Device) (swapchainFormat: SDL.GPUTextureFormat) (depthFo
 let clear (dd: DebugDraw) : DebugDraw =
     { dd with Count = 0 }
 
-let private appendVertex (dd: DebugDraw) (p: Vector3) (c: Color) : DebugDraw =
+// Append one vertex through a byref: a primitive that emits many vertices must not copy the
+// whole record for every vertex. `Count` is the only mutable field; `Data` is a shared array.
+let private appendVertex (dd: byref<DebugDraw>) (p: Vector3) (c: Color) : unit =
     let i = dd.Count * floatsPerVertex
     dd.Data.[i] <- p.X
     dd.Data.[i + 1] <- p.Y
@@ -179,14 +139,14 @@ let private appendVertex (dd: DebugDraw) (p: Vector3) (c: Color) : DebugDraw =
     dd.Data.[i + 4] <- c.G
     dd.Data.[i + 5] <- c.B
     dd.Data.[i + 6] <- c.A
-    { dd with Count = dd.Count + 1 }
+    dd.Count <- dd.Count + 1
 
-let line (dd: DebugDraw) (a: Vector3) (b: Vector3) (c: Color) : DebugDraw =
-    let dd = appendVertex dd a c
-    appendVertex dd b c
+let line (dd: byref<DebugDraw>) (a: Vector3) (b: Vector3) (c: Color) : unit =
+    appendVertex &dd a c
+    appendVertex &dd b c
 
 // 12-edge wireframe box from a center + half-extent (markers, scale gizmo tips).
-let wireframeBox (dd: DebugDraw) (center: Vector3) (half: Vector3) (c: Color) : DebugDraw =
+let wireframeBox (dd: byref<DebugDraw>) (center: Vector3) (half: Vector3) (c: Color) : unit =
     let x0 = center.X - half.X
     let x1 = center.X + half.X
     let y0 = center.Y - half.Y
@@ -194,24 +154,23 @@ let wireframeBox (dd: DebugDraw) (center: Vector3) (half: Vector3) (c: Color) : 
     let z0 = center.Z - half.Z
     let z1 = center.Z + half.Z
     let v x y z = Vector3(x, y, z)
-    let dd = line dd (v x0 y0 z0) (v x1 y0 z0) c
-    let dd = line dd (v x1 y0 z0) (v x1 y0 z1) c
-    let dd = line dd (v x1 y0 z1) (v x0 y0 z1) c
-    let dd = line dd (v x0 y0 z1) (v x0 y0 z0) c
-    let dd = line dd (v x0 y1 z0) (v x1 y1 z0) c
-    let dd = line dd (v x1 y1 z0) (v x1 y1 z1) c
-    let dd = line dd (v x1 y1 z1) (v x0 y1 z1) c
-    let dd = line dd (v x0 y1 z1) (v x0 y1 z0) c
-    let dd = line dd (v x0 y0 z0) (v x0 y1 z0) c
-    let dd = line dd (v x1 y0 z0) (v x1 y1 z0) c
-    let dd = line dd (v x1 y0 z1) (v x1 y1 z1) c
-    line dd (v x0 y0 z1) (v x0 y1 z1) c
+    line &dd (v x0 y0 z0) (v x1 y0 z0) c
+    line &dd (v x1 y0 z0) (v x1 y0 z1) c
+    line &dd (v x1 y0 z1) (v x0 y0 z1) c
+    line &dd (v x0 y0 z1) (v x0 y0 z0) c
+    line &dd (v x0 y1 z0) (v x1 y1 z0) c
+    line &dd (v x1 y1 z0) (v x1 y1 z1) c
+    line &dd (v x1 y1 z1) (v x0 y1 z1) c
+    line &dd (v x0 y1 z1) (v x0 y1 z0) c
+    line &dd (v x0 y0 z0) (v x0 y1 z0) c
+    line &dd (v x1 y0 z0) (v x1 y1 z0) c
+    line &dd (v x1 y0 z1) (v x1 y1 z1) c
+    line &dd (v x0 y0 z1) (v x0 y1 z1) c
 
 // Sphere outline as three orthogonal great circles (selection highlight, move
 // gizmo tips).
-let sphere (dd: DebugDraw) (center: Vector3) (radius: float32) (c: Color) : DebugDraw =
+let sphere (dd: byref<DebugDraw>) (center: Vector3) (radius: float32) (c: Color) : unit =
     let segments = 24
-    let mutable dd = dd
     for plane in 0 .. 2 do
         let mutable prev = None
         for i in 0 .. segments do
@@ -224,122 +183,103 @@ let sphere (dd: DebugDraw) (center: Vector3) (radius: float32) (c: Color) : Debu
                 | 1 -> center + Vector3(radius * ca, 0.0f, radius * sa)
                 | _ -> center + Vector3(0.0f, radius * ca, radius * sa)
             match prev with
-            | Some q -> dd <- line dd q p c
+            | Some q -> line &dd q p c
             | None -> ()
             prev <- Some p
-    dd
+
+// A circle centred at `o` in the plane spanned by `u`/`v`.
+let private circleInto (dd: byref<DebugDraw>) (o: Vector3) (u: Vector3) (v: Vector3) (radius: float32) (segments: int) (c: Color) : unit =
+    let mutable prev = None
+    for i in 0 .. segments do
+        let a = 2.0f * MathF.PI * float32 i / float32 segments
+        let p = o + u * (radius * MathF.Cos a) + v * (radius * MathF.Sin a)
+        match prev with
+        | Some q -> line &dd q p c
+        | None -> ()
+        prev <- Some p
+
+// A half-circle through `pole`, started at `o + u * radius`.
+let private arcInto (dd: byref<DebugDraw>) (o: Vector3) (u: Vector3) (pole: Vector3) (radius: float32) (segments: int) (c: Color) : unit =
+    let mutable prev = None
+    for i in 0 .. segments do
+        let a = MathF.PI * float32 i / float32 segments
+        let p = o + u * (radius * MathF.Cos a) + pole * (radius * MathF.Sin a)
+        match prev with
+        | Some q -> line &dd q p c
+        | None -> ()
+        prev <- Some p
+
+// A horizontal ring of `segments` edges centred at `o`.
+let private ringInto (dd: byref<DebugDraw>) (o: Vector3) (radius: float32) (segments: int) (c: Color) : unit =
+    let mutable prev = None
+    for i in 0 .. segments do
+        let a = 2.0f * MathF.PI * float32 i / float32 segments
+        let p = o + Vector3(radius * MathF.Cos a, 0.0f, radius * MathF.Sin a)
+        match prev with
+        | Some q -> line &dd q p c
+        | None -> ()
+        prev <- Some p
 
 // Capsule wireframe: a cylinder silhouette, the two hemisphere equator circles,
 // and the hemisphere silhouette arcs (through the poles).
-let capsule (dd: DebugDraw) (center: Vector3) (halfHeight: float32) (radius: float32) (c: Color) : DebugDraw =
+let capsule (dd: byref<DebugDraw>) (center: Vector3) (halfHeight: float32) (radius: float32) (c: Color) : unit =
     let segments = 24
     let top = center + Vector3(0.0f, halfHeight, 0.0f)
     let bottom = center - Vector3(0.0f, halfHeight, 0.0f)
 
-    // Draw a circle centred at `o` in the plane spanned by `u`/`v`.
-    let circle (dd: DebugDraw) (o: Vector3) (u: Vector3) (v: Vector3) : DebugDraw =
-        let mutable dd = dd
-        let mutable prev = None
-        for i in 0 .. segments do
-            let a = 2.0f * MathF.PI * float32 i / float32 segments
-            let p = o + u * (radius * MathF.Cos a) + v * (radius * MathF.Sin a)
-            match prev with
-            | Some q -> dd <- line dd q p c
-            | None -> ()
-            prev <- Some p
-        dd
-
     // Cylinder silhouette (four vertical lines between the equators).
-    let dd = line dd (top + Vector3(radius, 0.0f, 0.0f)) (bottom + Vector3(radius, 0.0f, 0.0f)) c
-    let dd = line dd (top - Vector3(radius, 0.0f, 0.0f)) (bottom - Vector3(radius, 0.0f, 0.0f)) c
-    let dd = line dd (top + Vector3(0.0f, 0.0f, radius)) (bottom + Vector3(0.0f, 0.0f, radius)) c
-    let dd = line dd (top - Vector3(0.0f, 0.0f, radius)) (bottom - Vector3(0.0f, 0.0f, radius)) c
+    line &dd (top + Vector3(radius, 0.0f, 0.0f)) (bottom + Vector3(radius, 0.0f, 0.0f)) c
+    line &dd (top - Vector3(radius, 0.0f, 0.0f)) (bottom - Vector3(radius, 0.0f, 0.0f)) c
+    line &dd (top + Vector3(0.0f, 0.0f, radius)) (bottom + Vector3(0.0f, 0.0f, radius)) c
+    line &dd (top - Vector3(0.0f, 0.0f, radius)) (bottom - Vector3(0.0f, 0.0f, radius)) c
 
     // Hemisphere equator circles (horizontal, in the XZ plane).
-    let dd = circle dd top Vector3.UnitX Vector3.UnitZ
-    let dd = circle dd bottom Vector3.UnitX Vector3.UnitZ
+    circleInto &dd top Vector3.UnitX Vector3.UnitZ radius segments c
+    circleInto &dd bottom Vector3.UnitX Vector3.UnitZ radius segments c
 
     // Hemisphere silhouette arcs (half-circles through the pole `p`).
-    let arc (dd: DebugDraw) (o: Vector3) (u: Vector3) (pole: Vector3) : DebugDraw =
-        let mutable dd = dd
-        let mutable prev = None
-        for i in 0 .. segments do
-            let a = MathF.PI * float32 i / float32 segments
-            let p = o + u * (radius * MathF.Cos a) + pole * (radius * MathF.Sin a)
-            match prev with
-            | Some q -> dd <- line dd q p c
-            | None -> ()
-            prev <- Some p
-        dd
-
-    let dd = arc dd top Vector3.UnitX Vector3.UnitY
-    let dd = arc dd top Vector3.UnitZ Vector3.UnitY
-    let dd = arc dd bottom Vector3.UnitX -Vector3.UnitY
-    arc dd bottom Vector3.UnitZ -Vector3.UnitY
+    arcInto &dd top Vector3.UnitX Vector3.UnitY radius segments c
+    arcInto &dd top Vector3.UnitZ Vector3.UnitY radius segments c
+    arcInto &dd bottom Vector3.UnitX -Vector3.UnitY radius segments c
+    arcInto &dd bottom Vector3.UnitZ -Vector3.UnitY radius segments c
 
 // Cylinder wireframe: the two end rings and a vertical line at each segment angle. The
 // centre and half-height form matches `capsule`, so a caller that has a base and a height
 // passes `base + height / 2` and `height / 2`.
-let cylinder (dd: DebugDraw) (center: Vector3) (halfHeight: float32) (radius: float32) (c: Color) : DebugDraw =
+let cylinder (dd: byref<DebugDraw>) (center: Vector3) (halfHeight: float32) (radius: float32) (c: Color) : unit =
     let segments = 16
     let top = center + Vector3(0.0f, halfHeight, 0.0f)
     let bottom = center - Vector3(0.0f, halfHeight, 0.0f)
 
-    // A horizontal ring of `segments` edges centred at `o`.
-    let ring (dd: DebugDraw) (o: Vector3) : DebugDraw =
-        let mutable dd = dd
-        let mutable prev = None
-        for i in 0 .. segments do
-            let a = 2.0f * MathF.PI * float32 i / float32 segments
-            let p = o + Vector3(radius * MathF.Cos a, 0.0f, radius * MathF.Sin a)
-            match prev with
-            | Some q -> dd <- line dd q p c
-            | None -> ()
-            prev <- Some p
-        dd
-
-    let dd = ring dd top
-    let dd = ring dd bottom
+    ringInto &dd top radius segments c
+    ringInto &dd bottom radius segments c
 
     // One vertical edge per segment, at the same angles as the rings' vertices.
-    let mutable dd = dd
     for i in 0 .. segments - 1 do
         let a = 2.0f * MathF.PI * float32 i / float32 segments
         let offset = Vector3(radius * MathF.Cos a, 0.0f, radius * MathF.Sin a)
-        dd <- line dd (bottom + offset) (top + offset) c
-    dd
+        line &dd (bottom + offset) (top + offset) c
 
-let drawGrid (dd: DebugDraw) : DebugDraw =
+let drawGrid (dd: byref<DebugDraw>) : unit =
     let minor = { R = 0.4f; G = 0.4f; B = 0.4f; A = 1.0f }
     let major = { R = 0.6f; G = 0.6f; B = 0.6f; A = 1.0f }
     let axisX = { R = 1.0f; G = 0.3f; B = 0.3f; A = 1.0f }
     let axisZ = { R = 0.3f; G = 0.3f; B = 1.0f; A = 1.0f }
 
-    let mutable dd = dd
     for i in -100 .. 100 do
         let v = float32 i
         let color =
             if i = 0 then axisZ
             elif i % 10 = 0 then major
             else minor
-        dd <- line dd (Vector3(v, 0.0f, -100.0f)) (Vector3(v, 0.0f, 100.0f)) color
+        line &dd (Vector3(v, 0.0f, -100.0f)) (Vector3(v, 0.0f, 100.0f)) color
         let color =
             if i = 0 then axisX
             elif i % 10 = 0 then major
             else minor
-        dd <- line dd (Vector3(-100.0f, 0.0f, v)) (Vector3(100.0f, 0.0f, v)) color
-    dd
+        line &dd (Vector3(-100.0f, 0.0f, v)) (Vector3(100.0f, 0.0f, v)) color
 
 // ── GPU upload + draw ──
-
-let private writeMatrix (bytes: byte array) (m: Matrix4x4) : unit =
-    // Write the 16 floats straight into the pre-allocated byte buffer (no temp
-    // array). .NET Matrix4x4 fields are M11..M44 in memory order.
-    let s = MemoryMarshal.Cast<byte, float32>(bytes.AsSpan())
-    s.[0] <- m.M11; s.[1] <- m.M12; s.[2] <- m.M13; s.[3] <- m.M14
-    s.[4] <- m.M21; s.[5] <- m.M22; s.[6] <- m.M23; s.[7] <- m.M24
-    s.[8] <- m.M31; s.[9] <- m.M32; s.[10] <- m.M33; s.[11] <- m.M34
-    s.[12] <- m.M41; s.[13] <- m.M42; s.[14] <- m.M43; s.[15] <- m.M44
 
 // Upload accumulated vertices to the GPU vertex buffer (copy pass, before the
 // render pass).
@@ -348,7 +288,9 @@ let upload (dd: DebugDraw) (cmd: Gpu.CommandBuffer) : unit =
 
     let floatCount = dd.Count * floatsPerVertex
     do Buffer.BlockCopy(dd.Data, 0, dd.StagingBytes, 0, floatCount * 4)
-    let mapped = SDL.MapGPUTransferBuffer(dd.Device, dd.TransferBuffer, false)
+    // Recurring per-frame map: cycle so an earlier in-flight frame still reading this staging
+    // buffer does not race this frame's write (spec 098, F-02).
+    let mapped = SDL.MapGPUTransferBuffer(dd.Device, dd.TransferBuffer, true)
     do Marshal.Copy(dd.StagingBytes, 0, mapped, floatCount * 4)
     do SDL.UnmapGPUTransferBuffer(dd.Device, dd.TransferBuffer)
 
@@ -369,7 +311,7 @@ let upload (dd: DebugDraw) (cmd: Gpu.CommandBuffer) : unit =
 let draw (dd: DebugDraw) (viewProjection: Matrix4x4) (cmd: Gpu.CommandBuffer) (renderPass: Gpu.RenderPass) : unit =
     if dd.Count <= 0 then () else
 
-    do writeMatrix dd.UniformBytes viewProjection
+    do Gpu.writeMatrix dd.UniformBytes 0 viewProjection
     do SDL.PushGPUVertexUniformData(cmd, 0u, dd.UniformBytes, 64u)
     do SDL.BindGPUGraphicsPipeline(renderPass, dd.Pipeline)
 

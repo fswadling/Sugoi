@@ -13,19 +13,13 @@ open Prime
 
 // ── fixtures ──
 
-/// A headless gameplay state, the way `test/CuePanelTests.fs` builds one.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
+    TestSupport.headlessState ()
 
 /// A headless `SharedState`: a device-free, empty asset manager and an empty advent set. Nothing here spawns
 /// an entity, so no resource is touched; the physics world is the gameplay state's own.
 let private sharedState () : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    TestSupport.headlessShared ()
 
 let private raises (f: unit -> unit) : bool =
     try

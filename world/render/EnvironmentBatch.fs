@@ -7,7 +7,8 @@ module EnvironmentBatch
 // key is the shared submesh's identity (its uploaded StaticMesh), not a bare submesh
 // index: two assets can use index 0 for different geometry, so they must never be
 // merged. Owns grow-only GPU/CPU buffers, allocated lazily on first gather;
-// allocates nothing per frame.
+// steady-state frames allocate nothing, and a dirty gather reuses its buffers
+// and grows only when the instance count exceeds capacity.
 
 open System
 open System.Collections.Generic
@@ -31,9 +32,11 @@ type EnvironmentBatch =
       mutable Cursor : int array
       ViewProjBytes : byte array
       mutable DrawCalls : int
-      mutable InstanceCount : int }
+      mutable InstanceCount : int
+      mutable Dirty : bool }                   // the static scene changed since the last gather
 
-// No device and no GPU allocation; buffers are created on the first gather.
+// No device and no GPU allocation; buffers are created on the first gather. Dirty, so the first gather
+// builds the scene.
 let create () : EnvironmentBatch =
     { Instances = InstanceBuffer.create ()
       Registry = ResizeArray()
@@ -43,7 +46,25 @@ let create () : EnvironmentBatch =
       Cursor = Array.empty
       ViewProjBytes = Array.zeroCreate<byte> 64
       DrawCalls = 0
-      InstanceCount = 0 }
+      InstanceCount = 0
+      Dirty = true }
+
+/// Mark the static scene stale: the next gather rebuilds the counts and instances.
+let markDirty (batch: EnvironmentBatch) : unit =
+    batch.Dirty <- true
+
+/// Drop every registration and count, and force a fresh gather. Does not free the instance buffer;
+/// `release` does that. Required before an environment switch, so no `LoadedSubmesh` from the outgoing
+/// environment remains reachable through the registry (F-05).
+let reset (batch: EnvironmentBatch) : unit =
+    do batch.Registry.Clear()
+    do batch.Lookup.Clear()
+    batch.Counts <- Array.empty
+    batch.Starts <- Array.empty
+    batch.Cursor <- Array.empty
+    batch.DrawCalls <- 0
+    batch.InstanceCount <- 0
+    batch.Dirty <- true
 
 // ── pure planning (headless-testable) ──
 
@@ -105,23 +126,43 @@ let private fillInstance (batch: EnvironmentBatch) (model: Matrix4x4) (r: Enviro
     let normal = normalMatrix world
     let last = r.SubmeshIndex + r.SubmeshCount - 1
     for i in r.SubmeshIndex .. last do
-        let slot = slotFor batch subs.[i]
+        // Every identity was registered by the count pass, so the slot is a plain lookup here.
+        let slot = batch.Lookup.[subs.[i].Mesh.VertexBuffer]
         let index = batch.Cursor.[slot]
         batch.Cursor.[slot] <- index + 1
         do writeInstance (index * InstanceBuffer.stride) world normal batch.Instances.Staging
+
+// One pass over a map's live props, counting their submesh identities. Written as a loop rather than
+// an `IteriAlive` closure so a gather allocates nothing (F-30).
+let private countMap (batch: EnvironmentBatch) (map: SlotMap<Prop>) : unit =
+    let slots = map.Slots
+    for i in 0 .. slots.Length - 1 do
+        let slot = &slots.[i]
+        if slot.Alive then countInstance batch slot.Value.Renderer
+
+// The fill counterpart of `countMap`: one pass over a map's live props, writing their instances.
+let private fillMap (batch: EnvironmentBatch) (map: SlotMap<Prop>) : unit =
+    let slots = map.Slots
+    for i in 0 .. slots.Length - 1 do
+        let slot = &slots.[i]
+        if slot.Alive then
+            do fillInstance batch (Entity.modelMatrix slot.Value.State.Base.Transform) slot.Value.Renderer
 
 // Walk the given prop/part maps twice: count instances per submesh identity
 // (registering new ones), then fill their transforms. Takes the maps rather than a
 // `Zone` so the batch type can be compiled before the zone that owns it. The device
 // is needed only to size the instance buffer, allocated on the first gather. Parts
 // arrive as a `voption` so an absent environment allocates nothing on the hot path.
-let gather (device: Gpu.Device) (batch: EnvironmentBatch) (props: SlotMap<Prop>) (parts: SlotMap<Prop> voption) : unit =
+// Returns false — doing nothing — when the scene is clean (F-11).
+let gather (device: Gpu.Device) (batch: EnvironmentBatch) (props: SlotMap<Prop>) (parts: SlotMap<Prop> voption) : bool =
+    if not batch.Dirty then false else
+
     for slot in 0 .. batch.Registry.Count - 1 do
         batch.Counts.[slot] <- 0
 
-    do props.IteriAlive(fun _ _ p -> countInstance batch p.Renderer)
+    do countMap batch props
     match parts with
-    | ValueSome ps -> ps.IteriAlive(fun _ _ p -> countInstance batch p.Renderer)
+    | ValueSome ps -> do countMap batch ps
     | ValueNone -> ()
 
     let total, groups = planOffsets batch.Counts batch.Starts batch.Registry.Count
@@ -132,10 +173,13 @@ let gather (device: Gpu.Device) (batch: EnvironmentBatch) (props: SlotMap<Prop>)
     do InstanceBuffer.ensure device &batch.Instances total
     do InstanceBuffer.reclaim device &batch.Instances
 
-    do props.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.State.Base.Transform) p.Renderer)
+    do fillMap batch props
     match parts with
-    | ValueSome ps -> ps.IteriAlive(fun _ _ p -> fillInstance batch (Entity.modelMatrix p.State.Base.Transform) p.Renderer)
+    | ValueSome ps -> do fillMap batch ps
     | ValueNone -> ()
+
+    batch.Dirty <- false
+    true
 
 // ── upload ──
 

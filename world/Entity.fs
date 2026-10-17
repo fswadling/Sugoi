@@ -20,9 +20,15 @@ let transformIdentity : Transform =
       Scale = Vector3.One }
 
 // Compose a model matrix from a transform. System.Numerics is row-vector
-// (`v * M`), so TRS is `S * R * T` (scale, rotate, translate).
+// (`v * M`), so TRS is `S * R * T` (scale, rotate, translate). Applying `T`
+// only sets the translation row, so it is written directly instead of composed
+// with a full multiply (this runs per entity per frame).
 let modelMatrix (t: Transform) : Matrix4x4 =
-    Matrix4x4.CreateScale(t.Scale) * Matrix4x4.CreateFromQuaternion(t.Rotation) * Matrix4x4.CreateTranslation(t.Position)
+    let mutable m = Matrix4x4.CreateScale(t.Scale) * Matrix4x4.CreateFromQuaternion(t.Rotation)
+    m.M41 <- t.Position.X
+    m.M42 <- t.Position.Y
+    m.M43 <- t.Position.Z
+    m
 
 // Convert a rotation quaternion to ZYX Euler angles in degrees (for display).
 let eulerDegrees (q: Quaternion) : Vector3 =
@@ -116,6 +122,11 @@ type CapsuleCollider =
     { Radius : float32
       HalfHeight : float32 }
 
+/// The offset from an entity's feet position to its capsule body's centre (the cylinder's
+/// half-height plus the top hemisphere's radius).
+let capsuleOffset (collider: CapsuleCollider) : Vector3 =
+    Vector3(0.0f, collider.HalfHeight + collider.Radius, 0.0f)
+
 // An entity's physics attachment: the collider shape plus the body built from
 // it, held together so a body can never exist without its collider. `None`
 // means no collider.
@@ -197,10 +208,6 @@ type Environment =
       Epoch : uint32
       Parts : SlotMap<Prop>
       PartsSource : PartsSource }
-
-module Prop =
-    // Release a prop's renderer GPU buffers.
-    let releaseRenderer (p: Prop) : unit = EnvironmentRender.release p.Renderer
 
 // A point of interest placed in a zone: where to stand (the base transform's
 // position) and which way to face (its rotation). Composes the shared base entity

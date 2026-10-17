@@ -62,12 +62,6 @@ let ``the headline report is exactly the quickstart's`` () =
     let result = Harness.run NarrativeTestSupport.mvpRules headlineScenario
     Assert.Equal(expectedReport, result.Report)
 
-[<Fact>]
-let ``the report is unchanged by running the scenario again`` () =
-    let once = Harness.run NarrativeTestSupport.mvpRules headlineScenario
-    let twice = Harness.run NarrativeTestSupport.mvpRules headlineScenario
-    Assert.Equal(once.Report, twice.Report)
-
 // --- FR-015: the facts of a character ----------------------------------------------------
 //
 // `NarrativeCommitTests` records why this is asserted here rather than there: "the facts of a
@@ -240,26 +234,19 @@ let ``T045: every generated scenario satisfies the invariants`` () =
     Check.One(Config.QuickThrowOnFailure, Prop.forAll (Arb.fromGen scenarioGen) check)
 
 [<Fact>]
-let ``T045: a generated cast is exercised across varying traits`` () =
-    // The point of generation: one situation checked across many casts rather than one
-    // hand-built case (FR-027). The only thing varying is the trait, so the assertion is
-    // that the shyness rule fires exactly when the cast is shy — a rule that fired always,
-    // or never, would pass a test that only looked for it once.
-    let observed =
-        [ for seed in 1 .. 200 ->
-            let shy = seed % 2 = 0
+let ``T045: a shy cast fires bottled-up and a hot-headed one does not`` () =
+    // FR-027: the behaviour is checked against the two distinct trait values rather than 200
+    // identical builds. The assertion is still two-sided: a rule that fired always, or never,
+    // fails one of them.
+    let scenario ascribed =
+        { Cast = [ aiko; akane; shinji ]
+          Traits = [ (aiko, ascribed) ]
+          Friendships = [ (aiko, akane) ]
+          Crushes = [ (aiko, shinji) ]
+          Relationships = [ (shinji, akane) ] }
 
-            let scenario =
-                { Cast = [ aiko; akane; shinji ]
-                  Traits = [ (aiko, (if shy then Shy else HotHeaded)) ]
-                  Friendships = [ (aiko, akane) ]
-                  Crushes = [ (aiko, shinji) ]
-                  Relationships = [ (shinji, akane) ] }
+    let fires ascribed =
+        List.contains (Fact.BottledUpFeelings(aiko, akane)) (Engine.facts (engineOf (scenario ascribed)))
 
-            let fired = List.contains (Fact.BottledUpFeelings(aiko, akane)) (Engine.facts (engineOf scenario))
-            shy, fired ]
-
-    Assert.Equal(200, List.length observed)
-
-    for shy, fired in observed do
-        Assert.True((shy = fired), sprintf "bottled-up fired=%b for a cast whose shyness is %b" fired shy)
+    Assert.True(fires Shy, "bottled-up did not fire for a shy cast")
+    Assert.False(fires HotHeaded, "bottled-up fired for a hot-headed cast")

@@ -165,22 +165,22 @@ let private hasPortraitOf (kind: Dialogue.Kind) : bool =
 /// content height being the name plate, its gap and the line together. Measured through `ui`'s text
 /// slots, which cache by line and wrap width, so a stable line is measured once. Shared by the view
 /// and the authoring panel, so both agree on whether a line fits.
-let private content (ui: byref<Ui.Ui>) (viewportW: float32) (kind: Dialogue.Kind) (text: string) : float32 * float32 * float32 =
+let private content (ui: byref<Ui.Ui>) (viewportW: float32) (kind: Dialogue.Kind) (text: string) : struct (float32 * float32 * float32) =
     let wrapWidth = int (max 1.0f (innerWidth viewportW))
     // The name plate is measured unwrapped; two slots, so neither rebuilds the other's glyph geometry.
     let nameH =
         match speaker kind with
         | ValueNone -> 0.0f
         | ValueSome n ->
-            let (_, nh) = Ui.setLine &ui nameSlot n 0
+            let struct (_, nh) = Ui.setLine &ui nameSlot n 0
             float32 nh
-    let (lineW, lineH) = Ui.setLine &ui lineSlot text wrapWidth
+    let struct (lineW, lineH) = Ui.setLine &ui lineSlot text wrapWidth
     let gap = if (speaker kind).IsSome then nameGap else 0.0f
-    (float32 lineW, nameH, nameH + gap + float32 lineH)
+    struct (float32 lineW, nameH, nameH + gap + float32 lineH)
 
 /// Why the line is taller than the viewport, or `NotMissed`.
 let private heightMiss (ui: byref<Ui.Ui>) (viewportW: float32) (viewportH: float32) (dialogue: Dialogue.Dialogue) : MissReason =
-    let (lineW, _, contentH) = content &ui viewportW dialogue.Kind dialogue.Text
+    let struct (lineW, _, contentH) = content &ui viewportW dialogue.Kind dialogue.Text
     match layout viewportW viewportH (hasPortraitOf dialogue.Kind) lineW contentH with
     | ValueNone -> TooTallForViewport
     | ValueSome _ -> NotMissed
@@ -227,7 +227,7 @@ let draw (assets: Assets.AssetManager) (viewportW: float32) (viewportH: float32)
     if hasPortrait && portrait.IsNone then () else
 
     let name = speaker dialogue.Kind
-    let (lineW, nameH, contentH) = content &ui viewportW dialogue.Kind dialogue.Text
+    let struct (lineW, nameH, contentH) = content &ui viewportW dialogue.Kind dialogue.Text
     let nameGeom = ui.TextGeoms.[nameSlot]
     let lineGeom = ui.TextGeoms.[lineSlot]
     let gap = if name.IsSome then nameGap else 0.0f

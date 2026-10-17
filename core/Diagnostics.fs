@@ -22,7 +22,10 @@ type Report =
     { Message : string
       mutable Count : int }
 
-let private entries = System.Collections.Generic.List<Report>()
+// The live storage: a list because reports are added at the head and read as a list. A repeat
+// replaces the list rather than mutating a report, so a reader can key its cache on the list's
+// identity and see the new count.
+let mutable private entries : Report list = []
 let mutable private total = 0
 
 /// Record a report and write it to the console, exactly as `eprintfn` did: the console line is unchanged
@@ -31,17 +34,14 @@ let report (message: string) : unit =
     do eprintfn "%s" message
     total <- if total >= maxCount then maxCount else total + 1
 
-    let mutable found = false
-    let mutable i = 0
-    while not found && i < entries.Count do
-        if entries.[i].Message = message then
-            if entries.[i].Count < maxCount then entries.[i].Count <- entries.[i].Count + 1
-            found <- true
-        i <- i + 1
-
-    if not found then
-        entries.Insert(0, { Message = message; Count = 1 })
-        if entries.Count > maxEntries then entries.RemoveAt(entries.Count - 1)
+    if List.exists (fun entry -> entry.Message = message) entries then
+        entries <-
+            entries
+            |> List.map (fun entry ->
+                if entry.Message = message then { entry with Count = min maxCount (entry.Count + 1) }
+                else entry)
+    else
+        entries <- List.truncate maxEntries ({ Message = message; Count = 1 } :: entries)
 
 /// `report` with a format string, so a call site reads as the `eprintfn` it replaces.
 let reportf (format: Printf.StringFormat<'T, unit>) : 'T = Printf.kprintf report format
@@ -50,15 +50,19 @@ let reportf (format: Printf.StringFormat<'T, unit>) : 'T = Printf.kprintf report
 let errorCount () : int = total
 
 /// The most recent report's text, or "" when there are none.
-let lastMessage () : string = if entries.Count = 0 then "" else entries.[0].Message
+let lastMessage () : string =
+    match entries with
+    | entry :: _ -> entry.Message
+    | [] -> ""
 
-/// The distinct reports, most recent first, each with its count.
-let recent () : Report list = [ for e in entries -> e ]
+/// The distinct reports, most recent first, each with its count. Returns the live storage: the
+/// list is immutable, so a reader may hold it (and compare its identity) without a copy.
+let recent () : Report list = entries
 
 /// Whether the tally has crossed the escalation threshold.
 let isLoud () : bool = total >= loudThreshold
 
 /// Forget everything (a fresh session).
 let clear () : unit =
-    entries.Clear()
+    entries <- []
     total <- 0

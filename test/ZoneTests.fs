@@ -24,42 +24,6 @@ open Physics
 open SlotMap
 open Zone
 
-let private entity (name: string) : Entity =
-    { Name = name
-      Transform = transformIdentity
-      Enabled = true
-      Visible = true
-      Selectable = true
-      Draggable = true }
-
-let private prop (name: string) : Prop =
-    { State =
-        { Base = entity name
-          AssetId = Some "crate"
-          SubmeshIndex = 0
-          SubmeshCount = 0 }
-      Physics = None
-      Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
-
-// An environment part: a prop with no asset id, which is how `buildEnvironment`
-// populates an environment's own parts map.
-let private part (name: string) : Prop =
-    { State =
-        { Base = entity name
-          AssetId = None
-          SubmeshIndex = 0
-          SubmeshCount = 0 }
-      Physics = None
-      Renderer = Unchecked.defaultof<EnvironmentRender.EnvironmentRender> }
-
-let private actor (name: string) : Actor =
-    { State =
-        { Base = entity name
-          AssetId = "character"
-          ShowCollider = false }
-      Physics = None
-      Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
-
 // An environment owning `parts`, installed directly (loading one needs assets).
 // The epoch scopes its part refs; tests assign it explicitly.
 let private environment (epoch: uint32) (parts: SlotMap<Prop>) : Environment =
@@ -75,26 +39,29 @@ let private environment (epoch: uint32) (parts: SlotMap<Prop>) : Environment =
 
 // A device-free manager: safe because the prop/part paths never dereference Device.
 let private headlessAssets (environments: (string * EnvironmentAsset.EnvironmentAsset) list) : Assets.AssetManager =
-    let envs = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    for (id, asset) in environments do envs.[id] <- asset
-    TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) envs
+    managerWith [] [] environments
 
 // A one-triangle room whose single part covers submesh 0.
 let private roomAssets () : Assets.AssetManager =
-    let submeshes = [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
-    headlessAssets [ "room", residentAsset "room" submeshes [| TestSupport.part "wall" 0 1 |] ]
+    managerWith [] [] [ "room", roomAsset () ]
 
 // A device-free manager carrying one whole-model prop asset (`crate`), so
 // `Zone.spawnProp` can build a mesh collider + body without a GPU.
 let private propAssets () : Assets.AssetManager =
-    let submeshes = [| loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |] |]
-    let props = Dictionary<string, EnvironmentAsset.EnvironmentAsset>()
-    props.["crate"] <- residentAsset "crate" submeshes [||]
-    TestSupport.manager IntPtr.Zero (Dictionary()) props (Dictionary())
+    managerWith [] [ "crate", crateAsset () ] []
 
 // The body attached to a live prop ref (spawned through the real mesh-body path).
 let private propBody (zone: Zone) (ref: EntityRef) : BodyId =
     (zone.Props.Get { Index = ref.Index; Generation = ref.Generation }).Physics.Value.Body
+
+// A device-free manager carrying one fabricated actor asset, so `Zone.spawnActor` builds a real
+// capsule body without a GPU.
+let private actorAssets () : Assets.AssetManager =
+    managerWith [ "aiko", actorAsset "aiko" ] [] []
+
+// The body attached to a live actor ref (spawned through the real capsule path).
+let private actorBody (zone: Zone) (ref: EntityRef) : BodyId =
+    (zone.Actors.Get { Index = ref.Index; Generation = ref.Generation }).Physics.Value.Body
 
 // ── Placed prop refs (through the real remove path) ──
 
@@ -603,6 +570,58 @@ let ``a move, scale, move sequence keeps the body mapping consistent`` () =
     Assert.Equal<BodyId>(afterScale, propBody zone ref)
     Assert.Equal(1, zone.BodyToEntity.Count)
 
+// ── Actor bodies: capsular, in place on a move, rebuilt only on a scale change (F-06) ──
+
+[<Fact>]
+let ``moving an actor updates its capsule body in place instead of rebuilding`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = actorAssets ()
+    let ref = Zone.spawnActor zone world assets (entity "aiko") "aiko"
+    let body = actorBody zone ref
+
+    let moved = { transformIdentity with Position = Vector3(1.0f, 2.0f, 3.0f) }
+    Zone.setTransform zone world ref moved
+
+    // Same body (never destroyed/rebuilt), now at the new feet position plus the capsule offset.
+    Assert.Equal<BodyId>(body, actorBody zone ref)
+    let struct (position, _) = Physics.getBodyTransform world body
+    Assert.Equal(Zone.capsuleCenter moved (Zone.capsuleCollider assets.Actors.["aiko"].Bounds), position)
+    Assert.Equal<EntityRef>(ref, zone.BodyToEntity.[body])
+    Assert.Equal(moved.Position, (Zone.tryEntityAt zone ref).Value.Transform.Position)
+
+[<Fact>]
+let ``rotating an actor updates its capsule body in place instead of rebuilding`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = actorAssets ()
+    let ref = Zone.spawnActor zone world assets (entity "aiko") "aiko"
+    let body = actorBody zone ref
+
+    let rotated = { transformIdentity with Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 1.0f) }
+    Zone.setTransform zone world ref rotated
+
+    Assert.Equal<BodyId>(body, actorBody zone ref)
+    let struct (_, rotation) = Physics.getBodyTransform world body
+    Assert.True(abs (Quaternion.Dot(rotated.Rotation, rotation)) > 0.9999f, sprintf "expected %A, got %A" rotated.Rotation rotation)
+
+[<Fact>]
+let ``scaling an actor rebuilds its body to match`` () =
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = actorAssets ()
+    let ref = Zone.spawnActor zone world assets (entity "aiko") "aiko"
+    let before = actorBody zone ref
+
+    let scaled = { transformIdentity with Scale = Vector3(2.0f, 3.0f, 4.0f) }
+    Zone.setTransform zone world ref scaled
+
+    let after = actorBody zone ref
+    Assert.NotEqual<BodyId>(before, after)
+    Assert.False(zone.BodyToEntity.ContainsKey before)
+    Assert.Equal<EntityRef>(ref, zone.BodyToEntity.[after])
+    Assert.Equal(scaled.Scale, (Zone.tryEntityAt zone ref).Value.Transform.Scale)
+
 // ── Environment parts (their own map, scoped by epoch) ──
 
 [<Fact>]
@@ -805,14 +824,14 @@ let ``undo and redo of an environment load route through the real lifecycle`` ()
     let previous = zone.Environment
     let environment = Zone.loadEnvironment zone world assets "room"
     let reference = partRef environment.Epoch 0u 0u
-    let stack = UndoStack.push (UndoStack.create ()) (SetEnvironment (GameplayState.startZone, previous, Some environment))
+    let command = SetEnvironment (GameplayState.startZone, previous, Some environment)
     Assert.True(Zone.isAlive zone reference)
 
-    let stack = UndoStack.undo stack zone world assets
+    do Command.undo zone world assets command
     Assert.True(Option.isNone zone.Environment)
     Assert.False(Zone.isAlive zone reference)
 
-    let stack = UndoStack.redo stack zone world assets
+    do Command.apply zone world assets command
     Assert.True(Option.isSome zone.Environment)
     Assert.True(Zone.isAlive zone reference)
 
@@ -849,13 +868,21 @@ let ``a registered template's parts are never filled from the asset`` () =
 // ── Recorded state: what a command carries ──
 
 [<Fact>]
-let ``an authored value cannot expose a resource or a runtime flag`` () =
-    // SC-001, read off the types rather than a value: a payload that cannot name a body, a
-    // renderer, or a runtime flag cannot carry one, whatever a given value happens to hold.
-    let forbidden = [ "Physics"; "Renderer"; "Triggered"; "Attachment"; "Body"; "Collider" ]
-    for state in [ typeof<ActorState>; typeof<PropState>; typeof<TriggerState> ] do
-        for member' in state.GetMembers() do
-            Assert.False(List.contains member'.Name forbidden, sprintf "%s exposes %s" state.Name member'.Name)
+let ``a capture is a snapshot of the authored value, not a handle to the live entity`` () =
+    // SC-001, behaviourally: reading the authored state leaves the live resources in place, and a
+    // later edit to the live entity does not reach the recorded value.
+    let zone = Zone.create ()
+    let world = Physics.create ()
+    let assets = propAssets ()
+    let ref = Zone.spawnProp zone world assets (entity "crate") "crate"
+
+    let recorded = Zone.captureProp zone ref
+    Assert.True((zone.Props.Get(handleOf ref)).Physics.IsSome) // capturing detached nothing
+
+    let moved = { recorded.Base.Transform with Position = Vector3(1.0f, 2.0f, 3.0f) }
+    do Zone.setTransform zone world ref moved
+    Assert.Equal(recorded, Zone.captureProp zone ref |> fun now -> { now with Base = { now.Base with Transform = recorded.Base.Transform } })
+    Assert.NotEqual(recorded.Base.Transform, (Zone.captureProp zone ref).Base.Transform)
 
 [<Fact>]
 let ``a captured prop carries its authored fields and no body`` () =
@@ -919,7 +946,7 @@ let ``delete and undo restore a prop exactly`` () =
     do apply zone world assets cmd
     Assert.False(Zone.isAlive zone ref)
 
-    let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
+    do Command.undo zone world assets cmd
     Assert.True(Zone.isAlive zone ref)
     Assert.Equal(live, (zone.Props.Get(handleOf ref)).State)
     Assert.Equal("crate", (Zone.tryEntityAt zone ref).Value.Name)
@@ -927,9 +954,8 @@ let ``delete and undo restore a prop exactly`` () =
     // The body is rebuilt rather than reused: the recorded one was destroyed.
     Assert.True(Option.isSome (zone.Props.Get(handleOf ref)).Physics)
 
-    let stack = UndoStack.redo stack zone world assets
+    do Command.apply zone world assets cmd
     Assert.False(Zone.isAlive zone ref)
-    ignore stack
 
 [<Fact>]
 let ``delete and undo restore an environment part exactly`` () =
@@ -947,12 +973,11 @@ let ``delete and undo restore an environment part exactly`` () =
     do apply zone world assets cmd
     Assert.False(Zone.isAlive zone ref)
 
-    let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
+    do Command.undo zone world assets cmd
     Assert.True(Zone.isAlive zone ref)
     Assert.Equal(live, (environment.Parts.Get(handleOf ref)).State)
     Assert.Equal("wall", (Zone.tryEntityAt zone ref).Value.Name)
     Assert.True(Option.isSome (environment.Parts.Get(handleOf ref)).Physics)
-    ignore stack
 
 [<Fact>]
 let ``delete and undo restore a trigger exactly, without its runtime flag`` () =
@@ -970,12 +995,11 @@ let ``delete and undo restore a trigger exactly, without its runtime flag`` () =
     do apply zone world assets cmd
     Assert.False(Zone.isAlive zone ref)
 
-    let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
+    do Command.undo zone world assets cmd
     Assert.True(Zone.isAlive zone ref)
     Assert.Equal(live, (zone.Triggers.Get(handleOf ref)).State)
     // The runtime flag is the trigger system's to recompute, never a restore's to put back.
     Assert.False((zone.Triggers.Get(handleOf ref)).Triggered)
-    ignore stack
 
 [<Fact>]
 let ``repeated delete and undo cycles leave no body behind`` () =
@@ -990,7 +1014,7 @@ let ``repeated delete and undo cycles leave no body behind`` () =
         do apply zone world assets cmd
         // Undo rebuilds the body. A leaked one would still be attached to the world and
         // would keep its entry in the body map.
-        UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets |> ignore
+        do Command.undo zone world assets cmd
 
     Assert.Equal(baseline, zone.BodyToEntity.Count)
     Assert.Equal(1u, zone.Props.Count)
@@ -1005,12 +1029,11 @@ let ``repeated delete and undo cycles leave no body behind`` () =
 // A three-part hall, so a record can be taken after one part has moved, one has been renamed, one has
 // been deleted and one has been duplicated — the arrangements a registration exists to keep.
 let private hallAssets () : Assets.AssetManager =
-    let submesh = loadedSubmesh [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |] [| 0; 1; 2 |]
     let partAt (name: string) (index: int) (x: float32) : EnvironmentPart =
-        { TestSupport.part name index 1 with World = Matrix4x4.CreateTranslation(Vector3(x, 0.0f, 0.0f)) }
-    headlessAssets
+        { environmentPart name index 1 with World = Matrix4x4.CreateTranslation(Vector3(x, 0.0f, 0.0f)) }
+    managerWith [] []
         [ "hall",
-          residentAsset "hall" [| submesh; submesh; submesh |] [| partAt "north" 0 0.0f; partAt "east" 1 1.0f; partAt "south" 2 2.0f |] ]
+          residentAsset "hall" [| triangleSubmesh (); triangleSubmesh (); triangleSubmesh () |] [| partAt "north" 0 0.0f; partAt "east" 1 1.0f; partAt "south" 2 2.0f |] ]
 
 [<Fact>]
 let ``a registered zone loads back part for part, deletions and duplicates included`` () =
@@ -1156,12 +1179,11 @@ let ``the zone's light is set by the command and put back by its undo`` () =
     do apply zone world assets cmd
     Assert.Equal(after, zone.Light)
 
-    let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
+    do Command.undo zone world assets cmd
     Assert.Equal(before, zone.Light)
 
-    let stack = UndoStack.redo stack zone world assets
+    do Command.apply zone world assets cmd
     Assert.Equal(after, zone.Light)
-    ignore stack
 
 [<Fact>]
 let ``the player designation is set by the command and put back by its undo`` () =
@@ -1179,10 +1201,10 @@ let ``the player designation is set by the command and put back by its undo`` ()
     do apply zone world assets cmd
     Assert.Equal(ValueSome b, zone.Player)
 
-    let stack = UndoStack.undo (UndoStack.push (UndoStack.create ()) cmd) zone world assets
+    do Command.undo zone world assets cmd
     Assert.True(ValueOption.isNone zone.Player)
 
-    let stack = UndoStack.redo stack zone world assets
+    do Command.apply zone world assets cmd
     Assert.Equal(ValueSome b, zone.Player)
 
     // A re-designation puts the *previous actor* back, which is what the payload's `Previous` carries.
@@ -1190,9 +1212,8 @@ let ``the player designation is set by the command and put back by its undo`` ()
     do apply zone world assets recmd
     Assert.Equal(ValueSome c, zone.Player)
 
-    let stack = UndoStack.undo (UndoStack.push stack recmd) zone world assets
+    do Command.undo zone world assets recmd
     Assert.Equal(ValueSome b, zone.Player)
-    ignore stack
 
 [<Fact>]
 let ``a registered zone records its light`` () =

@@ -292,6 +292,10 @@ let saveTo (path: string) (registry: Registry) : unit =
 // The library as last written (or loaded): the reference the change comparison is against.
 let mutable private lastWritten : Registry = ScenarioRegistry.create ()
 
+// The library of the last write **attempt**, successful or not. `lastWritten` records only success, so
+// this is what tells `persistFrame` that a failed attempt is the same edit rather than a new one.
+let mutable private lastAttempted : Registry = lastWritten
+
 // The file's text as last written or read: the reference an external change is compared against. It closes the
 // feedback loop — the game's own saves read back identical, so they are never reloaded (FR-002).
 let mutable private lastText : string = ""
@@ -299,8 +303,16 @@ let mutable private lastText : string = ""
 // The frame time banked toward the next poll, so the file is read once per interval, not once per frame.
 let mutable private accumulator : float = 0.0
 
+// A failed write is retried, but not once per frame: the edit is still pending and `lastWritten` must not
+// advance until it lands (FR-003, research D6).
+let mutable private writeFailed : bool = false
+let mutable private retryAccumulator : float = 0.0
+
 // The poll interval: at most one read of the file per this many seconds (FR-001).
 let private pollSeconds = 0.25
+
+// The retry interval after a failed write: at most one attempt (and one report) per this many seconds.
+let private retrySeconds = 0.5
 
 /// Load the project file once, remembering it (FR-007).
 let load () : Registry =
@@ -311,17 +323,41 @@ let load () : Registry =
         | Some text -> decodeStartup projectPath text
     match text with Some text -> lastText <- text | None -> ()
     do lastWritten <- registry
+    do lastAttempted <- registry
+    writeFailed <- false
+    retryAccumulator <- 0.0
     registry
 
-/// Write the project file **iff** `registry` is not the value last written (FR-005). The library is immutable, so
-/// every change — an add, clear, register or delete, and the undo or redo of any of them — yields a new instance,
-/// so the comparison is one reference check and an unchanged library writes nothing (FR-015). The file's text is
-/// remembered only when the write succeeded, so a failed write is never mistaken for the file's content (FR-006).
+/// Write the project file: one immediate attempt when `registry` is not the value last written, and a
+/// retry of a previously failed attempt. The library is immutable, so every change — an add, clear,
+/// register or delete, and the undo or redo of any of them — yields a new instance, so the comparison
+/// is one reference check and an unchanged library writes nothing (FR-015). `lastWritten` and the
+/// file's text advance only when the write succeeded, so a failed write is never mistaken for the
+/// file's content (FR-006).
 let persist (registry: Registry) : unit =
-    if obj.ReferenceEquals (registry, lastWritten) then () else
+    if obj.ReferenceEquals (registry, lastWritten) && not writeFailed then () else
+
     let text = encode registry
-    if writeAtomic projectPath text then do lastText <- text
-    do lastWritten <- registry
+    lastAttempted <- registry
+    if writeAtomic projectPath text then
+        do lastText <- text
+        do lastWritten <- registry
+        writeFailed <- false
+        retryAccumulator <- 0.0
+    else
+        writeFailed <- true
+
+/// Persist from the frame loop (FR-003): a new edit attempts immediately, and a failed attempt is
+/// retried at most once per `retrySeconds`, so a persistent failure neither loses the edit nor writes
+/// and reports every frame.
+let persistFrame (dt: float) (registry: Registry) : unit =
+    if not (obj.ReferenceEquals (registry, lastAttempted)) then
+        do persist registry
+    elif writeFailed then
+        retryAccumulator <- retryAccumulator + dt
+        if retryAccumulator >= retrySeconds then
+            retryAccumulator <- 0.0
+            do persist registry
 
 /// Whether the poll may run: only while the author is **editing**, and only when live reload is **on**. A pure
 /// predicate, so the gate the frame applies is itself testable (FR-008).
@@ -345,6 +381,9 @@ let pollExternal (dt: float) : Registry option =
     | Ok registry ->
         do lastText <- text
         do lastWritten <- registry
+        do lastAttempted <- registry
+        writeFailed <- false
+        retryAccumulator <- 0.0
         Some registry
     | Error message ->
         do Diagnostics.reportf "project: '%s' changed but could not be read (%s); keeping the running library" projectPath message

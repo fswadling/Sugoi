@@ -5,6 +5,7 @@ open System.IO
 open System.Numerics
 open Xunit
 open Iqm
+open TestSupport
 
 // Locate the checked-in Akane IQM by walking up from the test output directory.
 let private findAkane () : string =
@@ -28,7 +29,15 @@ let ``load parses the Akane IQM model`` () =
     Assert.Equal(166, m.Poses.Length)
     Assert.Equal(2, m.Anims.Length)
     Assert.Equal(1063, m.NumFrameChannels)
-    Assert.Equal(208 * 1063, m.FrameChannels.Length)
+    // F-35: frame channels are narrowed to `uint16` and the retained fields still address their data.
+    let channels : uint16 array = m.FrameChannels
+    Assert.Equal(208 * 1063, channels.Length)
+    Assert.Equal(m.Poses.Length, m.PoseChannelOffsets.Length)
+    for mesh in m.Meshes do
+        Assert.True(mesh.FirstTriangle >= 0 && mesh.NumTriangles > 0)
+        Assert.True((mesh.FirstTriangle + mesh.NumTriangles) * 3 <= m.Triangles.Length)
+    // (`Tangents`, `FirstVertex`, `NumVertices` and `numText` were dropped; the compiler enforces
+    // that no caller reads them.)
     Assert.True(Option.isSome m.Normals)
     Assert.True(Option.isSome m.Uvs)
     Assert.True(Option.isSome m.BlendIndices)
@@ -63,8 +72,7 @@ let ``load rejects a non-IQM file`` () =
 
 // ── the outline's smoothed normals (spec 041) ──
 
-let private approx (expected: Vector3) (actual: Vector3) =
-    Assert.True((expected - actual).Length() < 1e-4f, sprintf "expected %A, got %A" expected actual)
+
 
 [<Fact>]
 let ``smoothNormals welds coincident vertices to one averaged direction`` () =
@@ -75,16 +83,16 @@ let ``smoothNormals welds coincident vertices to one averaged direction`` () =
     let s = smoothNormals positions normals
     let expected = Vector3.Normalize(Vector3(1.0f, 1.0f, 1.0f))
     for v in 0 .. 2 do
-        approx expected (Vector3(s.[v * 3], s.[v * 3 + 1], s.[v * 3 + 2]))
+        assertVec3 1e-4f expected (Vector3(s.[v * 3], s.[v * 3 + 1], s.[v * 3 + 2]))
 
 [<Fact>]
 let ``smoothNormals leaves separated vertices with their own normal`` () =
     let positions = [| 0.0f; 0.0f; 0.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |]
     let normals = [| 0.0f; 0.0f; 1.0f;  1.0f; 0.0f; 0.0f;  0.0f; 1.0f; 0.0f |]
     let s = smoothNormals positions normals
-    approx (Vector3(0.0f, 0.0f, 1.0f)) (Vector3(s.[0], s.[1], s.[2]))
-    approx (Vector3(1.0f, 0.0f, 0.0f)) (Vector3(s.[3], s.[4], s.[5]))
-    approx (Vector3(0.0f, 1.0f, 0.0f)) (Vector3(s.[6], s.[7], s.[8]))
+    assertVec3 1e-4f (Vector3(0.0f, 0.0f, 1.0f)) (Vector3(s.[0], s.[1], s.[2]))
+    assertVec3 1e-4f (Vector3(1.0f, 0.0f, 0.0f)) (Vector3(s.[3], s.[4], s.[5]))
+    assertVec3 1e-4f (Vector3(0.0f, 1.0f, 0.0f)) (Vector3(s.[6], s.[7], s.[8]))
 
 [<Fact>]
 let ``smoothNormals falls back to the vertex normal when a bucket cancels out`` () =
@@ -93,8 +101,8 @@ let ``smoothNormals falls back to the vertex normal when a bucket cancels out`` 
     let positions = [| 0.0f; 0.0f; 0.0f;  0.0f; 0.0f; 0.0f |]
     let normals = [| 1.0f; 0.0f; 0.0f;  -1.0f; 0.0f; 0.0f |]
     let s = smoothNormals positions normals
-    approx (Vector3(1.0f, 0.0f, 0.0f)) (Vector3(s.[0], s.[1], s.[2]))
-    approx (Vector3(-1.0f, 0.0f, 0.0f)) (Vector3(s.[3], s.[4], s.[5]))
+    assertVec3 1e-4f (Vector3(1.0f, 0.0f, 0.0f)) (Vector3(s.[0], s.[1], s.[2]))
+    assertVec3 1e-4f (Vector3(-1.0f, 0.0f, 0.0f)) (Vector3(s.[3], s.[4], s.[5]))
 
 [<Fact>]
 let ``smoothNormals returns one unit vector per vertex on the real asset`` () =

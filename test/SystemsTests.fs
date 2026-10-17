@@ -10,14 +10,7 @@ open System.Numerics
 open Entity
 open Systems
 open Cue
-
-let private entity (name: string) : Entity =
-    { Name = name
-      Transform = transformIdentity
-      Enabled = true
-      Visible = true
-      Selectable = true
-      Draggable = true }
+open TestSupport
 
 // A zone whose only actor is the designated player, standing at `position`.
 let private zoneWithPlayer (position: Vector3) : Zone.Zone =

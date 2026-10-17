@@ -17,37 +17,38 @@ let private play (shared: SharedState.SharedState) (asset: AudioAsset.AudioAsset
         do Sound.play shared.Voices asset.Id (AudioAsset.sound asset)
 
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    let sounds = Assets.soundAssets shared.Assets
+    let visible = ImGui.beginWindow("Sounds", System.IntPtr.Zero, 0)
+    if visible then
 
-    do ImGui.beginWindow("Sounds", System.IntPtr.Zero, 0) |> ignore
+        let sounds = Assets.soundAssets shared.Assets
 
-    // ── Stop all: silence every sounding one-shot (FR-005) ──
-    do ImGui.beginDisabled(sounds.IsEmpty)
-    if ImGui.smallButton "Stop all" then do Sound.stopAll shared.Voices
-    do ImGui.endDisabled()
-    do ImGui.separator()
-
-    if sounds.IsEmpty then do ImGui.text "(no sounds)"
-
-    for asset in sounds do
-        // A unique widget id per row, so two assets that share a Name do not collide.
-        do ImGui.pushId asset.Id
-
-        do ImGui.text asset.Name
-        // The row's state: a resident sound plays; a failed one is listed and marked, and Play is a no-op.
-        match asset.Residency with
-        | AudioAsset.Failed _ ->
-            do ImGui.sameLine(0.0f, 8.0f)
-            do ImGui.text "(failed)"
-        | _ -> ()
-
-        do ImGui.sameLine(0.0f, 8.0f)
-        do ImGui.beginDisabled(not (AudioAsset.isResident asset))
-        if ImGui.smallButton "Play" then do play shared asset
+        // ── Stop all: silence every sounding one-shot (FR-005) ──
+        do ImGui.beginDisabled(sounds.IsEmpty)
+        if ImGui.smallButton "Stop all" then do Sound.stopAll shared.Voices
         do ImGui.endDisabled()
-        do ImGui.sameLine(0.0f, 4.0f)
-        if ImGui.smallButton "Stop" then do Sound.stop shared.Voices asset.Id
+        do ImGui.separator()
 
-        do ImGui.popId()
+        if sounds.IsEmpty then do ImGui.text "(no sounds)"
+
+        for asset in sounds do
+            // A unique widget id per row, so two assets that share a Name do not collide.
+            do ImGui.pushId asset.Id
+
+            do ImGui.textUnformatted asset.Name
+            // The row's state: a resident sound plays; a failed one is listed and marked, and Play is a no-op.
+            match asset.Residency with
+            | AudioAsset.Failed _ ->
+                do ImGui.sameLine(0.0f, 8.0f)
+                do ImGui.text "(failed)"
+            | _ -> ()
+
+            do ImGui.sameLine(0.0f, 8.0f)
+            do ImGui.beginDisabled(not (AudioAsset.isResident asset))
+            if ImGui.smallButton "Play" then do play shared asset
+            do ImGui.endDisabled()
+            do ImGui.sameLine(0.0f, 4.0f)
+            if ImGui.smallButton "Stop" then do Sound.stop shared.Voices asset.Id
+
+            do ImGui.popId()
 
     do ImGui.endWindow()

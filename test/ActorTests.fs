@@ -6,6 +6,7 @@ open Xunit
 open Iqm
 open Actor
 open SlotMap
+open TestSupport
 
 // Build a minimal model record without going through the binary parser.
 let private model (positions: float32 array) (normals: float32 array option) (joints: Joint array) (poses: Pose array) (anims: Anim array) : Iqm.Model =
@@ -13,7 +14,6 @@ let private model (positions: float32 array) (normals: float32 array option) (jo
       Positions = positions
       Normals = normals
       Uvs = None
-      Tangents = None
       BlendIndices = None
       BlendWeights = None
       Triangles = [||]
@@ -52,14 +52,13 @@ let private translationModel () : Iqm.Model =
       Positions = [| 0.0f; 0.0f; 0.0f |]
       Normals = None
       Uvs = None
-      Tangents = None
       BlendIndices = None
       BlendWeights = None
       Triangles = [||]
       Joints = [| joint |]
       Poses = [| poseData |]
       Anims = [| anim |]
-      FrameChannels = [| 1; 3 |]
+      FrameChannels = [| 1us; 3us |]
       NumFrameChannels = 1
       PoseChannelOffsets = [| 0 |] }
 
@@ -202,12 +201,10 @@ let ``samplePose allocates nothing per frame`` () =
     let am = Actor.createModel m
     let pose = Actor.createPoseFrame m
 
-    // Warm up the JIT so one-time costs fall outside the measurement.
-    for i in 0 .. 99 do Actor.samplePose am 0 (float32 i * 0.01f) true pose
-    let before = GC.GetAllocatedBytesForCurrentThread()
-    for i in 0 .. 999 do Actor.samplePose am 0 (float32 i * 0.01f) true pose
-    let after = GC.GetAllocatedBytesForCurrentThread()
-    Assert.Equal(0L, after - before)
+    let mutable frame = 0
+    TestSupport.assertAllocatesNothing 100 1000 (fun () ->
+        Actor.samplePose am 0 (float32 frame * 0.01f) true pose
+        frame <- frame + 1)
 
 // ── Multi-slot blending (spec 036) ──
 
@@ -233,14 +230,13 @@ let private twoClipModel () : Iqm.Model =
       Positions = [| 0.0f; 0.0f; 0.0f |]
       Normals = None
       Uvs = None
-      Tangents = None
       BlendIndices = None
       BlendWeights = None
       Triangles = [||]
       Joints = [| joint |]
       Poses = [| poseData |]
       Anims = [| a; b |]
-      FrameChannels = [| 1; 3; 5; 7 |]
+      FrameChannels = [| 1us; 3us; 5us; 7us |]
       NumFrameChannels = 1
       PoseChannelOffsets = [| 0 |] }
 
@@ -285,6 +281,21 @@ let ``blendPose of one clip at weight 1 equals samplePose`` () =
     Assert.Equal(sampled.Local.[0], blended.Local.[0])
     Assert.Equal(sampled.World.[0], blended.World.[0])
     Assert.Equal(sampled.Skinning.[0], blended.Skinning.[0])
+
+[<Fact>]
+let ``blendPose precomputes each slot's wrapped frame window`` () =
+    // F-23: the frame window (f0, f1, blend) is per slot, once per blend. A looping clock past its
+    // last frame must wrap exactly as `samplePose` does.
+    let m = twoClipModel ()
+    let am = Actor.createModel m
+    let blended = Actor.createPoseFrame m
+    let sampled = Actor.createPoseFrame m
+    // Clip b is two frames (5 -> 7); a clock at 1.5 loops to 0.5, halfway between them.
+    let slots = slotMap [ slotOf 1 1.5f 1.0f 24.0f ]
+    do Actor.blendPose am slots.Slots blended
+    do Actor.samplePose am 1 0.5f true sampled
+    Assert.Equal(sampled.Local.[0], blended.Local.[0])
+    Assert.Equal(6.0f, blended.Local.[0].M41)
 
 [<Fact>]
 let ``blendPose weights are relative`` () =
@@ -334,13 +345,8 @@ let ``blendPose allocates nothing per frame`` () =
     let am = Actor.createModel m
     let pose = Actor.createPoseFrame m
     let slots = slotMap [ slotOf 0 0.0f 1.0f 24.0f; slotOf 1 0.0f 1.0f 24.0f ]
-    let span = slots.Slots
 
-    for i in 0 .. 99 do Actor.blendPose am span pose
-    let before = GC.GetAllocatedBytesForCurrentThread()
-    for i in 0 .. 999 do Actor.blendPose am span pose
-    let after = GC.GetAllocatedBytesForCurrentThread()
-    Assert.Equal(0L, after - before)
+    TestSupport.assertAllocatesNothing 100 1000 (fun () -> Actor.blendPose am slots.Slots pose)
 
 // ── Slot set algebra (spec 036, US2) ──
 
@@ -458,14 +464,13 @@ let private scaleModel () : Iqm.Model =
       Positions = [| 0.0f; 0.0f; 0.0f |]
       Normals = None
       Uvs = None
-      Tangents = None
       BlendIndices = None
       BlendWeights = None
       Triangles = [||]
       Joints = [| joint |]
       Poses = [| poseData |]
       Anims = [| a; b |]
-      FrameChannels = [| 16384; 49152 |]
+      FrameChannels = [| 16384us; 49152us |]
       NumFrameChannels = 1
       PoseChannelOffsets = [| 0 |] }
 
@@ -492,14 +497,13 @@ let private rotationModel () : Iqm.Model =
       Positions = [| 0.0f; 0.0f; 0.0f |]
       Normals = None
       Uvs = None
-      Tangents = None
       BlendIndices = None
       BlendWeights = None
       Triangles = [||]
       Joints = [| joint |]
       Poses = [| poseData |]
       Anims = [| a; b |]
-      FrameChannels = [| 0; 16384; 16384; 0 |]
+      FrameChannels = [| 0us; 16384us; 16384us; 0us |]
       NumFrameChannels = 2
       PoseChannelOffsets = [| 0 |] }
 
@@ -706,27 +710,33 @@ let private assetOf (id: string) (m: Iqm.Model) : ActorAsset.ActorAsset =
 let private renderOf (asset: ActorAsset.ActorAsset) (slots: SlotMap<AnimationSlot>) : ActorRender.ActorRender =
     { Unchecked.defaultof<ActorRender.ActorRender> with Asset = asset; AnimationSlots = slots }
 
-let private weightOf (r: ActorRender.ActorRender) (animIndex: int) : float32 =
-    let slots = r.AnimationSlots.Slots
-    let mutable w = 0.0f
-    for i in 0 .. slots.Length - 1 do
-        let slot = slots.[i]
-        if slot.Alive && slot.Value.AnimIndex = animIndex then w <- slot.Value.Weight
-    w
-
 [<Fact>]
 let ``playClip holds the pose and does not raise when the asset lacks the clip`` () =
     let mutable r = renderOf (assetOf "poor" (twoClipModel ())) (slotMap [ slotOf 0 0.0f 1.0f 24.0f ])
     // "Jog"/"Idle" are not among the asset's clips ("a", "b"): the held clip stays put rather than raising.
     do ActorRender.playClip &r "Jog"
-    Assert.Equal(1.0f, weightOf r 0)
+    Assert.Equal(Some 1.0f, ActorRender.tryClipWeight &r "a")
 
 [<Fact>]
 let ``playClip switches to a clip the asset defines`` () =
     let mutable r = renderOf (assetOf "ok" (twoClipModel ())) (slotMap [ slotOf 0 0.0f 1.0f 24.0f ])
     do ActorRender.playClip &r "b"
-    Assert.Equal(1.0f, weightOf r 1)
-    Assert.Equal(0.0f, weightOf r 0)
+    Assert.Equal(Some 1.0f, ActorRender.tryClipWeight &r "b")
+    Assert.Equal(Some 0.0f, ActorRender.tryClipWeight &r "a")
+
+[<Fact>]
+let ``playClip skips the resolve and rewrite for an unchanged locomotion clip`` () =
+    // F-29: the player calls this every play frame with the same name. A repeat must not reset the
+    // weights, so a later weight edit survives the next frame.
+    let mutable r = renderOf (assetOf "ok" (twoClipModel ())) (slotMap [ slotOf 0 0.0f 1.0f 24.0f ])
+    do ActorRender.playClip &r "b"
+    do ActorRender.setClipWeight &r "b" 0.25f
+    do ActorRender.playClip &r "b"
+    Assert.Equal(Some 0.25f, ActorRender.tryClipWeight &r "b")
+    // A different clip still takes the slow path: the target is full and the old clip zeroed.
+    do ActorRender.playClip &r "a"
+    Assert.Equal(Some 1.0f, ActorRender.tryClipWeight &r "a")
+    Assert.Equal(Some 0.0f, ActorRender.tryClipWeight &r "b")
 
 [<Fact>]
 let ``playClip reports a missing clip once per distinct name`` () =
@@ -737,3 +747,32 @@ let ``playClip reports a missing clip once per distinct name`` () =
     Assert.Equal("Jog", r.LastMissing)   // ... so a repeat does not report again (FR-013)
     do ActorRender.playClip &r "a"
     Assert.Equal("", r.LastMissing)      // a clip the asset has clears the guard
+
+[<Fact>]
+let ``modelMatrix equals scale * rotation * translation`` () =
+    // F-31: the translation row is written directly instead of composing a third matrix. The result
+    // must be the same matrix as the full product, up to floating-point rounding.
+    let transform =
+        { Entity.transformIdentity with
+            Position = Vector3(1.0f, 2.0f, 3.0f)
+            Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.7f)
+            Scale = Vector3(2.0f, 3.0f, 4.0f) }
+    let expected =
+        Matrix4x4.CreateScale transform.Scale
+        * Matrix4x4.CreateFromQuaternion transform.Rotation
+        * Matrix4x4.CreateTranslation transform.Position
+    Assert.Equal<Matrix4x4>(expected, Entity.modelMatrix transform)
+
+[<Fact>]
+let ``simulate caches the posed model and its normal matrix for draw to reuse`` () =
+    // F-22: the draw path reads these two fields instead of recomputing the posed model (or its
+    // normal matrix) inside `draw`/`outline`.
+    let mutable r = ActorRender.create 0n (TestSupport.actorAsset "aiko")
+    let model = Entity.modelMatrix { Entity.transformIdentity with Position = Vector3(1.0f, 2.0f, 3.0f) }
+    do ActorRender.simulate &r 0.0f false model Quaternion.Identity
+
+    // The up-axis fix has no translation, so the posed model keeps the entity's translation.
+    Assert.Equal(1.0f, r.PosedModel.M41)
+    Assert.Equal(2.0f, r.PosedModel.M42)
+    Assert.Equal(3.0f, r.PosedModel.M43)
+    Assert.Equal(Gpu.normalMatrix r.PosedModel, r.NormalMatrix)

@@ -82,14 +82,16 @@ type Material =
       HasEmissive : bool
       Bindings : SDL.GPUTextureSamplerBinding array }
 
-let private createSampler (device: Gpu.Device) : Gpu.Sampler =
+/// The shared linear-mipmap sampler. The address mode is the one thing callers differ on:
+/// textures repeat, the glyph atlas clamps to an edge so one glyph cannot bleed into its neighbour.
+let createSampler (device: Gpu.Device) (addressMode: SDL.GPUSamplerAddressMode) : Gpu.Sampler =
     let mutable info = SDL.GPUSamplerCreateInfo()
     info.MinFilter <- SDL.GPUFilter.Linear
     info.MagFilter <- SDL.GPUFilter.Linear
     info.MipmapMode <- SDL.GPUSamplerMipmapMode.Linear
-    info.AddressModeU <- SDL.GPUSamplerAddressMode.Repeat
-    info.AddressModeV <- SDL.GPUSamplerAddressMode.Repeat
-    info.AddressModeW <- SDL.GPUSamplerAddressMode.Repeat
+    info.AddressModeU <- addressMode
+    info.AddressModeV <- addressMode
+    info.AddressModeW <- addressMode
     SDL.CreateGPUSampler(device, &info)
 
 // Wrap a Texture as a texture+sampler binding (fixed shader slot).
@@ -170,7 +172,7 @@ let createFromDecoded (batch: Gpu.UploadBatch) (device: Gpu.Device) (image: Deco
     info.SampleCount <- SDL.GPUSampleCount.SampleCount1
     let handle = SDL.CreateGPUTexture(device, &info)
     if handle = IntPtr.Zero then failwith "texture: failed to create GPU texture"
-    let sampler = createSampler device
+    let sampler = createSampler device SDL.GPUSamplerAddressMode.Repeat
     stats.CreateNs <- stats.CreateNs + (Stopwatch.GetTimestamp() - c0)
     stats.Creates <- stats.Creates + 1
 
@@ -220,7 +222,7 @@ let solid (device: Gpu.Device) (r: byte) (g: byte) (b: byte) (a: byte) : Texture
     SDL.SubmitGPUCommandBuffer(cmd) |> ignore
     SDL.ReleaseGPUTransferBuffer(device, transfer)
 
-    { Device = device; Handle = handle; Sampler = createSampler device; Bytes = 4L }
+    { Device = device; Handle = handle; Sampler = createSampler device SDL.GPUSamplerAddressMode.Repeat; Bytes = 4L }
 
 // Release a texture's sampler and its GPU image. Created together, owned together:
 // every texture is freed through here so no owner has to know the SDL calls.

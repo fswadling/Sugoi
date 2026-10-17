@@ -56,85 +56,79 @@ let fork (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 /// second notion of "in progress".
 let canFile (cue: Cue) : bool = not (CueTree.executing cue)
 
-// ── the text field's NUL-terminated buffer ──
-
-let private bufferText (buffer: byte[]) : string =
-    let zero = System.Array.IndexOf(buffer, 0uy)
-    let length = if zero < 0 then buffer.Length else zero
-    if length = 0 then "" else System.Text.Encoding.UTF8.GetString(buffer, 0, length)
-
 // ── the panel ──
 
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    do ImGui.beginWindow("Scenario", System.IntPtr.Zero, 0) |> ignore
+    let visible = ImGui.beginWindow("Scenario", System.IntPtr.Zero, 0)
+    if visible then
 
-    // The field names a new scenario. Add is offered only for a name that survives trimming and is not already
-    // present, and clears the field on success so the next name can be typed straight away (the Advent panel rule).
-    let buffer = state.Editor.ScenarioNameBuffer
-    do ImGui.inputText("Name##addscenario", buffer, unativeint buffer.Length, 0, System.IntPtr.Zero, System.IntPtr.Zero) |> ignore
-    let typed = normalise (bufferText buffer)
-    do ImGui.sameLine(0.0f, -1.0f)
-    let addable = canAdd typed state.Scenarios
-    do ImGui.beginDisabled(not addable)
-    if ImGui.smallButton("Add##addscenario_btn") && addable then
-        do commit shared &state (add typed state.Scenarios)
-        do System.Array.Clear(buffer, 0, buffer.Length)
-    do ImGui.endDisabled()
+        // The field names a new scenario. Add is offered only for a name that survives trimming and is not already
+        // present, and clears the field on success so the next name can be typed straight away (the Advent panel rule).
+        let buffer = state.Editor.ScenarioNameBuffer
+        do ImGui.inputText("Name##addscenario", buffer, unativeint buffer.Length, 0, System.IntPtr.Zero, System.IntPtr.Zero) |> ignore
+        let typed = normalise (ImGui.bufferText buffer)
+        do ImGui.sameLine(0.0f, -1.0f)
+        let addable = canAdd typed state.Scenarios
+        do ImGui.beginDisabled(not addable)
+        if ImGui.smallButton("Add##addscenario_btn") && addable then
+            do commit shared &state (add typed state.Scenarios)
+            do System.Array.Clear(buffer, 0, buffer.Length)
+        do ImGui.endDisabled()
 
-    // The current scenarios, in the order they were added. Register files the current scene under the name; Clear
-    // empties a registered scenario but keeps its name; Fork (enabled only when registered) materialises it; Delete
-    // removes the name and its contents. The name is unique in the library, so it is a stable widget id.
-    let scenarioNames = names state.Scenarios
-    let fileable = canFile state.Cue
-    if scenarioNames.IsEmpty then
-        do ImGui.text "(none)"
-    else
-        for name in scenarioNames do
-            do ImGui.pushId name
+        // The current scenarios, in the order they were added. Register files the current scene under the name; Clear
+        // empties a registered scenario but keeps its name; Fork (enabled only when registered) materialises it; Delete
+        // removes the name and its contents. The name is unique in the library, so it is a stable widget id.
+        let scenarioNames = names state.Scenarios
+        let fileable = canFile state.Cue
+        if scenarioNames.IsEmpty then
+            do ImGui.text "(none)"
+        else
+            for name in scenarioNames do
+                do ImGui.pushId name
 
-            let registered = tryContents name state.Scenarios
+                let registered = tryContents name state.Scenarios
 
-            // What the row reports: the number of zones filed, or that nothing is (yet). The cue is the screen's,
-            // so it is the zone count that says a scenario is non-empty.
-            let preview =
-                match registered with
-                | Some contents -> sprintf "%d zone(s)" contents.Zones.Count
-                | None -> "(none)"
+                // What the row reports: the number of zones filed, or that nothing is (yet). The cue is the screen's,
+                // so it is the zone count that says a scenario is non-empty.
+                let preview =
+                    match registered with
+                    | Some contents -> sprintf "%d zone(s)" contents.Zones.Count
+                    | None -> "(none)"
 
-            do ImGui.text name
-            do ImGui.sameLine(0.0f, 8.0f)
-            do ImGui.text preview
+                do ImGui.textUnformatted name
+                do ImGui.sameLine(0.0f, 8.0f)
+                do ImGui.textUnformatted preview
 
-            // Register captures the current scene as the scenario's contents. Refused while the cue is still
-            // mid-run — it cannot round-trip through the project file — and the control says why (spec 095 FR-018).
-            do ImGui.sameLine(0.0f, 8.0f)
-            do ImGui.beginDisabled (not fileable)
-            if ImGui.smallButton "Register" then
-                do commit shared &state (setContents name (Some (capture state.Zones state.Cue)) state.Scenarios)
-            do ImGui.endDisabled()
-            if not fileable then
-                do ImGui.setItemTooltip "The cue is still running — stop play first"
+                // Register captures the current scene as the scenario's contents. Refused while the cue is still
+                // mid-run — it cannot round-trip through the project file — and the control says why (spec 095 FR-018).
+                do ImGui.sameLine(0.0f, 8.0f)
+                do ImGui.beginDisabled (not fileable)
+                if ImGui.smallButton "Register" then
+                    do commit shared &state (setContents name (Some (capture state.Zones state.Cue)) state.Scenarios)
+                do ImGui.endDisabled()
+                if not fileable then
+                    do ImGui.setItemTooltip "The cue is still running — stop play first"
 
-            // Clear empties a registered scenario, so it is offered only when there is something to clear; the
-            // affordance is drawn where it becomes usable, not hidden. The name is kept.
-            do ImGui.sameLine(0.0f, 8.0f)
-            do ImGui.beginDisabled (Option.isNone registered)
-            if ImGui.smallButton "Clear" then
-                do commit shared &state (setContents name None state.Scenarios)
-            do ImGui.endDisabled()
+                // Clear empties a registered scenario, so it is offered only when there is something to clear; the
+                // affordance is drawn where it becomes usable, not hidden. The name is kept.
+                do ImGui.sameLine(0.0f, 8.0f)
+                do ImGui.beginDisabled (Option.isNone registered)
+                if ImGui.smallButton "Clear" then
+                    do commit shared &state (setContents name None state.Scenarios)
+                do ImGui.endDisabled()
 
-            // Fork adds the scenario's entities to the scene and forks its cue, as one undoable step (spec 078).
-            do ImGui.sameLine(0.0f, 8.0f)
-            do ImGui.beginDisabled (Option.isNone registered)
-            if ImGui.smallButton "Fork" then
-                do fork shared &state name
-            do ImGui.endDisabled()
+                // Fork adds the scenario's entities to the scene and forks its cue, as one undoable step (spec 078).
+                do ImGui.sameLine(0.0f, 8.0f)
+                do ImGui.beginDisabled (Option.isNone registered)
+                if ImGui.smallButton "Fork" then
+                    do fork shared &state name
+                do ImGui.endDisabled()
 
-            // Delete removes the name and any contents filed under it, so the row leaves the list.
-            do ImGui.sameLine(0.0f, 8.0f)
-            if ImGui.smallButton "Delete" then
-                do commit shared &state (remove name state.Scenarios)
+                // Delete removes the name and any contents filed under it, so the row leaves the list.
+                do ImGui.sameLine(0.0f, 8.0f)
+                if ImGui.smallButton "Delete" then
+                    do commit shared &state (remove name state.Scenarios)
 
-            do ImGui.popId()
+                do ImGui.popId()
 
     do ImGui.endWindow()

@@ -12,35 +12,17 @@ open Prime
 open Command
 open Entity
 open ScenarioRegistry
+open TestSupport
 
 // ── fixtures ──
 
-let private entity (name: string) : Entity =
-    { Name = name
-      Transform = transformIdentity
-      Enabled = true
-      Visible = true
-      Selectable = true
-      Draggable = true }
-
-// An actor value, as the player-designation test needs one — no renderer, which it never dereferences.
-let private actor (name: string) : Actor =
-    { State = { Base = entity name; AssetId = ""; ShowCollider = false }
-      Physics = None
-      Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
-
 /// A headless gameplay state: the single `GameplayState.startZone` zone, as the app starts.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
+    headlessState ()
 
 /// A device-free `SharedState`: an empty asset manager and an empty flag set.
 let private sharedState () : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    headlessShared ()
 
 /// Register the current scene under `"Intro"`, the way the panel's Register control does — one `SetScenario` step.
 let private register (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =

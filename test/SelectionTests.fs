@@ -12,45 +12,15 @@ open Prime
 open System.Numerics
 open Command
 open Entity
-
-let private entity (name: string) : Entity =
-    { Name = name
-      Transform = transformIdentity
-      Enabled = true
-      Visible = true
-      Selectable = true
-      Draggable = true }
+open TestSupport
 
 // A device-free shared state: a rename touches no asset and no body, so empty tables
 // and a bare physics world are enough.
 let private sharedState () : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    headlessShared ()
 
 let private gameplayState (zone: Zone.Zone) : GameplayState.GameplayState =
-    let zones = Dictionary<string, Zone.Zone>()
-    zones.[GameplayState.startZone] <- zone
-    { Camera = Camera.create Vector3.Zero Vector3.Zero
-      DebugDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
-      GizmoDraw = Unchecked.defaultof<DebugDraw.DebugDraw>
-      Ui = Unchecked.defaultof<Ui.Ui>
-      Skydome = Unchecked.defaultof<Skydome.Skydome>
-      Dialogue = Dialogue.empty
-      Zones = zones
-      Scenarios = ScenarioRegistry.create ()
-      Physics = Physics.create ()
-      ActiveZone = GameplayState.startZone
-      Editor = EditorState.create ()
-      Editing = true
-      Follow = Systems.createFollow ()
-      InteractableTrigger = ValueNone
-      Cue = Cue.Fin
-      PlayTime = 0.0
-      Fade = 0.0f }
+    stateWithZone zone
 
 // ── Rename ──
 
@@ -72,12 +42,10 @@ let ``renaming records one Rename step and undo and redo swap the names`` () =
         Assert.Equal("entrance", after)
     | other -> Assert.Fail(sprintf "expected exactly one Rename command, got %A" other)
 
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
     Assert.Equal("start", (Zone.tryEntityAt zone ref).Value.Name)
 
-    let redo = UndoStack.redo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = redo }
+    do Undo.redoHistory shared &state
     Assert.Equal("entrance", (Zone.tryEntityAt zone ref).Value.Name)
 
 [<Fact>]
@@ -213,8 +181,7 @@ let ``linking pushes one Link step carrying both sides, and undo restores the pr
     Selection.linkRef shared &state a (Some c)
     Assert.Equal(Some c, Zone.waypointNext zone a)
 
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
     Assert.Equal(Some b, Zone.waypointNext zone a)
 
 [<Fact>]
@@ -251,8 +218,7 @@ let ``deleting a mid-chain waypoint and undoing restores the whole chain`` () =
     Assert.Equal(2u, zone.Waypoints.Count)
     Assert.True(Option.isNone (Zone.waypointNext zone a))
 
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
 
     // Both links resolve again: the restored waypoint re-occupied its slot with the
     // generation the links recorded, and its own link came back with the record the
@@ -276,8 +242,7 @@ let ``deleting a waypoint and undoing restores every authored field`` () =
     Selection.deleteRef shared &state ref
     Assert.False(Zone.isAlive zone ref)
 
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
 
     // Name, transform, and the link are all back; none of them was reset to a default.
     let restored = (Zone.tryEntityAt zone ref).Value
@@ -299,8 +264,7 @@ let ``deleting a trigger and undoing restores its shape but not its runtime flag
 
     Selection.deleteRef shared &state ref
 
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
 
     let restored = (Zone.tryTriggerAt zone ref).Value
     Assert.Equal(3.0f, restored.State.Radius)
@@ -320,10 +284,9 @@ let ``repeating delete, undo, and redo leaves the entity identical`` () =
     for _ in 1 .. 50 do
         Selection.deleteRef shared &state ref
         Assert.False(Zone.isAlive zone ref)
-        let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-        let redo = UndoStack.redo undo zone state.Physics shared.Assets
-        let undone = UndoStack.undo redo zone state.Physics shared.Assets
-        state.Editor <- { state.Editor with Undo = undone }
+        do Undo.undoHistory shared &state
+        do Undo.redoHistory shared &state
+        do Undo.undoHistory shared &state
 
     // Fifty cycles leave exactly the entity the first one did, with no drift.
     Assert.True(Zone.isAlive zone ref)
@@ -336,13 +299,7 @@ let ``the collider overlay is recorded with the actor and is not an undo step`` 
     // Added straight to the slot map: an actor's renderer needs a GPU device both to build
     // and to release, so this test stops at what a delete records. Undoing an actor delete
     // is covered by the interactive walk in the quickstart.
-    let handle =
-        zone.Actors.Add({ State =
-                            { Base = entity "hero"
-                              AssetId = "character"
-                              ShowCollider = false }
-                          Physics = None
-                          Renderer = Unchecked.defaultof<ActorRender.ActorRender> })
+    let handle = zone.Actors.Add(actor "hero")
     let ref = actorRef handle.Index handle.Generation
     let mutable state = gameplayState zone
 
@@ -391,12 +348,7 @@ let ``consecutive transforms on one ref merge into a single step`` () =
 // renderer a spawn would build (the collider-overlay test above stops at the same line).
 let private playerZone () : Zone.Zone * EntityRef * EntityRef =
     let add (name: string) (zone: Zone.Zone) =
-        zone.Actors.Add({ State =
-                            { Base = entity name
-                              AssetId = "character"
-                              ShowCollider = false }
-                          Physics = None
-                          Renderer = Unchecked.defaultof<ActorRender.ActorRender> })
+        zone.Actors.Add(actor name)
     let zone = Zone.create ()
     let hero = add "hero" zone
     let rival = add "rival" zone
@@ -415,12 +367,10 @@ let ``setting the player records one SetPlayer step and undo puts the previous d
 
     // Re-designating carries the previous actor, so the first undo is the *previous actor*, not no player.
     Selection.setPlayer shared &state rival
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
     Assert.Equal(hero.Index, zone.Player.Value.Index)
 
-    let undo = UndoStack.undo state.Editor.Undo zone state.Physics shared.Assets
-    state.Editor <- { state.Editor with Undo = undo }
+    do Undo.undoHistory shared &state
     Assert.True(ValueOption.isNone zone.Player)
 
 [<Fact>]

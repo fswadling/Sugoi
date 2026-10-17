@@ -156,6 +156,12 @@ let placeOf (cmd: Command) : string option =
     | SetMix _ ->
         None
 
+/// Whether `cmd` is carried out by the state-level runner (`Undo`) rather than by a zone. One classifier:
+/// placement (`placeOf`) answers it, and application/inversion refuse a state-level step through it, so a new
+/// state-level case cannot be classified in one dispatcher and forgotten in the others.
+let isStateLevel (cmd: Command) : bool =
+    Option.isNone (placeOf cmd)
+
 // ── apply / undo a single command ──
 
 let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
@@ -202,19 +208,11 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
     // A zone move is not an edit to one zone, so the zone-level runner cannot carry it out: `Undo.apply`
     // does, against the state (spec 048). The cue is the same kind of step (spec 049) — it is not a zone's
     // either. Reaching one of these here is a broken invariant, not a value to ignore.
-    | ZoneMove _
-    | ZoneAdd _
-    | ZoneDelete _
-    | ZonePresent _
-    | ZoneStage _
-    | ZonesClear _
-    | SetCue _
-    | Advent _
-    | SetScenario _
-    | SetMix _ ->
-        invalidOp "Command.apply: a state-level step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         for cmd in commands do apply zone physics assets cmd
+    | cmd when isStateLevel cmd ->
+        invalidOp "Command.apply: a state-level step is on the gameplay state's history, not a zone edit"
+    | _ -> invalidOp "Command.apply: an unclassified command"
 
 let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) (cmd: Command) : unit =
     match cmd with
@@ -257,20 +255,12 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
         zone.Skydome <- previous
     | SetPlayer (_, previous, _) ->
         zone.Player <- previous
-    | ZoneMove _
-    | ZoneAdd _
-    | ZoneDelete _
-    | ZonePresent _
-    | ZoneStage _
-    | ZonesClear _
-    | SetCue _
-    | Advent _
-    | SetScenario _
-    | SetMix _ ->
-        invalidOp "Command.undo: a state-level step is on the gameplay state's history, not a zone edit"
     | Batch commands ->
         // Backwards, so the reversal of a mutation happens before the reversal of what it depended on.
         for cmd in List.rev commands do undo zone physics assets cmd
+    | cmd when isStateLevel cmd ->
+        invalidOp "Command.undo: a state-level step is on the gameplay state's history, not a zone edit"
+    | _ -> invalidOp "Command.undo: an unclassified command"
 
 // ── undo stack ──
 
@@ -279,12 +269,6 @@ type UndoStack =
       Redo : Command list }
 
 module UndoStack =
-
-    // Re-bind the enclosing module's command-level apply/undo under unambiguous
-    // names — `Command` is also the name of the DU type, so `Command.undo` here
-    // would resolve to the type, not this module.
-    let private undoCommand zone physics assets cmd = undo zone physics assets cmd
-    let private applyCommand zone physics assets cmd = apply zone physics assets cmd
 
     let create () : UndoStack =
         { Applied = []; Redo = [] }
@@ -309,23 +293,3 @@ module UndoStack =
         match merge prev cmd with
         | Some merged -> { t with Applied = merged :: rest }
         | None -> { Applied = cmd :: t.Applied; Redo = [] }
-
-    // Stepping a stack against **one** zone. The editor does not use these: a step on the gameplay state's one
-    // history may be a zone move, an add or a delete, which only `Undo` can carry out (spec 048). These stay
-    // because they need no gameplay state at all, which is what the zone-level suite drives them with; a stack
-    // whose commands name different places must be stepped through `Undo` instead (spec 077).
-    let undo (t: UndoStack) (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) : UndoStack =
-        match t.Applied with
-        | [] -> t
-        | cmd :: rest ->
-
-        undoCommand zone physics assets cmd
-        { Applied = rest; Redo = cmd :: t.Redo }
-
-    let redo (t: UndoStack) (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager) : UndoStack =
-        match t.Redo with
-        | [] -> t
-        | cmd :: rest ->
-
-        applyCommand zone physics assets cmd
-        { Applied = cmd :: t.Applied; Redo = rest }

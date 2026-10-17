@@ -7,7 +7,7 @@ module Maths
 open System.Numerics
 
 /// A Catmull-Rom segment through `p1`..`p2` (with `p0`/`p3` the neighbours), at `t` in [0, 1].
-let catmullRom (p0: Vector3) (p1: Vector3) (p2: Vector3) (p3: Vector3) (t: float32) : Vector3 =
+let private catmullRom (p0: Vector3) (p1: Vector3) (p2: Vector3) (p3: Vector3) (t: float32) : Vector3 =
     let t2 = t * t
     let t3 = t2 * t
     let a = 2.0f * p1

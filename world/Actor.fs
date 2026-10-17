@@ -6,6 +6,7 @@ module Actor
 // which is neither. `world/render/ActorRender.fs` owns the upload/draw side.
 
 open System
+open System.Buffers
 open System.Numerics
 open System.Runtime.InteropServices
 open Iqm
@@ -255,6 +256,15 @@ let samplePose (m: ActorModel) (animIndex: int) (frame: float32) (loop: bool) (p
         let struct (t, r, s) = sampleJointTRS model anim f0 f1 blend j
         composeJoint m model j t r s pose
 
+// One contributing slot's frame window, computed once per blend rather than once per joint.
+[<Struct>]
+type private SlotWindow =
+    { AnimIndex : int
+      F0 : int
+      F1 : int
+      Blend : float32
+      Weight : float32 }
+
 // The weighted average of every contributing clip, composed into `pose` (FR-003).
 // Per joint: translations and scales are summed by weight and divided by the total,
 // and rotations use an incremental slerp running average — the four components of two
@@ -262,9 +272,27 @@ let samplePose (m: ActorModel) (animIndex: int) (frame: float32) (loop: bool) (p
 // falls back to its bind-pose local, so an actor holding nothing stands in its rest
 // pose (FR-008). Weights are relative, so only their proportions matter (FR-004).
 // Accumulates in per-joint locals, so it allocates nothing (FR-012). Takes the slot map's
-// span (a `Span`, as `Slots` yields) and only reads it.
+// span (a `Span`, as `Slots` yields) and only reads it. Each slot's frame window is
+// precomputed once here, in a pooled scratch, rather than per joint (F-23).
 let blendPose (m: ActorModel) (slots: Span<Slot<AnimationSlot>>) (pose: PoseFrame) : unit =
     let model = m.Model
+
+    // ── each contributing slot's frame window, once per blend ──
+    let windows = ArrayPool<SlotWindow>.Shared.Rent MaxAnimationSlots
+    try
+
+    let mutable windowCount = 0
+    for i in 0 .. slots.Length - 1 do
+        let slot = &slots.[i]
+        if slot.Alive then
+            let s = &slot.Value
+            if s.Enabled && s.Weight > 0.0f && s.AnimIndex >= 0 && s.AnimIndex < model.Anims.Length then
+                let anim = model.Anims.[s.AnimIndex]
+                if anim.NumFrames > 0 then
+                    let struct (f0, f1, blend) = frameWindow anim.NumFrames s.Frame s.Loop
+                    windows.[windowCount] <- { AnimIndex = s.AnimIndex; F0 = f0; F1 = f1; Blend = blend; Weight = s.Weight }
+                    windowCount <- windowCount + 1
+
     for j in 0 .. model.Joints.Length - 1 do
         let mutable translationSum = Vector3.Zero
         let mutable scaleSum = Vector3.Zero
@@ -272,26 +300,21 @@ let blendPose (m: ActorModel) (slots: Span<Slot<AnimationSlot>>) (pose: PoseFram
         let mutable rotationWeight = 0.0f
         let mutable active = false
 
-        for i in 0 .. slots.Length - 1 do
-            let slot = slots.[i]
-            if slot.Alive then
-                let s = slot.Value
-                if s.Enabled && s.Weight > 0.0f && s.AnimIndex >= 0 && s.AnimIndex < model.Anims.Length then
-                    let anim = model.Anims.[s.AnimIndex]
-                    if anim.NumFrames > 0 then
-                        let struct (f0, f1, blend) = frameWindow anim.NumFrames s.Frame s.Loop
-                        let struct (t, r, sc) = sampleJointTRS model anim f0 f1 blend j
-                        let w = s.Weight
-                        translationSum <- translationSum + t * w
-                        scaleSum <- scaleSum + sc * w
-                        if not active then
-                            rotation <- r
-                            rotationWeight <- w
-                            active <- true
-                        else
-                            let nextWeight = rotationWeight + w
-                            rotation <- Quaternion.Slerp(rotation, r, w / nextWeight)
-                            rotationWeight <- nextWeight
+        for k in 0 .. windowCount - 1 do
+            let window = windows.[k]
+            let anim = model.Anims.[window.AnimIndex]
+            let struct (t, r, sc) = sampleJointTRS model anim window.F0 window.F1 window.Blend j
+            let w = window.Weight
+            translationSum <- translationSum + t * w
+            scaleSum <- scaleSum + sc * w
+            if not active then
+                rotation <- r
+                rotationWeight <- w
+                active <- true
+            else
+                let nextWeight = rotationWeight + w
+                rotation <- Quaternion.Slerp(rotation, r, w / nextWeight)
+                rotationWeight <- nextWeight
 
         if active then
             let invWeight = 1.0f / rotationWeight
@@ -299,6 +322,9 @@ let blendPose (m: ActorModel) (slots: Span<Slot<AnimationSlot>>) (pose: PoseFram
         else
             let joint = model.Joints.[j]
             composeJoint m model j joint.Translate joint.Rotate joint.Scale pose
+
+    finally
+        ArrayPool<SlotWindow>.Shared.Return windows
 
 // ── slot set algebra ──
 
@@ -324,8 +350,9 @@ let setSlotWeight (m: ActorModel) (slots: SlotMap<AnimationSlot>) (animIndex: in
     let index = slotIndexOf slots animIndex
     if index >= 0 then
         let span = slots.Slots
-        let slot = span.[index]
-        span.[index] <- { slot with Value = { slot.Value with Weight = clamped; Enabled = true } }
+        let slot = &span.[index]
+        slot.Value.Weight <- clamped
+        slot.Value.Enabled <- true
     else
         slots.Add({ createSlot m.Model animIndex true with Weight = clamped }) |> ignore
 
@@ -366,8 +393,8 @@ let setMorphWeight (slots: SlotMap<MorphSlot>) (morphCount: int) (morphIndex: in
     let index = morphSlotIndexOf slots morphIndex
     if index >= 0 then
         let span = slots.Slots
-        let slot = span.[index]
-        span.[index] <- { slot with Value = { slot.Value with Weight = clamped } }
+        let slot = &span.[index]
+        slot.Value.Weight <- clamped
     else
         slots.Add({ MorphIndex = morphIndex; Weight = clamped }) |> ignore
 

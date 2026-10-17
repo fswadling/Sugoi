@@ -2,6 +2,7 @@
  [Name "Akane"]
  [Model "actors/Akane/Akane.iqm"]
  [Morphs "actors/Akane/akane.morphs"]
+ [Textures "actors/Akane/akane"]
  [Portraits [[Neutral "actors/Akane/portraits/AkaneNeutral.png"]
              [Happy "actors/Akane/portraits/AkaneHappy.png"]
              [Sad "actors/Akane/portraits/AkaneSad.png"]

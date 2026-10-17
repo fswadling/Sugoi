@@ -34,9 +34,9 @@ let view (c: Camera) : Matrix4x4 = Matrix4x4.CreateLookAt(c.Position, c.Target, 
 let proj (c: Camera) : Matrix4x4 = Matrix4x4.CreatePerspectiveFieldOfView(c.Fov, c.Aspect, c.Near, c.Far)
 let viewProjection (c: Camera) : Matrix4x4 = view c * proj c
 
-// Orbit: yaw around the up axis + pitch around the right axis, rotating the
-// position<->target offset about the target (distance preserved). Mutates the
-// camera in place.
+// Look: yaw around the up axis + pitch around the right axis, rotating the
+// target about the camera position (the position stays fixed; distance is
+// preserved). Mutates the camera in place.
 let orbit (c: byref<Camera>) (yaw: float32) (pitch: float32) : unit =
     let offset = c.Target - c.Position
     let r = right c

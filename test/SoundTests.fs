@@ -32,12 +32,7 @@ let private pool () : Sound.Voices = Sound.newVoices Audio.unavailable
 
 // A headless shared state carrying a device-free pool.
 let private sharedState () : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    TestSupport.headlessShared ()
 
 // ══════ the readout (US1) ══════
 
@@ -72,7 +67,8 @@ let ``soundAssets carries a failed asset's residency`` () =
 [<Fact>]
 let ``a fresh pool has capacity voices, all idle`` () =
     let voices = pool ()
-    Assert.Equal(Sound.capacity, voices.Tracks.Length)
+    Assert.True(voices.Tracks.Length > 0)
+    Assert.Equal(voices.Tracks.Length, voices.Playing.Length)
     Assert.True(Array.forall ((=) "") voices.Playing)
     Assert.Equal(0, voices.Next)
 
@@ -94,14 +90,15 @@ let ``playing a sound again overlaps it on the next voice`` () =
 [<Fact>]
 let ``voices are filled round-robin, wrap the cursor, and never grow the pool`` () =
     let voices = pool ()
-    for i in 1 .. Sound.capacity do do Sound.play voices (sprintf "s%d" i) 1n
+    let capacity = voices.Tracks.Length
+    for i in 1 .. capacity do do Sound.play voices (sprintf "s%d" i) 1n
     // Every voice is carrying a distinct sound, and the cursor has wrapped back to 0.
     Assert.True(Array.forall ((<>) "") voices.Playing)
     Assert.Equal(0, voices.Next)
     // One more play reuses voice 0 — the least-recently-used, i.e. the oldest.
     do Sound.play voices "again" 1n
     Assert.Equal("again", voices.Playing.[0])
-    Assert.Equal(Sound.capacity, voices.Tracks.Length)   // the pool never grew (FR-003)
+    Assert.Equal(capacity, voices.Tracks.Length)   // the pool never grew (FR-003)
 
 [<Fact>]
 let ``stop clears only the matching sound`` () =
@@ -137,7 +134,7 @@ let ``the pool is a quiet no-op when audio is unavailable`` () =
 [<Fact>]
 let ``auditioning a sound records no history step`` () =
     let shared = sharedState ()
-    let state = GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
+    let state = TestSupport.headlessState ()
     do Sound.play shared.Voices "a" 1n
     do Sound.stop shared.Voices "a"
     do Sound.stopAll shared.Voices

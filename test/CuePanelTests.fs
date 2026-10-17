@@ -1,5 +1,9 @@
 module CuePanelTests
 
+// T016 (panel list) is an integration-only exclusion: `Editor.panelNames` is private and cycling the
+// docked panels needs a live ImGui frame, so "Songs present / retired Zone Registry panel absent" is
+// asserted by the editor walkthrough rather than here. The list itself is a single private literal.
+//
 // The cue panel's readable half, asserted headlessly (spec 047): the rows it derives, the rule that decides
 // what is read-only, the paths that address a node. Nothing here opens a window, a GPU or a device — the
 // panel's drawing is the walkthrough's business, and `FR-007`'s pure function is the whole reason what it
@@ -25,79 +29,9 @@ open EditorState
 open CueEditor
 open Entity
 open Physics
+open TestSupport
 
 // ── fixtures ──
-
-/// Authoring sugar: a list of ops as the cue they denote.
-let private seqOf (cues: Cue list) : Cue =
-    match cues with
-    | [] -> Fin
-    | [ only ] -> only
-    | head :: tail -> Sequence(head, FDeque.ofList tail)
-
-/// A line's ending set and timeout as a test reads it: the author-facing summary, with the duration
-/// appended when one is set so a timeout without `ByTimeout` is still visible.
-let private describeEndings (endings: Set<Dialogue.Ending>) (timeout: float voption) : string =
-    let summary = Dialogue.summary endings timeout
-    match timeout with
-    | ValueSome seconds -> sprintf "%s@%g" summary seconds
-    | ValueNone -> summary
-
-/// The cue as a person reads it, for assertions that would otherwise compare cue values.
-let rec private describe (cue: Cue) : string =
-    match cue with
-    | Fin -> "Fin"
-    | Sequence (current, rest) ->
-        let parts = Seq.append (Seq.singleton (describe current)) (FDeque.toSeq rest |> Seq.map describe)
-        "Seq[" + String.concat ", " parts + "]"
-    | Parallel (l, r) -> sprintf "Par(%s, %s)" (describe l) (describe r)
-    | Fork c -> sprintf "Fork(%s)" (describe c)
-    | Wait s | WaitState (s, _) -> sprintf "Wait %g" s
-    | FadeOut d | FadeOutState (_, d, _) -> sprintf "FadeOut %g" d
-    | FadeIn d | FadeInState (_, d, _) -> sprintf "FadeIn %g" d
-    | Exposit (t, _) -> sprintf "Exposit(%s)" t
-    | ExpositWith (t, _, e, tm) -> sprintf "ExpositWith(%s,%s)" t (describeEndings e tm)
-    | ExpositWait (t, _, e, tm) | ExpositWaitState (t, _, e, tm) -> sprintf "ExpositWait(%s,%s)" t (describeEndings e tm)
-    | CloseExposition -> "CloseExposition"
-    | Print t -> sprintf "Print(%s)" t
-    | SetZone z -> sprintf "Zone(%s)" (z)
-    | RemoveZone z -> sprintf "RemoveZone(%s)" (z)
-    | AddActor (p, a, asset, w) -> sprintf "AddActor(%s,%s,%s,%s)" (p) a asset w
-    | RemoveActor (p, a) -> sprintf "RemoveActor(%s,%s)" (p) a
-    | Animate (p, a, clip, _, d) -> sprintf "Animate(%s,%s,%s,%g)" (p) a clip d
-    | CrossFadeAnimation (p, a, f, t, _, d) -> sprintf "CrossFadeAnimation(%s,%s,%s,%s,%g)" (p) a f t d
-    | Morph (p, a, m, _, d) -> sprintf "Morph(%s,%s,%s,%g)" (p) a m d
-    | CrossFadeMorph (p, a, f, t, _, d) -> sprintf "CrossFadeMorph(%s,%s,%s,%s,%g)" (p) a f t d
-    | BlendState (a, _, _, morph, f, t, _, _, _, _, _) -> sprintf "Blend(%s,%b,%s,%s)" a morph f t
-    | MoveActor (a, p, _, mv, idl) -> sprintf "MoveActor(%s,%s,%s,%s)" a p mv idl
-    | MoveActorState (a, _, _, _, _, _, _, _, _, _, _, _) -> sprintf "MoveActor(%s)" a
-    | RotateActor (a, w, d) -> sprintf "RotateActor(%s,%s,%g)" a w d
-    | RotateActorState (a, _, _, _, _, _, _) -> sprintf "RotateActor(%s)" a
-    | EnablePlayer (p, a) -> sprintf "EnablePlayer(%s,%s)" (p) a
-    | DisablePlayer (p, a) -> sprintf "DisablePlayer(%s,%s)" (p) a
-    | EnableTrigger (p, t) -> sprintf "EnableTrigger(%s,%s)" (p) t
-    | DisableTrigger (p, t) -> sprintf "DisableTrigger(%s,%s)" (p) t
-    | SetCamera (p, w) -> sprintf "Camera(%s,%s)" (p) w
-    | FlyCamera (p, path, _) -> sprintf "Fly(%s,%s)" (p) path
-    | FlyCameraState (path, _, _, _, _) -> sprintf "Fly(%s)" path
-    | AddAdvent m -> sprintf "Add(%s)" m
-    | RemoveAdvent m -> sprintf "Remove(%s)" m
-    | Await m | AwaitState m -> sprintf "Await(%s)" m
-    | If (m, _, _) -> sprintf "If(%s)" m
-    | ForkScenario scenario -> sprintf "ForkScenario(%s)" scenario
-    | AddMusic song -> sprintf "AddMusic(%s)" song
-    | RemoveMusic song -> sprintf "RemoveMusic(%s)" song
-    | PlayMusic song -> sprintf "PlayMusic(%s)" song
-    | StopMusic song -> sprintf "StopMusic(%s)" song
-    | PlayBed -> "PlayBed"
-    | StopBed -> "StopBed"
-    | SetMusicLevel (song, level, d) -> sprintf "SetMusicLevel(%s,%g,%g)" song level d
-    | SetMusicMaster (level, d) -> sprintf "SetMusicMaster(%g,%g)" level d
-    | MusicLevelState (song, _, target, d, _) -> sprintf "MusicLevelState(%s,%g,%g)" song target d
-    | MusicMasterState (_, target, d, _) -> sprintf "MusicMasterState(%g,%g)" target d
-    | CrossFadeMusic (fromSong, toSong, d) -> sprintf "CrossFadeMusic(%s,%s,%g)" fromSong toSong d
-    | CrossFadeMusicState (fromSong, toSong, _, _, d, _) -> sprintf "CrossFadeMusicState(%s,%s,%g)" fromSong toSong d
-    | PlaySound sound -> sprintf "PlaySound(%s)" sound
 
 let private raises (f: unit -> unit) : bool =
     try
@@ -112,21 +46,13 @@ let private lockedPaths (cue: Cue) : int list list =
 /// A headless gameplay state, the way `test/CueTests.fs` builds one: `Unchecked.defaultof` for the GPU pieces,
 /// so the panel's write path is assertable with no device.
 let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
+    TestSupport.headlessState ()
 
 /// A headless `SharedState` for the history cases: a real physics world and a device-free, empty asset manager.
 /// Nothing here spawns an entity — the transform below acts on an actor placed directly in the zone, and a cue
 /// step touches no resource — so only the physics world is ever read.
 let private sharedState () : SharedState.SharedState =
-    let assets : Assets.AssetManager =
-        TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = assets
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
+    TestSupport.headlessShared ()
 
 /// An actor placed directly in a zone, its renderer left default: enough for a `Transform` step, which rebuilds
 /// only the physics body and the authored state.
@@ -446,8 +372,8 @@ let ``only the text-bearing kinds carry text, and writing it replaces exactly th
     Assert.Equal("Exposit(hi)", describe (withText (Exposit("hello", Dialogue.Kind.Dialogue)) "hi"))
     Assert.Equal("Zone(Island)", describe (withPlace "Island" (SetZone GameplayState.startZone)))
     Assert.Equal("RemoveZone(Island)", describe (withPlace "Island" (RemoveZone GameplayState.startZone)))
-    Assert.Equal("Camera(Island,atrium)", describe (withText (SetCamera("Island", "balcony")) "atrium"))
-    Assert.Equal("Fly(Island,route)", describe (withText (FlyCamera("Island", "lo", 2.0)) "route"))
+    Assert.Equal("SetCamera(Island,atrium)", describe (withText (SetCamera("Island", "balcony")) "atrium"))
+    Assert.Equal("FlyCamera(Island,route)", describe (withText (FlyCamera("Island", "lo", 2.0)) "route"))
     Assert.True(raises (fun () -> withText (Wait 1.0) "x" |> ignore))
 
 [<Fact>]
@@ -748,18 +674,21 @@ let ``a cue edit made before a zone move is still reachable after it`` () =
 // ══════ the panel has no undo of its own (spec 049: FR-003, SC-002) ══════
 
 [<Fact>]
-let ``the cue panel exposes no undo or redo of its own`` () =
-    // The two controls and the four functions behind them are gone; the one undo is the keyboard's and the Edit
-    // menu's. Asserted on the compiled surface, because there is no device to draw the panel with.
-    let surface =
-        match typeof<GameplayState.GameplayState>.Assembly.GetType "CueEditor" with
-        | null -> failwith "the CueEditor module type was not found in the assembly"
-        | surface -> surface
+let ``a cue edit routes through the one history, which is its only stepper`` () =
+    // The panel has no history of its own: `commit` pushes one `SetCue` step, and the one history's
+    // steppers take it back and re-apply it. This is the behavioural form of "no undo control here".
+    let mutable state = newState ()
+    let shared = sharedState ()
+    state.Cue <- seqOf [ Wait 1.0 ]
+    do CueEditor.commit &state (seqOf [ Wait 2.0 ])
+    match state.Editor.Undo.Applied with
+    | [ SetCue _ ] -> ()
+    | other -> Assert.Fail(sprintf "expected one SetCue step, got %A" other)
 
-    let names = surface.GetMethods() |> Array.map (fun m -> m.Name) |> Set.ofArray
-    Assert.Contains("commit", names) // the anchor: the lookup resolved the module's own type
-    for gone in [ "undo"; "redo"; "canUndo"; "canRedo" ] do
-        Assert.DoesNotContain(gone, names)
+    do Undo.undoHistory shared &state
+    Assert.Equal("Wait 1", describe state.Cue)
+    do Undo.redoHistory shared &state
+    Assert.Equal("Wait 2", describe state.Cue)
 
 [<Fact>]
 let ``a cue edit leaves the one history something to take back`` () =
@@ -837,7 +766,11 @@ let ``the inline trigger editor resets when the selected trigger changes`` () =
 let ``the trigger inline editor keeps its own selection and text buffer`` () =
     // FR-007: the two editors cannot share a selection or a buffer.
     let mutable state = newState ()
-    Assert.False(System.Object.ReferenceEquals(state.Editor.CueTextBuffer, state.Editor.TriggerCueTextBuffer))
+    // Distinct storage: writing one buffer leaves the other untouched.
+    state.Editor.CueTextBuffer.[0] <- 1uy
+    state.Editor.TriggerCueTextBuffer.[0] <- 2uy
+    Assert.Equal(1uy, state.Editor.CueTextBuffer.[0])
+    Assert.Equal(2uy, state.Editor.TriggerCueTextBuffer.[0])
 
     state.Editor <- { state.Editor with CueSelection = Some [ 0 ]; TriggerCueSelection = Some [ 1 ] }
     Assert.Equal<int list option>(Some [ 0 ], state.Editor.CueSelection)
@@ -866,10 +799,10 @@ let ``the blend, motion and player ops render, and their writes replace their fi
     Assert.Equal(ValueSome "Idle", textOf (CrossFadeAnimation("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
     Assert.Equal(ValueSome "Jog", textOf2 (CrossFadeAnimation("Island", "Aiko", "Idle", "Jog", 1.0f, 1.0)))
     // the move's path is the waypoint writer's, and its two clips are the two text fields
-    Assert.Equal("MoveActor(Aiko,atrium,Jog,Idle)", describe (withWaypoint "atrium" (MoveActor("Aiko", "route", 3.5, "Jog", "Idle"))))
+    Assert.Equal("MoveActor(Aiko,atrium)", describe (withWaypoint "atrium" (MoveActor("Aiko", "route", 3.5, "Jog", "Idle"))))
     Assert.Equal(ValueSome "Jog", textOf (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")))
     Assert.Equal(ValueSome "Idle", textOf2 (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")))
-    Assert.Equal("MoveActor(Aiko,route,Walk,Idle)", describe (withText (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")) "Walk"))
+    Assert.Equal(ValueSome "Walk", textOf (withText (MoveActor("Aiko", "route", 3.5, "Jog", "Idle")) "Walk"))
     // the rotate op names a waypoint, not a text field
     Assert.Equal(ValueNone, textOf (RotateActor("Aiko", "door", 1.0)))
     Assert.Equal(ValueNone, textOf2 (RotateActor("Aiko", "door", 1.0)))

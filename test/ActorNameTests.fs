@@ -15,50 +15,8 @@ open Gltf
 open Entity
 open TestSupport
 
-// A zero model: enough for `ActorRender.create` to hold no clip and pose nothing.
-let private emptyModel () : Iqm.Model =
-    { Meshes = [||]
-      Positions = [||]
-      Normals = None
-      Uvs = None
-      Tangents = None
-      BlendIndices = None
-      BlendWeights = None
-      Triangles = [||]
-      Joints = [||]
-      Poses = [||]
-      Anims = [||]
-      FrameChannels = [||]
-      NumFrameChannels = 0
-      PoseChannelOffsets = [||] }
-
-// An actor asset in the loaded shape, its GPU mesh defaulted: `createActorRender` builds a per-instance
-// renderer from it, and the zero-device buffers it creates are never read here.
-let private actorAsset (id: string) : ActorAsset.ActorAsset =
-    { Id = id
-      Name = id
-      ModelPath = ""
-      Bounds = { Min = Vector3.Zero; Max = Vector3.One }
-      Mesh = Unchecked.defaultof<Mesh.Mesh>
-      Model = Actor.createModel (emptyModel ())
-      Morphs = None
-      Portraits = None; SwayChains = [||] }
-
 let private headlessAssets () : Assets.AssetManager =
-    let actors = Dictionary<string, ActorAsset.ActorAsset>()
-    actors.["aiko"] <- actorAsset "aiko"
-    TestSupport.manager IntPtr.Zero actors (Dictionary()) (Dictionary())
-
-let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>
-      Assets = assets
-      Advents = OSet.ofSeq1 []
-      Mix = Music.empty
-      Rack = Music.newRack ()
-      Voices = Sound.newVoices Audio.unavailable }
-
-let private newState () : GameplayState.GameplayState =
-    GameplayState.create (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<DebugDraw.DebugDraw>) (Unchecked.defaultof<Ui.Ui>) (Unchecked.defaultof<Skydome.Skydome>)
+    managerWith [ "aiko", actorAsset "aiko" ] [] []
 
 // Spawn an actor named `name` into the active zone, through the editor path — no cast argument: an actor
 // carries no role, its name is its identity (spec 072 FR-001).
@@ -70,8 +28,8 @@ let private spawn (shared: SharedState.SharedState) (state: byref<GameplayState.
 
 [<Fact>]
 let ``Zone.tryActorByName finds a named live actor by its name and misses an unknown one`` () =
-    let shared = sharedState (headlessAssets ())
-    let mutable state = newState ()
+    let shared = headlessSharedWith (headlessAssets ())
+    let mutable state = headlessState ()
     let ref = spawn shared &state "Aiko"
     let zone = GameplayState.activeZone state
 
@@ -82,8 +40,8 @@ let ``Zone.tryActorByName finds a named live actor by its name and misses an unk
 
 [<Fact>]
 let ``a duplicate name resolves to the first actor, silently`` () =
-    let shared = sharedState (headlessAssets ())
-    let mutable state = newState ()
+    let shared = headlessSharedWith (headlessAssets ())
+    let mutable state = headlessState ()
     let first = spawn shared &state "Aiko"
     let second = spawn shared &state "Aiko"
     Assert.NotEqual(first, second)

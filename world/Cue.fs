@@ -5,7 +5,7 @@ module Cue
 // down to `Fin` — what is left when a cue finishes, and where it then rolls.
 //
 // The ops with no progress of their own (`Exposit`, `ExpositWith`, `CloseExposition`, `Print`, `SetZone`,
-// `AddZone`, `RemoveZone`, `PreloadZone`, `AddActor`, `RemoveActor`, `EnablePlayer`, `DisablePlayer`,
+// `RemoveZone`, `AddActor`, `RemoveActor`, `EnablePlayer`, `DisablePlayer`,
 // `EnableTrigger`, `DisableTrigger`, `SetCamera`, `AddAdvent`, `RemoveAdvent`, `PlaySound`) hold no record;
 // a leaf that spans time carries its numbers in its own `…State` case (`WaitState`'s deadline,
 // `FlyCameraState`'s resolved path, the fade states' captured level, `BlendState`'s captured weights,

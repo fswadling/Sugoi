@@ -92,10 +92,14 @@ let release (m: Mesh) : unit =
 // Bind the cel pipeline, push the vertex + cel-fragment uniforms, bind each submesh's albedo
 // sampler, and issue one indexed draw per submesh. The bone storage buffer is bound by
 // ActorRender first. `faceDir` is the actor's idealized face-light direction (world space).
-let draw (m: Mesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (light: Light) (faceDir: Vector3) : unit =
+//
+// Parameter order: viewProjection, model, normalMatrix, light, faceDir. The caller computes
+// `normalMatrix` once (Gpu.normalMatrix of the model) and passes it to both `draw` and
+// `drawOutline`, so one inversion serves the surface and the outline pass.
+let draw (m: Mesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (normalMatrix: Matrix4x4) (light: Light) (faceDir: Vector3) : unit =
     do writeMatrix m.PerDrawUniformBytes 0 viewProjection
     do writeMatrix m.PerDrawUniformBytes 64 model
-    do writeMatrix m.PerDrawUniformBytes 128 (normalMatrix model)
+    do writeMatrix m.PerDrawUniformBytes 128 normalMatrix
 
     do SDL.PushGPUVertexUniformData(cmd, 0u, m.PerDrawUniformBytes, 192u)
     // The cel surface is inert to the outline extrusion: push a zero-width outline uniform.
@@ -129,10 +133,12 @@ let draw (m: Mesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeli
 // No fragment uniform is pushed — outline.frag declares none. The bone storage buffer is bound by
 // ActorRender first, as for the surface. `widthWorld` is the shell's world-space width, so the line
 // shrinks with distance like the geometry (spec 041, FR-008).
-let drawOutline (m: Mesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (widthWorld: float32) : unit =
+//
+// Parameter order: viewProjection, model, normalMatrix, widthWorld. See `draw`.
+let drawOutline (m: Mesh) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) (pipeline: Gpu.Pipeline) (viewProjection: Matrix4x4) (model: Matrix4x4) (normalMatrix: Matrix4x4) (widthWorld: float32) : unit =
     do writeMatrix m.PerDrawUniformBytes 0 viewProjection
     do writeMatrix m.PerDrawUniformBytes 64 model
-    do writeMatrix m.PerDrawUniformBytes 128 (normalMatrix model)
+    do writeMatrix m.PerDrawUniformBytes 128 normalMatrix
     do writeVector4 m.OutlineUniformBytes 0 (Vector4(widthWorld, 0.0f, 0.0f, 0.0f))
 
     do SDL.PushGPUVertexUniformData(cmd, 0u, m.PerDrawUniformBytes, 192u)

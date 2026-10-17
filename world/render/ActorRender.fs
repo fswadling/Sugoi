@@ -33,9 +33,11 @@ type ActorRender =
       BoneStorageBuffers : Gpu.Buffer array // [| BoneBuffer |], reused so draw binds without allocating
       MorphStorageBuffers : Gpu.Buffer array // [| the asset's morph buffer, or BoneBuffer when it has none |]
       BoneTransfer : Gpu.TransferBuffer // upload transfer buffer, same size
-      BoneBytes : byte array        // BonesMax * 64, reused
       MorphWeightBytes : byte array // the pushed morph weights + count, reused
       Sway : Sway.SwayState         // the actor's sway chains, seeded and stepped per frame (spec 091)
+      mutable PosedModel : Matrix4x4 // `upAxisFix * model`, computed once in `simulate`
+      mutable NormalMatrix : Matrix4x4 // the posed model's normal matrix, likewise
+      mutable LocomotionClip : string // the locomotion clip last switched to, so a repeat is a no-op
       mutable LastMissing : string }        // the last clip name reported absent, so the report is once per event (spec 080, FR-013)
 
 // The animation slot capacity, re-exported for the editor's "at maximum" report
@@ -99,9 +101,11 @@ let create (device: Gpu.Device) (asset: ActorAsset.ActorAsset) : ActorRender =
       BoneStorageBuffers = [| boneBuffer |]
       MorphStorageBuffers = [| (match asset.Morphs with Some morphs -> morphs.Buffer | None -> boneBuffer) |]
       BoneTransfer = Gpu.createTransferBuffer device (uint32 (Gpu.BonesMax * 64))
-      BoneBytes = Array.zeroCreate<byte> (Gpu.BonesMax * 64)
       MorphWeightBytes = Array.zeroCreate<byte> 48
       Sway = Sway.createState asset.SwayChains
+      PosedModel = upAxisFix
+      NormalMatrix = Gpu.normalMatrix upAxisFix
+      LocomotionClip = ""
       LastMissing = "" }
 
 // The actor's per-frame step, called once per frame in *both* modes: advance the held clips' clocks
@@ -121,8 +125,14 @@ let simulate (r: byref<ActorRender>) (dt: float32) (playing: bool) (model: Matri
 
     do Actor.blendPose r.Asset.Model r.AnimationSlots.Slots r.Pose
 
+    // The posed model and its normal matrix are draw inputs, so compute them once here and let
+    // `draw` reuse them (F-22).
+    let posedModel = upAxisFix * model
+    r.PosedModel <- posedModel
+    r.NormalMatrix <- Gpu.normalMatrix posedModel
+
     if playing then
-        do Sway.apply r.Asset.Model r.Pose r.Sway dt (upAxisFix * model) (Quaternion.Multiply(rotation, upAxisFixRot))
+        do Sway.apply r.Asset.Model r.Pose r.Sway dt posedModel (Quaternion.Multiply(rotation, upAxisFixRot))
     else
         do Sway.clear r.Sway
 
@@ -221,6 +231,10 @@ let tryMorphWeight (r: byref<ActorRender>) (name: string) : float32 option =
 // and the substitution is reported once per request, not once per frame (FR-013), because
 // `Systems.animate` calls this every play frame with `"Idle"`/`"Jog"`.
 let playClip (r: byref<ActorRender>) (name: string) : unit =
+    // The locomotion caller repeats the same name every play frame; an unchanged clip is already at
+    // full weight, so skip the resolve and the slot rewrite entirely (F-29).
+    if r.LocomotionClip = name then () else
+
     let model = r.Asset.Model
 
     match Actor.tryFindAnimIndex model name with
@@ -231,11 +245,12 @@ let playClip (r: byref<ActorRender>) (name: string) : unit =
     | ValueSome index ->
 
     r.LastMissing <- ""
+    r.LocomotionClip <- name
     let slots = r.AnimationSlots
     let span = slots.Slots
     for i in 0 .. span.Length - 1 do
-        let slot = span.[i]
-        if slot.Alive then span.[i] <- { slot with Value = { slot.Value with Weight = 0.0f } }
+        let slot = &span.[i]
+        if slot.Alive then slot.Value.Weight <- 0.0f
 
     do Actor.setSlotWeight model slots index 1.0f
 
@@ -244,14 +259,14 @@ let playClip (r: byref<ActorRender>) (name: string) : unit =
 // this is only the transfer, which is what its name says.
 let upload (r: ActorRender) (cmd: Gpu.CommandBuffer) : unit =
     let mesh = r.Asset.Mesh
-    let model = r.Asset.Model
+    let jointCount = r.Asset.Model.Model.Joints.Length
+    let byteCount = jointCount * 64
+    let source = MemoryMarshal.AsBytes(r.Pose.Skinning.AsSpan(0, jointCount))
 
-    let byteCount = model.Model.Joints.Length * 64
-    for j in 0 .. model.Model.Joints.Length - 1 do
-        do Gpu.writeMatrix r.BoneBytes (j * 64) r.Pose.Skinning.[j]
-
-    let mapped = SDL.MapGPUTransferBuffer(mesh.Device, r.BoneTransfer, false)
-    do Marshal.Copy(r.BoneBytes, 0, mapped, byteCount)
+    // A buffer rewritten every frame is mapped cycled, matching the frames in flight (F-02); the
+    // palette bytes copy straight from the pose (F-22).
+    let mapped = SDL.MapGPUTransferBuffer(mesh.Device, r.BoneTransfer, true)
+    source.CopyTo(Span<byte>(mapped.ToPointer(), byteCount))
     do SDL.UnmapGPUTransferBuffer(mesh.Device, r.BoneTransfer)
 
     let copyPass = SDL.BeginGPUCopyPass(cmd)
@@ -287,9 +302,9 @@ let draw (r: ActorRender) (renderPass: Gpu.RenderPass) (cmd: Gpu.CommandBuffer) 
     do Actor.packMorphWeights r.MorphSlots.Slots morphCount Gpu.MorphsMax r.MorphWeightBytes
     do SDL.PushGPUVertexUniformData(cmd, 1u, r.MorphWeightBytes, 48u)
 
-    let posedModel = upAxisFix * model
-    do Mesh.drawOutline r.Asset.Mesh renderPass cmd outlinePipeline viewProjection posedModel outlineWidth
-    do Mesh.draw r.Asset.Mesh renderPass cmd pipeline viewProjection posedModel light (faceLightDir model)
+    let posedModel = r.PosedModel
+    do Mesh.drawOutline r.Asset.Mesh renderPass cmd outlinePipeline viewProjection posedModel r.NormalMatrix outlineWidth
+    do Mesh.draw r.Asset.Mesh renderPass cmd pipeline viewProjection posedModel r.NormalMatrix light (faceLightDir model)
 
 // Free this instance's GPU buffers (bone storage + upload transfer). Called when
 // an actor is removed from its zone. The shared `ActorAsset` (mesh + model) is

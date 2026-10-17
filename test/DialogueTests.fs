@@ -231,20 +231,12 @@ let ``a frame with no press leaves a shown line shown`` () =
 [<Fact>]
 let ``the dialogue tick allocates nothing`` () =
     let mutable line = at 0.0 (Set.ofList [ Dialogue.ByPlayer; Dialogue.ByTimeout ]) (ValueSome 10.0)
-    for _ in 1 .. 100 do do Systems.updateDialogue false false 1.0 &line
-    let before = System.GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do do Systems.updateDialogue false false 1.0 &line
-    let after = System.GC.GetAllocatedBytesForCurrentThread()
-    Assert.Equal(0L, after - before)
+    TestSupport.assertAllocatesNothing 100 2000 (fun () -> Systems.updateDialogue false false 1.0 &line)
 
 [<Fact>]
 let ``the dialogue tick with nothing shown allocates nothing`` () =
     let mutable line = Dialogue.empty
-    for _ in 1 .. 100 do do Systems.updateDialogue false false 1.0 &line
-    let before = System.GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 2000 do do Systems.updateDialogue false false 1.0 &line
-    let after = System.GC.GetAllocatedBytesForCurrentThread()
-    Assert.Equal(0L, after - before)
+    TestSupport.assertAllocatesNothing 100 2000 (fun () -> Systems.updateDialogue false false 1.0 &line)
 
 // ── The ending helpers (FR-001, FR-017) ──
 
@@ -281,12 +273,10 @@ let private portraits : ActorAsset.ActorPortraits =
       Surprised = Unchecked.defaultof<Texture.Texture> }
 
 let private assetsWith (portraitsOpt: ActorAsset.ActorPortraits option) : Assets.AssetManager =
-    let actors = Dictionary<string, ActorAsset.ActorAsset>()
-    actors.["akane"] <-
-        { Id = "akane"; Name = "Akane"; ModelPath = ""; Bounds = Unchecked.defaultof<Gltf.Bounds>
-          Mesh = Unchecked.defaultof<Mesh.Mesh>; Model = Unchecked.defaultof<Actor.ActorModel>
-          Morphs = None; Portraits = portraitsOpt; SwayChains = [||] }
-    TestSupport.manager System.IntPtr.Zero actors (Dictionary()) (Dictionary())
+    TestSupport.managerWith
+        [ "akane", { TestSupport.actorAsset "akane" with Name = "Akane"; Portraits = portraitsOpt } ]
+        []
+        []
 
 [<Fact>]
 let ``a speaker with no such asset resolves to no portrait, as an expected miss`` () =
@@ -307,28 +297,16 @@ let ``an asset named for the speaker with portraits resolves`` () =
     | Missed reason -> Assert.Fail(sprintf "expected a portrait, got %A" reason)
 
 // ── The pure draw path allocates nothing per call (FR-010, SC-007) ──
-// The same guard `test/ActorTests.fs` puts on `Actor.samplePose`: warm up the JIT, then measure the
-// current thread's allocated bytes. Both of these run on every drawn frame, so an allocation here is
-// per-frame garbage.
+// Both of these run on every drawn frame, so an allocation here is per-frame garbage.
 
 [<Fact>]
 let ``layout allocates nothing per call`` () =
-    for _ in 1 .. 1000 do layout 1280.0f 720.0f true 120.0f 48.0f |> ignore
-    let before = System.GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 10000 do layout 1280.0f 720.0f true 120.0f 48.0f |> ignore
-    let after = System.GC.GetAllocatedBytesForCurrentThread()
-    Assert.Equal(0L, after - before)
+    TestSupport.assertAllocatesNothing 1000 10000 (fun () -> layout 1280.0f 720.0f true 120.0f 48.0f |> ignore)
 
 [<Fact>]
 let ``tryPortrait allocates nothing per call`` () =
     let assets = assetsWith (Some portraits)
     // Both the resolved path and the miss path run every frame a portrait line is shown.
-    for _ in 1 .. 1000 do
+    TestSupport.assertAllocatesNothing 1000 10000 (fun () ->
         DialogueRender.tryPortrait assets "Akane" Dialogue.Sad |> ignore
-        DialogueRender.tryPortrait assets "Nobody" Dialogue.Sad |> ignore
-    let before = System.GC.GetAllocatedBytesForCurrentThread()
-    for _ in 1 .. 10000 do
-        DialogueRender.tryPortrait assets "Akane" Dialogue.Sad |> ignore
-        DialogueRender.tryPortrait assets "Nobody" Dialogue.Sad |> ignore
-    let after = System.GC.GetAllocatedBytesForCurrentThread()
-    Assert.Equal(0L, after - before)
+        DialogueRender.tryPortrait assets "Nobody" Dialogue.Sad |> ignore)

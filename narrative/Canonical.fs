@@ -60,8 +60,7 @@ module Canonical =
         | BottledUpFeelings (a, b) -> nameof BottledUpFeelings, pair a b
 
     let private render (name: string) (args: string list) : string =
-        if List.isEmpty args then name + "()"
-        else name + "(" + String.Join(", ", args) + ")"
+        name + "(" + String.Join(", ", args) + ")"
 
     let eventText (event: Event) : string =
         let name, args = eventParts event

@@ -18,53 +18,11 @@ let private aiko = Aiko
 let private akane = Akane
 let private shinji = Shinji
 
-let private befriended =
-    Rules.projection
-        "befriended"
-        { EstablishedBy =
-            function
-            | FriendshipStarted (a, b) -> ValueSome(struct (a, b))
-            | _ -> ValueNone
-          WithdrawnBy =
-            Some(
-                function
-                | FriendshipEnded (a, b) -> ValueSome(struct (a, b))
-                | _ -> ValueNone
-            )
-          Yield = fun (struct (a, b)) -> Fact.Friends(a, b) }
-
-let private attraction =
-    Rules.projection
-        "crush-started"
-        { EstablishedBy =
-            function
-            | CrushStarted (a, b) -> ValueSome(struct (a, b))
-            | _ -> ValueNone
-          WithdrawnBy = None
-          Yield = fun (struct (a, b)) -> Fact.AttractedTo(a, b) }
-
-let private relationship =
-    Rules.projection
-        "together"
-        { EstablishedBy =
-            function
-            | RelationshipStarted (a, b) -> ValueSome(struct (a, b))
-            | _ -> ValueNone
-          WithdrawnBy = None
-          Yield = fun (struct (a, b)) -> Fact.InRelationship(a, b) }
-
-let private traitAssigned =
-    Rules.projection
-        "trait-assigned"
-        { EstablishedBy =
-            function
-            | TraitAssigned (a, ascribed) -> ValueSome(struct (a, ascribed))
-            | _ -> ValueNone
-          WithdrawnBy = None
-          Yield = fun (struct (a, ascribed)) -> Fact.HasTrait(a, ascribed) }
+// T008/F-79: the projections are the shared test-only declarations in `NarrativeTestSupport`;
+// the derivations below stay local because they are what these tests are about.
 
 let private jealousy =
-    Rules.derivation "jealousy" (fun facts ->
+    Rules.derivation "jealousy" [ FactKind.AttractedTo; FactKind.InRelationship ] (fun facts ->
         facts {
             let! struct (a, wanted) = Facts.Sources.attractedTo
             let! struct (x, y) = Facts.Sources.partnersOf wanted
@@ -76,7 +34,7 @@ let private jealousy =
 
 /// One route to a threatened friendship: it is with somebody you are jealous of.
 let private threatenedByFriendship =
-    Rules.derivation "threatened-by-friendship" (fun facts ->
+    Rules.derivation "threatened-by-friendship" [ FactKind.JealousOf; FactKind.Friends ] (fun facts ->
         facts {
             let! struct (a, c) = Facts.Sources.jealousOf
             let! struct (x, y) = Facts.Sources.friendsOf a
@@ -90,7 +48,7 @@ let private threatenedByFriendship =
 /// you are hot-headed about it. Independent premises are what FR-010's multi-reason case
 /// needs.
 let private threatenedByTemper =
-    Rules.derivation "threatened-by-temper" (fun facts ->
+    Rules.derivation "threatened-by-temper" [ FactKind.JealousOf; FactKind.HasTrait ] (fun facts ->
         facts {
             let! struct (a, c) = Facts.Sources.jealousOf
             let! struct (_, ascribed) = Facts.Sources.traitsOf a
@@ -100,7 +58,7 @@ let private threatenedByTemper =
         })
 
 let private bottledUp =
-    Rules.derivation "bottled-up" (fun facts ->
+    Rules.derivation "bottled-up" [ FactKind.FriendshipThreatened; FactKind.HasTrait ] (fun facts ->
         facts {
             let! struct (a, c) = Facts.Sources.friendshipThreatened
             let! struct (_, ascribed) = Facts.Sources.traitsOf a
@@ -110,7 +68,11 @@ let private bottledUp =
         })
 
 let private rules =
-    { Projections = [ befriended; attraction; relationship; traitAssigned ]
+    { Projections =
+        [ NarrativeTestSupport.befriended
+          NarrativeTestSupport.attraction
+          NarrativeTestSupport.relationship
+          NarrativeTestSupport.traitAssigned ]
       Derivations = [ jealousy; threatenedByFriendship; threatenedByTemper; bottledUp ] }
 
 /// Aiko likes Shinji, Shinji is going out with Akane, Aiko and Akane are friends, and Aiko
@@ -126,11 +88,53 @@ let private seed : (GameTime * Event) list =
       (GameTime -300, CrushStarted(aiko, shinji))
       (GameTime -100, RelationshipStarted(shinji, akane)) ]
 
-let private run (extra: (GameTime * Event) list) =
-    List.fold Engine.commit (Engine.create rules) (seed @ extra)
+let private runRules (ruleSet: RuleSet) (extra: (GameTime * Event) list) =
+    List.fold Engine.commit (Engine.create ruleSet) (seed @ extra)
+
+let private run (extra: (GameTime * Event) list) = runRules rules extra
 
 let private reasonsOf engine fact =
     Engine.reasonsFor engine fact |> List.map (fun r -> r.Rule) |> List.sortWith Canonical.ordinal
+
+// --- T104: a nested premise concluded by a later pass ------------------------------------
+
+/// A trait concluded from the threatened friendship, so it only enters the fact set in the pass
+/// after `threatened` fires.
+let private moody =
+    Rules.derivation "moody" [ FactKind.FriendshipThreatened ] (fun facts ->
+        facts {
+            let! struct (a, _) = Facts.Sources.friendshipThreatened
+            yield Fact.HasTrait(a, Shy)
+        })
+
+/// Reads the outer premise and a nested trait premise. The trait is derived in the pass after the
+/// threatened friendship, so the rule must be re-enabled when the trait arrives — which only
+/// happens if `Mentions` names it (F-08).
+let private nestedPremise =
+    Rules.derivation "nested-premise" [ FactKind.FriendshipThreatened; FactKind.HasTrait ] (fun facts ->
+        facts {
+            let! struct (a, c) = Facts.Sources.friendshipThreatened
+            let! struct (_, ascribed) = Facts.Sources.traitsOf a
+
+            if ascribed = Shy then
+                yield Fact.BottledUpFeelings(a, c)
+        })
+
+let private nestedRules =
+    { Projections =
+        [ NarrativeTestSupport.befriended
+          NarrativeTestSupport.attraction
+          NarrativeTestSupport.relationship ]
+      Derivations = [ jealousy; threatenedByFriendship; moody; nestedPremise ] }
+
+/// No trait event: the shy trait is only ever concluded, in a later pass than the threat.
+let private nestedSeed : (GameTime * Event) list =
+    [ (GameTime -1000, Arrived aiko)
+      (GameTime -1000, Arrived akane)
+      (GameTime -1000, Arrived shinji)
+      (GameTime -800, FriendshipStarted(aiko, akane))
+      (GameTime -300, CrushStarted(aiko, shinji))
+      (GameTime -100, RelationshipStarted(shinji, akane)) ]
 
 [<Fact>]
 let ``conclusions of conclusions are reached`` () =
@@ -148,6 +152,19 @@ let ``a fact reached by two independent chains is reported once, carrying both``
     Assert.Equal<string>(
         [ "threatened-by-friendship"; "threatened-by-temper" ],
         reasonsOf engine (Fact.FriendshipThreatened(aiko, akane)))
+
+[<Fact>]
+let ``reasons are returned in the stored canonical order`` () =
+    // FR-044: the stored list is already canonical, so a reader gets it without a re-sort. Rule
+    // order must not leak into that order either (FR-019), so a reversed rule set reads the same.
+    let expected = [ "threatened-by-friendship"; "threatened-by-temper" ]
+
+    let reasonsFrom ruleSet =
+        let engine = runRules ruleSet []
+        Engine.reasonsFor engine (Fact.FriendshipThreatened(aiko, akane)) |> List.map (fun r -> r.Rule)
+
+    Assert.Equal<string>(expected, reasonsFrom rules)
+    Assert.Equal<string>(expected, reasonsFrom { rules with Derivations = List.rev rules.Derivations })
 
 [<Fact>]
 let ``no fact is reported twice however many reasons support it`` () =
@@ -196,9 +213,13 @@ let ``an inferred fact whose only support is withdrawn disappears`` () =
 [<Fact>]
 let ``an event no rule matches concludes nothing`` () =
     // FR-006. Here there are rules, so this can actually fail if the engine concluded
-    // something from an event nothing reads.
-    let engine = run [ (GameTime 0, CrushEnded(shinji, akane)) ]
-    Assert.Contains(Fact.JealousOf(aiko, akane), Engine.facts engine)
+    // something from an event nothing reads. The facts are left as the same value, so a commit
+    // that no projection reads does not rebuild them either (F-81).
+    let before = run []
+    let after = Engine.commit before (GameTime 0, CrushEnded(shinji, akane))
+
+    Assert.Contains(Fact.JealousOf(aiko, akane), Engine.facts after)
+    Assert.Same(before.Facts, after.Facts)
 
 [<Fact>]
 let ``a conclusion does not depend on which way round a mutual fact was recorded`` () =
@@ -216,6 +237,17 @@ let ``a conclusion does not depend on which way round a mutual fact was recorded
     let engine = List.fold Engine.commit (Engine.create rules) reversed
     Assert.Contains(Fact.FriendshipThreatened(aiko, akane), Engine.facts engine)
     Assert.Contains(Fact.BottledUpFeelings(aiko, akane), Engine.facts engine)
+
+[<Fact>]
+let ``a nested premise that appears in a later pass re-enables the rule`` () =
+    // T104, F-08: `nested-premise` reads FriendshipThreatened (pass 2) and HasTrait, which
+    // `moody` only concludes in pass 3. Without HasTrait on the rule's Mentions it would run once
+    // in pass 3, find no trait, and never be tried again.
+    let engine = List.fold Engine.commit (Engine.create nestedRules) nestedSeed
+
+    Assert.Contains(Fact.HasTrait(aiko, Shy), Engine.facts engine)
+    Assert.Contains(Fact.BottledUpFeelings(aiko, akane), Engine.facts engine)
+    Assert.Equal<string>([ "nested-premise" ], reasonsOf engine (Fact.BottledUpFeelings(aiko, akane)))
 
 [<Fact>]
 let ``exhausting the derivation bound is reported, naming the rules involved`` () =

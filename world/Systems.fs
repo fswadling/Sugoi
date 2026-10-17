@@ -171,21 +171,21 @@ let syncActors (world: Physics.World) (zone: Zone.Zone) : unit =
         match actor.Physics with
         | None -> ()
         | Some attachment ->
-        let offset = Vector3(0.0f, attachment.Collider.HalfHeight + attachment.Collider.Radius, 0.0f)
+        let offset = Entity.capsuleOffset attachment.Collider
         let struct (position, rotation) = Physics.getBodyTransform world attachment.Body
         actor.State.Base.Transform.Position <- position - offset
         actor.State.Base.Transform.Rotation <- rotation
 
 
 // Third-person camera position and target for a player position and facing. Pure.
-let cameraPose (position: Vector3) (yaw: float32) (follow: CameraFollow) : Vector3 * Vector3 =
+let cameraPose (position: Vector3) (yaw: float32) (follow: CameraFollow) : struct (Vector3 * Vector3) =
     let pivot = position + Vector3(0.0f, follow.Height, 0.0f)
     let forward = forwardOf yaw
     let cosPitch = MathF.Cos follow.Pitch
     let sinPitch = MathF.Sin follow.Pitch
     let offset =
         Vector3(-forward.X * follow.Distance * cosPitch, follow.Distance * sinPitch, -forward.Z * follow.Distance * cosPitch)
-    pivot + offset, pivot
+    struct (pivot + offset, pivot)
 
 // Place the camera behind and above the player from the actor's facing.
 let cameraFollow (zone: Zone.Zone) (follow: byref<CameraFollow>) (camera: byref<Camera.Camera>) : unit =
@@ -194,7 +194,7 @@ let cameraFollow (zone: Zone.Zone) (follow: byref<CameraFollow>) (camera: byref<
     let actor = &zone.Actors.Get zone.Player.Value
     let yaw = yawOf actor.State.Base.Transform.Rotation
     follow.Yaw <- yaw
-    let (cameraPosition, target) = cameraPose actor.State.Base.Transform.Position yaw follow
+    let struct (cameraPosition, target) = cameraPose actor.State.Base.Transform.Position yaw follow
     camera.Position <- cameraPosition
     camera.Target <- target
 

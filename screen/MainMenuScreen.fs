@@ -11,15 +11,15 @@ let update (_shared: SharedState.SharedState) : ScreenTransition =
 
 // Draw the menu and return the navigation requested by a clicked button.
 let draw (_shared: SharedState.SharedState) : ScreenTransition =
-    do ImGui.beginWindow("Main Menu", System.IntPtr.Zero, 0) |> ignore
-    do ImGui.text("Sugoi")
-    let playDown = ImGui.button("Play", ImGui.ImVec2(160.0f, 0.0f))
-    let quitDown = ImGui.button("Quit", ImGui.ImVec2(160.0f, 0.0f))
+    let mutable transition = ScreenTransition.None
+    let visible = ImGui.beginWindow("Main Menu", System.IntPtr.Zero, 0)
+    if visible then
+
+        do ImGui.text("Sugoi")
+        if ImGui.button("Play", ImGui.ImVec2(160.0f, 0.0f)) then
+            transition <- ScreenTransition.Next ScreenKind.Gameplay
+        if ImGui.button("Quit", ImGui.ImVec2(160.0f, 0.0f)) then
+            transition <- ScreenTransition.Quit
+
     do ImGui.endWindow()
-
-    let transition =
-        if playDown then ScreenTransition.Next ScreenKind.Gameplay
-        else if quitDown then ScreenTransition.Quit
-        else ScreenTransition.None
-
     transition

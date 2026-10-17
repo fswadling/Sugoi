@@ -5,22 +5,60 @@ module Inspector
 // is shown read-only, and actors additionally expose a toggle to visualize their
 // capsule collider.
 
-open System.Text
+open System.Numerics
 open Entity
 
-// Write `name` into `buf` as a NUL-terminated UTF-8 string. At most
-// `EditorState.entityNameMaxChars` characters are written, so a long name is
-// truncated at a character boundary and can never overrun the buffer.
-let private seedName (buf: byte[]) (name: string) : unit =
-    let charCount = min name.Length EditorState.entityNameMaxChars
-    let byteCount = Encoding.UTF8.GetBytes(name, 0, charCount, buf, 0)
-    buf.[byteCount] <- 0uy
+// The Inspector's transform readout, formatted only when the transform changes: a selection that is not being
+// moved reuses the three strings instead of rebuilding them every frame.
+let mutable private transformCache : Transform voption = ValueNone
+let mutable private transformText : string * string * string = "", "", ""
 
-// The text a NUL-terminated buffer holds, up to the first NUL.
-let private bufferText (buf: byte[]) : string =
-    let zero = System.Array.IndexOf(buf, 0uy)
-    let length = if zero < 0 then buf.Length else zero
-    if length = 0 then "" else Encoding.UTF8.GetString(buf, 0, length)
+let private transformLines (t: Transform) : string * string * string =
+    match transformCache with
+    | ValueSome cached when cached = t -> transformText
+    | _ ->
+
+    let p = t.Position
+    let r = eulerDegrees t.Rotation
+    let s = t.Scale
+    transformText <-
+        sprintf "Position: %.2f, %.2f, %.2f" p.X p.Y p.Z,
+        sprintf "Rotation: %.1f, %.1f, %.1f" r.X r.Y r.Z,
+        sprintf "Scale: %.2f, %.2f, %.2f" s.X s.Y s.Z
+    transformCache <- ValueSome t
+    transformText
+
+// One committed text field: re-seeded, and re-pointed at `ref`, only while it is not live; committed once the
+// widget is submitted or left. Returns the owner the text belongs to, the commit (if any), and liveness.
+let private committedText
+    (label: string)
+    (buffer: byte[])
+    (maxChars: int)
+    (owner: EntityRef option)
+    (editing: bool)
+    (ref: EntityRef)
+    (seed: string)
+    : EntityRef option * (EntityRef * string) option * bool =
+    let owner =
+        if editing then owner
+        else
+            do ImGui.seedText buffer maxChars seed
+            Some ref
+
+    let submitted =
+        ImGui.inputText(label, buffer, unativeint buffer.Length, ImGui.enterReturnsTrue ||| ImGui.autoSelectAll, System.IntPtr.Zero, System.IntPtr.Zero)
+    let finished = submitted || ImGui.isItemDeactivatedAfterEdit()
+    owner, Selection.renameTarget owner finished (ImGui.bufferText buffer), ImGui.isItemActive()
+
+// One colour picker over a reused buffer, seeded from the authored colour while the picker is not live so a drag
+// is never overwritten mid-gesture. Returns `(committed, live)` for the caller's own commit and state write.
+let private colourPicker (label: string) (buffer: float32[]) (live: bool) (colour: Vector3) : bool * bool =
+    if not live then
+        buffer.[0] <- colour.X
+        buffer.[1] <- colour.Y
+        buffer.[2] <- colour.Z
+    do ImGui.colorEdit3(label, buffer, 0) |> ignore
+    ImGui.isItemDeactivatedAfterEdit(), ImGui.isItemActive()
 
 // The actor's animation slots: the clips it is blending, each with a weight, and the
 // controls to add and remove them (spec 036, FR-014 to FR-020). A direct write to the
@@ -46,7 +84,7 @@ let private drawAnimations (zone: Zone.Zone) (ref: EntityRef) : unit =
             held <- held + 1
             let anim = anims.[slot.Value.AnimIndex]
             do ImGui.pushId anim.Name
-            do ImGui.text anim.Name
+            do ImGui.textUnformatted anim.Name
             do ImGui.sameLine(0.0f, 8.0f)
             let mutable weight = slot.Value.Weight
             if ImGui.dragFloat("Weight", &weight, 0.01f, 0.0f, 1.0f, "%.2f", 0) then
@@ -100,7 +138,7 @@ let private drawMorphs (zone: Zone.Zone) (ref: EntityRef) : unit =
             held <- held + 1
             let name = morphs.Names.[slot.Value.MorphIndex]
             do ImGui.pushId name
-            do ImGui.text name
+            do ImGui.textUnformatted name
             do ImGui.sameLine(0.0f, 8.0f)
             let mutable weight = slot.Value.Weight
             if ImGui.dragFloat("Weight", &weight, 0.01f, 0.0f, 1.0f, "%.2f", 0) then
@@ -141,13 +179,12 @@ let private drawEnvironment (zone: Zone.Zone) : unit =
         match zone.Environment with
         | None -> "(none)"
         | Some environment -> environment.Base.Name
-    do ImGui.text(sprintf "Environment: %s" name)
+    do ImGui.textUnformatted (sprintf "Environment: %s" name)
 
 // The active zone's lighting (spec 043, FR-003): the Inspector's fallback subject, drawn when no
 // entity is selected. Each control commits one `SetLight` step when it is released or left — the
 // rule the trigger fields below use — so tuning the sun is reversible (FR-006) without putting a
-// step on the stack per frame. The colour picker draws over a reused buffer, re-seeded from the
-// zone's colour while it is not live so a drag in the picker is never overwritten mid-gesture.
+// step on the stack per frame.
 let private drawLighting (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (zone: Zone.Zone) : unit =
     if not (ImGui.collapsingHeader("Lighting", 0)) then () else
 
@@ -162,18 +199,12 @@ let private drawLighting (shared: SharedState.SharedState) (state: byref<Gamepla
     if ImGui.isItemDeactivatedAfterEdit() then
         do Selection.setLight shared &state (fun light -> { light with Yaw = yaw })
 
-    // ── the light colour: a picker over the reused buffer, seeded while it is not live ──
-    if not state.Editor.LightColorEditing then
-        let colour = zone.Light.Color
-        state.Editor.LightColorBuffer.[0] <- colour.X
-        state.Editor.LightColorBuffer.[1] <- colour.Y
-        state.Editor.LightColorBuffer.[2] <- colour.Z
-
-    do ImGui.colorEdit3("Light Colour", state.Editor.LightColorBuffer, 0) |> ignore
-    if ImGui.isItemDeactivatedAfterEdit() then
+    // ── the light colour: a shared picker over the reused buffer ──
+    let committed, live = colourPicker "Light Colour" state.Editor.LightColorBuffer state.Editor.LightColorEditing zone.Light.Color
+    if committed then
         let buffer = state.Editor.LightColorBuffer
-        do Selection.setLight shared &state (fun light -> { light with Color = System.Numerics.Vector3(buffer.[0], buffer.[1], buffer.[2]) })
-    state.Editor <- { state.Editor with LightColorEditing = ImGui.isItemActive() }
+        do Selection.setLight shared &state (fun light -> { light with Color = Vector3(buffer.[0], buffer.[1], buffer.[2]) })
+    state.Editor <- { state.Editor with LightColorEditing = live }
 
     let mutable ambient = zone.Light.Ambient
     do ImGui.dragFloat("Ambient", &ambient, 0.01f, 0.1f, 1.5f, "%.2f", 0) |> ignore
@@ -182,7 +213,7 @@ let private drawLighting (shared: SharedState.SharedState) (state: byref<Gamepla
 
 // The active zone's sky (spec 092, FR-009): the Inspector's fallback subject, beside the lighting. Each
 // control commits one `SetSkydome` step when it is toggled or released, as the light's controls do; the
-// colour pickers draw over reused buffers, re-seeded from the zone's colour while they are not live.
+// colour pickers use the shared scaffold and its reused buffers.
 let private drawSkydome (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (zone: Zone.Zone) : unit =
     if not (ImGui.collapsingHeader("Sky", 0)) then () else
 
@@ -190,140 +221,118 @@ let private drawSkydome (shared: SharedState.SharedState) (state: byref<Gameplay
     if ImGui.checkbox("Enabled", &enabled) then
         do Selection.setSkydome shared &state (fun sky -> { sky with Enabled = enabled })
 
-    if not state.Editor.ZenithColorEditing then
-        let colour = zone.Skydome.Zenith
-        state.Editor.ZenithColorBuffer.[0] <- colour.X
-        state.Editor.ZenithColorBuffer.[1] <- colour.Y
-        state.Editor.ZenithColorBuffer.[2] <- colour.Z
-
-    do ImGui.colorEdit3("Zenith Colour", state.Editor.ZenithColorBuffer, 0) |> ignore
-    if ImGui.isItemDeactivatedAfterEdit() then
+    let committed, live = colourPicker "Zenith Colour" state.Editor.ZenithColorBuffer state.Editor.ZenithColorEditing zone.Skydome.Zenith
+    if committed then
         let buffer = state.Editor.ZenithColorBuffer
-        do Selection.setSkydome shared &state (fun sky -> { sky with Zenith = System.Numerics.Vector3(buffer.[0], buffer.[1], buffer.[2]) })
-    state.Editor <- { state.Editor with ZenithColorEditing = ImGui.isItemActive() }
+        do Selection.setSkydome shared &state (fun sky -> { sky with Zenith = Vector3(buffer.[0], buffer.[1], buffer.[2]) })
+    state.Editor <- { state.Editor with ZenithColorEditing = live }
 
-    if not state.Editor.HorizonColorEditing then
-        let colour = zone.Skydome.Horizon
-        state.Editor.HorizonColorBuffer.[0] <- colour.X
-        state.Editor.HorizonColorBuffer.[1] <- colour.Y
-        state.Editor.HorizonColorBuffer.[2] <- colour.Z
-
-    do ImGui.colorEdit3("Horizon Colour", state.Editor.HorizonColorBuffer, 0) |> ignore
-    if ImGui.isItemDeactivatedAfterEdit() then
+    let committed, live = colourPicker "Horizon Colour" state.Editor.HorizonColorBuffer state.Editor.HorizonColorEditing zone.Skydome.Horizon
+    if committed then
         let buffer = state.Editor.HorizonColorBuffer
-        do Selection.setSkydome shared &state (fun sky -> { sky with Horizon = System.Numerics.Vector3(buffer.[0], buffer.[1], buffer.[2]) })
-    state.Editor <- { state.Editor with HorizonColorEditing = ImGui.isItemActive() }
+        do Selection.setSkydome shared &state (fun sky -> { sky with Horizon = Vector3(buffer.[0], buffer.[1], buffer.[2]) })
+    state.Editor <- { state.Editor with HorizonColorEditing = live }
 
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) =
-    do ImGui.beginWindow("Inspector", System.IntPtr.Zero, 0) |> ignore
+    let visible = ImGui.beginWindow("Inspector", System.IntPtr.Zero, 0)
+    if visible then
 
-    let zone = GameplayState.activeZone state
+        let zone = GameplayState.activeZone state
 
-    match state.Editor.Selection with
-    | Some ref ->
-        let entity = Zone.tryEntityAt zone ref
-        match entity with
-        | None -> do ImGui.text("(no selection)")
-        | Some e ->
+        match state.Editor.Selection with
+        | Some ref ->
+            let entity = Zone.tryEntityAt zone ref
+            match entity with
+            | None -> do ImGui.text("(no selection)")
+            | Some e ->
 
-        // ── Name (editable) ──
-        // One buffer serves every selected entity, and `NameEditRef` records the entity its
-        // text belongs to. The buffer is re-seeded — which is also what re-points that ref —
-        // only while the field is *not* live: overwriting a field that is being edited would
-        // both lose the edit and hand the commit below the newly selected entity's name, to be
-        // applied to the old one. The panels draw outliner-first, so changing the selection
-        // with the field live is one click away, and that ordering is what used to rename the
-        // previous selection to the new one's name.
-        if not state.Editor.NameEditing then
-            do seedName state.Editor.NameBuffer e.Name
-            state.Editor <- { state.Editor with NameEditRef = Some ref }
-
-        let submitted =
-            ImGui.inputText("Name", state.Editor.NameBuffer, unativeint state.Editor.NameBuffer.Length, ImGui.enterReturnsTrue ||| ImGui.autoSelectAll, System.IntPtr.Zero, System.IntPtr.Zero)
-        let finished = submitted || ImGui.isItemDeactivatedAfterEdit()
-        // The commit goes to the entity the buffer's text belongs to — `NameEditRef`, the one it
-        // was typed for, which is not always the selected one.
-        match Selection.renameTarget state.Editor.NameEditRef finished (bufferText state.Editor.NameBuffer) with
-        | Some (target, name) -> Selection.renameRef shared &state target name
-        | None -> ()
-        state.Editor <- { state.Editor with NameEditing = ImGui.isItemActive() }
-
-        do ImGui.text(sprintf "Position: %A" e.Transform.Position)
-        do ImGui.text(sprintf "Rotation: %A" (eulerDegrees e.Transform.Rotation))
-        do ImGui.text(sprintf "Scale: %A" e.Transform.Scale)
-
-        // Trigger-only: the volume's shape and its interaction settings. Each committed
-        // edit is one `TriggerSet` step — a drag commits when it is released or left, like
-        // the text fields commit when they are submitted or left.
-        if ref.Kind = EntityKind.Trigger then
-            match Zone.tryTriggerAt zone ref with
-            | ValueNone -> ()
-            | ValueSome trigger ->
-
-            let mutable radius = trigger.State.Radius
-            do ImGui.dragFloat("Radius", &radius, 0.05f, 0.0f, 1000.0f, "%.2f", 0) |> ignore
-            if ImGui.isItemDeactivatedAfterEdit() then
-                Selection.updateTriggerRef shared &state ref (fun t -> { t with Radius = radius })
-
-            let mutable height = trigger.State.Height
-            do ImGui.dragFloat("Height", &height, 0.05f, 0.0f, 1000.0f, "%.2f", 0) |> ignore
-            if ImGui.isItemDeactivatedAfterEdit() then
-                Selection.updateTriggerRef shared &state ref (fun t -> { t with Height = height })
-
-            let mutable interactable = trigger.State.Interactable
-            if ImGui.checkbox("Interactable", &interactable) then
-                Selection.updateTriggerRef shared &state ref (fun t -> { t with Interactable = interactable })
-
-            // The prompt commits like the entity name and has the same seed rule: it is
-            // re-seeded, and re-pointed at the selected trigger, only while it is not live.
-            if not state.Editor.PromptEditing then
-                do seedName state.Editor.PromptBuffer trigger.State.Prompt
-                state.Editor <- { state.Editor with PromptEditRef = Some ref }
-
-            let submitted =
-                ImGui.inputText("Prompt", state.Editor.PromptBuffer, unativeint state.Editor.PromptBuffer.Length, ImGui.enterReturnsTrue ||| ImGui.autoSelectAll, System.IntPtr.Zero, System.IntPtr.Zero)
-            let finished = submitted || ImGui.isItemDeactivatedAfterEdit()
-            match Selection.renameTarget state.Editor.PromptEditRef finished (bufferText state.Editor.PromptBuffer) with
-            | Some (owner, prompt) -> Selection.updateTriggerRef shared &state owner (fun t -> { t with Prompt = prompt })
+            // ── Name (editable) ──
+            // One buffer serves every selected entity, and `NameEditRef` records the entity its
+            // text belongs to. The buffer is re-seeded — which is also what re-points that ref —
+            // only while the field is *not* live: overwriting a field that is being edited would
+            // both lose the edit and hand the commit below the newly selected entity's name, to be
+            // applied to the old one. The panels draw outliner-first, so changing the selection
+            // with the field live is one click away, and that ordering is what used to rename the
+            // previous selection to the new one's name.
+            let owner, commit, editing =
+                committedText "Name" state.Editor.NameBuffer EditorState.entityNameMaxChars state.Editor.NameEditRef state.Editor.NameEditing ref e.Name
+            match commit with
+            | Some (target, name) -> Selection.renameRef shared &state target name
             | None -> ()
-            state.Editor <- { state.Editor with PromptEditing = ImGui.isItemActive() }
+            state.Editor <- { state.Editor with NameEditRef = owner; NameEditing = editing }
 
-            // The enabled flag is the shared entity one: for a trigger it means it can
-            // detect the player.
-            let mutable enabled = trigger.State.Base.Enabled
-            if ImGui.checkbox("Enabled", &enabled) then
-                Selection.updateTriggerRef shared &state ref (fun t -> { t with Base = { t.Base with Enabled = enabled } })
+            let position, rotation, scale = transformLines e.Transform
+            do ImGui.textUnformatted position
+            do ImGui.textUnformatted rotation
+            do ImGui.textUnformatted scale
 
-            // The trigger's authored cue (spec 058), edited inline through the shared control. Every
-            // accepted edit is one `TriggerSet` step via `Selection.updateTriggerRef`.
-            do ImGui.text("Cue")
-            do CueEditor.drawTrigger shared &state ref
+            // Trigger-only: the volume's shape and its interaction settings. Each committed
+            // edit is one `TriggerSet` step — a drag commits when it is released or left, like
+            // the text fields commit when they are submitted or left.
+            if ref.Kind = EntityKind.Trigger then
+                match Zone.tryTriggerAt zone ref with
+                | ValueNone -> ()
+                | ValueSome trigger ->
 
-        // Actor-only: bind this actor as the played character. It is a zone's own edit like the zone's
-        // light (spec 045), so it is one undoable step and the control reads the designation back — an
-        // undo with nothing to see would not be much of an undo. It still touches no physics.
-        if ref.Kind = EntityKind.Actor then
-            let actor = Zone.captureActor zone ref
+                let mutable radius = trigger.State.Radius
+                do ImGui.dragFloat("Radius", &radius, 0.05f, 0.0f, 1000.0f, "%.2f", 0) |> ignore
+                if ImGui.isItemDeactivatedAfterEdit() then
+                    Selection.updateTriggerRef shared &state ref (fun t -> { t with Radius = radius })
 
-            let mutable show = actor.ShowCollider
-            if ImGui.checkbox("Show Collider", &show) then
-                do Zone.setShowCollider zone ref show
+                let mutable height = trigger.State.Height
+                do ImGui.dragFloat("Height", &height, 0.05f, 0.0f, 1000.0f, "%.2f", 0) |> ignore
+                if ImGui.isItemDeactivatedAfterEdit() then
+                    Selection.updateTriggerRef shared &state ref (fun t -> { t with Height = height })
 
-            if zone.Player = ValueSome (Systems.playerHandleOf ref) then
-                // Already the player: say so rather than offering the action again.
-                do ImGui.beginDisabled(true)
-                do ImGui.text("This actor is the zone's player")
-                do ImGui.endDisabled()
-            elif ImGui.button("Set as Player", ImGui.ImVec2(0.0f, 0.0f)) then
-                do Selection.setPlayer shared &state ref
+                let mutable interactable = trigger.State.Interactable
+                if ImGui.checkbox("Interactable", &interactable) then
+                    Selection.updateTriggerRef shared &state ref (fun t -> { t with Interactable = interactable })
 
-            do drawAnimations zone ref
-            do drawMorphs zone ref
-    | None ->
-        // No entity selected: the Inspector falls back to the active zone, whose environment and
-        // lighting are the zone-level settings it edits (spec 043, FR-003).
-        do drawEnvironment zone
-        do drawLighting shared &state zone
-        do drawSkydome shared &state zone
+                // The prompt commits like the entity name and has the same seed rule: it is
+                // re-seeded, and re-pointed at the selected trigger, only while it is not live.
+                let owner, commit, editing =
+                    committedText "Prompt" state.Editor.PromptBuffer EditorState.entityNameMaxChars state.Editor.PromptEditRef state.Editor.PromptEditing ref trigger.State.Prompt
+                match commit with
+                | Some (target, prompt) -> Selection.updateTriggerRef shared &state target (fun t -> { t with Prompt = prompt })
+                | None -> ()
+                state.Editor <- { state.Editor with PromptEditRef = owner; PromptEditing = editing }
+
+                // The enabled flag is the shared entity one: for a trigger it means it can
+                // detect the player.
+                let mutable enabled = trigger.State.Base.Enabled
+                if ImGui.checkbox("Enabled", &enabled) then
+                    Selection.updateTriggerRef shared &state ref (fun t -> { t with Base = { t.Base with Enabled = enabled } })
+
+                // The trigger's authored cue (spec 058), edited inline through the shared control. Every
+                // accepted edit is one `TriggerSet` step via `Selection.updateTriggerRef`.
+                do ImGui.text("Cue")
+                do CueEditor.drawTrigger shared &state ref
+
+            // Actor-only: bind this actor as the played character. It is a zone's own edit like the zone's
+            // light (spec 045), so it is one undoable step and the control reads the designation back — an
+            // undo with nothing to see would not be much of an undo. It still touches no physics.
+            if ref.Kind = EntityKind.Actor then
+                let actor = Zone.captureActor zone ref
+
+                let mutable show = actor.ShowCollider
+                if ImGui.checkbox("Show Collider", &show) then
+                    do Zone.setShowCollider zone ref show
+
+                if zone.Player = ValueSome (Systems.playerHandleOf ref) then
+                    // Already the player: say so rather than offering the action again.
+                    do ImGui.beginDisabled(true)
+                    do ImGui.text("This actor is the zone's player")
+                    do ImGui.endDisabled()
+                elif ImGui.button("Set as Player", ImGui.ImVec2(0.0f, 0.0f)) then
+                    do Selection.setPlayer shared &state ref
+
+                do drawAnimations zone ref
+                do drawMorphs zone ref
+        | None ->
+            // No entity selected: the Inspector falls back to the active zone, whose environment and
+            // lighting are the zone-level settings it edits (spec 043, FR-003).
+            do drawEnvironment zone
+            do drawLighting shared &state zone
+            do drawSkydome shared &state zone
 
     do ImGui.endWindow()

@@ -5,6 +5,9 @@ module CueEditor
 // the screen's cue is one `SetCue` step (`specs/049`), and a trigger's authored cue is one `TriggerSet` step —
 // the command already carries the trigger's whole state, so the cue needs no command of its own (`specs/058`).
 //
+// The two surfaces share `drawCue`: only the id prefix, the cue's location and the write-back differ, so the
+// tree/editor/text orchestration cannot drift between them.
+//
 // The panel takes only the gameplay state. Nothing it needs is in `SharedState`: the control is the cue's, and a
 // zone name is typed rather than chosen, because a dropdown would have the control read the zone registry
 // (`FR-006`). A camera op's waypoint *is* chosen from a combo — but from the active zone's waypoints, read
@@ -17,23 +20,11 @@ module CueEditor
 // frame. Each keeps its own node selection and text field, so the two editors cannot collide.
 
 open System.Collections.Generic
-open System.Text
 open Prime
 open Entity
 open Cue
 open Command
-
-// ── the text field's NUL-terminated buffer ──
-
-let private seedText (buffer: byte[]) (text: string) : unit =
-    let charCount = min text.Length (EditorState.cueTextBufferSize - 1)
-    let byteCount = Encoding.UTF8.GetBytes(text, 0, charCount, buffer, 0)
-    buffer.[byteCount] <- 0uy
-
-let private bufferText (buffer: byte[]) : string =
-    let zero = System.Array.IndexOf(buffer, 0uy)
-    let length = if zero < 0 then buffer.Length else zero
-    if length = 0 then "" else Encoding.UTF8.GetString(buffer, 0, length)
+open SlotMap
 
 // ── the names an actor's asset defines ──
 
@@ -83,13 +74,13 @@ let private drawText
     let path =
         if editing then path
         else
-            do seedText buffer current
+            do ImGui.seedText buffer (EditorState.cueTextBufferSize - 1) current
             Some nodePath
 
     let submitted =
         ImGui.inputText("Text" + idSuffix + "##" + CueTree.rowId idPrefix nodePath, buffer, unativeint buffer.Length, ImGui.enterReturnsTrue ||| ImGui.autoSelectAll, System.IntPtr.Zero, System.IntPtr.Zero)
     let finished = submitted || ImGui.isItemDeactivatedAfterEdit()
-    let text = bufferText buffer
+    let text = ImGui.bufferText buffer
 
     // Committed only for the node the buffer belongs to. The selection can change while the field is live
     // (the author clicks another row), and a deactivation in that same frame must not write this text there.
@@ -98,82 +89,36 @@ let private drawText
 
     path, ImGui.isItemActive()
 
-// ── the selected camera op's waypoint ──
+// ── the named things a node refers to ──
 
-/// The selected camera op's waypoint, chosen from the op's place's live waypoints rather than typed, so the
-/// name the op names always resolves (`Zone.tryWaypointByName`, the resolution the engine uses). The caller
-/// reads the zone — the control names none (`FR-006`) — and the write is the control's own `withText`, which
-/// for a camera op replaces the waypoint and keeps a `FlyCamera`'s speed. A value that names no live waypoint
-/// (the waypoint was deleted, or the op belongs to another zone) still shows; the combo only ever writes a
-/// name it offers.
-let private drawWaypointCombo
+/// The names held by a live slot map, in slot order. One reader for the waypoint, trigger and actor choosers.
+let private slotNames (slots: SlotMap<'T>) (nameOf: 'T -> string) : string list =
+    let names = ResizeArray<string>()
+    let span = slots.Slots
+    for i in 0 .. span.Length - 1 do
+        let slot = span.[i]
+        if slot.Alive then names.Add(nameOf slot.Value)
+    List.ofSeq names
+
+/// One name chooser: a filtered combo over a live place's names. The caller reads the place — the control names
+/// no zone (`FR-006`) — and `write` replaces the op's name (`CueTree.withWaypoint`/`withTrigger`/`withActor`).
+let private drawNameCombo
+    (names: string list)
+    (label: string)
     (buffer: byte[])
-    (zone: Zone.Zone)
     (idPrefix: string)
     (nodePath: int list)
     (node: Cue)
     (cue: Cue)
     (current: string)
+    (write: string -> Cue -> Cue)
     (onCommit: Cue -> unit)
     : unit =
 
     let comboId = CueTree.rowId idPrefix nodePath
-    let names = ResizeArray<string>()
-    let slots = zone.Waypoints.Slots
-    for i in 0 .. slots.Length - 1 do
-        let slot = slots.[i]
-        if slot.Alive then names.Add slot.Value.Base.Name
     let preview = if current = "" then "(none)" else current
-    // The *name* is what the op resolves by, so two waypoints sharing one are one choice.
-    CueTree.filteredCombo buffer ("Waypoint##" + comboId) preview (List.ofSeq names) id current (fun name ->
-        onCommit (CueTree.withAt nodePath (CueTree.withWaypoint name node) cue))
-
-/// The trigger toggles' trigger name, chosen from the named place's live triggers, so the name the op names
-/// resolves (`Zone.tryTriggerByName`, the resolution the engine uses). The caller reads the zone — the control
-/// names none — and the write is `CueTree.withTrigger`.
-let private drawTriggerCombo
-    (buffer: byte[])
-    (zone: Zone.Zone)
-    (idPrefix: string)
-    (nodePath: int list)
-    (node: Cue)
-    (cue: Cue)
-    (current: string)
-    (onCommit: Cue -> unit)
-    : unit =
-
-    let comboId = CueTree.rowId idPrefix nodePath
-    let names = ResizeArray<string>()
-    let slots = zone.Triggers.Slots
-    for i in 0 .. slots.Length - 1 do
-        let slot = slots.[i]
-        if slot.Alive then names.Add slot.Value.State.Base.Name
-    let preview = if current = "" then "(none)" else current
-    CueTree.filteredCombo buffer ("Trigger##" + comboId) preview (List.ofSeq names) id current (fun name ->
-        onCommit (CueTree.withAt nodePath (CueTree.withTrigger name node) cue))
-
-/// The actor an existing-actor op names, chosen from the **viewed place's** live actors rather than the roster,
-/// so the chooser is the scene (`spec 073` FR-005). The caller reads the zone; the write is `CueTree.withActor`.
-let private drawActorCombo
-    (buffer: byte[])
-    (zone: Zone.Zone)
-    (idPrefix: string)
-    (nodePath: int list)
-    (node: Cue)
-    (cue: Cue)
-    (current: string)
-    (onCommit: Cue -> unit)
-    : unit =
-
-    let comboId = CueTree.rowId idPrefix nodePath
-    let names = ResizeArray<string>()
-    let slots = zone.Actors.Slots
-    for i in 0 .. slots.Length - 1 do
-        let slot = slots.[i]
-        if slot.Alive then names.Add slot.Value.State.Base.Name
-    let preview = if current = "" then "(none)" else current
-    CueTree.filteredCombo buffer ("Actor##" + comboId) preview (List.ofSeq names) id current (fun name ->
-        onCommit (CueTree.withAt nodePath (CueTree.withActor name node) cue))
+    CueTree.filteredCombo buffer (label + "##" + comboId) preview names id current (fun name ->
+        onCommit (CueTree.withAt nodePath (write name node) cue))
 
 /// The actor asset `AddActor` builds from, chosen from the discovered actor assets (`spec 073` FR-008). The
 /// caller reads the asset manager; the write is `CueTree.withAsset`.
@@ -285,13 +230,19 @@ let private drawNodeText
     // An actor chooser: a combo over the op's place's live actors; nothing when the place is absent.
     let drawActorField (actor: string) : unit =
         match zoneFor node with
-        | Some zone -> do drawActorCombo filter zone idPrefix path node cue actor onCommit
+        | Some zone -> do drawNameCombo (slotNames zone.Actors (fun (a: Actor) -> a.State.Base.Name)) "Actor" filter idPrefix path node cue actor CueTree.withActor onCommit
         | None -> ()
 
     // A waypoint chooser: a combo over the op's place's live waypoints; nothing when the place is absent.
     let drawWaypointField (waypoint: string) : unit =
         match zoneFor node with
-        | Some zone -> do drawWaypointCombo filter zone idPrefix path node cue waypoint onCommit
+        | Some zone -> do drawNameCombo (slotNames zone.Waypoints (fun (w: Waypoint) -> w.Base.Name)) "Waypoint" filter idPrefix path node cue waypoint CueTree.withWaypoint onCommit
+        | None -> ()
+
+    // A trigger chooser: a combo over the op's place's live triggers; nothing when the place is absent.
+    let drawTriggerField (trigger: string) : unit =
+        match zoneFor node with
+        | Some zone -> do drawNameCombo (slotNames zone.Triggers (fun (t: Trigger) -> t.State.Base.Name)) "Trigger" filter idPrefix path node cue trigger CueTree.withTrigger onCommit
         | None -> ()
 
     match node with
@@ -329,7 +280,7 @@ let private drawNodeText
         let nameField = drawText buffer textPath editing "" idPrefix path node cue actor CueTree.withText onCommit
         match zoneOfPlace place with
         | Some placeZone ->
-            do drawWaypointCombo filter placeZone idPrefix path node cue waypoint onCommit
+            do drawNameCombo (slotNames placeZone.Waypoints (fun (w: Waypoint) -> w.Base.Name)) "Waypoint" filter idPrefix path node cue waypoint CueTree.withWaypoint onCommit
             nameField, (textPath2, editing2)
         | None ->
             nameField, drawText buffer2 textPath2 editing2 "2" idPrefix path node cue waypoint CueTree.withText2 onCommit
@@ -341,7 +292,7 @@ let private drawNodeText
         // back to the typed field, as the set op's waypoint does
         match zoneOfPlace place with
         | Some placeZone ->
-            do drawTriggerCombo filter placeZone idPrefix path node cue current onCommit
+            do drawNameCombo (slotNames placeZone.Triggers (fun (t: Trigger) -> t.State.Base.Name)) "Trigger" filter idPrefix path node cue current CueTree.withTrigger onCommit
             (textPath, editing), (textPath2, editing2)
         | None ->
             drawText buffer textPath editing "" idPrefix path node cue current (fun n name -> CueTree.withTrigger name n) onCommit, (textPath2, editing2)
@@ -372,15 +323,39 @@ let private drawNodeText
         (textPath, editing), (textPath2, editing2)
     | _ -> drawGenericFields ()
 
-// ── the Cue panel ──
+// ── the shared cue-editor pipeline ──
 
-let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
-    do ImGui.beginWindow("Cue", System.IntPtr.Zero, 0) |> ignore
+[<Struct>]
+type private CueDraw =
+    { Selection : int list option
+      Structural : bool
+      EditorNext : Cue option
+      TextNext : Cue option
+      TextPath : int list option
+      TextEditing : bool
+      TextPath2 : int list option
+      TextEditing2 : bool }
 
-    // The cue is the screen's own value, read where it lives: what it shows shrinks as the cue runs, so an
-    // op that has already run needs no row of its own (FR-002, FR-003).
-    let cue = state.Cue
-    let idPrefix = "cue"
+/// Draw the tree and the selected node's property/text editors for one cue. Identity and write-back are the
+/// caller's: the id prefix keeps two co-visible cues apart, and the two pending cues are returned so the caller
+/// can apply them to its own store (the screen's cue or a trigger's authored cue). The property editor's change
+/// is folded into the cue the text fields read, so a field edit in the same frame cannot overwrite a structural
+/// one.
+let private drawCue
+    (shared: SharedState.SharedState)
+    (state: byref<GameplayState.GameplayState>)
+    (idPrefix: string)
+    (cue: Cue)
+    (selection: int list option)
+    (focusPath: int list option)
+    (textBuffer: byte[])
+    (textPath: int list option)
+    (textEditing: bool)
+    (textBuffer2: byte[])
+    (textPath2: int list option)
+    (textEditing2: bool)
+    : CueDraw =
+
     let activeZone = GameplayState.activeZone state
     let zones = state.Zones
     let zoneNames = zones |> Seq.map (fun kv -> kv.Key) |> Seq.sort |> List.ofSeq
@@ -389,7 +364,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         | true, z -> Some z
         | false, _ -> None
     let scenarioNames = ScenarioRegistry.names state.Scenarios
-    // The clip/morph choosers read the placed actor's asset — the actor of that name in the op's own place.
     let assetNamesOf (zone: Zone.Zone) (actor: string) : string list * string list =
         match Zone.tryActorByName zone actor with
         | Some ref when zone.Actors.IsAlive(handleOf ref) ->
@@ -397,51 +371,85 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             assetNamesOfAsset shared.Assets a.State.AssetId
         | _ -> [], []
 
-    // ── the tree, then the selected node's editor ──
-    // An edit accepted here shows in the tree next frame; the tree above the click does not move, so the lag
-    // is invisible.
-    let mutable selection = state.Editor.CueSelection
-    // A structural edit last frame (Add Child / Remove) asked for focus on the newly selected row: re-show the
-    // nav cursor and focus that row, so Tab resumes from it instead of restarting at the top of the panel.
-    let refocus = state.Editor.CueRefocus
-    let mutable structural = false
-    if refocus then do ImGui.setNavCursorVisible(true)
-    match CueTree.drawTree idPrefix selection (if refocus then selection else None) cue with
-    | Some clicked -> selection <- Some clicked
+    let mutable current = selection
+    match CueTree.drawTree idPrefix current focusPath cue with
+    | Some clicked -> current <- Some clicked
     | None -> ()
 
-    match selection with
-    | Some path ->
+    let mutable editorNext : Cue option = None
+    let mutable textNext : Cue option = None
+    let mutable structural = false
+    let mutable path = textPath
+    let mutable editing = textEditing
+    let mutable path2 = textPath2
+    let mutable editing2 = textEditing2
 
-        // The control owns the rebuild and hands back the next cue rather than writing it: a byref cannot
-        // be captured by the callback it draws through, so the write is staged here and applied in one
-        // place, as one step.
-        let mutable pending : Cue option = None
-        selection <- CueTree.drawEditor idPrefix state.ActiveZone zoneNames state.Editor.ComboFilter (Assets.actorNames shared.Assets) (OSet.toSeq shared.Advents |> List.ofSeq) cue path (fun next -> pending <- Some next)
-        // Add Child (a new selection) and Remove (no selection) are the structural edits; record one so the next
-        // frame re-focuses the tree.
-        structural <- selection <> Some path
-        match pending with
+    match current with
+    | Some nodePath ->
+        current <- CueTree.drawEditor idPrefix state.ActiveZone zoneNames state.Editor.ComboFilter (Assets.actorNames shared.Assets) (OSet.toSeq shared.Advents |> List.ofSeq) cue nodePath (fun next -> editorNext <- Some next)
+        structural <- current <> Some nodePath
+
+        // The text fields read the cue the property editor just produced, so one frame's edits compose.
+        let workingCue =
+            match editorNext with
+            | Some next -> next
+            | None -> cue
+
+        match current with
+        | Some nodePath' ->
+            match CueTree.tryAt nodePath' workingCue with
+            | Some node ->
+                let (path', editing'), (path2', editing2') =
+                    drawNodeText shared.Assets activeZone zoneOfPlace assetNamesOf scenarioNames state.Editor.ComboFilter textBuffer textPath textEditing textBuffer2 textPath2 textEditing2 idPrefix nodePath' node workingCue (fun next -> textNext <- Some next)
+                path <- path'
+                editing <- editing'
+                path2 <- path2'
+                editing2 <- editing2'
+            | None -> ()
+        | None -> ()
+    | None -> ()
+
+    { Selection = current
+      Structural = structural
+      EditorNext = editorNext
+      TextNext = textNext
+      TextPath = path
+      TextEditing = editing
+      TextPath2 = path2
+      TextEditing2 = editing2 }
+
+// ── the Cue panel ──
+
+let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
+    let visible = ImGui.beginWindow("Cue", System.IntPtr.Zero, 0)
+    if visible then
+
+        // The cue is the screen's own value, read where it lives: what it shows shrinks as the cue runs, so an
+        // op that has already run needs no row of its own (FR-002, FR-003).
+        let refocus = state.Editor.CueRefocus
+        if refocus then do ImGui.setNavCursorVisible(true)
+
+        let result =
+            drawCue shared &state "cue" state.Cue state.Editor.CueSelection (if refocus then state.Editor.CueSelection else None)
+                state.Editor.CueTextBuffer state.Editor.CueTextPath state.Editor.CueTextEditing
+                state.Editor.CueTextBuffer2 state.Editor.CueTextPath2 state.Editor.CueTextEditing2
+
+        state.Editor <-
+            { state.Editor with
+                CueSelection = result.Selection
+                CueRefocus = result.Structural
+                CueTextPath = result.TextPath
+                CueTextEditing = result.TextEditing
+                CueTextPath2 = result.TextPath2
+                CueTextEditing2 = result.TextEditing2 }
+
+        match result.EditorNext with
+        | Some next -> do commit &state next
+        | None -> ()
+        match result.TextNext with
         | Some next -> do commit &state next
         | None -> ()
 
-        match selection with
-        | Some path' ->
-            match CueTree.tryAt path' state.Cue with
-            | Some node ->
-                let mutable textPending : Cue option = None
-                let (path'', editing), (path2', editing2) =
-                    drawNodeText shared.Assets activeZone zoneOfPlace assetNamesOf scenarioNames state.Editor.ComboFilter state.Editor.CueTextBuffer state.Editor.CueTextPath state.Editor.CueTextEditing state.Editor.CueTextBuffer2 state.Editor.CueTextPath2 state.Editor.CueTextEditing2 idPrefix path' node state.Cue (fun next -> textPending <- Some next)
-                state.Editor <- { state.Editor with CueTextPath = path''; CueTextEditing = editing; CueTextPath2 = path2'; CueTextEditing2 = editing2 }
-                match textPending with
-                | Some next -> do commit &state next
-                | None -> ()
-            | None -> ()
-        | None -> ()
-
-    | None -> ()
-
-    state.Editor <- { state.Editor with CueSelection = selection; CueRefocus = structural }
     do ImGui.endWindow()
 
 // ── the Inspector's inline trigger-cue editor ──
@@ -465,57 +473,28 @@ let resetTriggerEditor (state: byref<GameplayState.GameplayState>) (ref: EntityR
 /// `TriggerCueRef` names a different trigger the fields reset, so a node selection or text typed for one trigger
 /// is never applied to another. An authored cue is never executing, so the control offers every edit.
 let drawTrigger (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) : unit =
-    let activeZone = GameplayState.activeZone state
-    let zones = state.Zones
-    let zoneNames = zones |> Seq.map (fun kv -> kv.Key) |> Seq.sort |> List.ofSeq
-    let zoneOfPlace (place: string) : Zone.Zone option =
-        match zones.TryGetValue place with
-        | true, z -> Some z
-        | false, _ -> None
-    let scenarioNames = ScenarioRegistry.names state.Scenarios
-    let assetNamesOf (zone: Zone.Zone) (actor: string) : string list * string list =
-        match Zone.tryActorByName zone actor with
-        | Some ref when zone.Actors.IsAlive(handleOf ref) ->
-            let a = &zone.Actors.Get(handleOf ref)
-            assetNamesOfAsset shared.Assets a.State.AssetId
-        | _ -> [], []
-    match Zone.tryTriggerAt activeZone ref with
+    match Zone.tryTriggerAt (GameplayState.activeZone state) ref with
     | ValueNone -> ()
     | ValueSome trigger ->
 
     do resetTriggerEditor &state ref
 
-    let idPrefix = "triggercue"
-    let cue = trigger.State.Cue
+    let result =
+        drawCue shared &state "triggercue" trigger.State.Cue state.Editor.TriggerCueSelection None
+            state.Editor.TriggerCueTextBuffer state.Editor.TriggerCueTextPath state.Editor.TriggerCueEditing
+            state.Editor.TriggerCueTextBuffer2 state.Editor.TriggerCueTextPath2 state.Editor.TriggerCueTextEditing2
 
-    let mutable selection = state.Editor.TriggerCueSelection
-    match CueTree.drawTree idPrefix selection None cue with
-    | Some clicked -> selection <- Some clicked
+    state.Editor <-
+        { state.Editor with
+            TriggerCueSelection = result.Selection
+            TriggerCueTextPath = result.TextPath
+            TriggerCueEditing = result.TextEditing
+            TriggerCueTextPath2 = result.TextPath2
+            TriggerCueTextEditing2 = result.TextEditing2 }
+
+    match result.EditorNext with
+    | Some next -> do Selection.updateTriggerRef shared &state ref (fun t -> { t with Cue = next })
     | None -> ()
-
-    match selection with
-    | Some path ->
-
-        let mutable pending : Cue option = None
-        selection <- CueTree.drawEditor idPrefix state.ActiveZone zoneNames state.Editor.ComboFilter (Assets.actorNames shared.Assets) (OSet.toSeq shared.Advents |> List.ofSeq) cue path (fun next -> pending <- Some next)
-        match pending with
-        | Some next -> do Selection.updateTriggerRef shared &state ref (fun t -> { t with Cue = next })
-        | None -> ()
-
-        match selection with
-        | Some path' ->
-            match CueTree.tryAt path' cue with
-            | Some node ->
-                let mutable textPending : Cue option = None
-                let (path'', editing), (path2', editing2) =
-                    drawNodeText shared.Assets activeZone zoneOfPlace assetNamesOf scenarioNames state.Editor.ComboFilter state.Editor.TriggerCueTextBuffer state.Editor.TriggerCueTextPath state.Editor.TriggerCueEditing state.Editor.TriggerCueTextBuffer2 state.Editor.TriggerCueTextPath2 state.Editor.TriggerCueTextEditing2 idPrefix path' node cue (fun next -> textPending <- Some next)
-                state.Editor <- { state.Editor with TriggerCueTextPath = path''; TriggerCueEditing = editing; TriggerCueTextPath2 = path2'; TriggerCueTextEditing2 = editing2 }
-                match textPending with
-                | Some next -> do Selection.updateTriggerRef shared &state ref (fun t -> { t with Cue = next })
-                | None -> ()
-            | None -> ()
-        | None -> ()
-
+    match result.TextNext with
+    | Some next -> do Selection.updateTriggerRef shared &state ref (fun t -> { t with Cue = next })
     | None -> ()
-
-    state.Editor <- { state.Editor with TriggerCueSelection = selection }
