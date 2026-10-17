@@ -46,6 +46,7 @@ type Command =
     // A property edit that belongs to one kind: a waypoint's link, a trigger's shape.
     | Link of ZoneId : string * Ref : EntityRef * Before : EntityRef option * After : EntityRef option
     | TriggerSet of ZoneId : string * Ref : EntityRef * Before : TriggerState * After : TriggerState
+    | ActorPhysicsSet of ZoneId : string * Ref : EntityRef * Before : ActorPhysics * After : ActorPhysics
     // The extend gesture as one step: create `Ref` from `Waypoint` and point `From` at it.
     | LinkSpawn of ZoneId : string * From : EntityRef * Before : EntityRef option * Ref : EntityRef * Waypoint : Waypoint
     // Zone-level rather than an entity: swapping the loaded environment.
@@ -137,6 +138,7 @@ let placeOf (cmd: Command) : string option =
     | TriggerDelete (place, _, _)
     | Link (place, _, _, _)
     | TriggerSet (place, _, _, _)
+    | ActorPhysicsSet (place, _, _, _)
     | LinkSpawn (place, _, _, _, _)
     | SetEnvironment (place, _, _)
     | SetLight (place, _, _)
@@ -194,6 +196,8 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
         setWaypointNext zone r after
     | TriggerSet (_, r, _, after) ->
         setTrigger zone r after
+    | ActorPhysicsSet (_, r, _, after) ->
+        setActorPhysics zone physics assets r after
     | LinkSpawn (_, from, _, r, waypoint) ->
         occupyWaypoint zone r waypoint
         setWaypointNext zone from (Some r)
@@ -205,6 +209,7 @@ let rec apply (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager
         zone.Skydome <- next
     | SetPlayer (_, _, next) ->
         zone.Player <- next
+        ensurePlayerDynamic zone physics assets
     // A zone move is not an edit to one zone, so the zone-level runner cannot carry it out: `Undo.apply`
     // does, against the state (spec 048). The cue is the same kind of step (spec 049) — it is not a zone's
     // either. Reaching one of these here is a broken invariant, not a value to ignore.
@@ -244,6 +249,8 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
         setWaypointNext zone r before
     | TriggerSet (_, r, before, _) ->
         setTrigger zone r before
+    | ActorPhysicsSet (_, r, before, _) ->
+        setActorPhysics zone physics assets r before
     | LinkSpawn (_, from, before, r, _) ->
         setWaypointNext zone from before
         removeWaypoint zone r
@@ -255,6 +262,7 @@ let rec undo (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManager)
         zone.Skydome <- previous
     | SetPlayer (_, previous, _) ->
         zone.Player <- previous
+        ensurePlayerDynamic zone physics assets
     | Batch commands ->
         // Backwards, so the reversal of a mutation happens before the reversal of what it depended on.
         for cmd in List.rev commands do undo zone physics assets cmd

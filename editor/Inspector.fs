@@ -13,6 +13,12 @@ open Entity
 let mutable private transformCache : Transform voption = ValueNone
 let mutable private transformText : string * string * string = "", "", ""
 
+let private mobilityName (m: ActorMobility) : string =
+    match m with
+    | Dynamic -> "Dynamic"
+    | Kinematic -> "Kinematic"
+    | NoPhysics -> "NoPhysics"
+
 let private transformLines (t: Transform) : string * string * string =
     match transformCache with
     | ValueSome cached when cached = t -> transformText
@@ -373,7 +379,49 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
                 if ImGui.checkbox("Show Collider", &show) then
                     do Zone.setShowCollider zone ref show
 
-                if zone.Player = ValueSome (Systems.playerHandleOf ref) then
+                // Physics mode: the player is always dynamic, so the combo is not offered for her.
+                let isPlayer = zone.Player = ValueSome (Systems.playerHandleOf ref)
+                if isPlayer then
+                    do ImGui.textUnformatted "Physics: Dynamic (the player is always dynamic)"
+                else
+                    if ImGui.beginCombo("Physics", mobilityName actor.Physics.Mobility, 0) then
+                        for mode in [ Dynamic; Kinematic; NoPhysics ] do
+                            if ImGui.selectable (mobilityName mode) (actor.Physics.Mobility = mode) then
+                                do Selection.updateActorPhysicsRef shared &state ref (fun p -> { p with Mobility = mode })
+                                do ImGui.closeCurrentPopup()
+                        do ImGui.endCombo()
+
+                // The numeric properties are shown where they have an effect: all four for
+                // Dynamic, the contact pair for Kinematic, none for NoPhysics.
+                let drag label (value: float32) (speed: float32) (minimum: float32) (maximum: float32) : float32 option =
+                    let mutable v = value
+                    do ImGui.dragFloat(label, &v, speed, minimum, maximum, "%.2f", 0) |> ignore
+                    if ImGui.isItemDeactivatedAfterEdit() then Some v else None
+
+                match actor.Physics.Mobility with
+                | Dynamic ->
+                    match drag "Mass" actor.Physics.Mass 1.0f minMass maxMass with
+                    | Some v -> do Selection.updateActorPhysicsRef shared &state ref (fun p -> { p with Mass = v })
+                    | None -> ()
+                    match drag "Friction" actor.Physics.Friction 0.01f minFriction maxFriction with
+                    | Some v -> do Selection.updateActorPhysicsRef shared &state ref (fun p -> { p with Friction = v })
+                    | None -> ()
+                    match drag "Restitution" actor.Physics.Restitution 0.01f minRestitution maxRestitution with
+                    | Some v -> do Selection.updateActorPhysicsRef shared &state ref (fun p -> { p with Restitution = v })
+                    | None -> ()
+                    match drag "Gravity Factor" actor.Physics.GravityFactor 0.05f minGravityFactor maxGravityFactor with
+                    | Some v -> do Selection.updateActorPhysicsRef shared &state ref (fun p -> { p with GravityFactor = v })
+                    | None -> ()
+                | Kinematic ->
+                    match drag "Friction" actor.Physics.Friction 0.01f minFriction maxFriction with
+                    | Some v -> do Selection.updateActorPhysicsRef shared &state ref (fun p -> { p with Friction = v })
+                    | None -> ()
+                    match drag "Restitution" actor.Physics.Restitution 0.01f minRestitution maxRestitution with
+                    | Some v -> do Selection.updateActorPhysicsRef shared &state ref (fun p -> { p with Restitution = v })
+                    | None -> ()
+                | NoPhysics -> ()
+
+                if isPlayer then
                     // Already the player: say so rather than offering the action again.
                     do ImGui.beginDisabled(true)
                     do ImGui.text("This actor is the zone's player")

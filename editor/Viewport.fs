@@ -211,16 +211,38 @@ let buildLines (state: byref<GameplayState.GameplayState>) : unit =
 let ray (camera: Camera.Camera) (w: float32) (h: float32) (x: float32) (y: float32) : Ray =
     Raycast.rayFromScreen camera w h x y
 
-let pick (physics: Physics.World) (state: GameplayState.GameplayState) (r: Ray) : EntityRef option =
-    // Raycast against the physics colliders and map the hit body back to its
-    // entity via the zone's body→entity map.
-    match Physics.raycast physics r.Origin (r.Dir * pickDistance) with
-    | None -> None
-    | Some (bodyId, _) ->
+let pick (assets: Assets.AssetManager) (physics: Physics.World) (state: GameplayState.GameplayState) (r: Ray) : EntityRef option =
+    let zone = GameplayState.activeZone state
 
-    match (GameplayState.activeZone state).BodyToEntity.TryGetValue(bodyId) with
-    | true, ref -> Some ref
-    | false, _ -> None
+    // The nearest actor capsule. This also finds a `NoPhysics` actor, which has no body, and
+    // makes selection independent of the runtime mode.
+    let mutable nearestActor = None
+    zone.Actors.IteriAlive(fun i gen a ->
+        let collider =
+            match a.Physics with
+            | Some ph -> ph.Collider
+            | None -> Zone.capsuleCollider assets.Actors.[a.State.AssetId].Bounds
+        match rayCapsuleDistance r (Zone.capsuleCenter a.State.Base.Transform collider) collider.HalfHeight collider.Radius with
+        | None -> ()
+        | Some distance ->
+            match nearestActor with
+            | Some (_, best) when best <= distance -> ()
+            | _ -> nearestActor <- Some (actorRef i gen, distance))
+
+    // The physics hit covers props, environment parts, and body-backed actors.
+    let physicsHit =
+        match Physics.raycast physics r.Origin (r.Dir * pickDistance) with
+        | None -> None
+        | Some (bodyId, fraction) ->
+            match zone.BodyToEntity.TryGetValue bodyId with
+            | true, ref -> Some (ref, fraction * pickDistance)
+            | false, _ -> None
+
+    match nearestActor, physicsHit with
+    | Some (actor, actorDistance), Some (other, physicsDistance) -> Some (if actorDistance <= physicsDistance then actor else other)
+    | Some (actor, _), None -> Some actor
+    | None, Some (other, _) -> Some other
+    | None, None -> None
 
 // Which gizmo axis (if any) the screen ray hits at the given center.
 let gizmoAxisAt (state: GameplayState.GameplayState) (r: Ray) (center: Vector3) : GizmoAxis option =

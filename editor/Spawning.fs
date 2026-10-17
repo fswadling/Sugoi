@@ -139,7 +139,7 @@ let spawnActor (shared: SharedState.SharedState) (state: byref<GameplayState.Gam
     let zone = GameplayState.activeZone state
     if not (hasRoom "actor" state.ActiveZone zone.Actors) then () else
 
-    let ref = Zone.spawnActor zone state.Physics shared.Assets entity assetId
+    let ref = Zone.spawnActor zone state.Physics shared.Assets { Base = entity; AssetId = assetId; ShowCollider = false; Physics = kinematicPhysics }
     do commit &state (ActorCreate (state.ActiveZone, ref, Zone.captureActor zone ref)) ref
 
 let spawnProp (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) : unit =
@@ -250,9 +250,7 @@ let duplicate (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     match source.Kind with
     | EntityKind.Actor ->
         let original = Zone.captureActor zone source
-        let ref = Zone.spawnActor zone state.Physics shared.Assets entity original.AssetId
-        // `spawnActor` opens with the overlay off; the copy takes the original's value.
-        do Zone.setShowCollider zone ref original.ShowCollider
+        let ref = Zone.spawnActor zone state.Physics shared.Assets { original with Base = entity }
         do commit &state (ActorCreate (state.ActiveZone, ref, Zone.captureActor zone ref)) ref
     | EntityKind.Prop ->
         let original = Zone.captureProp zone source

@@ -139,6 +139,7 @@ let playerInput (world: Physics.World) (zone: Zone.Zone) (input: Input.Input) (d
     if not (isPlayerLive zone) then () else
 
     let actor = &zone.Actors.Get zone.Player.Value
+    if actor.State.Physics.Mobility <> Dynamic then () else
     match actor.Physics with
     | None -> ()
     | Some attachment ->

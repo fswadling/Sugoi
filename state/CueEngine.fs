@@ -308,7 +308,8 @@ let private addActor
     else
 
     let entity = baseEntity actor transform
-    let ref = Zone.spawnActor zone state.Physics shared.Assets entity asset
+    let actorState = { Base = entity; AssetId = asset; ShowCollider = false; Physics = kinematicPhysics }
+    let ref = Zone.spawnActor zone state.Physics shared.Assets actorState
     do detachIfInactive state.Physics place state.ActiveZone zone ref
 
 /// Take the actor named `actor` out of `place` (spec 075). An actor not in that place's zone is untouched.
@@ -475,6 +476,17 @@ let private beginMove (state: byref<GameplayState.GameplayState>) (actor: string
     do ActorRender.setClipWeight &live.Renderer idleClip 0.0f
     MoveActorState(actor, place, handleOf ref, points, speed, duration, now + duration, initialRotation, finalRotation, blend, movingClip, idleClip)
 
+/// Move a kinematic body toward `target`, stopping at the first obstruction. The body is
+/// kinematic, so a capsule sweep is what keeps cue movement collision-aware.
+let private moveKinematic (world: Physics.World) (body: Physics.BodyId) (target: Vector3) (rotation: Quaternion) : unit =
+    let struct (current, _) = Physics.getBodyTransform world body
+    let delta = target - current
+    let fraction =
+        match Physics.castCapsule world body delta with
+        | Some hit -> max 0.0f (hit - 0.001f)
+        | None -> 1.0f
+    do Physics.setBodyTransform world body (current + delta * fraction) rotation
+
 /// Step a move at `now`: physics-drive the body toward the spline point for this instant (horizontal velocity
 /// at `speed`, vertical preserved so gravity still acts), slerp her facing from her own to the path's end facing,
 /// and blend the moving clip down to idle over the final `blend` seconds. Answers whether it is over; at the
@@ -490,25 +502,38 @@ let private stepMove (state: byref<GameplayState.GameplayState>) (actor: string)
     | None -> true
     | Some attachment ->
     let body = attachment.Body
-    let vertical = (Physics.getBodyVelocity state.Physics body).Y
     let offset = Entity.capsuleOffset attachment.Collider
+    let t = progress duration endsAt now
+    let struct (bodyPosition, _) = Physics.getBodyTransform state.Physics body
+    let target = evalSpline points t + offset
+    let rotation = Quaternion.Slerp(initialRotation, finalRotation, float32 t)
+
     if now >= endsAt then
-        do Physics.setBodyVelocity state.Physics body (Vector3(0.0f, vertical, 0.0f))
+        match live.State.Physics.Mobility with
+        | Dynamic ->
+            let vertical = (Physics.getBodyVelocity state.Physics body).Y
+            do Physics.setBodyVelocity state.Physics body (Vector3(0.0f, vertical, 0.0f))
+        | Kinematic ->
+            do moveKinematic state.Physics body target rotation
+        | NoPhysics -> ()
         do Physics.setBodyRotation state.Physics body finalRotation
         do ActorRender.setClipWeight &live.Renderer movingClip 0.0f
         do ActorRender.setClipWeight &live.Renderer idleClip 1.0f
         true
     else
-    let t = progress duration endsAt now
-    let struct (bodyPosition, _) = Physics.getBodyTransform state.Physics body
-    let target = evalSpline points t + offset
-    let toward = Vector3(target.X - bodyPosition.X, 0.0f, target.Z - bodyPosition.Z)
-    let velocity =
-        if toward.LengthSquared() < 1e-6f then Vector3(0.0f, vertical, 0.0f) else
-        let v = Vector3.Normalize toward * float32 speed
-        Vector3(v.X, vertical, v.Z)
-    do Physics.setBodyVelocity state.Physics body velocity
-    do Physics.setBodyRotation state.Physics body (Quaternion.Slerp(initialRotation, finalRotation, float32 t))
+    match live.State.Physics.Mobility with
+    | Dynamic ->
+        let vertical = (Physics.getBodyVelocity state.Physics body).Y
+        let toward = Vector3(target.X - bodyPosition.X, 0.0f, target.Z - bodyPosition.Z)
+        let velocity =
+            if toward.LengthSquared() < 1e-6f then Vector3(0.0f, vertical, 0.0f) else
+            let v = Vector3.Normalize toward * float32 speed
+            Vector3(v.X, vertical, v.Z)
+        do Physics.setBodyVelocity state.Physics body velocity
+    | Kinematic ->
+        do moveKinematic state.Physics body target rotation
+    | NoPhysics -> ()
+    do Physics.setBodyRotation state.Physics body rotation
     let remaining = endsAt - now
     let arrival = if blend <= 0.0 then 0.0f else float32 (max 0.0 (1.0 - remaining / blend))
     do ActorRender.setClipWeight &live.Renderer movingClip (1.0f - arrival)
@@ -735,7 +760,12 @@ let rec advance
     | EnablePlayer (place, actor) ->
         // the runtime counterpart of the editor's "Set as Player": bind her as the named place's player
         match tryActorIn &state place actor with
-        | Some (zone, ref) -> zone.Player <- ValueSome (Systems.playerHandleOf ref)
+        | Some (zone, ref) ->
+            let live = &zone.Actors.Get(handleOf ref)
+            if live.State.Physics.Mobility <> Dynamic then
+                let promoted = { live.State.Physics with Mobility = Dynamic; GravityFactor = dynamicPhysics.GravityFactor }
+                do Zone.setActorPhysics zone state.Physics shared.Assets ref promoted
+            zone.Player <- ValueSome (Systems.playerHandleOf ref)
         | None -> do noOp "EnablePlayer" actor (sprintf "she is not in '%s'" (place))
         ValueSome Fin
 

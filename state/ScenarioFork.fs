@@ -81,8 +81,7 @@ let materialise
         // actors: the authored overlay is written back (`spawnActor` opens it off); a body built into an
         // inactive zone is detached so it does not simulate.
         for actor in scenarioZone.Actors do
-            let ref = Zone.spawnActor zone state.Physics shared.Assets actor.Base actor.AssetId
-            do Zone.setShowCollider zone ref actor.ShowCollider
+            let ref = Zone.spawnActor zone state.Physics shared.Assets actor
             if name <> active then do Zone.detachActorBody state.Physics zone ref
             commands.Add(ActorCreate(name, ref, Zone.captureActor zone ref))
 

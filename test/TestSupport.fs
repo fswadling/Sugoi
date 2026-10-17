@@ -154,7 +154,8 @@ let actor (name: string) : Entity.Actor =
     { State =
         { Base = entity name
           AssetId = ""
-          ShowCollider = false }
+          ShowCollider = false
+          Physics = Entity.dynamicPhysics }
       Physics = None
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 

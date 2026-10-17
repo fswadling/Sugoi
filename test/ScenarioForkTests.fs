@@ -33,7 +33,7 @@ let private triggerState (name: string) : TriggerState =
 /// A scenario zone with an actor, a chained waypoint pair and a trigger.
 let private fullZone () : ScenarioZone =
     { Staging = ZoneTemplate.empty
-      Actors = [| { Base = entity "pupil"; AssetId = "aiko"; ShowCollider = false } |]
+      Actors = [| { Base = entity "pupil"; AssetId = "aiko"; ShowCollider = false; Physics = dynamicPhysics } |]
       Waypoints =
         [| { Base = entity "wp-a"; Next = Some 1 }
            { Base = entity "wp-b"; Next = None } |]
@@ -304,7 +304,7 @@ let ``a fork restages a present zone and leaves its player alone`` () =
     let mutable state = newState ()
     let start = GameplayState.activeZone state
     start.Light <- { start.Light with Pitch = 77.0f }
-    let player = ValueSome (start.Actors.Add({ State = { Base = entity "hero"; AssetId = "aiko"; ShowCollider = false }; Physics = None; Renderer = Unchecked.defaultof<ActorRender.ActorRender> }))
+    let player = ValueSome (start.Actors.Add({ State = { Base = entity "hero"; AssetId = "aiko"; ShowCollider = false; Physics = dynamicPhysics }; Physics = None; Renderer = Unchecked.defaultof<ActorRender.ActorRender> }))
     start.Player <- player
 
     do register shared &state (contents [ GameplayState.startZone, { emptyZone with Staging = ZoneTemplate.ofTemplate (template ()) } ] Cue.Fin)
@@ -433,7 +433,7 @@ let ``ZoneStage apply and undo round-trip a restage, detaching an inactive zone'
     let shared = sharedState ()
     let mutable state = newState ()
     do GameplayState.addZone shared &state "Hall" // present and active
-    do ignore (Zone.spawnActor state.Zones.["Hall"] state.Physics shared.Assets (entity "npc") "aiko")
+    do ignore (Zone.spawnActor state.Zones.["Hall"] state.Physics shared.Assets { Base = entity "npc"; AssetId = "aiko"; ShowCollider = false; Physics = Entity.dynamicPhysics })
     do GameplayState.switchZone shared &state GameplayState.startZone // Hall is now inactive
 
     let previous = ScenarioZone.captureStaging state.Zones.["Hall"]

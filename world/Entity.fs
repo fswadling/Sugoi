@@ -150,11 +150,50 @@ type AssetBinding =
 
 // What the editor authors for an actor: everything a command must carry, and nothing an
 // engine rebuilds.
+
+/// How an actor's body responds to the world. `Dynamic` and `Kinematic` mirror Jolt's
+/// motion types; `NoPhysics` is an actor with no body at all.
+[<Struct>]
+type ActorMobility =
+    | Dynamic
+    | Kinematic
+    | NoPhysics
+
+/// The authored physics of a placed actor. The four numeric properties only affect the
+/// body built from this value; the collider shape remains the asset-derived capsule.
+[<Struct>]
+type ActorPhysics =
+    { Mobility : ActorMobility
+      Mass : float32
+      Friction : float32
+      Restitution : float32
+      GravityFactor : float32 }
+
+let minMass = 1.0f
+let maxMass = 500.0f
+let minFriction = 0.0f
+let maxFriction = 2.0f
+let minRestitution = 0.0f
+let maxRestitution = 1.0f
+let minGravityFactor = 0.0f
+let maxGravityFactor = 4.0f
+
+let dynamicPhysics =
+    { Mobility = Dynamic
+      Mass = 75.0f
+      Friction = 0.5f
+      Restitution = 0.0f
+      GravityFactor = 1.0f }
+
+let kinematicPhysics =
+    { dynamicPhysics with Mobility = Kinematic }
+
 [<Struct>]
 type ActorState =
     { Base : Entity
       AssetId : string
-      ShowCollider : bool }
+      ShowCollider : bool
+      Physics : ActorPhysics }
 
 // An actor is its authored state plus the resources derived from it. They are different
 // types, so nothing recorded can hold a body or a renderer, and which half a site is

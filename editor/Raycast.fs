@@ -66,3 +66,34 @@ let raySegmentDistance (ray: Ray) (a: Vector3) (b: Vector3) : float32 =
         originToSegment ()
     else
         dist (ray.Origin + dir * s) (segPoint t)
+
+// Distance along a ray at which it first enters a vertical capsule, or None. Used for
+// editor picking of actors whose runtime mode has no body to raycast.
+let rayCapsuleDistance (ray: Ray) (center: Vector3) (halfHeight: float32) (radius: float32) : float32 option =
+    let uu = Vector3.Dot(ray.Dir, ray.Dir)
+    if uu < 1e-8f then None else
+
+    let a = center - Vector3(0.0f, halfHeight, 0.0f)
+    let b = center + Vector3(0.0f, halfHeight, 0.0f)
+    let seg = b - a
+    let w0 = ray.Origin - a
+    let uv = Vector3.Dot(ray.Dir, seg)
+    let vv = Vector3.Dot(seg, seg)
+    let uw = Vector3.Dot(ray.Dir, w0)
+    let vw = Vector3.Dot(seg, w0)
+    let denom = uu * vv - uv * uv
+    let t =
+        if abs denom < 1e-8f then 0.0f
+        else max 0.0f ((uv * vw - vv * uw) / denom)
+    let s =
+        if vv < 1e-8f then 0.0f
+        else max 0.0f (min 1.0f ((uv * t + vw) / vv))
+    let t =
+        if s <= 0.0f || s >= 1.0f then max 0.0f ((s * uv - uw) / uu)
+        else t
+    let offset = (ray.Origin + ray.Dir * t) - (a + seg * s)
+    let distanceSquared = offset.LengthSquared()
+    if distanceSquared > radius * radius then None
+    else
+    let entry = t - sqrt (max 0.0f (radius * radius - distanceSquared))
+    Some (max 0.0f entry)

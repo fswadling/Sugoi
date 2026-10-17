@@ -38,6 +38,7 @@
     <Compile Include="SwayTests.fs" />
     <Compile Include="PhysicsTests.fs" />
     <Compile Include="ZoneTests.fs" />
+    <Compile Include="ActorPhysicsTests.fs" />
     <Compile Include="SpawningTests.fs" />
     <Compile Include="SelectionTests.fs" />
     <Compile Include="PlayerTests.fs" />

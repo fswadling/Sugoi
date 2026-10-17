@@ -19,7 +19,8 @@ let private zoneWithPlayer (position: Vector3) : Zone.Zone =
         { State =
             { Base = { entity "hero" with Transform = { transformIdentity with Position = position } }
               AssetId = "character"
-              ShowCollider = false }
+              ShowCollider = false
+              Physics = dynamicPhysics }
           Physics = None
           Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
     zone.Player <- ValueSome (zone.Actors.Add hero)

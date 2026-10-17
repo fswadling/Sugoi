@@ -95,7 +95,11 @@ let rec apply (shared: SharedState.SharedState) (state: byref<GameplayState.Game
             | Some place -> place
             | None -> failwith "History.apply: a step that names no place reached the zone-level runner"
         match state.Zones.TryGetValue place with
-        | true, zone -> Command.apply zone state.Physics shared.Assets cmd
+        | true, zone ->
+            Command.apply zone state.Physics shared.Assets cmd
+            // A step applied to an inactive place can rebuild a body (a mode change, a scale change, or a
+            // restored player promotion). Detach it again so an inactive zone never simulates.
+            if place <> state.ActiveZone then do Zone.deactivatePhysics zone state.Physics
         | false, _ -> skip "apply" cmd (sprintf "the place '%s' is not present" place)
 
 /// The inverse of `apply`.
@@ -160,7 +164,9 @@ let rec undo (shared: SharedState.SharedState) (state: byref<GameplayState.Gamep
             | Some place -> place
             | None -> failwith "History.undo: a step that names no place reached the zone-level runner"
         match state.Zones.TryGetValue place with
-        | true, zone -> Command.undo zone state.Physics shared.Assets cmd
+        | true, zone ->
+            Command.undo zone state.Physics shared.Assets cmd
+            if place <> state.ActiveZone then do Zone.deactivatePhysics zone state.Physics
         | false, _ -> skip "undo" cmd (sprintf "the place '%s' is not present" place)
 
 /// Apply a command and push it onto the one history, clearing the redo side. The editor's write path for a zone

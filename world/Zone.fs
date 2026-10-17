@@ -212,6 +212,24 @@ let private propCollider (zone: Zone) (assets: Assets.AssetManager) (binding: As
 let private actorCollider (assets: Assets.AssetManager) (assetId: string) : CapsuleCollider =
     capsuleCollider assets.Actors.[assetId].Bounds
 
+let private actorSettings (physics: ActorPhysics) : Physics.CapsuleSettings option =
+    match physics.Mobility with
+    | NoPhysics -> None
+    | Dynamic ->
+        Some { Motion = Physics.dynamicMotion
+               Friction = physics.Friction
+               Restitution = physics.Restitution
+               Mass = physics.Mass
+               GravityFactor = physics.GravityFactor
+               AllowSleeping = false }
+    | Kinematic ->
+        Some { Motion = Physics.kinematicMotion
+               Friction = physics.Friction
+               Restitution = physics.Restitution
+               Mass = physics.Mass
+               GravityFactor = physics.GravityFactor
+               AllowSleeping = false }
+
 // ── Physics attachment ──
 
 // Bodies are built from the entity's collider and the two are stored together
@@ -231,22 +249,21 @@ let private meshBody (world: Physics.World) (collider: MeshCollider) (transform:
 let capsuleCenter (transform: Transform) (collider: CapsuleCollider) : Vector3 =
     transform.Position + Entity.capsuleOffset collider
 
-let private capsuleBody (world: Physics.World) (collider: CapsuleCollider) (transform: Transform) : Physics.BodyId =
-    // `createCapsuleBody` builds at identity rotation, so the transform's facing is written onto the body here:
-    // the body is the source of truth while playing (`Systems.syncActors` copies body -> entity each frame), so
-    // without this an editor-authored (or `AddActor`-authored) rotation would be lost the moment Play begins. The
-    // actor capsule's rotation is locked (`Physics.translationOnly`), so setting it directly is what
-    // `Systems.playerInput` does too.
-    let body = Physics.createCapsuleBody world (capsuleCenter transform collider) collider.HalfHeight collider.Radius
-    do Physics.setBodyRotation world body transform.Rotation
-    body
+let private capsuleBody (world: Physics.World) (collider: CapsuleCollider) (transform: Transform) (physics: ActorPhysics) : Physics.BodyId =
+    match actorSettings physics with
+    | None -> invalidOp "capsuleBody: NoPhysics has no capsule"
+    | Some settings ->
+    Physics.createCapsuleBody world (capsuleCenter transform collider) transform.Rotation collider.HalfHeight collider.Radius settings
 
 // Attach physics to an entity: derive its collider and build the body in the
 // supplied world; for props, the attachment is None when the part binding is
 // stale and no collider can be derived.
-let private attachActorPhysics (world: Physics.World) (assets: Assets.AssetManager) (assetId: string) (transform: Transform) : PhysicsAttachment<CapsuleCollider> option =
-    let collider = actorCollider assets assetId
-    Some { Collider = collider; Body = capsuleBody world collider transform }
+let private attachActorPhysics (world: Physics.World) (assets: Assets.AssetManager) (state: ActorState) : PhysicsAttachment<CapsuleCollider> option =
+    match actorSettings state.Physics with
+    | None -> None
+    | Some _ ->
+    let collider = actorCollider assets state.AssetId
+    Some { Collider = collider; Body = capsuleBody world collider state.Base.Transform state.Physics }
 
 let private attachPropPhysics (world: Physics.World) (zone: Zone) (assets: Assets.AssetManager) (binding: AssetBinding) (transform: Transform) : PhysicsAttachment<MeshCollider> option =
     match propCollider zone assets binding with
@@ -399,7 +416,7 @@ let setTransform (zone: Zone) (world: Physics.World) (ref: EntityRef) (transform
                 Some ph
             | Some ph ->
                 do destroyBody world zone a.Physics
-                Some { ph with Body = capsuleBody world ph.Collider transform }
+                Some { ph with Body = capsuleBody world ph.Collider transform a.State.Physics }
             | None -> None
         do mapBody zone attachment ref
         a <- { a with State.Base.Transform = transform; Physics = attachment }
@@ -499,7 +516,7 @@ let occupyTrigger (zone: Zone) (ref: EntityRef) (state: TriggerState) : unit =
 let occupyActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (state: ActorState) : unit =
     do ensureSlotFree zone.Actors ref
     let renderer = Assets.createActorRender assets state.AssetId
-    let attachment = attachActorPhysics world assets state.AssetId state.Base.Transform
+    let attachment = attachActorPhysics world assets state
     do zone.Actors.Occupy(handleOf ref, { State = state
                                           Physics = attachment
                                           Renderer = renderer })
@@ -584,15 +601,44 @@ let removeTrigger (zone: Zone) (ref: EntityRef) : unit =
     if zone.Triggers.IsAlive(handleOf ref) then
         do zone.Triggers.Free(handleOf ref)
 
-// Spawn a new actor and return the new ref (renderer + physics attached).
-let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (entity: Entity) (assetId: string) : EntityRef =
-    let renderer = Assets.createActorRender assets assetId
-    let attachment = attachActorPhysics world assets assetId entity.Transform
-    let state = { Base = entity; AssetId = assetId; ShowCollider = false }
+// Spawn a new actor from its authored state and return the new ref (renderer + physics attached).
+let spawnActor (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (state: ActorState) : EntityRef =
+    let renderer = Assets.createActorRender assets state.AssetId
+    let attachment = attachActorPhysics world assets state
     let handle = zone.Actors.Add({ State = state; Physics = attachment; Renderer = renderer })
     let ref = actorRef handle.Index handle.Generation
     do mapBody zone attachment ref
     ref
+
+/// Change an actor's authored physics, rebuilding its body while keeping its renderer and
+/// transform. A `NoPhysics` setting removes the body; a body mode builds a fresh one.
+let setActorPhysics (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) (ref: EntityRef) (physics: ActorPhysics) : unit =
+    if zone.Actors.IsAlive(handleOf ref) then
+        let actor = &zone.Actors.Get(handleOf ref)
+        if actor.State.Physics <> physics then
+            let collider =
+                match actor.Physics with
+                | Some ph -> ph.Collider
+                | None -> actorCollider assets actor.State.AssetId
+            do destroyBody world zone actor.Physics
+            let attachment =
+                match actorSettings physics with
+                | None -> None
+                | Some _ ->
+                Some { Collider = collider
+                       Body = capsuleBody world collider actor.State.Base.Transform physics }
+            actor <- { actor with State = { actor.State with Physics = physics }; Physics = attachment }
+            do mapBody zone attachment ref
+
+/// A designated player is always dynamic: promote her if a restored or edited state says otherwise.
+let ensurePlayerDynamic (zone: Zone) (world: Physics.World) (assets: Assets.AssetManager) : unit =
+    match zone.Player with
+    | ValueSome handle when zone.Actors.IsAlive handle ->
+        let actor = &zone.Actors.Get handle
+        if actor.State.Physics.Mobility <> Dynamic then
+            let promoted = { actor.State.Physics with Mobility = Dynamic; GravityFactor = dynamicPhysics.GravityFactor }
+            do setActorPhysics zone world assets (actorRef handle.Index handle.Generation) promoted
+    | _ -> ()
 
 /// Detach an actor body from the simulation without destroying it: the actor was built into a place that
 /// is not active, so it must not simulate. A body already detached is untouched.
@@ -951,6 +997,7 @@ let occupyZone (zone: Zone) (physics: Physics.World) (assets: Assets.AssetManage
     for ref, trigger in contents.Triggers do occupyTrigger zone ref trigger
     zone.Light <- contents.Light
     zone.Player <- contents.Player
+    do ensurePlayerDynamic zone physics assets
     do EnvironmentBatch.markDirty zone.Batch
 
 /// The contents of a fresh, empty zone — what a reset installs as the new `start` place (spec 084).
@@ -1032,8 +1079,8 @@ let private forEachEntity (zone: Zone) (onActor: Actor -> unit) (onProp: Prop ->
 let deactivatePhysics (zone: Zone) (world: Physics.World) : unit =
     let detach (attachment: PhysicsAttachment<'T> option) : unit =
         match attachment with
-        | Some ph -> Physics.removeBody world ph.Body
-        | None -> ()
+        | Some ph when Physics.isAdded world ph.Body -> Physics.removeBody world ph.Body
+        | _ -> ()
     do forEachEntity zone (fun a -> detach a.Physics) (fun p -> detach p.Physics)
 
 let activatePhysics (zone: Zone) (world: Physics.World) : unit =

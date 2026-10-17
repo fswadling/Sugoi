@@ -112,11 +112,19 @@ let private floorIndices : int array = [| 0; 2; 1;  0; 3; 2 |]
 
 // Actor capsules are dynamic with rotation locked: the body must fall under gravity,
 // land on the floor, and remain upright.
+let private dynamicCapsule : Physics.CapsuleSettings =
+    { Motion = Physics.dynamicMotion
+      Friction = 0.5f
+      Restitution = 0.0f
+      Mass = 75.0f
+      GravityFactor = 1.0f
+      AllowSleeping = false }
+
 [<Fact>]
 let ``dynamic capsule falls and rests upright on the floor`` () =
     let world = Physics.create ()
     ignore (Physics.createMeshBody world Vector3.Zero Quaternion.Identity floorVertices floorIndices)
-    let body = Physics.createCapsuleBody world (Vector3(0.0f, -3.0f, 0.0f)) 0.5f 0.35f
+    let body = Physics.createCapsuleBody world (Vector3(0.0f, -3.0f, 0.0f)) Quaternion.Identity 0.5f 0.35f dynamicCapsule
     for _ in 1 .. 300 do
         Physics.step world (1.0f / 60.0f)
     let struct (position, rotation) = Physics.getBodyTransform world body
@@ -133,7 +141,7 @@ let ``collision still works after a garbage collection`` () =
     do GC.Collect()
     do GC.WaitForPendingFinalizers()
     do GC.Collect()
-    let body = Physics.createCapsuleBody world (Vector3(0.0f, -3.0f, 0.0f)) 0.5f 0.35f
+    let body = Physics.createCapsuleBody world (Vector3(0.0f, -3.0f, 0.0f)) Quaternion.Identity 0.5f 0.35f dynamicCapsule
     for _ in 1 .. 300 do
         Physics.step world (1.0f / 60.0f)
     let struct (position, _) = Physics.getBodyTransform world body

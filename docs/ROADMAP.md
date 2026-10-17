@@ -51,6 +51,10 @@ box/BVH props), and a full **in-engine editor** to author all of it.
   (`render/ImGui.fs`, `render/ImGuiSdl3.fs`, `native/`).
 - Jolt Physics (JoltPhysicsSharp) wired in: `physics/Physics.fs` (world, box/capsule
   bodies, raycast), colliders for actors/props, and accurate collider picking.
+- Per-actor physics modes and properties (`specs/102-actor-physics`):
+  `Dynamic` / `Kinematic` / `NoPhysics`, with mass, friction, restitution and
+  gravity factor authored in the Inspector. New placements default to
+  `Kinematic`; older projects load as `Dynamic`.
 - Target data architecture documented in `docs/ARCHITECTURE.md`.
 
 ## The phases

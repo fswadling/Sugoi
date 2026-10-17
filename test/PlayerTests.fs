@@ -110,8 +110,15 @@ let ``syncActors writes back every actor body`` () =
     let zone = Zone.create ()
     let world = Physics.create ()
     let capsule : CapsuleCollider = { Radius = 0.35f; HalfHeight = 0.5f }
+    let capsuleSettings : Physics.CapsuleSettings =
+        { Motion = Physics.dynamicMotion
+          Friction = 0.5f
+          Restitution = 0.0f
+          Mass = 75.0f
+          GravityFactor = 1.0f
+          AllowSleeping = false }
     let addActor (name: string) (position: Vector3) : Handle =
-        let body = Physics.createCapsuleBody world position capsule.HalfHeight capsule.Radius
+        let body = Physics.createCapsuleBody world position Quaternion.Identity capsule.HalfHeight capsule.Radius capsuleSettings
         zone.Actors.Add({ actor name with Physics = Some { Collider = capsule; Body = body } })
 
     let first = addActor "one" (Vector3(1.0f, 0.0f, 0.0f))

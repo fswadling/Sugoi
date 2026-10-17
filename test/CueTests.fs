@@ -994,7 +994,10 @@ let private placeAiko (shared: SharedState.SharedState) (state: byref<GameplaySt
     do ignore (waypointIn zone "spawn" Vector3.Zero Quaternion.Identity)
     state.Cue <- AddActor(mainPlace, "Aiko", "aiko", "spawn")
     tick shared &state 0.0
-    castRef state "Aiko"
+    let ref = castRef state "Aiko"
+    // The cue creates the kinematic default; these movement tests exercise the dynamic step.
+    do Zone.setActorPhysics zone state.Physics shared.Assets ref dynamicPhysics
+    ref
 
 /// The named clip's current weight on the actor, or `None` when the asset lacks it (the reader a blend uses).
 let private clipWeight (zone: Zone.Zone) (ref: EntityRef) (name: string) : float32 option =
@@ -1037,7 +1040,7 @@ let ``an add op performs nothing when the place is at capacity`` () =
     let zone = GameplayState.activeZone state
     do ignore (waypointIn zone "door" Vector3.Zero Quaternion.Identity)
     while zone.Actors.Count < zone.Actors.Capacity do
-        do ignore (Zone.spawnActor zone state.Physics shared.Assets (Entity.baseEntity "filler" transformIdentity) "aiko")
+        do ignore (Zone.spawnActor zone state.Physics shared.Assets { Base = Entity.baseEntity "filler" transformIdentity; AssetId = "aiko"; ShowCollider = false; Physics = Entity.dynamicPhysics })
 
     state.Cue <- AddActor(mainPlace, "Late", "aiko", "door")
     tick shared &state 0.0
@@ -1623,7 +1626,7 @@ let ``an in-flight move ends when its actor leaves, and does not follow a same-n
     do Zone.removeActor zone state.Physics ref
     let entity : Entity =
         { Name = "Aiko"; Transform = transformIdentity; Enabled = true; Visible = true; Selectable = true; Draggable = true }
-    let newcomer = Zone.spawnActor zone state.Physics shared.Assets entity "aiko"
+    let newcomer = Zone.spawnActor zone state.Physics shared.Assets { Base = entity; AssetId = "aiko"; ShowCollider = false; Physics = Entity.dynamicPhysics }
     let before = (zone.Actors.Get(handleOf newcomer)).State.Base.Transform.Position
 
     tick shared &state 0.5

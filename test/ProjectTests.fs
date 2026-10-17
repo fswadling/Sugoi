@@ -19,6 +19,38 @@ open ScenarioRegistry
 open ZoneTemplate
 open TestSupport
 
+// The pre-feature record tree: an actor with no physics field. Encoding this and decoding it with the
+// current `Project` proves the optional field is backward-compatible. Kept in a nested module so its
+// `Zones`/`Cue` labels do not collide with `ScenarioContents` in the rest of this file.
+module LegacyDtos =
+    [<SymbolicExpansion>]
+    type ActorDto =
+        { Base : Project.EntityDto
+          AssetId : string
+          ShowCollider : bool }
+
+    [<SymbolicExpansion>]
+    type ZoneDto =
+        { Staging : Project.StagingDto
+          Actors : ActorDto array
+          Waypoints : Project.WaypointDto array
+          Triggers : Project.TriggerDto array }
+
+    [<SymbolicExpansion>]
+    type ContentsDto =
+        { Zones : Map<string, ZoneDto>
+          Cue : Cue.Cue }
+
+    [<SymbolicExpansion>]
+    type EntryDto =
+        { Name : string
+          Contents : ContentsDto option }
+
+    [<SymbolicExpansion>]
+    type Project =
+        { Version : int
+          Scenarios : EntryDto array }
+
 // ── fixtures ──
 
 // An authored zone: a light and prop in its staging, an actor, a chained waypoint pair, and a trigger whose cue
@@ -29,7 +61,7 @@ let private authoredZone () : ScenarioZone =
           Light = { Pitch = 30.0f; Yaw = 45.0f; Color = Vector3(1.0f, 0.5f, 0.25f); Ambient = 0.2f }
           Skydome = { Enabled = true; Zenith = Vector3(0.1f, 0.2f, 0.3f); Horizon = Vector3(0.4f, 0.5f, 0.6f) }
           Props = [| { Base = entity "crate"; AssetId = Some "crate"; SubmeshIndex = 0; SubmeshCount = 1 } |] }
-      Actors = [| { Base = entity "aiko"; AssetId = "aiko"; ShowCollider = false } |]
+      Actors = [| { Base = entity "aiko"; AssetId = "aiko"; ShowCollider = false; Physics = dynamicPhysics } |]
       Waypoints = [| { Base = entity "a"; Next = Some 1 }; { Base = entity "b"; Next = None } |]
       Triggers = [| { Base = entity "area"; Radius = 1.5f; Height = 2.0f; Interactable = true; Prompt = "Look"; Cue = Exposit("hi", Kind.Dialogue) } |] }
 
@@ -75,6 +107,54 @@ let ``a library round-trips through encode and decode, equal scenario for scenar
     Assert.Equal(None, main.Waypoints.[1].Next)
     Assert.Equal(1, Array.length main.Triggers)
     Assert.Equal(Exposit("hi", Kind.Dialogue), main.Triggers.[0].Cue)
+
+[<Fact>]
+let ``the physics setting round-trips through the project file`` () =
+    let physics = { dynamicPhysics with Mass = 123.0f; Friction = 1.5f; Restitution = 0.8f; GravityFactor = 2.0f }
+    let zone = { authoredZone () with Actors = [| { Base = entity "npc"; AssetId = "aiko"; ShowCollider = false; Physics = physics } |] }
+    let contents = { Zones = Map.ofList [ "start", zone ]; Cue = Fin }
+    let registry = setContents "Intro" (Some contents) (create ())
+    let text = Project.encode registry
+    Assert.Contains("[Physics", text)
+    let reloaded = Project.decode text
+    let actor = (Map.find "start" (Option.get (tryContents "Intro" reloaded)).Zones).Actors.[0]
+    Assert.Equal(123.0f, actor.Physics.Mass)
+    Assert.Equal(1.5f, actor.Physics.Friction)
+    Assert.Equal(0.8f, actor.Physics.Restitution)
+    Assert.Equal(2.0f, actor.Physics.GravityFactor)
+    Assert.Equal(Dynamic, actor.Physics.Mobility)
+
+[<Fact>]
+let ``an actor record without a physics field decodes as dynamic`` () =
+    let entityDto : Project.EntityDto =
+        { Name = "aiko"; Position = { X = 0.0f; Y = 0.0f; Z = 0.0f }; Rotation = { X = 0.0f; Y = 0.0f; Z = 0.0f; W = 1.0f }
+          Scale = { X = 1.0f; Y = 1.0f; Z = 1.0f }; Enabled = true; Visible = true; Selectable = true; Draggable = true }
+    let staging : Project.StagingDto =
+        { Environment = None
+          Light = { Pitch = 0.0f; Yaw = 0.0f; Color = { X = 1.0f; Y = 1.0f; Z = 1.0f }; Ambient = 0.1f }
+          Skydome = { Enabled = false; Zenith = { X = 0.0f; Y = 0.0f; Z = 1.0f }; Horizon = { X = 1.0f; Y = 1.0f; Z = 1.0f } }
+          Props = [||] }
+    let zone : LegacyDtos.ZoneDto =
+        { Staging = staging
+          Actors = [| { Base = entityDto; AssetId = "aiko"; ShowCollider = false } |]
+          Waypoints = [||]
+          Triggers = [||] }
+    let legacy : LegacyDtos.Project =
+        { Version = 1
+          Scenarios = [| { Name = "Legacy"; Contents = Some { Zones = Map.ofList [ "start", zone ]; Cue = Fin } } |] }
+
+    let text = PrettyPrinter.prettyPrintValue legacy PrettyPrinter.defaultPrinter
+    let reloaded = Project.decode text
+    let actor = (Map.find "start" (Option.get (tryContents "Legacy" reloaded)).Zones).Actors.[0]
+    Assert.Equal(Dynamic, actor.Physics.Mobility)
+    Assert.Equal(dynamicPhysics, actor.Physics)
+
+[<Fact>]
+let ``an out-of-range physics value is rejected on decode`` () =
+    let zone = { authoredZone () with Actors = [| { Base = entity "npc"; AssetId = "aiko"; ShowCollider = false; Physics = { dynamicPhysics with Mass = 1000.0f } } |] }
+    let contents = { Zones = Map.ofList [ "start", zone ]; Cue = Fin }
+    let registry = setContents "Intro" (Some contents) (create ())
+    Assert.Throws<ArgumentException>(fun () -> Project.decode (Project.encode registry) |> ignore) |> ignore
 
 [<Fact>]
 let ``every dialogue ending shape round-trips, and the old exposit stays cue-managed`` () =

@@ -49,7 +49,15 @@ type EntityDto =
       Draggable : bool }
 
 [<SymbolicExpansion>]
-type ActorDto = { Base : EntityDto; AssetId : string; ShowCollider : bool }
+type ActorPhysicsDto =
+    { Mobility : ActorMobility
+      Mass : float32
+      Friction : float32
+      Restitution : float32
+      GravityFactor : float32 }
+
+[<SymbolicExpansion>]
+type ActorDto = { Base : EntityDto; AssetId : string; ShowCollider : bool; Physics : ActorPhysicsDto option }
 
 [<SymbolicExpansion>]
 type PropDto = { Base : EntityDto; AssetId : string option; SubmeshIndex : int; SubmeshCount : int }
@@ -182,10 +190,26 @@ let private ofStagingDto (s: StagingDto) : ZoneStaging =
       Props = Array.map ofPropDto s.Props }
 
 let private toActorDto (a: ActorState) : ActorDto =
-    { Base = toEntityDto a.Base; AssetId = a.AssetId; ShowCollider = a.ShowCollider }
+    { Base = toEntityDto a.Base
+      AssetId = a.AssetId
+      ShowCollider = a.ShowCollider
+      Physics = Some { Mobility = a.Physics.Mobility
+                       Mass = a.Physics.Mass
+                       Friction = a.Physics.Friction
+                       Restitution = a.Physics.Restitution
+                       GravityFactor = a.Physics.GravityFactor } }
 
 let private ofActorDto (a: ActorDto) : ActorState =
-    { Base = ofEntityDto a.Base; AssetId = a.AssetId; ShowCollider = a.ShowCollider }
+    let physics =
+        match a.Physics with
+        | None -> dynamicPhysics
+        | Some p ->
+            if not (p.Mass >= minMass && p.Mass <= maxMass) then invalidArg "Physics.Mass" (sprintf "%g is outside [%g, %g]" p.Mass minMass maxMass)
+            if not (p.Friction >= minFriction && p.Friction <= maxFriction) then invalidArg "Physics.Friction" (sprintf "%g is outside [%g, %g]" p.Friction minFriction maxFriction)
+            if not (p.Restitution >= minRestitution && p.Restitution <= maxRestitution) then invalidArg "Physics.Restitution" (sprintf "%g is outside [%g, %g]" p.Restitution minRestitution maxRestitution)
+            if not (p.GravityFactor >= minGravityFactor && p.GravityFactor <= maxGravityFactor) then invalidArg "Physics.GravityFactor" (sprintf "%g is outside [%g, %g]" p.GravityFactor minGravityFactor maxGravityFactor)
+            { Mobility = p.Mobility; Mass = p.Mass; Friction = p.Friction; Restitution = p.Restitution; GravityFactor = p.GravityFactor }
+    { Base = ofEntityDto a.Base; AssetId = a.AssetId; ShowCollider = a.ShowCollider; Physics = physics }
 
 let private toWaypointDto (w: ScenarioWaypoint) : WaypointDto =
     { Base = toEntityDto w.Base; Next = w.Next }

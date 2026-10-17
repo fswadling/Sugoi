@@ -51,7 +51,13 @@ heap-allocated per entity.
 - `Entity` is the shared base: `name`, `transform`, `enabled`, `visible`,
   `selectable`, `draggable`.
 - Specialized entities compose the base (Odin uses `using entity: Entity`):
-  - `Actor_Entity` — renderer pointer, physics, debug flag.
+  - `Actor_Entity` — renderer pointer, physics, debug flag. An actor's authored
+    state also carries its physics mode (`Dynamic`, `Kinematic`, `NoPhysics`) and
+    four contact properties (`Mass`, `Friction`, `Restitution`, `GravityFactor`).
+    `Dynamic` is a Jolt dynamic capsule; `Kinematic` is a kinematic capsule whose
+    cue movement is shape-cast against geometry; `NoPhysics` has no body. New
+    placements default to `Kinematic`, and a record without the field (an older
+    project) is `Dynamic`.
   - `Environment_Entity` — its own `parts` slot map (the imported glTF parts),
     mesh indices, renderer, splat/grass pointers.
   - `Prop_Entity` — a placed prop: collision data, render-transform cache, water

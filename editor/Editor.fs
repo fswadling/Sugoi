@@ -311,16 +311,16 @@ let handleShortcuts (shared: SharedState.SharedState) (input: Input.Input) (stat
 
 // On a left press (not ImGui-captured): begin a gizmo drag when the cursor hits
 // a handle on the selection, otherwise pick an entity (a miss clears the selection).
-let private beginDragOrPick (physics: Physics.World) (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
+let private beginDragOrPick (assets: Assets.AssetManager) (physics: Physics.World) (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
     // One screen ray serves both the gizmo test and the pick.
     let r = Viewport.ray state.Camera viewportW viewportH input.MouseX input.MouseY
     let sel = selectedTransform state
     match sel with
-    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick physics state r }
+    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick assets physics state r }
     | Some (center, transform) ->
 
     match Viewport.gizmoAxisAt state r center with
-    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick physics state r }
+    | None -> state.Editor <- { state.Editor with Selection = Viewport.pick assets physics state r }
     | Some axis ->
 
     let normal = if state.Editor.Tool = Rotate then Viewport.axisDir axis else Camera.forward state.Camera
@@ -329,9 +329,9 @@ let private beginDragOrPick (physics: Physics.World) (input: Input.Input) (viewp
 
 // Handle one frame of left-button interaction: begin a drag/pick on press, apply
 // the drag while held, and finish on release.
-let private interact (physics: Physics.World) (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
+let private interact (assets: Assets.AssetManager) (physics: Physics.World) (input: Input.Input) (viewportW: float32) (viewportH: float32) (state: byref<GameplayState.GameplayState>) : unit =
     if input.LeftPressed && not (ImGui.wantCaptureMouse()) then
-        do beginDragOrPick physics input viewportW viewportH &state
+        do beginDragOrPick assets physics input viewportW viewportH &state
     else if state.Editor.Drag <> None && input.LeftDown then
         do applyDrag physics viewportW viewportH input.MouseX input.MouseY &state
     else if state.Editor.Drag <> None && input.LeftReleased then
@@ -385,7 +385,7 @@ let update (shared: SharedState.SharedState) (frame: Screen.Frame) (state: byref
     // keyboard nudge (editor mode only)
     do updateNudge state.Physics frame.Input &state
     // viewport selection + gizmo drag (editor mode only)
-    do interact state.Physics frame.Input frame.WindowW frame.WindowH &state
+    do interact shared.Assets state.Physics frame.Input frame.WindowW frame.WindowH &state
     do updateCamera frame.Input frame.Dt &state
 
     transition

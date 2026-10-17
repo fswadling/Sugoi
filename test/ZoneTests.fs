@@ -577,7 +577,7 @@ let ``moving an actor updates its capsule body in place instead of rebuilding`` 
     let zone = Zone.create ()
     let world = Physics.create ()
     let assets = actorAssets ()
-    let ref = Zone.spawnActor zone world assets (entity "aiko") "aiko"
+    let ref = Zone.spawnActor zone world assets { Base = entity "aiko"; AssetId = "aiko"; ShowCollider = false; Physics = Entity.dynamicPhysics }
     let body = actorBody zone ref
 
     let moved = { transformIdentity with Position = Vector3(1.0f, 2.0f, 3.0f) }
@@ -595,7 +595,7 @@ let ``rotating an actor updates its capsule body in place instead of rebuilding`
     let zone = Zone.create ()
     let world = Physics.create ()
     let assets = actorAssets ()
-    let ref = Zone.spawnActor zone world assets (entity "aiko") "aiko"
+    let ref = Zone.spawnActor zone world assets { Base = entity "aiko"; AssetId = "aiko"; ShowCollider = false; Physics = Entity.dynamicPhysics }
     let body = actorBody zone ref
 
     let rotated = { transformIdentity with Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 1.0f) }
@@ -610,7 +610,7 @@ let ``scaling an actor rebuilds its body to match`` () =
     let zone = Zone.create ()
     let world = Physics.create ()
     let assets = actorAssets ()
-    let ref = Zone.spawnActor zone world assets (entity "aiko") "aiko"
+    let ref = Zone.spawnActor zone world assets { Base = entity "aiko"; AssetId = "aiko"; ShowCollider = false; Physics = Entity.dynamicPhysics }
     let before = actorBody zone ref
 
     let scaled = { transformIdentity with Scale = Vector3(2.0f, 3.0f, 4.0f) }

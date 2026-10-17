@@ -111,6 +111,20 @@ let updateTriggerRef (shared: SharedState.SharedState) (state: byref<GameplaySta
     let cmd = TriggerSet (state.ActiveZone, ref, before, after)
     do Undo.commit shared &state cmd
 
+// Apply `change` to an actor's authored physics as one undoable step, recorded against the
+// ref the edit was made for. No-op when the ref no longer resolves or the change is a no-op,
+// so leaving a widget without editing it records nothing.
+let updateActorPhysicsRef (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (ref: EntityRef) (change: ActorPhysics -> ActorPhysics) : unit =
+    let zone = GameplayState.activeZone state
+    if ref.Kind <> EntityKind.Actor || not (Zone.isAlive zone ref) then () else
+
+    let before = (Zone.captureActor zone ref).Physics
+    let after = change before
+    if after = before then () else
+
+    let cmd = ActorPhysicsSet (state.ActiveZone, ref, before, after)
+    do Undo.commit shared &state cmd
+
 // Apply `change` to the active zone's light as one undoable step (spec 043, FR-006). `before` is
 // the zone's light as it still stands — a control holds its edit in a local until the commit — so
 // one drag is one step; a commit that changes nothing records nothing, exactly as `updateTriggerRef`
@@ -145,7 +159,13 @@ let setPlayer (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     let after = ValueSome (Systems.playerHandleOf ref)
     if after = before then () else
 
-    let cmd = SetPlayer (state.ActiveZone, before, after)
+    let cmd =
+        let actor = Zone.captureActor zone ref
+        if actor.Physics.Mobility = Dynamic then SetPlayer (state.ActiveZone, before, after)
+        else
+        let promoted = { actor.Physics with Mobility = Dynamic; GravityFactor = dynamicPhysics.GravityFactor }
+        Batch [ ActorPhysicsSet (state.ActiveZone, ref, actor.Physics, promoted)
+                SetPlayer (state.ActiveZone, before, after) ]
     do Undo.commit shared &state cmd
 
 // Drop a Part selection left dangling by an environment swap: its epoch no longer

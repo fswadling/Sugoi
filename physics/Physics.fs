@@ -79,11 +79,27 @@ let private createBody (world: World) (shape: Shape) (position: Vector3) (rotati
 // Static bodies never move, so their allowed degrees of freedom are irrelevant.
 let private allDOFs : AllowedDOFs = AllowedDOFs.All
 
-// Actor capsules are dynamic so the engine resolves gravity and collisions, but
+// Actor capsules are dynamic or kinematic so the engine resolves collisions, but
 // rotation is locked about every axis so the character stays upright (its facing is
-// written directly). Sleeping is disabled so the body keeps responding to input.
-let private translationOnly : AllowedDOFs =
+// written directly). Sleeping is disabled for dynamic bodies so they keep responding
+// to input; it is irrelevant for kinematic bodies.
+let translationOnly : AllowedDOFs =
     LanguagePrimitives.EnumOfValue(int AllowedDOFs.TranslationX ||| int AllowedDOFs.TranslationY ||| int AllowedDOFs.TranslationZ)
+
+/// The motion types an actor capsule may use. Exposed as values so `world/` can build
+/// the settings without naming the Jolt enum itself.
+let dynamicMotion = MotionType.Dynamic
+let kinematicMotion = MotionType.Kinematic
+
+/// The body settings derived from an actor's authored physics.
+[<Struct>]
+type CapsuleSettings =
+    { Motion : MotionType
+      Friction : float32
+      Restitution : float32
+      Mass : float32
+      GravityFactor : float32
+      AllowSleeping : bool }
 
 // Static body from a triangle mesh (Jolt `MeshShape`, with its BVH). A mesh
 // shape cannot be scaled on the body, so the caller bakes any entity scale into
@@ -99,9 +115,48 @@ let createMeshBody (world: World) (position: Vector3) (rotation: Quaternion) (ve
     let shape = settings.Create()
     createBody world shape position rotation MotionType.Static allDOFs false layerNonMoving
 
-let createCapsuleBody (world: World) (position: Vector3) (halfHeight: float32) (radius: float32) : BodyId =
+let createCapsuleBody (world: World) (position: Vector3) (rotation: Quaternion) (halfHeight: float32) (radius: float32) (settings: CapsuleSettings) : BodyId =
     let shape = new CapsuleShape(halfHeight, radius)
-    createBody world shape position Quaternion.Identity MotionType.Dynamic translationOnly false layerMoving
+    let mutable pos = position
+    let mutable rot = rotation
+    use bodySettings = new BodyCreationSettings(shape, &pos, &rot, settings.Motion, layerMoving)
+    bodySettings.AllowedDOFs <- translationOnly
+    bodySettings.AllowSleeping <- settings.AllowSleeping
+    bodySettings.Friction <- settings.Friction
+    bodySettings.Restitution <- settings.Restitution
+    bodySettings.GravityFactor <- settings.GravityFactor
+    let mutable props = shape.MassProperties
+    props.ScaleToMass settings.Mass
+    bodySettings.OverrideMassProperties <- OverrideMassProperties.MassAndInertiaProvided
+    bodySettings.MassPropertiesOverride <- props
+    let body = world.System.BodyInterface.CreateBody(bodySettings)
+    let mutable bodyId = body.ID
+    do world.System.BodyInterface.AddBody(&bodyId, Activation.Activate)
+    BodyId body.ID.ID
+
+// ── Capsule sweep ──
+
+/// Excludes the swept body itself from its own shape cast.
+type private ExcludeBodyFilter (excluded: BodyID) =
+    inherit BodyFilter()
+    override _.ShouldCollide(bodyId: BodyID) = bodyId <> excluded
+    override _.ShouldCollideLocked(_body: Body) = true
+
+/// Sweep a body's own capsule along `delta`, returning the fraction of the sweep at
+/// which the first obstruction is hit (0–1), or `None` when the path is clear.
+let castCapsule (world: World) (BodyId id) (delta: Vector3) : float32 option =
+    if delta.LengthSquared() < 1e-12f then None else
+
+    let mutable bodyId = BodyID(id)
+    let shape = world.System.BodyInterface.GetShape(&bodyId)
+    let mutable transform = world.System.BodyInterface.GetCenterOfMassTransform(&bodyId)
+    let mutable direction = delta
+    let mutable baseOffset = Vector3.Zero
+    let mutable castSettings = ShapeCastSettings()
+    let results = ResizeArray<ShapeCastResult>()
+    use filter = new ExcludeBodyFilter(BodyID(id))
+    world.System.NarrowPhaseQuery.CastShape(shape, &transform, &direction, castSettings, &baseOffset, CollisionCollectorType.ClosestHit, results, null, null, filter, null) |> ignore
+    if results.Count = 0 then None else Some results.[0].Fraction
 
 let destroyBody (world: World) (BodyId id) : unit =
     let mutable bodyId = BodyID(id)

@@ -65,7 +65,7 @@ let private placedActor (name: string) : Actor =
           Selectable = true
           Draggable = true }
 
-    { State = { Base = baseEntity; AssetId = ""; ShowCollider = false }
+    { State = { Base = baseEntity; AssetId = ""; ShowCollider = false; Physics = dynamicPhysics }
       Physics = None
       Renderer = Unchecked.defaultof<ActorRender.ActorRender> }
 

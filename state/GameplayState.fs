@@ -126,6 +126,7 @@ let private swapZone (shared: SharedState.SharedState) (state: byref<GameplaySta
     do Zone.deactivatePhysics state.Zones.[outgoing] state.Physics
     state.ActiveZone <- next
     do Zone.activatePhysics state.Zones.[next] state.Physics
+    do Zone.ensurePlayerDynamic state.Zones.[next] state.Physics shared.Assets
     enterZone &state
 
 // Make a present place active. A no-op when it already is; an absent place is a bug.
