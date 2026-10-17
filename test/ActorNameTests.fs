@@ -8,6 +8,7 @@ module ActorNameTests
 
 open System
 open System.Collections.Generic
+open Prime
 open System.Numerics
 open Xunit
 open Gltf
@@ -51,7 +52,7 @@ let private headlessAssets () : Assets.AssetManager =
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = assets
-      Advents = Advent.empty
+      Advents = OSet.ofSeq1 []
       Mix = Music.empty
       Rack = Music.newRack ()
       Voices = Sound.newVoices Audio.unavailable }

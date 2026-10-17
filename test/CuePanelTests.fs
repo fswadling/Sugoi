@@ -25,7 +25,6 @@ open EditorState
 open CueEditor
 open Entity
 open Physics
-open Advent
 
 // ── fixtures ──
 
@@ -124,7 +123,7 @@ let private sharedState () : SharedState.SharedState =
 
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = assets
-      Advents = Advent.empty
+      Advents = OSet.ofSeq1 []
       Mix = Music.empty
       Rack = Music.newRack ()
       Voices = Sound.newVoices Audio.unavailable }

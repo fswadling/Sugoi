@@ -5,7 +5,7 @@ module AdventPanel
 // right, with the other editing surfaces, because what it edits is a set of story facts rather than a place
 // in the scene.
 //
-// A milestone is a plain string now (`world/Advent.fs`), so the panel offers a **text field** and an
+// A milestone is a plain string (spec 082), so the panel offers a **text field** and an
 // **Add** control to name a new one, and a **list** of the current advents, each with a **Remove** control —
 // there are no fixed cases to check off. A name is trimmed and refused when blank or already present; a
 // name is matched exactly (ordinal). Each add and remove is one step on the one undo history
@@ -14,12 +14,14 @@ module AdventPanel
 // has (`specs/048`, `specs/049`). The panel keeps no history of its own; `Ctrl+Z`, `Ctrl+Y` and the Edit menu
 // reach the step.
 
+open Prime
+
 // ── the write path ──
 
-/// Record a new set as one step on the one history (FR-008). The caller computes `next` with `Advent`'s
+/// Record a new set as one step on the one history (FR-008). The caller computes `next` with `OSet`'s
 /// operations; this applies `next` and pushes the before/after step in one place, so the panel keeps no
 /// history of its own.
-let commit (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (next: Advent.Set) : unit =
+let commit (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (next: OSet<string>) : unit =
     let before = shared.Advents
     do Undo.commit shared &state (Command.Advent (before, next))
 
@@ -40,18 +42,18 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
     // add-zone rule).
     let buffer = state.Editor.AdventNameBuffer
     do ImGui.inputText("Name##addadvent", buffer, unativeint buffer.Length, 0, System.IntPtr.Zero, System.IntPtr.Zero) |> ignore
-    let typed = Advent.normalise (bufferText buffer)
+    let typed = (bufferText buffer).Trim()
     do ImGui.sameLine(0.0f, -1.0f)
-    let canAdd = typed <> "" && not (Advent.contains typed shared.Advents)
+    let canAdd = typed <> "" && not (OSet.contains typed shared.Advents)
     do ImGui.beginDisabled(not canAdd)
     if ImGui.smallButton("Add##addadvent_btn") && canAdd then
-        do commit shared &state (Advent.add typed shared.Advents)
+        do commit shared &state (OSet.add typed shared.Advents)
         do System.Array.Clear(buffer, 0, buffer.Length)
     do ImGui.endDisabled()
 
     // The current advents, in the order they were added; each row clears its own name. A name is unique in
     // the set, so it is a stable widget id.
-    let names = Advent.names shared.Advents
+    let names = OSet.toSeq shared.Advents |> List.ofSeq
     if names.IsEmpty then
         do ImGui.text "(none)"
     else
@@ -59,6 +61,6 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do ImGui.text name
             do ImGui.sameLine(0.0f, -1.0f)
             if ImGui.smallButton(sprintf "Remove##adv_%s" name) then
-                do commit shared &state (Advent.remove name shared.Advents)
+                do commit shared &state (OSet.remove name shared.Advents)
 
     do ImGui.endWindow()

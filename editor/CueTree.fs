@@ -812,7 +812,7 @@ let drawEditor
             // to the set, so the combo commits a typed fallback and adds nothing to the set itself (`specs/074`'s
             // speaker rule, `specs/082` FR-007).
             filteredNameCombo filter ("Advent##" + idBase) advent advents advent (fun candidate ->
-                do commit (withAt selection (withAdvent (Advent.normalise candidate) node) cue))
+                do commit (withAt selection (withAdvent (candidate.Trim()) node) cue))
 
         | Exposit (_, kind) | ExpositWith (_, kind, _, _) | ExpositWait (_, kind, _, _) ->
             // the presentation, chosen from the closed vocabularies: the expression is closed, and the speaker

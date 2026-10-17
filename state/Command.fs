@@ -21,6 +21,7 @@ module Command
 // rule that one command is one undo step true for a gesture that has to replace a zone's
 // environment and every prop in it at once.
 
+open Prime
 open Entity
 open Zone
 open Texture
@@ -102,7 +103,7 @@ type Command =
     // zone's — the set is project state on `SharedState` (`specs/055` FR-002) — so it is a state-level step carried
     // by `Undo` and never by the zone-level runner. The payload is the two set values: the set is immutable, so a
     // snapshot is the set itself, and a before/after pair makes undo total (an add and a remove are the same shape).
-    | Advent of Previous : Advent.Set * Next : Advent.Set
+    | Advent of Previous : OSet<string> * Next : OSet<string>
     // The scenario library was edited (spec 070; string-keyed since spec 083): an add, delete, clear or register,
     // as a before/after pair of the whole library. Like `SetCue` and `Advent`, it is not a zone's — a scenario spans
     // zones — so it is a state-level step carried by `Undo` and never by the zone-level runner. The library is a

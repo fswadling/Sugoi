@@ -8,6 +8,7 @@ module ScenarioTests
 open Xunit
 open System
 open System.Collections.Generic
+open Prime
 open Command
 open Entity
 open ScenarioRegistry
@@ -36,7 +37,7 @@ let private newState () : GameplayState.GameplayState =
 let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = Advent.empty
+      Advents = OSet.ofSeq1 []
       Mix = Music.empty
       Rack = Music.newRack ()
       Voices = Sound.newVoices Audio.unavailable }

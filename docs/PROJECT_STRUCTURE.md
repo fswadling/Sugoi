@@ -172,7 +172,6 @@ Sugoi/
 │   │                           #     contents a delete carries, `ZoneContents` (spec 048)
 │   ├── ScenarioZone.fs         #   a zone as a scenario holds it: staging + narrative entities, ref-free, chains by index (specs 070, 079)
 │   ├── ScenarioRegistry.fs     #   the scenario library: an ordered map keyed by name (spec 070/083)
-│   ├── Advent.fs               #   the ordered set of milestone names — a string set (spec 055/082)
 │   ├── Dialogue.fs             #   the dialogue state: Kind (speaker string) and Emotion, runtime screen state
 │   ├── Actor.fs                #   IQM model + morphs
 │   ├── Sway.fs                 #   bone-chain sway: a Verlet rope anchored to the animated pose (spec 091)

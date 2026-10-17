@@ -7,6 +7,7 @@ module SkydomeTests
 
 open System
 open System.Collections.Generic
+open Prime
 open System.Numerics
 open Xunit
 open Command
@@ -16,7 +17,7 @@ open Entity
 let private sharedState () : SharedState.SharedState =
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero (Dictionary()) (Dictionary()) (Dictionary())
-      Advents = Advent.empty
+      Advents = OSet.ofSeq1 []
       Mix = Music.empty
       Rack = Music.newRack ()
       Voices = Sound.newVoices Audio.unavailable }

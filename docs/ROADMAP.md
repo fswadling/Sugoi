@@ -296,7 +296,7 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
 
 **Deliverables**
 - `Waypoint` / `Trigger` entities in `world/Entity.fs` (or `world/Zone.fs`).
-- `world/Advent.fs` — named flag set *(a string set since `specs/082-advent-strings`)*; `editor/AdventPanel.fs` — the docked **Advent** panel; and the
+- the named flag set on `SharedState.Advents`, an ordered `OSet<string>` *(a string set since `specs/082-advent-strings`)*; `editor/AdventPanel.fs` — the docked **Advent** panel; and the
   cue ops that read and write the flags (`AddAdvent`, `RemoveAdvent`, `Await`, `If`).
   *(complete — `specs/055-advent-flags` for the flags and the panel, `specs/056-advent-cue-ops` for the
   cue ops)*

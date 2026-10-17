@@ -86,10 +86,6 @@
     <Compile Include="world/render/ActorRender.fs" />
     <Compile Include="world/assets/EnvironmentAsset.fs" />
     <Compile Include="world/render/EnvironmentRender.fs" />
-    <!-- The named adventure flags (spec 055; milestones are plain strings since spec 082), recorded in
-         an immutable, ordered set — project state that belongs to no zone. Pure data — it names no zone,
-         screen, asset or device — so it sits before the state that holds it. -->
-    <Compile Include="world/Advent.fs" />
     <!-- The async load substrate (spec 053): the decoded payload, the bounded recency queue and the
          worker pool. CPU-only; depends on `Gltf` and `Texture`, and is depended on by `Assets`. -->
     <Compile Include="world/assets/AssetLoad.fs" />

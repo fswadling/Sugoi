@@ -808,23 +808,23 @@ let rec advance
         ValueNone
 
     | AddAdvent advent ->
-        shared.Advents <- Advent.add advent shared.Advents
+        shared.Advents <- OSet.add advent shared.Advents
         ValueSome Fin // no progress of its own: performed here and gone
 
     | RemoveAdvent advent ->
-        shared.Advents <- Advent.remove advent shared.Advents
+        shared.Advents <- OSet.remove advent shared.Advents
         ValueSome Fin
 
     | Await advent ->
-        if Advent.contains advent shared.Advents then ValueSome Fin // already satisfied: over before it begins
+        if OSet.contains advent shared.Advents then ValueSome Fin // already satisfied: over before it begins
         else ValueSome(AwaitState advent) // begun: the walk and the panel can now see it is the running op
 
     | AwaitState advent ->
-        if Advent.contains advent shared.Advents then ValueSome Fin else ValueNone // still waiting: nothing changed
+        if OSet.contains advent shared.Advents then ValueSome Fin else ValueNone // still waiting: nothing changed
 
     | If (advent, thenCue, elseCue) ->
         // the flag is read where the op is reached, and the chosen branch runs in the `If`'s place
-        advance shared &state now (if Advent.contains advent shared.Advents then thenCue else elseCue)
+        advance shared &state now (if OSet.contains advent shared.Advents then thenCue else elseCue)
 
     | Fork inner ->
         // A `Fork` with nothing beside it runs its inner cue (spec 080, US2). The `ForkScenario` op returns

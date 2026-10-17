@@ -9,6 +9,7 @@ module GameplayStateTests
 open Xunit
 open System
 open System.Collections.Generic
+open Prime
 open System.Numerics
 open Command
 open Entity
@@ -41,7 +42,7 @@ let private propAssets () : Assets.AssetManager =
     TestSupport.manager IntPtr.Zero (Dictionary()) props (Dictionary())
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
-    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Advents = Advent.empty; Mix = Music.empty; Rack = Music.newRack (); Voices = Sound.newVoices Audio.unavailable }
+    { Gpu = Unchecked.defaultof<Gpu.Gpu>; Assets = assets; Advents = OSet.ofSeq1 []; Mix = Music.empty; Rack = Music.newRack (); Voices = Sound.newVoices Audio.unavailable }
 
 // A gameplay state seeded with the single `main` zone, as the app starts.
 let private newState () : GameplayState.GameplayState =

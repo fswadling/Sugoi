@@ -56,7 +56,7 @@ let private sharedState () : SharedState.SharedState =
     environments.["island-env"] <- TestSupport.residentAsset "island-env" [||] [||]
     { Gpu = Unchecked.defaultof<Gpu.Gpu>
       Assets = TestSupport.manager IntPtr.Zero actors (Dictionary()) environments
-      Advents = Advent.empty
+      Advents = OSet.ofSeq1 []
       Mix = Music.empty
       Rack = Music.newRack ()
       Voices = Sound.newVoices Audio.unavailable }

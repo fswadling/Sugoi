@@ -17,7 +17,7 @@ module SharedState
 // from here rather than holding copies. A reference type so screens can write shared values back
 // (e.g. loaded assets) instead of threading struct copies.
 
-open Advent
+open Prime
 
 type SharedState =
     { mutable Gpu : Gpu.Gpu
@@ -25,7 +25,7 @@ type SharedState =
       // The named adventure flags (spec 055; a string set since spec 082): story milestones a screen other
       // than the world may present or gate on, for the same reason. Mutable because the one undo history
       // writes it in place — a flag edit is a state-level step, as the cue's `SetCue` is (specs/048, 049).
-      mutable Advents : Advent.Set
+      mutable Advents : OSet<string>
       // The music bed (spec 087): the authored mix (rows, weights, loop flags, master) and the runtime
       // decks. Game-wide, so music plays across a screen change; the decks are reconciled on every
       // `SetMix` (specs/087 History) and freed in `Music.release` before the mixer (specs/087 Engine).
@@ -41,7 +41,7 @@ let create (gpu: Gpu.Gpu) : SharedState =
     let audio = Audio.create ()
     { Gpu = gpu
       Assets = Assets.scan "assets" gpu.Device audio
-      Advents = Advent.empty
+      Advents = OSet.ofSeq1 []
       Mix = Music.empty
       Rack = Music.newRack ()
       Voices = Sound.newVoices audio }
