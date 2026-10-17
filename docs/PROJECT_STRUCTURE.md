@@ -16,11 +16,10 @@ marks a file that is not created yet — the marker is dropped when the file lan
 ## Principles
 
 1. **Organise by domain cluster.** Eight stable clusters — `core`, `physics`,
-   `render`, `audio`, `world`, `state`, `editor`, `screen` — plus the `narrative`
-   engine below them, a top-level `Shell.fs` loop and a thin `Program.fs` entry
-   point. A cluster may add a grouping subfolder when it outgrows a flat list
-   (`narrative/Units/`, `world/assets/`, `world/render/`); the compile list, not
-   the directory, decides order.
+   `render`, `audio`, `world`, `state`, `editor`, `screen` — plus a top-level
+   `Shell.fs` loop and a thin `Program.fs` entry point. A cluster may add a grouping
+   subfolder when it outgrows a flat list (`world/assets/`, `world/render/`); the
+   compile list, not the directory, decides order.
 2. **Flat module namespace.** One top-level `module X` per file, no namespace.
    `core/SlotMap.fs` declares `module SlotMap`, exactly as if it lived at the
    root. (Rejects `namespace Sugoi.Core` to avoid churning references.)
@@ -43,10 +42,6 @@ The `.fsproj` compile list is ordered like this (abridged):
 
 ```xml
 <ItemGroup>
-  <!-- narrative (first: the roster sits below the engine, and the engine cannot reference the game) -->
-  <Compile Include="narrative/Roster.fs" />
-  <Compile Include="narrative/Vocabulary.fs" />
-  ...
   <!-- core (structural, no dependencies above it) -->
   <Compile Include="core/SlotMap.fs" />
   <Compile Include="core/Iqm.fs" />
@@ -117,17 +112,6 @@ The `.fsproj` compile list is ordered like this (abridged):
 Sugoi/
 ├── Program.fs                  # entry point: [<EntryPoint>] main → Shell.run
 ├── Shell.fs                    # app shell: SDL3 + ImGui bring-up, the frame loop, teardown
-├── narrative/                  # the narrative engine: events → facts → rules
-│   ├── Roster.fs               #   the closed roster, characterName, characters (asset-free; spec 074)
-│   ├── Vocabulary.fs           #   FactKind and the closed Event / Fact / Trait vocabulary
-│   ├── Canonical.fs            #   canonical text: construct name and argument text (rendering only)
-│   ├── History.fs              #   committed events, game time
-│   ├── Facts.fs                #   the ordered fact map, reasons, fact sources
-│   ├── Rules.fs                #   projections and derivations, and their builders
-│   ├── Derive.fs               #   the fixpoint, its pass restriction and its bound
-│   ├── Engine.fs               #   the public surface: commit, facts, reasons
-│   ├── Harness.fs              #   scenario, run, report, assertions
-│   └── Units/                  #   narrative units: one module of rules each
 ├── core/                       # dependency-free structural utilities
 │   ├── SlotMap.fs              #   generational slot map
 │   ├── Diagnostics.fs          #   one-line reporting + the error tally (spec 081)
@@ -230,14 +214,6 @@ Sugoi/
 
 ## Clusters
 
-- **`narrative/`** — the narrative engine: immutable committed events projected into
-  facts, facts combined by rules, every conclusion carrying the rule and premises behind
-  it. It is compiled **first, before `core/SlotMap.fs`**, and depends on no game
-  module, which is how "the engine cannot reference the game" is a compile error rather than a
-  convention (`docs/ARCHITECTURE.md`, `specs/025-narrative-core`). Its `Roster.fs` holds the closed
-  `Character` roster (`specs/074-retire-cast` moved it in from the old `cast/` cluster). Nothing consumes
-  it yet: the engine is complete and tested headlessly, and the integration that makes the game feed
-  it committed events is separate work.
 - **`core/`** — dependency-free structural utilities: the slot map, the IQM/glTF
   parsers, and the input snapshot. Everything may depend on it, and it depends on
   nothing above it. This is the "structural core" from `docs/ARCHITECTURE.md`.
@@ -270,9 +246,7 @@ Sugoi/
 Dependency direction is strictly downward, matching the compile order:
 `Program`/`Shell` → `screen` → `editor` → `state` → `world` → `render` →
 `physics` → `core` → `SlotMap`. `audio/` sits beside `render/` (both consumed by `world/`):
-`world` → `audio` → `core`. One cluster sits below that chain: `narrative/`
-(below `core/`, and consumed by no other cluster yet), which holds the closed `Character` roster
-and consumes nothing.
+`world` → `audio` → `core`.
 
 ## Naming
 

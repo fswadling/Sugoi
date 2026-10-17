@@ -261,7 +261,7 @@ what choosing it writes.
 D-022 once described the **Cast panel**: a tree that assigned an actor asset to each member-and-look
 *slot* in place, with a Spawn control that placed a bound slot's actor. `specs/074-retire-cast` retired it.
 The look vocabulary, the slot → actor asset binding, the panel and the roster all left the game: the closed
-`Character` union is now the narrative engine's (`narrative/Roster.fs`), and a portrait line's speaker — like
+`Character` union that briefly lived in the removed narrative engine is gone, and a portrait line's speaker — like
 a cue's actor — is a plain **string**, resolved to her actor asset by name (the asset manager's name index).
 Placing an actor is the Asset Browser's job, which already named an asset directly, so the panel's
 "assign directly, place undoably" split is gone with it. The reasons recorded below are kept for history.

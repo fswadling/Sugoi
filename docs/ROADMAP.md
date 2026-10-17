@@ -301,8 +301,8 @@ Cue-driven zone ops (`AddZone`/`RemoveZone`/`PreloadZone`) are `specs/062-zone-c
   *(complete — `specs/055-advent-flags` for the flags and the panel, `specs/056-advent-cue-ops` for the
   cue ops)*
 - cast — retired (`specs/074-retire-cast`): the look vocabulary, the slot → actor asset binding, the Cast
-  panel and the roster all left the game. The closed `Character` union is now the narrative engine's
-  (`narrative/Roster.fs`), and a portrait line's speaker — like a cue's actor — is a plain **string**,
+  panel and the roster all left the game. The closed `Character` union that briefly lived in the removed
+  narrative engine is gone, and a portrait line's speaker — like a cue's actor — is a plain **string**,
   resolved to her actor asset by name (a name is a label, so duplicates resolve to the first match). The
   binding had been delivered first by `specs/032-cast-binding` (roster in `cast/Roster.fs`, binding in
   `world/Casting.fs`, panel in `editor/CastPanel.fs`); the **runtime** half moved to addressing **by name**

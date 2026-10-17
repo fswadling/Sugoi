@@ -73,23 +73,6 @@
          the one history — all headless. The staging round-trip is asserted in `ScenarioForkTests`. -->
     <Compile Include="SkydomeTests.fs" />
 
-    <!-- The roster (spec 074 moved it into the narrative subsystem): the closed union and its enumeration. -->
-    <Compile Include="RosterTests.fs" />
-
-
-
-    <!-- Narrative engine tests (spec 025). NarrativeTestSupport is first: the other
-         files open it for the MVP rule set, and it needs no graphics native, so these
-         run headlessly with the rest of the suite. -->
-    <Compile Include="NarrativeTestSupport.fs" />
-    <Compile Include="NarrativeVocabularyTests.fs" />
-    <Compile Include="NarrativeCommitTests.fs" />
-    <Compile Include="NarrativeProjectionTests.fs" />
-    <Compile Include="NarrativeDerivationTests.fs" />
-    <Compile Include="NarrativeRuleSetTests.fs" />
-    <Compile Include="NarrativeHarnessTests.fs" />
-    <Compile Include="NarrativePerformanceTests.fs" />
-
     <!-- The cue engine (spec 046): the four stories, the edge cases, the two allocation
          properties and the two bounded-shape properties, all asserted headlessly. -->
     <Compile Include="CueTests.fs" />
