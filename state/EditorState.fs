@@ -33,6 +33,21 @@ let dialogueTextBufferSize = 1023
 [<Literal>]
 let cueTextBufferSize = 1023
 
+// The editor-only placement anchors shared by waypoint, trigger, actor, and prop spawning (spec 099-101).
+type SpawnAnchor =
+    | Origin
+    | Camera
+    | Player
+
+/// The ordered anchor palette both the creation menus and the Asset Browser's spawn selector draw.
+let spawnAnchors : SpawnAnchor list = [ Origin; Camera; Player ]
+
+let anchorName (anchor: SpawnAnchor) : string =
+    match anchor with
+    | Origin -> "Origin"
+    | Camera -> "Camera"
+    | Player -> "Player"
+
 // The active transform tool, selected with 1/2/3.
 type Tool =
     | Move
@@ -58,6 +73,9 @@ type EditorState =
       PendingFocus : string option
       Tool : Tool
       Snap : bool
+      // The Asset Browser's shared placement anchor for actor and prop spawning (spec 101). Transient editor
+      // state: not undoable and not persisted.
+      SpawnAt : SpawnAnchor
       // Whether an external edit to the project file is picked up live while editing (spec 096). Transient editor
       // state, like `Snap`: not persisted, and not a step on the undo history.
       LiveReload : bool
@@ -146,6 +164,7 @@ let create () : EditorState =
       PendingFocus = None
       Tool = Move
       Snap = false
+      SpawnAt = Origin
       LiveReload = true
       Drag = None
       DockingInitialized = false

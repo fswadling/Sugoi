@@ -411,6 +411,24 @@ anchor-informed automatic name (`Origin 1`, `Camera 1`, `Player 1`) using the lo
 as waypoints do. Triggers have no chain or extend gesture, so the Inspector keeps only the existing volume, prompt,
 and cue controls. Creation reuses `TriggerCreate`, so each is one step on the one history.
 
+## Asset spawn anchors (D-029)
+
+Actors and placed props can be spawned at the same anchors as waypoints and triggers (`specs/101-actor-prop-anchors`).
+The Asset Browser has **one shared `Spawn at` control** above the Actors and Props sections, defaulting to Origin;
+clicking an asset keeps its one-click spawn but uses the selected anchor. The shared anchor vocabulary now lives in
+`EditorState`, with the selected value in `EditorState.SpawnAt` (transient: not undoable, not persisted).
+
+- **Origin** — zero position, identity rotation, the previous behaviour.
+- **Camera** — the camera's **exact position** and **horizontal yaw only** (no pitch/roll), so actors stay upright
+  and props are not tilted. A vertical view gives identity yaw. The object may float above the floor.
+- **Player** — the player actor's authored feet position and rotation. It requires a live designation; overlap is
+  allowed and the object can be dragged away.
+
+Spawns keep the asset's name, use unit scale, retain the asset binding and kind-specific defaults, and reuse
+`spawnActor`/`spawnProp`, so each is selected and one `ActorCreate`/`PropCreate` step on the one history. The
+`Player` option and the asset buttons are disabled when the anchor is unavailable; the buttons also disable at
+kind capacity. Environments are loaded, not spawned, and ignore the selector.
+
 ## Selection and gizmos (D-012, D-015, D-016)
 
 - M5/early editor uses a **minimal raycast** (screen-ray → sphere/box) for

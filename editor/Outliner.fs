@@ -121,8 +121,8 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
             if ImGui.beginPopup("##trigger_add", 0) then
                 do ImGui.beginDisabled(not triggerRoom)
-                for anchor in Spawning.spawnAnchors do
-                    if ImGui.menuItem(Spawning.anchorName anchor, null, false, Spawning.anchorAvailable zone anchor) then
+                for anchor in EditorState.spawnAnchors do
+                    if ImGui.menuItem(EditorState.anchorName anchor, null, false, Spawning.anchorAvailable zone anchor) then
                         do Spawning.spawnTriggerAt &state anchor
                         do ImGui.closeCurrentPopup()
                 do ImGui.endDisabled()
@@ -145,8 +145,8 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
             if ImGui.beginPopup("##waypoint_add", 0) then
                 do ImGui.beginDisabled(not waypointRoom)
-                for anchor in Spawning.spawnAnchors do
-                    if ImGui.menuItem(Spawning.anchorName anchor, null, false, Spawning.anchorAvailable zone anchor) then
+                for anchor in EditorState.spawnAnchors do
+                    if ImGui.menuItem(EditorState.anchorName anchor, null, false, Spawning.anchorAvailable zone anchor) then
                         do Spawning.spawnWaypointAt &state anchor
                         do ImGui.closeCurrentPopup()
                 do ImGui.endDisabled()

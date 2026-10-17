@@ -16,16 +16,32 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
         if assets.Actors.Count = 0 && assets.Props.Count = 0 && assets.Environments.Count = 0 then
             do ImGui.text("(no assets)")
         else
+            // ── Spawn anchor ──
+            // One shared placement mode for both asset sections. Environments are loaded, not spawned, and
+            // ignore it. The selected value is transient editor state (spec 101).
+            if assets.Actors.Count > 0 || assets.Props.Count > 0 then
+                let anchor = state.Editor.SpawnAt
+                if ImGui.beginCombo("Spawn at##asset_spawn", EditorState.anchorName anchor, 0) then
+                    for candidate in EditorState.spawnAnchors do
+                        do ImGui.beginDisabled(not (Spawning.anchorAvailable zone candidate))
+                        if ImGui.selectable (EditorState.anchorName candidate) (candidate = anchor) then
+                            state.Editor <- { state.Editor with SpawnAt = candidate }
+                        do ImGui.endDisabled()
+                    do ImGui.endCombo()
+                do ImGui.text("")
+
+            let canSpawn = Spawning.anchorAvailable zone state.Editor.SpawnAt
+
             // ── Actors ──
             if assets.Actors.Count > 0 then
                 do ImGui.text("Actors")
-                let actorRoom = zone.Actors.Count < zone.Actors.Capacity
+                let actorRoom = canSpawn && zone.Actors.Count < zone.Actors.Capacity
                 for asset in assets.Actors.Values |> Seq.sortBy (fun a -> a.Id) do
                     do ImGui.beginDisabled(not actorRoom)
                     let add = ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f))
                     do ImGui.endDisabled()
                     if add then
-                        do Spawning.spawnActor shared &state (Spawning.baseEntity asset.Name) asset.Id
+                        do Spawning.spawnActorAt shared &state (Spawning.baseEntity asset.Name) asset.Id state.Editor.SpawnAt
 
             // ── Environments ──
             if assets.Environments.Count > 0 then
@@ -43,11 +59,12 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             if assets.Props.Count > 0 then
                 do ImGui.text("")
                 do ImGui.text("Props")
+                let propRoom = canSpawn && zone.Props.Count < zone.Props.Capacity
                 for asset in assets.Props.Values |> Seq.sortBy (fun a -> a.Id) do
-                    do ImGui.beginDisabled(not (zone.Props.Count < zone.Props.Capacity))
+                    do ImGui.beginDisabled(not propRoom)
                     let add = ImGui.button(asset.Name, ImGui.ImVec2(0.0f, 0.0f))
                     do ImGui.endDisabled()
                     if add then
-                        do Spawning.spawnProp shared &state (Spawning.baseEntity asset.Name) asset.Id
+                        do Spawning.spawnPropAt shared &state (Spawning.baseEntity asset.Name) asset.Id state.Editor.SpawnAt
 
     do ImGui.endWindow()

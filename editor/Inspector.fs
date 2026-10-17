@@ -277,8 +277,8 @@ let private drawWaypointChain
 
     if ImGui.beginPopup("##waypoint_add_next", 0) then
         do ImGui.beginDisabled(not waypointRoom)
-        for anchor in Spawning.spawnAnchors do
-            if ImGui.menuItem(Spawning.anchorName anchor, null, false, Spawning.anchorAvailable zone anchor) then
+        for anchor in EditorState.spawnAnchors do
+            if ImGui.menuItem(EditorState.anchorName anchor, null, false, Spawning.anchorAvailable zone anchor) then
                 do Spawning.spawnNextWaypointAt &state ref anchor
                 do ImGui.closeCurrentPopup()
         do ImGui.endDisabled()

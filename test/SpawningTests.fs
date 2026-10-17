@@ -21,7 +21,7 @@ open TestSupport
 // safe because `EnvironmentRender.create` never dereferences it. Tests that read no asset use `bareShared`.
 
 let private headlessAssets () : Assets.AssetManager =
-    managerWith [] [ "crate", crateAsset () ] [ "room", roomAsset () ]
+    managerWith [ "aiko", actorAsset "aiko" ] [ "crate", crateAsset () ] [ "room", roomAsset () ]
 
 let private sharedState (assets: Assets.AssetManager) : SharedState.SharedState =
     headlessSharedWith assets
@@ -202,7 +202,7 @@ let ``a waypoint at the player copies her position and full rotation with unit s
     zone.Player <- ValueSome (zone.Actors.Add player)
     let camera = Camera.create Vector3.Zero Vector3.UnitZ
 
-    match Spawning.waypointAt zone camera Spawning.Player with
+    match Spawning.waypointAt zone camera EditorState.Player with
     | Some entity ->
         Assert.Equal("Player 1", entity.Name)
         Assert.Equal(position, entity.Transform.Position)
@@ -216,13 +216,13 @@ let ``a waypoint at the player copies her position and full rotation with unit s
 let ``the player anchor is unavailable without a live player`` () =
     let zone = Zone.create ()
     let camera = Camera.create Vector3.Zero Vector3.UnitZ
-    Assert.False(Spawning.anchorAvailable zone Spawning.Player)
-    Assert.True((Spawning.waypointAt zone camera Spawning.Player).IsNone)
+    Assert.False(Spawning.anchorAvailable zone EditorState.Player)
+    Assert.True((Spawning.waypointAt zone camera EditorState.Player).IsNone)
 
     // A stale designation is no player either.
     zone.Player <- ValueSome { Index = 0u; Generation = 99u }
-    Assert.False(Spawning.anchorAvailable zone Spawning.Player)
-    Assert.True((Spawning.waypointAt zone camera Spawning.Player).IsNone)
+    Assert.False(Spawning.anchorAvailable zone EditorState.Player)
+    Assert.True((Spawning.waypointAt zone camera EditorState.Player).IsNone)
 
 [<Fact>]
 let ``spawning at the player creates and selects one waypoint in one step`` () =
@@ -231,7 +231,7 @@ let ``spawning at the player creates and selects one waypoint in one step`` () =
     zone.Player <- ValueSome (zone.Actors.Add(actor "Aiko"))
     let mutable state = gameplayState zone
 
-    Spawning.spawnWaypointAt &state Spawning.Player
+    Spawning.spawnWaypointAt &state EditorState.Player
 
     let ref = state.Editor.Selection.Value
     Assert.Equal(EntityKind.Waypoint, ref.Kind)
@@ -254,11 +254,11 @@ let ``creation names waypoints per anchor and reuses the lowest free number`` ()
     let zone = Zone.create ()
     let mutable state = gameplayState zone
 
-    Spawning.spawnWaypointAt &state Spawning.Camera
+    Spawning.spawnWaypointAt &state EditorState.Camera
     let camera1 = state.Editor.Selection.Value
-    Spawning.spawnWaypointAt &state Spawning.Camera
+    Spawning.spawnWaypointAt &state EditorState.Camera
     let camera2 = state.Editor.Selection.Value
-    Spawning.spawnWaypointAt &state Spawning.Origin
+    Spawning.spawnWaypointAt &state EditorState.Origin
     let origin1 = state.Editor.Selection.Value
 
     Assert.Equal("Camera 1", (Zone.tryEntityAt zone camera1).Value.Name)
@@ -267,12 +267,12 @@ let ``creation names waypoints per anchor and reuses the lowest free number`` ()
 
     // A rename frees the number for the next creation at that anchor.
     Selection.renameRef shared &state camera1 "Hall"
-    Spawning.spawnWaypointAt &state Spawning.Camera
+    Spawning.spawnWaypointAt &state EditorState.Camera
     Assert.Equal("Camera 1", (Zone.tryEntityAt zone state.Editor.Selection.Value).Value.Name)
 
     // Deleting a waypoint frees its number too.
     Selection.deleteRef shared &state camera2
-    Spawning.spawnWaypointAt &state Spawning.Camera
+    Spawning.spawnWaypointAt &state EditorState.Camera
     Assert.Equal("Camera 2", (Zone.tryEntityAt zone state.Editor.Selection.Value).Value.Name)
 
 [<Fact>]
@@ -283,7 +283,7 @@ let ``creating at an anchor is refused at capacity and records nothing`` () =
     let mutable state = gameplayState zone
     let before = zone.Waypoints.Count
 
-    Spawning.spawnWaypointAt &state Spawning.Origin
+    Spawning.spawnWaypointAt &state EditorState.Origin
 
     Assert.Equal(before, zone.Waypoints.Count)
     Assert.Empty(state.Editor.Undo.Applied)
@@ -331,7 +331,7 @@ let ``extending a middle waypoint inserts it and undo restores both links`` () =
     do Zone.setWaypointNext zone a (Some original)
     let mutable state = gameplayState zone
 
-    Spawning.spawnNextWaypointAt &state a Spawning.Camera
+    Spawning.spawnNextWaypointAt &state a EditorState.Camera
 
     Assert.Equal(3u, zone.Waypoints.Count)
     let inserted = state.Editor.Selection.Value
@@ -394,7 +394,7 @@ let ``a trigger at the player uses her feet minus 0.1 m and the default volume``
     zone.Player <- ValueSome (zone.Actors.Add player)
     let mutable state = gameplayState zone
 
-    Spawning.spawnTriggerAt &state Spawning.Player
+    Spawning.spawnTriggerAt &state EditorState.Player
 
     let ref = state.Editor.Selection.Value
     let trigger = (Zone.tryTriggerAt zone ref).Value
@@ -423,7 +423,7 @@ let ``a trigger at the camera uses the camera's exact position`` () =
     let zone = Zone.create ()
     let camera = Camera.create (Vector3(4.0f, 5.0f, 6.0f)) (Vector3(4.0f, 5.0f, 7.0f))
 
-    match Spawning.triggerAt zone camera Spawning.Camera with
+    match Spawning.triggerAt zone camera EditorState.Camera with
     | Some entity ->
         Assert.Equal("Camera 1", entity.Name)
         Assert.Equal(camera.Position, entity.Transform.Position)
@@ -436,20 +436,20 @@ let ``the origin anchor is zero and an unavailable player creates nothing`` () =
     let zone = Zone.create ()
     let camera = Camera.create (Vector3(1.0f, 2.0f, 3.0f)) Vector3.Zero
 
-    match Spawning.triggerAt zone camera Spawning.Origin with
+    match Spawning.triggerAt zone camera EditorState.Origin with
     | Some entity -> Assert.Equal(Vector3.Zero, entity.Transform.Position)
     | None -> Assert.Fail "expected a trigger at the origin"
 
-    Assert.False(Spawning.anchorAvailable zone Spawning.Player)
-    Assert.True((Spawning.triggerAt zone camera Spawning.Player).IsNone)
+    Assert.False(Spawning.anchorAvailable zone EditorState.Player)
+    Assert.True((Spawning.triggerAt zone camera EditorState.Player).IsNone)
 
     // A stale designation is no player either.
     zone.Player <- ValueSome { Index = 0u; Generation = 99u }
-    Assert.True((Spawning.triggerAt zone camera Spawning.Player).IsNone)
+    Assert.True((Spawning.triggerAt zone camera EditorState.Player).IsNone)
 
     let shared = bareShared ()
     let mutable state = gameplayState zone
-    Spawning.spawnTriggerAt &state Spawning.Player
+    Spawning.spawnTriggerAt &state EditorState.Player
     Assert.Equal(0u, zone.Triggers.Count)
     Assert.Empty(state.Editor.Undo.Applied)
 
@@ -461,7 +461,7 @@ let ``a trigger created at an anchor does not follow the player or camera`` () =
     let mutable state = gameplayState zone
 
     // At the player: moving her afterwards leaves the trigger where it was stamped.
-    Spawning.spawnTriggerAt &state Spawning.Player
+    Spawning.spawnTriggerAt &state EditorState.Player
     let playerTrigger = state.Editor.Selection.Value
     let playerBase = (Zone.tryTriggerAt zone playerTrigger).Value.State.Base.Transform.Position
     let player = &zone.Actors.Get handle
@@ -471,7 +471,7 @@ let ``a trigger created at an anchor does not follow the player or camera`` () =
     // At the camera: moving it afterwards leaves the trigger where it was stamped.
     let camera = Camera.create (Vector3(4.0f, 5.0f, 6.0f)) (Vector3(4.0f, 5.0f, 7.0f))
     state.Camera <- camera
-    Spawning.spawnTriggerAt &state Spawning.Camera
+    Spawning.spawnTriggerAt &state EditorState.Camera
     let cameraTrigger = state.Editor.Selection.Value
     let cameraBase = (Zone.tryTriggerAt zone cameraTrigger).Value.State.Base.Transform.Position
     state.Camera <- Camera.create (Vector3(20.0f, 20.0f, 20.0f)) (Vector3(20.0f, 20.0f, 21.0f))
@@ -483,11 +483,11 @@ let ``trigger creation names per anchor and reuses the lowest free number`` () =
     let zone = Zone.create ()
     let mutable state = gameplayState zone
 
-    Spawning.spawnTriggerAt &state Spawning.Camera
+    Spawning.spawnTriggerAt &state EditorState.Camera
     let camera1 = state.Editor.Selection.Value
-    Spawning.spawnTriggerAt &state Spawning.Camera
+    Spawning.spawnTriggerAt &state EditorState.Camera
     let camera2 = state.Editor.Selection.Value
-    Spawning.spawnTriggerAt &state Spawning.Origin
+    Spawning.spawnTriggerAt &state EditorState.Origin
     let origin1 = state.Editor.Selection.Value
 
     Assert.Equal("Camera 1", (Zone.tryTriggerAt zone camera1).Value.State.Base.Name)
@@ -495,17 +495,17 @@ let ``trigger creation names per anchor and reuses the lowest free number`` () =
     Assert.Equal("Origin 1", (Zone.tryTriggerAt zone origin1).Value.State.Base.Name)
 
     zone.Player <- ValueSome (zone.Actors.Add(actor "Aiko"))
-    Spawning.spawnTriggerAt &state Spawning.Player
+    Spawning.spawnTriggerAt &state EditorState.Player
     Assert.Equal("Player 1", (Zone.tryTriggerAt zone state.Editor.Selection.Value).Value.State.Base.Name)
 
     // A rename frees the number for the next creation at that anchor.
     Selection.renameRef shared &state camera1 "Hall"
-    Spawning.spawnTriggerAt &state Spawning.Camera
+    Spawning.spawnTriggerAt &state EditorState.Camera
     Assert.Equal("Camera 1", (Zone.tryTriggerAt zone state.Editor.Selection.Value).Value.State.Base.Name)
 
     // Deleting a trigger frees its number too.
     Selection.deleteRef shared &state camera2
-    Spawning.spawnTriggerAt &state Spawning.Camera
+    Spawning.spawnTriggerAt &state EditorState.Camera
     Assert.Equal("Camera 2", (Zone.tryTriggerAt zone state.Editor.Selection.Value).Value.State.Base.Name)
 
 [<Fact>]
@@ -516,9 +516,226 @@ let ``trigger creation at an anchor is refused at capacity and records nothing``
     let mutable state = gameplayState zone
     let before = zone.Triggers.Count
 
-    Spawning.spawnTriggerAt &state Spawning.Origin
+    Spawning.spawnTriggerAt &state EditorState.Origin
 
     Assert.Equal(before, zone.Triggers.Count)
+    Assert.Empty(state.Editor.Undo.Applied)
+
+[<Fact>]
+let ``an actor spawned at the player uses her feet and rotation with unit scale`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let feet = Vector3(1.0f, 2.0f, 3.0f)
+    let rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.75f)
+    let baseActor = actor "Aiko"
+    let player =
+        { baseActor with
+            State =
+                { baseActor.State with
+                    Base =
+                        { baseActor.State.Base with
+                            Transform = { transformIdentity with Position = feet; Rotation = rotation; Scale = Vector3(2.0f, 2.0f, 2.0f) } } } }
+    let handle = zone.Actors.Add player
+    zone.Player <- ValueSome handle
+    let mutable state = gameplayState zone
+
+    Spawning.spawnActorAt shared &state (Spawning.baseEntity "aiko") "aiko" EditorState.Player
+
+    let ref = state.Editor.Selection.Value
+    let spawned = (zone.Actors.Get(handleOf ref)).State
+    Assert.Equal(EntityKind.Actor, ref.Kind)
+    Assert.Equal("aiko", spawned.Base.Name)
+    Assert.Equal(feet, spawned.Base.Transform.Position)
+    Assert.Equal(rotation, spawned.Base.Transform.Rotation)
+    Assert.Equal(Vector3.One, spawned.Base.Transform.Scale)
+    Assert.Equal("aiko", spawned.AssetId)
+    match state.Editor.Undo.Applied with
+    | [ ActorCreate (_, r, _) ] -> Assert.Equal<EntityRef>(ref, r)
+    | other -> Assert.Fail(sprintf "expected exactly one ActorCreate command, got %A" other)
+
+    // The spawn is a one-shot placement: moving the player does not move the actor.
+    let moved = &zone.Actors.Get handle
+    moved <- { moved with State = { moved.State with Base = { moved.State.Base with Transform = { moved.State.Base.Transform with Position = Vector3(9.0f, 9.0f, 9.0f) } } } }
+    Assert.Equal(feet, (zone.Actors.Get(handleOf ref)).State.Base.Transform.Position)
+
+    do Undo.undoHistory shared &state
+    Assert.False(Zone.isAlive zone ref)
+
+    do Undo.redoHistory shared &state
+    Assert.True(Zone.isAlive zone ref)
+
+[<Fact>]
+let ``an actor spawned at the camera faces the horizontal view and stays upright`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let camera = Camera.create (Vector3(4.0f, 5.0f, 6.0f)) (Vector3(5.0f, 5.0f, 6.0f))
+    let mutable state = gameplayState zone
+    state.Camera <- camera
+
+    Spawning.spawnActorAt shared &state (Spawning.baseEntity "aiko") "aiko" EditorState.Camera
+    let first = state.Editor.Selection.Value
+    let transform = (zone.Actors.Get(handleOf first)).State.Base.Transform
+    Assert.Equal(camera.Position, transform.Position)
+    Assert.Equal(Vector3.One, transform.Scale)
+    let forward = Vector3.Transform(Vector3.UnitZ, transform.Rotation)
+    Assert.True(abs (forward.X - 1.0f) < 1e-5f && abs forward.Y < 1e-5f && abs forward.Z < 1e-5f, sprintf "expected +X facing, got %A" forward)
+
+    // A vertical view has no horizontal direction: identity yaw.
+    state.Camera <- Camera.create (Vector3(0.0f, 2.0f, 0.0f)) (Vector3(0.0f, 3.0f, 0.0f))
+    Spawning.spawnActorAt shared &state (Spawning.baseEntity "aiko") "aiko" EditorState.Camera
+    let vertical = (zone.Actors.Get(handleOf state.Editor.Selection.Value)).State.Base.Transform.Rotation
+    Assert.Equal(Quaternion.Identity, vertical)
+
+    // Moving the camera afterwards does not move the spawned actor.
+    state.Camera <- Camera.create (Vector3(20.0f, 20.0f, 20.0f)) (Vector3(20.0f, 20.0f, 21.0f))
+    Assert.Equal(camera.Position, (zone.Actors.Get(handleOf first)).State.Base.Transform.Position)
+
+[<Fact>]
+let ``an actor spawned at the origin keeps identity`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let mutable state = gameplayState zone
+
+    Spawning.spawnActorAt shared &state (Spawning.baseEntity "aiko") "aiko" EditorState.Origin
+
+    let transform = (zone.Actors.Get(handleOf state.Editor.Selection.Value)).State.Base.Transform
+    Assert.Equal(Vector3.Zero, transform.Position)
+    Assert.Equal(Quaternion.Identity, transform.Rotation)
+    Assert.Equal(Vector3.One, transform.Scale)
+
+[<Fact>]
+let ``actor spawns refuse an unavailable player and a full map`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let mutable state = gameplayState zone
+
+    Spawning.spawnActorAt shared &state (Spawning.baseEntity "aiko") "aiko" EditorState.Player
+    Assert.Equal(0u, zone.Actors.Count)
+    Assert.Empty(state.Editor.Undo.Applied)
+
+    // A stale designation is no player either.
+    zone.Player <- ValueSome { Index = 0u; Generation = 99u }
+    Spawning.spawnActorAt shared &state (Spawning.baseEntity "aiko") "aiko" EditorState.Player
+    Assert.Equal(0u, zone.Actors.Count)
+    Assert.Empty(state.Editor.Undo.Applied)
+
+    for i in 1 .. int zone.Actors.Capacity do
+        do ignore (zone.Actors.Add(actor (sprintf "a%d" i)))
+    Spawning.spawnActorAt shared &state (Spawning.baseEntity "aiko") "aiko" EditorState.Camera
+    Assert.Equal(zone.Actors.Capacity, zone.Actors.Count)
+    Assert.Empty(state.Editor.Undo.Applied)
+
+[<Fact>]
+let ``a prop spawned at the player uses her transform and keeps its asset`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let feet = Vector3(1.0f, 2.0f, 3.0f)
+    let rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.75f)
+    let baseActor = actor "Aiko"
+    let player =
+        { baseActor with
+            State =
+                { baseActor.State with
+                    Base =
+                        { baseActor.State.Base with
+                            Transform = { transformIdentity with Position = feet; Rotation = rotation; Scale = Vector3(2.0f, 2.0f, 2.0f) } } } }
+    let handle = zone.Actors.Add player
+    zone.Player <- ValueSome handle
+    let mutable state = gameplayState zone
+
+    Spawning.spawnPropAt shared &state (Spawning.baseEntity "crate") "crate" EditorState.Player
+
+    let ref = state.Editor.Selection.Value
+    let prop = zone.Props.Get(handleOf ref)
+    Assert.Equal(EntityKind.Prop, ref.Kind)
+    Assert.Equal("crate", prop.State.Base.Name)
+    Assert.Equal(feet, prop.State.Base.Transform.Position)
+    Assert.Equal(rotation, prop.State.Base.Transform.Rotation)
+    Assert.Equal(Vector3.One, prop.State.Base.Transform.Scale)
+    Assert.Equal(Some "crate", prop.State.AssetId)
+    Assert.True(Option.isSome prop.Physics)
+    match state.Editor.Undo.Applied with
+    | [ PropCreate (_, r, _) ] -> Assert.Equal<EntityRef>(ref, r)
+    | other -> Assert.Fail(sprintf "expected exactly one PropCreate command, got %A" other)
+
+    // The spawn is a one-shot placement: moving the player does not move the prop.
+    let moved = &zone.Actors.Get handle
+    moved <- { moved with State = { moved.State with Base = { moved.State.Base with Transform = { moved.State.Base.Transform with Position = Vector3(9.0f, 9.0f, 9.0f) } } } }
+    Assert.Equal(feet, (zone.Props.Get(handleOf ref)).State.Base.Transform.Position)
+
+    do Undo.undoHistory shared &state
+    Assert.False(Zone.isAlive zone ref)
+
+    do Undo.redoHistory shared &state
+    Assert.True(Zone.isAlive zone ref)
+
+[<Fact>]
+let ``a prop spawned at the camera uses its position and horizontal yaw`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let camera = Camera.create (Vector3(4.0f, 5.0f, 6.0f)) (Vector3(5.0f, 5.0f, 6.0f))
+    let mutable state = gameplayState zone
+    state.Camera <- camera
+
+    Spawning.spawnPropAt shared &state (Spawning.baseEntity "crate") "crate" EditorState.Camera
+    let first = state.Editor.Selection.Value
+    let transform = (zone.Props.Get(handleOf first)).State.Base.Transform
+    Assert.Equal(camera.Position, transform.Position)
+    Assert.Equal(Vector3.One, transform.Scale)
+    let forward = Vector3.Transform(Vector3.UnitZ, transform.Rotation)
+    Assert.True(abs (forward.X - 1.0f) < 1e-5f && abs forward.Y < 1e-5f && abs forward.Z < 1e-5f, sprintf "expected +X facing, got %A" forward)
+
+    // A vertical view has no horizontal direction: identity yaw.
+    state.Camera <- Camera.create (Vector3(0.0f, 2.0f, 0.0f)) (Vector3(0.0f, 3.0f, 0.0f))
+    Spawning.spawnPropAt shared &state (Spawning.baseEntity "crate") "crate" EditorState.Camera
+    let vertical = (zone.Props.Get(handleOf state.Editor.Selection.Value)).State.Base.Transform.Rotation
+    Assert.Equal(Quaternion.Identity, vertical)
+
+    // Moving the camera afterwards does not move the spawned prop.
+    state.Camera <- Camera.create (Vector3(20.0f, 20.0f, 20.0f)) (Vector3(20.0f, 20.0f, 21.0f))
+    Assert.Equal(camera.Position, (zone.Props.Get(handleOf first)).State.Base.Transform.Position)
+
+[<Fact>]
+let ``a prop spawned at the origin keeps identity`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let mutable state = gameplayState zone
+
+    Spawning.spawnPropAt shared &state (Spawning.baseEntity "crate") "crate" EditorState.Origin
+
+    let transform = (zone.Props.Get(handleOf state.Editor.Selection.Value)).State.Base.Transform
+    Assert.Equal(Vector3.Zero, transform.Position)
+    Assert.Equal(Quaternion.Identity, transform.Rotation)
+    Assert.Equal(Vector3.One, transform.Scale)
+
+[<Fact>]
+let ``prop spawns refuse an unavailable player and a full map`` () =
+    let assets = headlessAssets ()
+    let shared = sharedState assets
+    let zone = Zone.create ()
+    let mutable state = gameplayState zone
+
+    Spawning.spawnPropAt shared &state (Spawning.baseEntity "crate") "crate" EditorState.Player
+    Assert.Equal(0u, zone.Props.Count)
+    Assert.Empty(state.Editor.Undo.Applied)
+
+    // A stale designation is no player either.
+    zone.Player <- ValueSome { Index = 0u; Generation = 99u }
+    Spawning.spawnPropAt shared &state (Spawning.baseEntity "crate") "crate" EditorState.Player
+    Assert.Equal(0u, zone.Props.Count)
+    Assert.Empty(state.Editor.Undo.Applied)
+
+    for i in 1 .. int zone.Props.Capacity do
+        do ignore (zone.Props.Add(Unchecked.defaultof<Prop>))
+    Spawning.spawnPropAt shared &state (Spawning.baseEntity "crate") "crate" EditorState.Camera
+    Assert.Equal(zone.Props.Capacity, zone.Props.Count)
     Assert.Empty(state.Editor.Undo.Applied)
 
 [<Fact>]

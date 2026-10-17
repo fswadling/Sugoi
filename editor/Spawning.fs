@@ -20,26 +20,12 @@ open Command
 let baseEntity (name: string) : Entity =
     Entity.baseEntity name transformIdentity
 
-// The editor-only anchor palette: where a new entity's position comes from, and the prefix of its automatic
-// name. Waypoint and trigger creation both iterate `spawnAnchors`, so a new anchor is added once and both
-// menus gain the row.
-type SpawnAnchor =
-    | Origin
-    | Camera
-    | Player
-
-let spawnAnchors : SpawnAnchor list = [ Origin; Camera; Player ]
-
-let anchorName (anchor: SpawnAnchor) : string =
+// The shared anchor vocabulary lives in `EditorState` so the Asset Browser's selected anchor can be stored
+// there. `anchorAvailable` stays here because it reads the zone's live player designation.
+let anchorAvailable (zone: Zone.Zone) (anchor: EditorState.SpawnAnchor) : bool =
     match anchor with
-    | Origin -> "Origin"
-    | Camera -> "Camera"
-    | Player -> "Player"
-
-let anchorAvailable (zone: Zone.Zone) (anchor: SpawnAnchor) : bool =
-    match anchor with
-    | Player -> Systems.isPlayerLive zone
-    | Origin | Camera -> true
+    | EditorState.Player -> Systems.isPlayerLive zone
+    | EditorState.Origin | EditorState.Camera -> true
 
 // The numeric suffix of a name matching `<prefix> <n>`, or None. Prefix matching is exact, so `Camera 7`
 // reserves 7 and a name like `Camera wall` reserves nothing.
@@ -66,20 +52,20 @@ let private nextAutomaticName (prefix: string) (slots: Span<SlotMap.Slot<'T>>) (
     while used.Contains n do n <- n + 1
     sprintf "%s %d" prefix n
 
-let private nextWaypointName (zone: Zone.Zone) (anchor: SpawnAnchor) : string =
-    nextAutomaticName (anchorName anchor) zone.Waypoints.Slots (fun (waypoint: Waypoint) -> waypoint.Base.Name)
+let private nextWaypointName (zone: Zone.Zone) (anchor: EditorState.SpawnAnchor) : string =
+    nextAutomaticName (EditorState.anchorName anchor) zone.Waypoints.Slots (fun (waypoint: Waypoint) -> waypoint.Base.Name)
 
-let private nextTriggerName (zone: Zone.Zone) (anchor: SpawnAnchor) : string =
-    nextAutomaticName (anchorName anchor) zone.Triggers.Slots (fun (trigger: Trigger) -> trigger.State.Base.Name)
+let private nextTriggerName (zone: Zone.Zone) (anchor: EditorState.SpawnAnchor) : string =
+    nextAutomaticName (EditorState.anchorName anchor) zone.Triggers.Slots (fun (trigger: Trigger) -> trigger.State.Base.Name)
 
 // The position and facing an anchor supplies, or None when it has nothing to stamp (no live player).
-let private anchorTransform (zone: Zone.Zone) (camera: Camera.Camera) (anchor: SpawnAnchor) : (Vector3 * Quaternion) option =
+let private anchorTransform (zone: Zone.Zone) (camera: Camera.Camera) (anchor: EditorState.SpawnAnchor) : (Vector3 * Quaternion) option =
     match anchor with
-    | Origin -> Some (Vector3.Zero, Quaternion.Identity)
-    | Camera ->
+    | EditorState.Origin -> Some (Vector3.Zero, Quaternion.Identity)
+    | EditorState.Camera ->
         let rotation = Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(camera.Position, Camera.forward camera, camera.Up))
         Some (camera.Position, rotation)
-    | Player ->
+    | EditorState.Player ->
         if not (anchorAvailable zone anchor) then None else
 
         let transform = (zone.Actors.Get zone.Player.Value).State.Base.Transform
@@ -87,7 +73,7 @@ let private anchorTransform (zone: Zone.Zone) (camera: Camera.Camera) (anchor: S
 
 // A waypoint at an anchor, named automatically, or None when the anchor has nothing to stamp. Every anchor
 // uses unit scale: a waypoint is a point, not a copy of an actor or camera.
-let waypointAt (zone: Zone.Zone) (camera: Camera.Camera) (anchor: SpawnAnchor) : Entity option =
+let waypointAt (zone: Zone.Zone) (camera: Camera.Camera) (anchor: EditorState.SpawnAnchor) : Entity option =
     match anchorTransform zone camera anchor with
     | Some (position, rotation) ->
         Some (Entity.baseEntity (nextWaypointName zone anchor) { transformIdentity with Position = position; Rotation = rotation })
@@ -98,11 +84,11 @@ let waypointAt (zone: Zone.Zone) (camera: Camera.Camera) (anchor: SpawnAnchor) :
 let private playerTriggerDrop = 0.1f
 
 // The base position a trigger anchor supplies, or None when it has nothing to stamp (no live player).
-let private anchorPosition (zone: Zone.Zone) (camera: Camera.Camera) (anchor: SpawnAnchor) : Vector3 option =
+let private anchorPosition (zone: Zone.Zone) (camera: Camera.Camera) (anchor: EditorState.SpawnAnchor) : Vector3 option =
     match anchor with
-    | Origin -> Some Vector3.Zero
-    | Camera -> Some camera.Position
-    | Player ->
+    | EditorState.Origin -> Some Vector3.Zero
+    | EditorState.Camera -> Some camera.Position
+    | EditorState.Player ->
         if not (anchorAvailable zone anchor) then None else
 
         let feet = (zone.Actors.Get zone.Player.Value).State.Base.Transform.Position
@@ -111,11 +97,27 @@ let private anchorPosition (zone: Zone.Zone) (camera: Camera.Camera) (anchor: Sp
 // A trigger at an anchor, named automatically, or None when the anchor has nothing to stamp. The anchor
 // supplies position only: rotation is identity and scale is unit, and `spawnTrigger` supplies the default
 // radius and height.
-let triggerAt (zone: Zone.Zone) (camera: Camera.Camera) (anchor: SpawnAnchor) : Entity option =
+let triggerAt (zone: Zone.Zone) (camera: Camera.Camera) (anchor: EditorState.SpawnAnchor) : Entity option =
     match anchorPosition zone camera anchor with
     | Some position ->
         Some (Entity.baseEntity (nextTriggerName zone anchor) { transformIdentity with Position = position })
     | None -> None
+
+// The transform an asset spawn uses: the origin, the camera's position with a horizontal yaw only, or the
+// live player's authored transform. Camera pitch/roll are not copied, so actors stay upright and props are
+// not tilted; a vertical view gives zero yaw. None without a live player.
+let private assetAnchorTransform (zone: Zone.Zone) (camera: Camera.Camera) (anchor: EditorState.SpawnAnchor) : (Vector3 * Quaternion) option =
+    match anchor with
+    | EditorState.Origin -> Some (Vector3.Zero, Quaternion.Identity)
+    | EditorState.Camera ->
+        let forward = Camera.forward camera
+        let yaw = MathF.Atan2(forward.X, forward.Z)
+        Some (camera.Position, Quaternion.CreateFromAxisAngle(Vector3.UnitY, yaw))
+    | EditorState.Player ->
+        if not (anchorAvailable zone anchor) then None else
+
+        let transform = (zone.Actors.Get zone.Player.Value).State.Base.Transform
+        Some (transform.Position, transform.Rotation)
 
 // Push the command that reverses a freshly-created entity, and select it.
 let private commit (state: byref<GameplayState.GameplayState>) (cmd: Command) (ref: EntityRef) : unit =
@@ -147,6 +149,23 @@ let spawnProp (shared: SharedState.SharedState) (state: byref<GameplayState.Game
     let ref = Zone.spawnProp zone state.Physics shared.Assets entity assetId
     do commit &state (PropCreate (state.ActiveZone, ref, Zone.captureProp zone ref)) ref
 
+// Spawn an actor at an anchor: apply the anchor transform to the entity built from the asset, then use the
+// normal actor path so selection, capacity, asset binding, and one `ActorCreate` step are preserved.
+let spawnActorAt (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) (anchor: EditorState.SpawnAnchor) : unit =
+    match assetAnchorTransform (GameplayState.activeZone state) state.Camera anchor with
+    | Some (position, rotation) ->
+        let placed = { entity with Transform = { entity.Transform with Position = position; Rotation = rotation } }
+        do spawnActor shared &state placed assetId
+    | None -> ()
+
+// Spawn a prop at an anchor through the same path as an actor spawn.
+let spawnPropAt (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (entity: Entity) (assetId: string) (anchor: EditorState.SpawnAnchor) : unit =
+    match assetAnchorTransform (GameplayState.activeZone state) state.Camera anchor with
+    | Some (position, rotation) ->
+        let placed = { entity with Transform = { entity.Transform with Position = position; Rotation = rotation } }
+        do spawnProp shared &state placed assetId
+    | None -> ()
+
 // Spawn a waypoint into the active zone. It carries no asset, so no shared state is
 // needed.
 let spawnWaypoint (state: byref<GameplayState.GameplayState>) (entity: Entity) : unit =
@@ -167,7 +186,7 @@ let spawnTrigger (state: byref<GameplayState.GameplayState>) (entity: Entity) : 
 
 // Create a trigger at an anchor in the active zone and select it. The capacity check happens before the
 // anchor is built, so a refusal has no effect. An unavailable anchor (no player) creates nothing.
-let spawnTriggerAt (state: byref<GameplayState.GameplayState>) (anchor: SpawnAnchor) : unit =
+let spawnTriggerAt (state: byref<GameplayState.GameplayState>) (anchor: EditorState.SpawnAnchor) : unit =
     let zone = GameplayState.activeZone state
     if not (hasRoom "trigger" state.ActiveZone zone.Triggers) then () else
 
@@ -177,7 +196,7 @@ let spawnTriggerAt (state: byref<GameplayState.GameplayState>) (anchor: SpawnAnc
 
 // Create a waypoint at an anchor in the active zone and select it. The capacity check happens before the
 // anchor is built, so a refusal has no effect. An unavailable anchor (no player) creates nothing.
-let spawnWaypointAt (state: byref<GameplayState.GameplayState>) (anchor: SpawnAnchor) : unit =
+let spawnWaypointAt (state: byref<GameplayState.GameplayState>) (anchor: EditorState.SpawnAnchor) : unit =
     let zone = GameplayState.activeZone state
     if not (hasRoom "waypoint" state.ActiveZone zone.Waypoints) then () else
 
@@ -199,7 +218,7 @@ let spawnLinkedWaypoint (state: byref<GameplayState.GameplayState>) (from: Entit
     do commit &state (LinkSpawn (state.ActiveZone, from, before, ref, Zone.captureWaypoint zone ref)) ref
 
 // Extend `from` with a waypoint at an anchor. An unavailable anchor (no player) creates nothing.
-let spawnNextWaypointAt (state: byref<GameplayState.GameplayState>) (from: EntityRef) (anchor: SpawnAnchor) : unit =
+let spawnNextWaypointAt (state: byref<GameplayState.GameplayState>) (from: EntityRef) (anchor: EditorState.SpawnAnchor) : unit =
     let zone = GameplayState.activeZone state
     if not (hasRoom "waypoint" state.ActiveZone zone.Waypoints) then () else
 
