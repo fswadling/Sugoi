@@ -20,23 +20,23 @@ open Command
 let baseEntity (name: string) : Entity =
     Entity.baseEntity name transformIdentity
 
-// The editor-only anchor palette: where a new waypoint's position and facing come from, and the prefix of
-// its automatic name. Both the creation and extend menus iterate `waypointAnchors`, so a new anchor is added
-// once and both menus gain the row.
-type WaypointAnchor =
+// The editor-only anchor palette: where a new entity's position comes from, and the prefix of its automatic
+// name. Waypoint and trigger creation both iterate `spawnAnchors`, so a new anchor is added once and both
+// menus gain the row.
+type SpawnAnchor =
     | Origin
     | Camera
     | Player
 
-let waypointAnchors : WaypointAnchor list = [ Origin; Camera; Player ]
+let spawnAnchors : SpawnAnchor list = [ Origin; Camera; Player ]
 
-let anchorName (anchor: WaypointAnchor) : string =
+let anchorName (anchor: SpawnAnchor) : string =
     match anchor with
     | Origin -> "Origin"
     | Camera -> "Camera"
     | Player -> "Player"
 
-let anchorAvailable (zone: Zone.Zone) (anchor: WaypointAnchor) : bool =
+let anchorAvailable (zone: Zone.Zone) (anchor: SpawnAnchor) : bool =
     match anchor with
     | Player -> Systems.isPlayerLive zone
     | Origin | Camera -> true
@@ -51,16 +51,14 @@ let private nameSuffix (prefix: string) (name: string) : int option =
     | true, n when n > 0 -> Some n
     | _ -> None
 
-// The next automatic name for an anchor: its prefix plus the lowest positive number no live waypoint
-// already uses. Names are labels, so a rename or delete frees the number.
-let private nextWaypointName (zone: Zone.Zone) (anchor: WaypointAnchor) : string =
-    let prefix = anchorName anchor
+// The next automatic name for a prefix over a live slot map: the prefix plus the lowest positive number
+// no live entity with that prefix already uses. Names are labels, so a rename or delete frees the number.
+let private nextAutomaticName (prefix: string) (slots: Span<SlotMap.Slot<'T>>) (nameOf: 'T -> string) : string =
     let used = System.Collections.Generic.HashSet<int>()
-    let slots = zone.Waypoints.Slots
     for i in 0 .. slots.Length - 1 do
         let slot = &slots.[i]
         if slot.Alive then
-            match nameSuffix prefix slot.Value.Base.Name with
+            match nameSuffix prefix (nameOf slot.Value) with
             | Some n -> used.Add n |> ignore
             | None -> ()
 
@@ -68,8 +66,14 @@ let private nextWaypointName (zone: Zone.Zone) (anchor: WaypointAnchor) : string
     while used.Contains n do n <- n + 1
     sprintf "%s %d" prefix n
 
+let private nextWaypointName (zone: Zone.Zone) (anchor: SpawnAnchor) : string =
+    nextAutomaticName (anchorName anchor) zone.Waypoints.Slots (fun (waypoint: Waypoint) -> waypoint.Base.Name)
+
+let private nextTriggerName (zone: Zone.Zone) (anchor: SpawnAnchor) : string =
+    nextAutomaticName (anchorName anchor) zone.Triggers.Slots (fun (trigger: Trigger) -> trigger.State.Base.Name)
+
 // The position and facing an anchor supplies, or None when it has nothing to stamp (no live player).
-let private anchorTransform (zone: Zone.Zone) (camera: Camera.Camera) (anchor: WaypointAnchor) : (Vector3 * Quaternion) option =
+let private anchorTransform (zone: Zone.Zone) (camera: Camera.Camera) (anchor: SpawnAnchor) : (Vector3 * Quaternion) option =
     match anchor with
     | Origin -> Some (Vector3.Zero, Quaternion.Identity)
     | Camera ->
@@ -83,10 +87,34 @@ let private anchorTransform (zone: Zone.Zone) (camera: Camera.Camera) (anchor: W
 
 // A waypoint at an anchor, named automatically, or None when the anchor has nothing to stamp. Every anchor
 // uses unit scale: a waypoint is a point, not a copy of an actor or camera.
-let waypointAt (zone: Zone.Zone) (camera: Camera.Camera) (anchor: WaypointAnchor) : Entity option =
+let waypointAt (zone: Zone.Zone) (camera: Camera.Camera) (anchor: SpawnAnchor) : Entity option =
     match anchorTransform zone camera anchor with
     | Some (position, rotation) ->
         Some (Entity.baseEntity (nextWaypointName zone anchor) { transformIdentity with Position = position; Rotation = rotation })
+    | None -> None
+
+// The player trigger base sits just under the feet, so the player is inside at the moment of creation even
+// with small ground unevenness. A fixed drop keeps the anchor independent of the trigger's authored height.
+let private playerTriggerDrop = 0.1f
+
+// The base position a trigger anchor supplies, or None when it has nothing to stamp (no live player).
+let private anchorPosition (zone: Zone.Zone) (camera: Camera.Camera) (anchor: SpawnAnchor) : Vector3 option =
+    match anchor with
+    | Origin -> Some Vector3.Zero
+    | Camera -> Some camera.Position
+    | Player ->
+        if not (anchorAvailable zone anchor) then None else
+
+        let feet = (zone.Actors.Get zone.Player.Value).State.Base.Transform.Position
+        Some (feet - Vector3(0.0f, playerTriggerDrop, 0.0f))
+
+// A trigger at an anchor, named automatically, or None when the anchor has nothing to stamp. The anchor
+// supplies position only: rotation is identity and scale is unit, and `spawnTrigger` supplies the default
+// radius and height.
+let triggerAt (zone: Zone.Zone) (camera: Camera.Camera) (anchor: SpawnAnchor) : Entity option =
+    match anchorPosition zone camera anchor with
+    | Some position ->
+        Some (Entity.baseEntity (nextTriggerName zone anchor) { transformIdentity with Position = position })
     | None -> None
 
 // Push the command that reverses a freshly-created entity, and select it.
@@ -137,9 +165,19 @@ let spawnTrigger (state: byref<GameplayState.GameplayState>) (entity: Entity) : 
     let ref = Zone.spawnTrigger zone entity
     do commit &state (TriggerCreate (state.ActiveZone, ref, Zone.captureTrigger zone ref)) ref
 
+// Create a trigger at an anchor in the active zone and select it. The capacity check happens before the
+// anchor is built, so a refusal has no effect. An unavailable anchor (no player) creates nothing.
+let spawnTriggerAt (state: byref<GameplayState.GameplayState>) (anchor: SpawnAnchor) : unit =
+    let zone = GameplayState.activeZone state
+    if not (hasRoom "trigger" state.ActiveZone zone.Triggers) then () else
+
+    match triggerAt zone state.Camera anchor with
+    | Some entity -> do spawnTrigger &state entity
+    | None -> ()
+
 // Create a waypoint at an anchor in the active zone and select it. The capacity check happens before the
 // anchor is built, so a refusal has no effect. An unavailable anchor (no player) creates nothing.
-let spawnWaypointAt (state: byref<GameplayState.GameplayState>) (anchor: WaypointAnchor) : unit =
+let spawnWaypointAt (state: byref<GameplayState.GameplayState>) (anchor: SpawnAnchor) : unit =
     let zone = GameplayState.activeZone state
     if not (hasRoom "waypoint" state.ActiveZone zone.Waypoints) then () else
 
@@ -161,7 +199,7 @@ let spawnLinkedWaypoint (state: byref<GameplayState.GameplayState>) (from: Entit
     do commit &state (LinkSpawn (state.ActiveZone, from, before, ref, Zone.captureWaypoint zone ref)) ref
 
 // Extend `from` with a waypoint at an anchor. An unavailable anchor (no player) creates nothing.
-let spawnNextWaypointAt (state: byref<GameplayState.GameplayState>) (from: EntityRef) (anchor: WaypointAnchor) : unit =
+let spawnNextWaypointAt (state: byref<GameplayState.GameplayState>) (from: EntityRef) (anchor: SpawnAnchor) : unit =
     let zone = GameplayState.activeZone state
     if not (hasRoom "waypoint" state.ActiveZone zone.Waypoints) then () else
 

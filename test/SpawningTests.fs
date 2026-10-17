@@ -375,6 +375,153 @@ let ``a duplicated waypoint carries the link to the same successor`` () =
     Assert.True(Option.isNone (Zone.waypointNext zone a))
 
 [<Fact>]
+let ``a trigger at the player uses her feet minus 0.1 m and the default volume`` () =
+    let shared = bareShared ()
+    let zone = Zone.create ()
+    let feet = Vector3(1.0f, 2.0f, 3.0f)
+    let baseActor = actor "Aiko"
+    let player =
+        { baseActor with
+            State =
+                { baseActor.State with
+                    Base =
+                        { baseActor.State.Base with
+                            Transform =
+                                { transformIdentity with
+                                    Position = feet
+                                    Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.5f)
+                                    Scale = Vector3(2.0f, 2.0f, 2.0f) } } } }
+    zone.Player <- ValueSome (zone.Actors.Add player)
+    let mutable state = gameplayState zone
+
+    Spawning.spawnTriggerAt &state Spawning.Player
+
+    let ref = state.Editor.Selection.Value
+    let trigger = (Zone.tryTriggerAt zone ref).Value
+    Assert.Equal(EntityKind.Trigger, ref.Kind)
+    Assert.Equal("Player 1", trigger.State.Base.Name)
+    Assert.Equal(feet - Vector3(0.0f, 0.1f, 0.0f), trigger.State.Base.Transform.Position)
+    // The anchor supplies position only: identity rotation and unit scale.
+    Assert.Equal(Quaternion.Identity, trigger.State.Base.Transform.Rotation)
+    Assert.Equal(Vector3.One, trigger.State.Base.Transform.Scale)
+    // The existing trigger shape is unchanged.
+    Assert.Equal(1.0f, trigger.State.Radius)
+    Assert.Equal(2.0f, trigger.State.Height)
+
+    match state.Editor.Undo.Applied with
+    | [ TriggerCreate (_, r, _) ] -> Assert.Equal<EntityRef>(ref, r)
+    | other -> Assert.Fail(sprintf "expected exactly one TriggerCreate command, got %A" other)
+
+    do Undo.undoHistory shared &state
+    Assert.Equal(0u, zone.Triggers.Count)
+
+    do Undo.redoHistory shared &state
+    Assert.Equal(1u, zone.Triggers.Count)
+
+[<Fact>]
+let ``a trigger at the camera uses the camera's exact position`` () =
+    let zone = Zone.create ()
+    let camera = Camera.create (Vector3(4.0f, 5.0f, 6.0f)) (Vector3(4.0f, 5.0f, 7.0f))
+
+    match Spawning.triggerAt zone camera Spawning.Camera with
+    | Some entity ->
+        Assert.Equal("Camera 1", entity.Name)
+        Assert.Equal(camera.Position, entity.Transform.Position)
+        Assert.Equal(Quaternion.Identity, entity.Transform.Rotation)
+        Assert.Equal(Vector3.One, entity.Transform.Scale)
+    | None -> Assert.Fail "expected a trigger at the camera"
+
+[<Fact>]
+let ``the origin anchor is zero and an unavailable player creates nothing`` () =
+    let zone = Zone.create ()
+    let camera = Camera.create (Vector3(1.0f, 2.0f, 3.0f)) Vector3.Zero
+
+    match Spawning.triggerAt zone camera Spawning.Origin with
+    | Some entity -> Assert.Equal(Vector3.Zero, entity.Transform.Position)
+    | None -> Assert.Fail "expected a trigger at the origin"
+
+    Assert.False(Spawning.anchorAvailable zone Spawning.Player)
+    Assert.True((Spawning.triggerAt zone camera Spawning.Player).IsNone)
+
+    // A stale designation is no player either.
+    zone.Player <- ValueSome { Index = 0u; Generation = 99u }
+    Assert.True((Spawning.triggerAt zone camera Spawning.Player).IsNone)
+
+    let shared = bareShared ()
+    let mutable state = gameplayState zone
+    Spawning.spawnTriggerAt &state Spawning.Player
+    Assert.Equal(0u, zone.Triggers.Count)
+    Assert.Empty(state.Editor.Undo.Applied)
+
+[<Fact>]
+let ``a trigger created at an anchor does not follow the player or camera`` () =
+    let zone = Zone.create ()
+    let handle = zone.Actors.Add(actor "Aiko")
+    zone.Player <- ValueSome handle
+    let mutable state = gameplayState zone
+
+    // At the player: moving her afterwards leaves the trigger where it was stamped.
+    Spawning.spawnTriggerAt &state Spawning.Player
+    let playerTrigger = state.Editor.Selection.Value
+    let playerBase = (Zone.tryTriggerAt zone playerTrigger).Value.State.Base.Transform.Position
+    let player = &zone.Actors.Get handle
+    player <- { player with State = { player.State with Base = { player.State.Base with Transform = { player.State.Base.Transform with Position = Vector3(9.0f, 9.0f, 9.0f) } } } }
+    Assert.Equal(playerBase, (Zone.tryTriggerAt zone playerTrigger).Value.State.Base.Transform.Position)
+
+    // At the camera: moving it afterwards leaves the trigger where it was stamped.
+    let camera = Camera.create (Vector3(4.0f, 5.0f, 6.0f)) (Vector3(4.0f, 5.0f, 7.0f))
+    state.Camera <- camera
+    Spawning.spawnTriggerAt &state Spawning.Camera
+    let cameraTrigger = state.Editor.Selection.Value
+    let cameraBase = (Zone.tryTriggerAt zone cameraTrigger).Value.State.Base.Transform.Position
+    state.Camera <- Camera.create (Vector3(20.0f, 20.0f, 20.0f)) (Vector3(20.0f, 20.0f, 21.0f))
+    Assert.Equal(cameraBase, (Zone.tryTriggerAt zone cameraTrigger).Value.State.Base.Transform.Position)
+
+[<Fact>]
+let ``trigger creation names per anchor and reuses the lowest free number`` () =
+    let shared = bareShared ()
+    let zone = Zone.create ()
+    let mutable state = gameplayState zone
+
+    Spawning.spawnTriggerAt &state Spawning.Camera
+    let camera1 = state.Editor.Selection.Value
+    Spawning.spawnTriggerAt &state Spawning.Camera
+    let camera2 = state.Editor.Selection.Value
+    Spawning.spawnTriggerAt &state Spawning.Origin
+    let origin1 = state.Editor.Selection.Value
+
+    Assert.Equal("Camera 1", (Zone.tryTriggerAt zone camera1).Value.State.Base.Name)
+    Assert.Equal("Camera 2", (Zone.tryTriggerAt zone camera2).Value.State.Base.Name)
+    Assert.Equal("Origin 1", (Zone.tryTriggerAt zone origin1).Value.State.Base.Name)
+
+    zone.Player <- ValueSome (zone.Actors.Add(actor "Aiko"))
+    Spawning.spawnTriggerAt &state Spawning.Player
+    Assert.Equal("Player 1", (Zone.tryTriggerAt zone state.Editor.Selection.Value).Value.State.Base.Name)
+
+    // A rename frees the number for the next creation at that anchor.
+    Selection.renameRef shared &state camera1 "Hall"
+    Spawning.spawnTriggerAt &state Spawning.Camera
+    Assert.Equal("Camera 1", (Zone.tryTriggerAt zone state.Editor.Selection.Value).Value.State.Base.Name)
+
+    // Deleting a trigger frees its number too.
+    Selection.deleteRef shared &state camera2
+    Spawning.spawnTriggerAt &state Spawning.Camera
+    Assert.Equal("Camera 2", (Zone.tryTriggerAt zone state.Editor.Selection.Value).Value.State.Base.Name)
+
+[<Fact>]
+let ``trigger creation at an anchor is refused at capacity and records nothing`` () =
+    let zone = Zone.create ()
+    for i in 1 .. int zone.Triggers.Capacity do
+        do ignore (Zone.spawnTrigger zone (entity (sprintf "t%d" i)))
+    let mutable state = gameplayState zone
+    let before = zone.Triggers.Count
+
+    Spawning.spawnTriggerAt &state Spawning.Origin
+
+    Assert.Equal(before, zone.Triggers.Count)
+    Assert.Empty(state.Editor.Undo.Applied)
+
+[<Fact>]
 let ``duplicating a trigger copies its payload but not its runtime state`` () =
     let shared = bareShared ()
     let zone = Zone.create ()

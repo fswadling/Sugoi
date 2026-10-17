@@ -394,6 +394,23 @@ create and link a waypoint. `Add Next` **inserts** before an existing next, so e
 preserves the tail (`A -> N -> B`). Creation and link-and-create reuse `WaypointCreate` and `LinkSpawn`, so each
 is one step on the one history; `Link` covers retargeting and ending the chain.
 
+## Trigger authoring (D-028)
+
+Trigger creation uses the **same anchor palette** as waypoint creation (`specs/099-waypoint-authoring`
+introduced it; the type is now the shared `SpawnAnchor`). The Outliner's `Add Trigger` button opens one menu of origin, editor camera, and
+designated player (`specs/100-trigger-anchors`). The anchor supplies the cylinder base position only:
+
+- **Origin** — the world origin.
+- **Camera** — the editor camera's **exact position**, with no ground projection. A trigger created above the
+  floor may float; the author can resize or move it.
+- **Player** — the player actor's authored feet position **lowered by 0.1 m**, so she is inside the volume at
+  the moment of creation even with small ground unevenness. Available only with a live designation.
+
+Every anchor uses the existing default radius and height, identity rotation, and unit scale. New triggers get an
+anchor-informed automatic name (`Origin 1`, `Camera 1`, `Player 1`) using the lowest free number for that prefix,
+as waypoints do. Triggers have no chain or extend gesture, so the Inspector keeps only the existing volume, prompt,
+and cue controls. Creation reuses `TriggerCreate`, so each is one step on the one history.
+
 ## Selection and gizmos (D-012, D-015, D-016)
 
 - M5/early editor uses a **minimal raycast** (screen-ray → sphere/box) for

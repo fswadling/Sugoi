@@ -111,11 +111,22 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
         if ImGui.collapsingHeader("Triggers", 0) then
             let triggerRoom = zone.Triggers.Count < zone.Triggers.Capacity
+
+            // One creation menu: every anchor is a row, so adding an anchor adds a row rather than a
+            // button. Triggers have no chain or extend gesture, so the Inspector needs no new section.
             do ImGui.beginDisabled(not triggerRoom)
-            let addTrigger = ImGui.button("Add Trigger", ImGui.ImVec2(0.0f, 0.0f))
+            if ImGui.button("Add Trigger", ImGui.ImVec2(0.0f, 0.0f)) then
+                do ImGui.openPopup("##trigger_add", 0)
             do ImGui.endDisabled()
-            if addTrigger then
-                Spawning.spawnTrigger &state (Entity.baseEntity "Trigger" transformIdentity)
+
+            if ImGui.beginPopup("##trigger_add", 0) then
+                do ImGui.beginDisabled(not triggerRoom)
+                for anchor in Spawning.spawnAnchors do
+                    if ImGui.menuItem(Spawning.anchorName anchor, null, false, Spawning.anchorAvailable zone anchor) then
+                        do Spawning.spawnTriggerAt &state anchor
+                        do ImGui.closeCurrentPopup()
+                do ImGui.endDisabled()
+                do ImGui.endPopup()
 
             if zone.Triggers.Count = 0u then
                 do ImGui.text("(none)")
@@ -134,7 +145,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
 
             if ImGui.beginPopup("##waypoint_add", 0) then
                 do ImGui.beginDisabled(not waypointRoom)
-                for anchor in Spawning.waypointAnchors do
+                for anchor in Spawning.spawnAnchors do
                     if ImGui.menuItem(Spawning.anchorName anchor, null, false, Spawning.anchorAvailable zone anchor) then
                         do Spawning.spawnWaypointAt &state anchor
                         do ImGui.closeCurrentPopup()
