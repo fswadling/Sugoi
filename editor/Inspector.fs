@@ -233,6 +233,57 @@ let private drawSkydome (shared: SharedState.SharedState) (state: byref<Gameplay
         do Selection.setSkydome shared &state (fun sky -> { sky with Horizon = Vector3(buffer.[0], buffer.[1], buffer.[2]) })
     state.Editor <- { state.Editor with HorizonColorEditing = live }
 
+// The selected waypoint's chain: its next (any other live waypoint, or no next) and an add-next menu. The
+// chain is a property of the waypoint, so it lives in the Inspector; the Outliner only creates and lists.
+let private drawWaypointChain
+    (shared: SharedState.SharedState)
+    (state: byref<GameplayState.GameplayState>)
+    (zone: Zone.Zone)
+    (ref: EntityRef) : unit =
+    do ImGui.separator()
+
+    // ── the next waypoint: every other live waypoint, plus "(end)" which breaks the chain ──
+    let options = ResizeArray<EntityRef option * string>()
+    do options.Add((None, "(end)"))
+    let slots = zone.Waypoints.Slots
+    for i in 0 .. slots.Length - 1 do
+        let slot = &slots.[i]
+        if slot.Alive then
+            let candidate = waypointRef (uint32 i) slot.Generation
+            if candidate <> ref then options.Add((Some candidate, slot.Value.Base.Name))
+
+    let next = Zone.waypointNext zone ref
+    // `waypointNext` yields only a live waypoint other than this one, so it is always among the options.
+    let current = options |> Seq.find (fun (candidate, _) -> candidate = next)
+    // The picker reports through a local rather than a closure over `state`, which is a byref.
+    let mutable picked = next
+    do CueTree.filteredCombo
+        state.Editor.ComboFilter
+        "Next##waypoint_next"
+        (snd current)
+        (List.ofSeq options)
+        snd
+        current
+        (fun (candidate, _) -> picked <- candidate)
+    if picked <> next then
+        do Selection.linkRef shared &state ref picked
+
+    // ── extend: stamp a new waypoint at an anchor and insert it, in one `LinkSpawn` step ──
+    let waypointRoom = zone.Waypoints.Count < zone.Waypoints.Capacity
+    do ImGui.beginDisabled(not waypointRoom)
+    if ImGui.button("Add Next...", ImGui.ImVec2(0.0f, 0.0f)) then
+        do ImGui.openPopup("##waypoint_add_next", 0)
+    do ImGui.endDisabled()
+
+    if ImGui.beginPopup("##waypoint_add_next", 0) then
+        do ImGui.beginDisabled(not waypointRoom)
+        for anchor in Spawning.waypointAnchors do
+            if ImGui.menuItem(Spawning.anchorName anchor, null, false, Spawning.anchorAvailable zone anchor) then
+                do Spawning.spawnNextWaypointAt &state ref anchor
+                do ImGui.closeCurrentPopup()
+        do ImGui.endDisabled()
+        do ImGui.endPopup()
+
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) =
     let visible = ImGui.beginWindow("Inspector", System.IntPtr.Zero, 0)
     if visible then
@@ -265,6 +316,10 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             do ImGui.textUnformatted position
             do ImGui.textUnformatted rotation
             do ImGui.textUnformatted scale
+
+            // Waypoint-only: its link in a chain, authored as a property of the selected waypoint.
+            if ref.Kind = EntityKind.Waypoint then
+                do drawWaypointChain shared &state zone ref
 
             // Trigger-only: the volume's shape and its interaction settings. Each committed
             // edit is one `TriggerSet` step — a drag commits when it is released or left, like

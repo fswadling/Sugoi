@@ -107,8 +107,9 @@ type EditorState =
       CueTextBuffer2 : byte[]
       CueTextPath2 : int list option
       CueTextEditing2 : bool
-      // The open cue dropdown's filter text (spec 068): one reused buffer, since only one popup is open at a
-      // time; it is cleared when a dropdown appears, so a newly opened combo starts unfiltered.
+      // The open filtered dropdown's text (spec 068): one reused buffer, since only one popup is open at a
+      // time; it is cleared when a dropdown appears, so a newly opened combo starts unfiltered. The cue's
+      // choosers and the Inspector's waypoint-next chooser share it.
       ComboFilter : byte[]
       // A structural cue edit (Add Child / Remove) in the last frame asked the Cue panel to re-focus the newly
       // selected node's row on the next one, so ImGui's keyboard-nav position is restored (rather than sent back

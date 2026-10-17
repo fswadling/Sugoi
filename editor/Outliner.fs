@@ -5,16 +5,9 @@ module Outliner
 // triggers. Each entity row selects on click and carries inline Del/Dup buttons.
 
 open System
-open System.Numerics
 open System.Collections.Generic
 open Entity
 open Command
-
-// A waypoint at the camera, facing the way the camera looks: `CreateWorld` yields the
-// rotation taking -Z (the project's camera-forward convention) onto the view direction.
-let private newWaypointAtCamera (camera: Camera.Camera) : Entity =
-    let rotation = Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(camera.Position, Camera.forward camera, camera.Up))
-    Entity.baseEntity "Waypoint" { transformIdentity with Position = camera.Position; Rotation = rotation }
 
 let private entityRow (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) (name: string) (ref: EntityRef) : unit =
     if ImGui.button(name, ImGui.ImVec2(0.0f, 0.0f)) then
@@ -31,33 +24,20 @@ let private entityRow (shared: SharedState.SharedState) (state: byref<GameplaySt
         Selection.duplicateRef shared &state ref
 
 /// One slot-map section: a row per live slot under its own pushed id, so the static row labels
-/// (`Del`, `Dup`, `Link`) stay unique without formatting an identifier per row. Waypoints add the
-/// chain-link control on the same row; every other kind passes `selected = None` and `linkable = false`.
+/// (`Del`, `Dup`) stay unique without formatting an identifier per row.
 let private slotRows
     (shared: SharedState.SharedState)
     (state: byref<GameplayState.GameplayState>)
     (prefix: string)
     (slots: Span<SlotMap.Slot<'T>>)
     (nameOf: 'T -> string)
-    (refOf: uint32 -> uint32 -> EntityRef)
-    (selected: EntityRef option)
-    (linkable: bool) : unit =
+    (refOf: uint32 -> uint32 -> EntityRef) : unit =
     for i in 0 .. slots.Length - 1 do
         let slot = &slots.[i]
         if slot.Alive then
             let ref = refOf (uint32 i) slot.Generation
             do ImGui.pushId (prefix + string i)
             entityRow shared &state (nameOf slot.Value) ref
-            if linkable then
-                do ImGui.sameLine(0.0f, -1.0f)
-                let canLink = selected |> Option.exists (fun from -> from <> ref)
-                do ImGui.beginDisabled(not canLink)
-                let link = ImGui.smallButton "Link"
-                do ImGui.endDisabled()
-                if link then
-                    match selected with
-                    | Some from -> Selection.linkRef shared &state from (Some ref)
-                    | None -> ()
             do ImGui.popId()
 
 let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayState>) : unit =
@@ -111,13 +91,13 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             if zone.Actors.Count = 0u then
                 do ImGui.text("(none)")
             else
-                slotRows shared &state "actor" zone.Actors.Slots (fun (a: Actor) -> a.State.Base.Name) actorRef None false
+                slotRows shared &state "actor" zone.Actors.Slots (fun (a: Actor) -> a.State.Base.Name) actorRef
 
         if ImGui.collapsingHeader("Props", 0) then
             if zone.Props.Count = 0u then
                 do ImGui.text("(none)")
             else
-                slotRows shared &state "prop" zone.Props.Slots (fun (p: Prop) -> p.State.Base.Name) propRef None false
+                slotRows shared &state "prop" zone.Props.Slots (fun (p: Prop) -> p.State.Base.Name) propRef
 
         if ImGui.collapsingHeader("Parts", 0) then
             match zone.Environment with
@@ -127,7 +107,7 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             if environment.Parts.Count = 0u then
                 do ImGui.text("(none)")
             else
-                slotRows shared &state "part" environment.Parts.Slots (fun (p: Prop) -> p.State.Base.Name) (partRef environment.Epoch) None false
+                slotRows shared &state "part" environment.Parts.Slots (fun (p: Prop) -> p.State.Base.Name) (partRef environment.Epoch)
 
         if ImGui.collapsingHeader("Triggers", 0) then
             let triggerRoom = zone.Triggers.Count < zone.Triggers.Capacity
@@ -140,58 +120,30 @@ let draw (shared: SharedState.SharedState) (state: byref<GameplayState.GameplayS
             if zone.Triggers.Count = 0u then
                 do ImGui.text("(none)")
             else
-                slotRows shared &state "trigger" zone.Triggers.Slots (fun (t: Trigger) -> t.State.Base.Name) triggerRef None false
+                slotRows shared &state "trigger" zone.Triggers.Slots (fun (t: Trigger) -> t.State.Base.Name) triggerRef
 
         if ImGui.collapsingHeader("Waypoints", 0) then
-            // The chain actions act on the selected waypoint, so they are gated on it — and
-            // disabled rather than hidden, so a button never moves the ones beside it.
-            let selected =
-                match state.Editor.Selection with
-                | Some ref when ref.Kind = EntityKind.Waypoint && Zone.isAlive zone ref -> Some ref
-                | _ -> None
             let waypointRoom = zone.Waypoints.Count < zone.Waypoints.Capacity
 
+            // One creation menu: every anchor is a row, so adding an anchor adds a row rather than a
+            // button. Chain editing belongs to the selected waypoint and lives in the Inspector.
             do ImGui.beginDisabled(not waypointRoom)
-            let addWaypoint = ImGui.button("Add Waypoint", ImGui.ImVec2(0.0f, 0.0f))
+            if ImGui.button("Add Waypoint", ImGui.ImVec2(0.0f, 0.0f)) then
+                do ImGui.openPopup("##waypoint_add", 0)
             do ImGui.endDisabled()
-            if addWaypoint then
-                Spawning.spawnWaypoint &state (Entity.baseEntity "Waypoint" transformIdentity)
 
-            do ImGui.sameLine(0.0f, -1.0f)
-
-            do ImGui.beginDisabled(not waypointRoom)
-            let addAtCamera = ImGui.button("Add at Camera", ImGui.ImVec2(0.0f, 0.0f))
-            do ImGui.endDisabled()
-            if addAtCamera then
-                Spawning.spawnWaypoint &state (newWaypointAtCamera state.Camera)
-
-            do ImGui.sameLine(0.0f, -1.0f)
-
-            // Extend the selected waypoint: a new waypoint at the camera, linked as its next,
-            // which becomes the selection so a chain can be walked out one link at a time.
-            do ImGui.beginDisabled(Option.isNone selected || not waypointRoom)
-            let extend = ImGui.button("Add Next at Camera", ImGui.ImVec2(0.0f, 0.0f))
-            do ImGui.endDisabled()
-            if extend then
-                match selected with
-                | Some from -> Spawning.spawnLinkedWaypoint &state from (newWaypointAtCamera state.Camera)
-                | None -> ()
-
-            do ImGui.sameLine(0.0f, -1.0f)
-
-            // End the selected waypoint's chain, when it has one.
-            let hasNext = selected |> Option.bind (Zone.waypointNext zone) |> Option.isSome
-            do ImGui.beginDisabled(not hasNext)
-            let unlink = ImGui.button("Unlink", ImGui.ImVec2(0.0f, 0.0f))
-            do ImGui.endDisabled()
-            if unlink then
-                match selected with
-                | Some from -> Selection.linkRef shared &state from None
-                | None -> ()
+            if ImGui.beginPopup("##waypoint_add", 0) then
+                do ImGui.beginDisabled(not waypointRoom)
+                for anchor in Spawning.waypointAnchors do
+                    if ImGui.menuItem(Spawning.anchorName anchor, null, false, Spawning.anchorAvailable zone anchor) then
+                        do Spawning.spawnWaypointAt &state anchor
+                        do ImGui.closeCurrentPopup()
+                do ImGui.endDisabled()
+                do ImGui.endPopup()
 
             if zone.Waypoints.Count = 0u then
                 do ImGui.text("(none)")
             else
-                slotRows shared &state "waypoint" zone.Waypoints.Slots (fun (w: Waypoint) -> w.Base.Name) waypointRef selected true
+                slotRows shared &state "waypoint" zone.Waypoints.Slots (fun (w: Waypoint) -> w.Base.Name) waypointRef
 
     do ImGui.endWindow()

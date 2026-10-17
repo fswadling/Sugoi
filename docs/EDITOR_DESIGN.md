@@ -378,6 +378,22 @@ it (`docs/ARCHITECTURE.md`, `specs/046`). The authored value is never consumed, 
 re-entry. A non-interactable, enabled trigger fires on the rising edge of "player inside"; an interactable one fires
 on the interact key while it is the tracked trigger, not on entry (`specs/058-trigger-cue`).
 
+## Waypoint authoring (D-027)
+
+Waypoint **creation is one control**, not a button per anchor. The Outliner's `Add Waypoint` button opens a
+menu of the anchor palette — origin, editor camera, and the designated player (`specs/099-waypoint-authoring`).
+`editor/Spawning.fs` owns that palette, so a new anchor is added once and both the creation and extend menus
+gain a row. Each new waypoint gets an anchor-informed automatic name (`Origin 1`, `Camera 2`, `Player 1`) using
+the lowest free number for that prefix; rename frees the number. The player anchor reads the player actor's
+**current authored transform** — set by playing or by editing — so a never-played actor is still a valid
+source. Every anchor uses unit scale: a waypoint is a point, not a copy of the actor or camera.
+
+Chain editing is a **property of the selected waypoint in the Inspector**, not a per-row Outliner control. The
+`Next` picker lists `(end)` and the zone's other live waypoints; `Add Next` uses the same anchor palette to
+create and link a waypoint. `Add Next` **inserts** before an existing next, so extending a middle waypoint
+preserves the tail (`A -> N -> B`). Creation and link-and-create reuse `WaypointCreate` and `LinkSpawn`, so each
+is one step on the one history; `Link` covers retargeting and ending the chain.
+
 ## Selection and gizmos (D-012, D-015, D-016)
 
 - M5/early editor uses a **minimal raycast** (screen-ray → sphere/box) for

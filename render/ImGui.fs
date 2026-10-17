@@ -211,6 +211,18 @@ extern void popId()
 [<DllImport("cimgui", EntryPoint = "igBeginCombo", CallingConvention = CallingConvention.Cdecl)>]
 extern bool beginCombo(string label, string previewValue, int flags)
 
+// An action popup: `openPopup` is called by the item that opens it (a button), and the caller draws
+// `menuItem` rows between `beginPopup` and `endPopup`. An action menu uses this rather than a combo, so
+// adding an action adds a row rather than another button.
+[<DllImport("cimgui", EntryPoint = "igOpenPopup_Str", CallingConvention = CallingConvention.Cdecl)>]
+extern void openPopup(string strId, int popupFlags)
+
+[<DllImport("cimgui", EntryPoint = "igBeginPopup", CallingConvention = CallingConvention.Cdecl)>]
+extern bool beginPopup(string strId, int flags)
+
+[<DllImport("cimgui", EntryPoint = "igEndPopup", CallingConvention = CallingConvention.Cdecl)>]
+extern void endPopup()
+
 [<DllImport("cimgui", EntryPoint = "igEndCombo", CallingConvention = CallingConvention.Cdecl)>]
 extern void endCombo()
 

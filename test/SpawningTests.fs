@@ -183,6 +183,112 @@ let ``deleting a waypoint and undoing restores its transform at the recorded slo
     Assert.Equal(moved.Rotation, (Zone.tryEntityAt zone ref).Value.Transform.Rotation)
 
 [<Fact>]
+let ``a waypoint at the player copies her position and full rotation with unit scale`` () =
+    let zone = Zone.create ()
+    let position = Vector3(1.0f, 2.0f, 3.0f)
+    let rotation = Quaternion.CreateFromYawPitchRoll(0.75f, 0.3f, 0.0f)
+    let baseActor = actor "Aiko"
+    let player =
+        { baseActor with
+            State =
+                { baseActor.State with
+                    Base =
+                        { baseActor.State.Base with
+                            Transform =
+                                { transformIdentity with
+                                    Position = position
+                                    Rotation = rotation
+                                    Scale = Vector3(2.0f, 2.0f, 2.0f) } } } }
+    zone.Player <- ValueSome (zone.Actors.Add player)
+    let camera = Camera.create Vector3.Zero Vector3.UnitZ
+
+    match Spawning.waypointAt zone camera Spawning.Player with
+    | Some entity ->
+        Assert.Equal("Player 1", entity.Name)
+        Assert.Equal(position, entity.Transform.Position)
+        // The full rotation is copied, not just its yaw component.
+        Assert.Equal(rotation, entity.Transform.Rotation)
+        // A waypoint is a point, not a scaled copy of the actor.
+        Assert.Equal(Vector3.One, entity.Transform.Scale)
+    | None -> Assert.Fail "expected a waypoint at the player"
+
+[<Fact>]
+let ``the player anchor is unavailable without a live player`` () =
+    let zone = Zone.create ()
+    let camera = Camera.create Vector3.Zero Vector3.UnitZ
+    Assert.False(Spawning.anchorAvailable zone Spawning.Player)
+    Assert.True((Spawning.waypointAt zone camera Spawning.Player).IsNone)
+
+    // A stale designation is no player either.
+    zone.Player <- ValueSome { Index = 0u; Generation = 99u }
+    Assert.False(Spawning.anchorAvailable zone Spawning.Player)
+    Assert.True((Spawning.waypointAt zone camera Spawning.Player).IsNone)
+
+[<Fact>]
+let ``spawning at the player creates and selects one waypoint in one step`` () =
+    let shared = bareShared ()
+    let zone = Zone.create ()
+    zone.Player <- ValueSome (zone.Actors.Add(actor "Aiko"))
+    let mutable state = gameplayState zone
+
+    Spawning.spawnWaypointAt &state Spawning.Player
+
+    let ref = state.Editor.Selection.Value
+    Assert.Equal(EntityKind.Waypoint, ref.Kind)
+    Assert.Equal("Player 1", (Zone.tryEntityAt zone ref).Value.Name)
+    match state.Editor.Undo.Applied with
+    | [ WaypointCreate (_, r, waypoint) ] ->
+        Assert.Equal<EntityRef>(ref, r)
+        Assert.Equal("Player 1", waypoint.Base.Name)
+    | other -> Assert.Fail(sprintf "expected exactly one WaypointCreate command, got %A" other)
+
+    do Undo.undoHistory shared &state
+    Assert.Equal(0u, zone.Waypoints.Count)
+
+    do Undo.redoHistory shared &state
+    Assert.Equal(1u, zone.Waypoints.Count)
+
+[<Fact>]
+let ``creation names waypoints per anchor and reuses the lowest free number`` () =
+    let shared = bareShared ()
+    let zone = Zone.create ()
+    let mutable state = gameplayState zone
+
+    Spawning.spawnWaypointAt &state Spawning.Camera
+    let camera1 = state.Editor.Selection.Value
+    Spawning.spawnWaypointAt &state Spawning.Camera
+    let camera2 = state.Editor.Selection.Value
+    Spawning.spawnWaypointAt &state Spawning.Origin
+    let origin1 = state.Editor.Selection.Value
+
+    Assert.Equal("Camera 1", (Zone.tryEntityAt zone camera1).Value.Name)
+    Assert.Equal("Camera 2", (Zone.tryEntityAt zone camera2).Value.Name)
+    Assert.Equal("Origin 1", (Zone.tryEntityAt zone origin1).Value.Name)
+
+    // A rename frees the number for the next creation at that anchor.
+    Selection.renameRef shared &state camera1 "Hall"
+    Spawning.spawnWaypointAt &state Spawning.Camera
+    Assert.Equal("Camera 1", (Zone.tryEntityAt zone state.Editor.Selection.Value).Value.Name)
+
+    // Deleting a waypoint frees its number too.
+    Selection.deleteRef shared &state camera2
+    Spawning.spawnWaypointAt &state Spawning.Camera
+    Assert.Equal("Camera 2", (Zone.tryEntityAt zone state.Editor.Selection.Value).Value.Name)
+
+[<Fact>]
+let ``creating at an anchor is refused at capacity and records nothing`` () =
+    let zone = Zone.create ()
+    for i in 1 .. int zone.Waypoints.Capacity do
+        do ignore (Zone.spawnWaypoint zone (entity (sprintf "w%d" i)))
+    let mutable state = gameplayState zone
+    let before = zone.Waypoints.Count
+
+    Spawning.spawnWaypointAt &state Spawning.Origin
+
+    Assert.Equal(before, zone.Waypoints.Count)
+    Assert.Empty(state.Editor.Undo.Applied)
+
+[<Fact>]
 let ``adding a next waypoint links it and undoes as one step`` () =
     let shared = bareShared ()
     let zone = Zone.create ()
@@ -196,6 +302,8 @@ let ``adding a next waypoint links it and undoes as one step`` () =
     Assert.Equal(EntityKind.Waypoint, b.Kind)
     Assert.Equal("b", (Zone.tryEntityAt zone b).Value.Name)
     Assert.Equal(Some b, Zone.waypointNext zone a)
+    // The old end of the chain has no next of its own.
+    Assert.True(Option.isNone (Zone.waypointNext zone b))
 
     // The spawn and the link are one command, naming the predecessor and the new waypoint.
     match state.Editor.Undo.Applied with
@@ -215,7 +323,7 @@ let ``adding a next waypoint links it and undoes as one step`` () =
     Assert.Equal(Some b, Zone.waypointNext zone a)
 
 [<Fact>]
-let ``extending a waypoint that already has a next restores the previous one on undo`` () =
+let ``extending a middle waypoint inserts it and undo restores both links`` () =
     let shared = bareShared ()
     let zone = Zone.create ()
     let a = Zone.spawnWaypoint zone (entity "a")
@@ -223,16 +331,24 @@ let ``extending a waypoint that already has a next restores the previous one on 
     do Zone.setWaypointNext zone a (Some original)
     let mutable state = gameplayState zone
 
-    Spawning.spawnLinkedWaypoint &state a (entity "b")
+    Spawning.spawnNextWaypointAt &state a Spawning.Camera
 
     Assert.Equal(3u, zone.Waypoints.Count)
-    let b = state.Editor.Selection.Value
-    Assert.Equal(Some b, Zone.waypointNext zone a)
+    let inserted = state.Editor.Selection.Value
+    Assert.Equal("Camera 1", (Zone.tryEntityAt zone inserted).Value.Name)
+    // The new waypoint goes between a and original; the tail is preserved.
+    Assert.Equal(Some inserted, Zone.waypointNext zone a)
+    Assert.Equal(Some original, Zone.waypointNext zone inserted)
 
-    // Undo puts the previous next back, not none.
+    // Undo restores a's original next and removes the inserted waypoint.
     do Undo.undoHistory shared &state
     Assert.Equal(Some original, Zone.waypointNext zone a)
-    Assert.True(Option.isNone (Zone.tryEntityAt zone b))
+    Assert.True(Option.isNone (Zone.tryEntityAt zone inserted))
+
+    // Redo restores the insertion, including the preserved tail.
+    do Undo.redoHistory shared &state
+    Assert.Equal(Some inserted, Zone.waypointNext zone a)
+    Assert.Equal(Some original, Zone.waypointNext zone inserted)
 
 [<Fact>]
 let ``a duplicated waypoint carries the link to the same successor`` () =

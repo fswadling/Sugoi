@@ -8,6 +8,8 @@ module Spawning
 // Each command carries the new entity's record as `Zone.capture*` takes it, so a copy
 // carries every authored property of its original and neither carries runtime state.
 
+open System
+open System.Numerics
 open Entity
 open Command
 
@@ -17,6 +19,75 @@ open Command
 // literal itself moved to `Entity.baseEntity` (spec 064), shared with the cue's actor ops.
 let baseEntity (name: string) : Entity =
     Entity.baseEntity name transformIdentity
+
+// The editor-only anchor palette: where a new waypoint's position and facing come from, and the prefix of
+// its automatic name. Both the creation and extend menus iterate `waypointAnchors`, so a new anchor is added
+// once and both menus gain the row.
+type WaypointAnchor =
+    | Origin
+    | Camera
+    | Player
+
+let waypointAnchors : WaypointAnchor list = [ Origin; Camera; Player ]
+
+let anchorName (anchor: WaypointAnchor) : string =
+    match anchor with
+    | Origin -> "Origin"
+    | Camera -> "Camera"
+    | Player -> "Player"
+
+let anchorAvailable (zone: Zone.Zone) (anchor: WaypointAnchor) : bool =
+    match anchor with
+    | Player -> Systems.isPlayerLive zone
+    | Origin | Camera -> true
+
+// The numeric suffix of a name matching `<prefix> <n>`, or None. Prefix matching is exact, so `Camera 7`
+// reserves 7 and a name like `Camera wall` reserves nothing.
+let private nameSuffix (prefix: string) (name: string) : int option =
+    let lead = prefix + " "
+    if not (name.StartsWith(lead, StringComparison.Ordinal)) then None else
+
+    match Int32.TryParse(name.Substring(lead.Length)) with
+    | true, n when n > 0 -> Some n
+    | _ -> None
+
+// The next automatic name for an anchor: its prefix plus the lowest positive number no live waypoint
+// already uses. Names are labels, so a rename or delete frees the number.
+let private nextWaypointName (zone: Zone.Zone) (anchor: WaypointAnchor) : string =
+    let prefix = anchorName anchor
+    let used = System.Collections.Generic.HashSet<int>()
+    let slots = zone.Waypoints.Slots
+    for i in 0 .. slots.Length - 1 do
+        let slot = &slots.[i]
+        if slot.Alive then
+            match nameSuffix prefix slot.Value.Base.Name with
+            | Some n -> used.Add n |> ignore
+            | None -> ()
+
+    let mutable n = 1
+    while used.Contains n do n <- n + 1
+    sprintf "%s %d" prefix n
+
+// The position and facing an anchor supplies, or None when it has nothing to stamp (no live player).
+let private anchorTransform (zone: Zone.Zone) (camera: Camera.Camera) (anchor: WaypointAnchor) : (Vector3 * Quaternion) option =
+    match anchor with
+    | Origin -> Some (Vector3.Zero, Quaternion.Identity)
+    | Camera ->
+        let rotation = Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(camera.Position, Camera.forward camera, camera.Up))
+        Some (camera.Position, rotation)
+    | Player ->
+        if not (anchorAvailable zone anchor) then None else
+
+        let transform = (zone.Actors.Get zone.Player.Value).State.Base.Transform
+        Some (transform.Position, transform.Rotation)
+
+// A waypoint at an anchor, named automatically, or None when the anchor has nothing to stamp. Every anchor
+// uses unit scale: a waypoint is a point, not a copy of an actor or camera.
+let waypointAt (zone: Zone.Zone) (camera: Camera.Camera) (anchor: WaypointAnchor) : Entity option =
+    match anchorTransform zone camera anchor with
+    | Some (position, rotation) ->
+        Some (Entity.baseEntity (nextWaypointName zone anchor) { transformIdentity with Position = position; Rotation = rotation })
+    | None -> None
 
 // Push the command that reverses a freshly-created entity, and select it.
 let private commit (state: byref<GameplayState.GameplayState>) (cmd: Command) (ref: EntityRef) : unit =
@@ -66,17 +137,37 @@ let spawnTrigger (state: byref<GameplayState.GameplayState>) (entity: Entity) : 
     let ref = Zone.spawnTrigger zone entity
     do commit &state (TriggerCreate (state.ActiveZone, ref, Zone.captureTrigger zone ref)) ref
 
-// Create a waypoint in the active zone, link `from` to it, and select the new one. The
-// spawn and the link are one command (`LinkSpawn`), so one undo removes the waypoint and
-// restores the chain end it extended.
+// Create a waypoint at an anchor in the active zone and select it. The capacity check happens before the
+// anchor is built, so a refusal has no effect. An unavailable anchor (no player) creates nothing.
+let spawnWaypointAt (state: byref<GameplayState.GameplayState>) (anchor: WaypointAnchor) : unit =
+    let zone = GameplayState.activeZone state
+    if not (hasRoom "waypoint" state.ActiveZone zone.Waypoints) then () else
+
+    match waypointAt zone state.Camera anchor with
+    | Some entity -> do spawnWaypoint &state entity
+    | None -> ()
+
+// Create a waypoint in the active zone, link `from` to it, and select the new one. When `from` already has
+// a next, the new waypoint is inserted before it, so the rest of the chain is preserved. The spawn and both
+// links are one command (`LinkSpawn`), so one undo removes the waypoint and restores the previous link.
 let spawnLinkedWaypoint (state: byref<GameplayState.GameplayState>) (from: EntityRef) (entity: Entity) : unit =
     let zone = GameplayState.activeZone state
     if not (hasRoom "waypoint" state.ActiveZone zone.Waypoints) then () else
 
     let before = Zone.waypointNext zone from
     let ref = Zone.spawnWaypoint zone entity
+    do Zone.setWaypointNext zone ref before
     do Zone.setWaypointNext zone from (Some ref)
     do commit &state (LinkSpawn (state.ActiveZone, from, before, ref, Zone.captureWaypoint zone ref)) ref
+
+// Extend `from` with a waypoint at an anchor. An unavailable anchor (no player) creates nothing.
+let spawnNextWaypointAt (state: byref<GameplayState.GameplayState>) (from: EntityRef) (anchor: WaypointAnchor) : unit =
+    let zone = GameplayState.activeZone state
+    if not (hasRoom "waypoint" state.ActiveZone zone.Waypoints) then () else
+
+    match waypointAt zone state.Camera anchor with
+    | Some entity -> do spawnLinkedWaypoint &state from entity
+    | None -> ()
 
 // Copy an existing entity into a new slot, recording the create that reverses it. The
 // copy carries every authored property of the original — a waypoint's link included —
