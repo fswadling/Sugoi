@@ -48,6 +48,41 @@ Three consequences follow, and they are intentional:
 - If no asset is named for the speaker, the line is left undrawn and the Dialogue panel explains it —
   an expected authoring state, never a failure.
 
+## Building IQM actor models
+
+Sugoi loads IQM v2 models. The authoring tooling lives in `tools/`:
+
+- `tools/iqm_export_with_morphs.py` — a Blender 4.1+ add-on that exports an IQM
+  and, when the model has shape keys, `morphs.json` + `morphs.bin` sidecars.
+- `tools/extract_gltf_morphs.py` — extracts shape-key deltas from a `.gltf` when
+  the morph data already exists in glTF form.
+- `tools/morphs_to_sugoi.py` — converts the exporter's JSON/BIN sidecars into
+  Sugoi's s-expression `*.morphs` manifest and packed `*.morphs.bin`.
+
+The actor manifest names the model and, optionally, its converted morph manifest:
+
+```text
+[[Id "akane"] [Name "Akane"] [Model "actors/Akane/Akane.iqm"]
+ [Morphs "actors/Akane/akane.morphs"]]
+```
+
+Convert and choose up to eight morphs, in the order they should appear:
+
+```sh
+python3 tools/morphs_to_sugoi.py \
+    assets/actors/Akane/morphs.json \
+    assets/actors/Akane/Akane.iqm \
+    --morphs Fcl_ALL_Neutral,Fcl_ALL_Joy,Fcl_ALL_Angry,Fcl_ALL_Sorrow,Fcl_ALL_Surprised,Fcl_ALL_Fun,Fcl_EYE_Close,Fcl_MTH_A \
+    -o assets/actors/Akane/akane.morphs
+```
+
+`--list-morphs` lists what the exporter produced. Without `--morphs`, every
+morph is used, which fails if there are more than eight (the shader's cap).
+A model with no morphs needs only the `.iqm`. The exporter's `morphs.json` and
+`morphs.bin` are intermediates; `morphs.json` is ignored by git. The engine's
+`<name>.morphs.bin` is a payload too, so force-add it (`git add -f`) if you
+version the actor's model.
+
 ## Audio manifests
 
 An audio manifest names its source file and its **class**. Sounds live under `assets/audio/sounds`,

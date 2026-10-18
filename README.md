@@ -152,6 +152,14 @@ Escape returns to the menu only from the editor, so press the backtick key first
 Actors, props, environments, audio, and dialogue portraits are discovered from s-syntax
 manifests under `assets/`. The manifest formats are documented in `assets/README.md`.
 
+### Building actor models
+
+Actors are IQM v2 models. `tools/iqm_export_with_morphs.py` is a Blender 4.1+ add-on
+that exports an IQM and, when the model has shape keys, `morphs.json` + `morphs.bin`.
+Convert those sidecars to Sugoi's format with `tools/morphs_to_sugoi.py`; a model
+without morphs needs only the `.iqm`. See `tools/README.md` for the export and
+conversion steps.
+
 ## Persistence and live reload
 
 The authored scenario library is stored as s-syntax in `project.manifest` in the launch
@@ -177,6 +185,7 @@ screen/     Main menu and gameplay screens, screen manager
 assets/     Sample content: the Akane actor, the Island environment, props, music, sounds, font
 shaders/    GLSL sources and committed SPIR-V
 native/     Dear ImGui C shim + vendored SDL3_* libraries
+tools/      IQM export and morph conversion scripts
 docs/       Architecture, roadmap, editor design, rendering and performance notes
 specs/      Spec-driven development feature records
 test/       xUnit test suite

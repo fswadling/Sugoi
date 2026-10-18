@@ -68,6 +68,9 @@
 
 # ── asset metadata ──
 *.manifest
+# Intermediate morph metadata from tools/iqm_export_with_morphs.py. Convert it
+# with tools/morphs_to_sugoi.py; the engine reads <name>.morphs + <name>.morphs.bin.
+morphs.json
 
 # ── keep docs ──
 !*.md
