@@ -2,8 +2,7 @@
 
 Sugoi is a data-oriented 3D narrative game and in-engine editor written in F#. It runs on
 SDL3's GPU API with Dear ImGui for its tools, and Jolt Physics for the world. Its architecture
-follows the `odin-game` design: generational slot maps, structs-of-arrays, and plain procedures
-instead of an ECS.
+uses generational slot maps, structs-of-arrays, and plain procedures instead of an ECS.
 
 The game is authored entirely inside the application: place zones, environments, props, actors,
 waypoints, and triggers; wire triggers to cue scripts; assemble scenarios from the current scene;
