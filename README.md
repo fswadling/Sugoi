@@ -174,7 +174,7 @@ world/      Entities, zones, actors, assets and loading, renderers, cue, scenari
 state/      Screen state, commands, the one undo history, scenario fork, cue engine
 editor/     Editor orchestration and every dockable panel
 screen/     Main menu and gameplay screens, screen manager
-assets/     Sample content: Akane, the ArtRoom environment, props, music, sounds, font
+assets/     Sample content: the Akane actor, the Island environment, props, music, sounds, font
 shaders/    GLSL sources and committed SPIR-V
 native/     Dear ImGui C shim + vendored SDL3_* libraries
 docs/       Architecture, roadmap, editor design, rendering and performance notes
