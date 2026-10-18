@@ -2,7 +2,7 @@ module Audio
 
 // The mixer device seam (spec 086). `Context` bundles the `MIX_Mixer` handle with the three
 // operations the asset layer needs — load a sound into memory, probe a music file, free a sound — so
-// `world/assets/Assets.fs` never names SDL and the suite can inject a fake. `create` brings the subsystem up
+// `world/Assets.fs` never names SDL and the suite can inject a fake. `create` brings the subsystem up
 // and **never raises**: a machine with no audio device yields `unavailable`, and the game runs on
 // (FR-009). SDL audio is initialised here, not in `Engine`'s all-or-nothing `SDL.Init`.
 

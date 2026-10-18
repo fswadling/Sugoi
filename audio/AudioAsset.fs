@@ -3,7 +3,7 @@ module AudioAsset
 // The audio asset model (spec 086): what an `assets/audio/*.manifest` declares and what the asset
 // manager holds for it. A **sound** is decoded into memory (resident, ready); a **music** track stays
 // a reference to its compressed file on disk (decoded audio is uncompressed and large). Split from
-// `Audio` (the mixer device ops) so `world/assets/Assets.fs` can name the record without depending on the
+// `Audio` (the mixer device ops) so `world/Assets.fs` can name the record without depending on the
 // device layer for a type.
 
 open Prime

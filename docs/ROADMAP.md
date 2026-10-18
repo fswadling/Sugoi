@@ -140,7 +140,7 @@ stale-handle rejection.
 populated asset browser.
 
 **Deliverables**
-- `world/assets/Assets.fs` — asset manager: scan `actors/`/`environments/`/`props/` + s-syntax
+- `world/Assets.fs` — asset manager: scan `actors/`/`environments/`/`props/` + s-syntax
   manifests, keyed by `id`.
 - `render/DebugDraw.fs` — line/wireframe primitive (grid; later gizmos/overlays).
 - `render/Camera.fs` — editor camera (pitch/yaw/pan/zoom).
@@ -192,7 +192,7 @@ the hard plumbing step (SDL_gpu has no `LoadModel`/`DrawMesh` helper).
 - `core/Iqm.fs` — IQM binary parser emitting flat struct-of-arrays
   (`System.IO.BinaryReader`, little-endian, `float32` data).
 - `world/Actor.fs` — IQM model + animation slots + CPU skinning.
-- `world/render/ActorRender.fs` — skinned actor rendering.
+- `world/ActorRender.fs` — skinned actor rendering.
 
 **Done when**: an animated character (e.g. Akane) is visible and animating in
 the viewport via the asset manifest.
@@ -207,7 +207,7 @@ the viewport via the asset manifest.
   `parts` slot map), `waypoints`, `triggers`, plus inline global settings.
 - `world/Entity.fs` — `Environment_Entity` (owning its parts map) / `Prop_Entity`
   / `Part`.
-- `world/render/EnvironmentRender.fs` — static environment + prop rendering.
+- `world/EnvironmentRender.fs` — static environment + prop rendering.
 
 **Done when**: a static environment and prop assets are visible in the viewport.
 

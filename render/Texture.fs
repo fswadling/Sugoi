@@ -122,7 +122,7 @@ let loadStats () : TextureLoadStats = stats
 
 // The CPU-side result of decoding one image: compacted RGBA8 rows and the decode cost. Produced on a
 // worker by `decode`; consumed on the render thread by `createFromDecoded`. Declared here (not in
-// `world/assets/AssetLoad.fs`) because `Texture.decode` returns it and `Texture.fs` is compiled first.
+// `world/AssetLoad.fs`) because `Texture.decode` returns it and `Texture.fs` is compiled first.
 [<Struct>]
 type DecodedImage =
     { Width : int

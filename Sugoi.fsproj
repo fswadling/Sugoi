@@ -56,30 +56,30 @@
     <Compile Include="world/Actor.fs" />
     <!-- Bone-chain sway (spec 091): a Verlet rope anchored to the animated pose, applied as per-joint
          rotations before the pose becomes the bone palette. Names `PoseFrame` and `ActorModel` (so it
-         sits after `world/Actor.fs`) and owns the resolved `SwayChainDef` that `world/assets/ActorAsset.fs`
+         sits after `world/Actor.fs`) and owns the resolved `SwayChainDef` that `world/ActorAsset.fs`
          carries (so it sits before it). Pure — no GPU, no screen, no zone. -->
     <Compile Include="world/Sway.fs" />
-    <Compile Include="world/assets/ActorAsset.fs" />
-    <Compile Include="world/render/ActorRender.fs" />
-    <Compile Include="world/assets/EnvironmentAsset.fs" />
-    <Compile Include="world/render/EnvironmentRender.fs" />
+    <Compile Include="world/ActorAsset.fs" />
+    <Compile Include="world/ActorRender.fs" />
+    <Compile Include="world/EnvironmentAsset.fs" />
+    <Compile Include="world/EnvironmentRender.fs" />
     <!-- The async load substrate (spec 053): the decoded payload, the bounded recency queue and the
          worker pool. CPU-only; depends on `Gltf` and `Texture`, and is depended on by `Assets`. -->
-    <Compile Include="world/assets/AssetLoad.fs" />
-    <Compile Include="world/assets/Assets.fs" />
+    <Compile Include="world/AssetLoad.fs" />
+    <Compile Include="world/Assets.fs" />
     <!-- The dialogue view (spec 074): it resolves a speaker name to an actor asset (by name, through the
          asset manager's index) and draws that asset's declared portrait. Needs Assets, Ui and Dialogue,
          so it sits after them. -->
-    <Compile Include="world/render/DialogueRender.fs" />
+    <Compile Include="world/DialogueRender.fs" />
     <!-- The interact prompt's view (spec 039): the 2D layer's second consumer. Needs only `Ui`,
          so it sits beside the dialogue view. -->
-    <Compile Include="world/render/PromptRender.fs" />
+    <Compile Include="world/PromptRender.fs" />
     <!-- The cue — and therefore the run (spec 046): one type, the vocabulary and its execution
          state, shrinking to `Fin`. Needs `Prime`, `System.Numerics`, `Dialogue` and `SlotMap` only, and names no
          zone, screen, asset or device. Listed before `Entity.fs`, which names it (a trigger owns a cue, spec 058). -->
     <Compile Include="world/Cue.fs" />
     <Compile Include="world/Entity.fs" />
-    <Compile Include="world/render/EnvironmentBatch.fs" />
+    <Compile Include="world/EnvironmentBatch.fs" />
     <!-- The record of a registered zone (spec 034): listed before `Zone.fs`, because the loader there
          takes one as its argument. -->
     <Compile Include="world/ZoneTemplate.fs" />

@@ -125,7 +125,7 @@ A vertex-stage read-only storage buffer bound via
 - The fix for anything larger than 4 KiB is a **storage buffer**
   (`SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ` + per-frame transfer-buffer
   upload + `SDL_BindGPUVertexStorageBuffers`), which is what
-  `world/render/ActorRender.fs` does for the bone palette.
+  `world/ActorRender.fs` does for the bone palette.
 - Uniform slots are also scarce: `MAX_UNIFORM_BUFFERS_PER_STAGE = 4` per stage,
   so splitting a big array across slots caps out quickly.
 
@@ -261,7 +261,7 @@ engine**.
   is taller than the viewport — is simply left undrawn: `draw` returns without emitting anything and
   keeps no mutable state of its own. Explaining *why* is the editor's job, not the render layer's (the
   Dialogue panel asks `DialogueRender.missReason`), so nothing is logged per frame from the draw path.
-- **Its second consumer is the interact prompt (spec 039).** `world/render/PromptRender.fs` draws a trigger's
+- **Its second consumer is the interact prompt (spec 039).** `world/PromptRender.fs` draws a trigger's
   prompt as one centred line near the bottom of the screen while the player is inside it, with a
   shadow under the text for contrast. It measures through the third text slot, and the shadow and the
   text share the atlas texture and sampler, so the pair is a single draw run. A dialogue line takes the

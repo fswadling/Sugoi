@@ -18,8 +18,8 @@ marks a file that is not created yet — the marker is dropped when the file lan
 1. **Organise by domain cluster.** Eight stable clusters — `core`, `physics`,
    `render`, `audio`, `world`, `state`, `editor`, `screen` — plus a top-level
    `Shell.fs` loop and a thin `Program.fs` entry point. A cluster may add a grouping
-   subfolder when it outgrows a flat list (`world/assets/`, `world/render/`); the
-   compile list, not the directory, decides order.
+   subfolder when it outgrows a flat list; the compile list, not the directory,
+   decides order.
 2. **Flat module namespace.** One top-level `module X` per file, no namespace.
    `core/SlotMap.fs` declares `module SlotMap`, exactly as if it lived at the
    root. (Rejects `namespace Sugoi.Core` to avoid churning references.)
@@ -159,19 +159,17 @@ Sugoi/
 │   ├── Dialogue.fs             #   the dialogue state: Kind (speaker string) and Emotion, runtime screen state
 │   ├── Actor.fs                #   IQM model + morphs
 │   ├── Sway.fs                 #   bone-chain sway: a Verlet rope anchored to the animated pose (spec 091)
+│   ├── ActorAsset.fs           #   actor asset record
+│   ├── EnvironmentAsset.fs     #   static-model asset record
+│   ├── AssetLoad.fs            #   the decoded payload, the bounded recency queue, the worker pool (spec 053)
+│   ├── Assets.fs               #   asset manager + manifests
+│   ├── ActorRender.fs          #   skinned actor rendering
+│   ├── EnvironmentRender.fs    #   static environment + prop rendering
+│   ├── EnvironmentBatch.fs     #   per-zone static-scene instancing batch
+│   ├── DialogueRender.fs       #   the dialogue view: speaker name -> actor asset -> portrait, + the panel layout
+│   ├── PromptRender.fs         #   the interact prompt view + its layout (pure)
 │   ├── Cue.fs                  #   the cue: one type, the vocabulary, its run and forkInto (spec 046/058)
 │   ├── Systems.fs              #   named play-mode systems
-│   ├── assets/                 #   the asset records, the async load substrate, and the manager
-│   │   ├── AssetLoad.fs        #     the decoded payload, the bounded recency queue, the worker pool (spec 053)
-│   │   ├── Assets.fs           #     asset manager + manifests
-│   │   ├── ActorAsset.fs       #     actor asset record
-│   │   └── EnvironmentAsset.fs #     static-model asset record
-│   ├── render/                 #   the domain renderers and the 2D views
-│   │   ├── ActorRender.fs      #     skinned actor rendering
-│   │   ├── EnvironmentRender.fs#     static environment + prop rendering
-│   │   ├── EnvironmentBatch.fs #     per-zone static-scene instancing batch
-│   │   ├── DialogueRender.fs   #     the dialogue view: speaker name -> actor asset -> portrait, + the panel layout
-│   │   └── PromptRender.fs     #     the interact prompt view + its layout (pure)
 │   └── Project.fs              #   the project file: the scenario library as s-syntax (`project.manifest`) at the launch working directory (spec 095)
 ├── state/                      # app/screen state, the editor-command model, and the engines over the gameplay state
 │   ├── Screen.fs               #   kind/transition/input types
@@ -229,10 +227,9 @@ Sugoi/
   and the runtime deck rack), and `Sound` (the one-shot voice pool + its play/stop/release ops). Consumes
   `core/` and SDL3; consumed by `world/` (`Assets.scan`) and `state/` (the mix and the pool on
   `SharedState`). Compiled after `render/` and before `world/` (spec 086/087/089).
-- **`world/`** — the game domain: entities, zones, the cue, the scenario library
-  and the play-mode systems at the root; `world/assets/` the asset records, the
-  async load substrate and the manager; `world/render/` the domain renderers and
-  the 2D views. Consumes `core/`, `physics/`, `render/`, and `audio/`.
+- **`world/`** — the game domain: entities, zones, the asset records and manager,
+  the domain renderers and 2D views, the cue, the scenario library and the
+  play-mode systems. Consumes `core/`, `physics/`, `render/`, and `audio/`.
 - **`state/`** — app/screen state, the undoable editor-command model, the one
   undo history (`Undo`), and the engines whose effects land on the gameplay
   state (`ScenarioFork`, `CueEngine`). Consumes `world/`.
@@ -261,8 +258,8 @@ Dependency direction is strictly downward, matching the compile order:
 The flat layout has fully migrated. Only `Shell.fs` (the app shell and run loop,
 split out of `Program.fs`) and `Program.fs` (the thin `[<EntryPoint>]`) remain at
 the root; `ImGui.fs`/`ImGuiSdl3.fs` live in `render/`; the game-domain modules
-(entities, zones, the cue and the systems, with `assets/` and `render/`
-subfolders) live in `world/`; and the app/editor state (`Screen`, `SharedState`,
+(entities, zones, asset records, renderers, the cue and the systems) live in
+`world/`; and the app/editor state (`Screen`, `SharedState`,
 `Command`, `EditorState`, `GameplayState`) plus its engines (`Undo`,
 `ScenarioFork`, `CueEngine`) live in `state/`.
 

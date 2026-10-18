@@ -20,7 +20,7 @@ them up front. Zone *state* (actors, props, waypoints, triggers, the environment
 part list, collision geometry) is cheap and should stay resident. The zone's
 **environment asset GPU data is not**: it is the memory that blows.
 
-Today `Assets.scan` (`world/assets/Assets.fs:777`) eagerly parses **and uploads every**
+Today `Assets.scan` (`world/Assets.fs:777`) eagerly parses **and uploads every**
 environment and prop asset at startup (`loadStaticModel`, `Assets.fs:234-273`).
 As the asset set grows, startup and VRAM grow with it — with no upper bound.
 
@@ -46,7 +46,7 @@ The project's asset sizes are not uniform, which drives the capacity decision be
 
 - **Zone instantiation stays as it is.** `Zone.create`, `Zone.loadEnvironment`,
   `occupyZone`, and every entity/body/part is built from CPU data and is unaffected.
-  The per-instance renderer (`EnvironmentRender`, `world/render/EnvironmentRender.fs:24`)
+  The per-instance renderer (`EnvironmentRender`, `world/EnvironmentRender.fs:24`)
   already holds only a reference to the shared asset plus a submesh range — it copies
   no GPU data, so an evicted-then-reloaded asset is seen through the same reference.
 - **Zone activation ensures GPU residency.** The active zone's environment asset is
@@ -115,7 +115,7 @@ Lru.remove : Lru -> string -> unit
 Lru.tail   : Lru -> string option     // LRU victim
 ```
 
-Insert it after `core/SlotMap.fs` in `Sugoi.fsproj` (before `world/assets/Assets.fs`).
+Insert it after `core/SlotMap.fs` in `Sugoi.fsproj` (before `world/Assets.fs`).
 
 ### Capacity: a byte budget only
 
@@ -143,7 +143,7 @@ Cheap and exact enough to budget with. Eviction runs `while bytes > budget` over
 
 ### 1. `core/Lru.fs` (new) — the structure above.
 
-### 2. `world/assets/EnvironmentAsset.fs` — a mutable GPU side, immutable CPU side
+### 2. `world/EnvironmentAsset.fs` — a mutable GPU side, immutable CPU side
 
 `EnvironmentAsset` keeps its immutable authored/CPU fields. GPU residency becomes
 mutable and explicitly flagged (odin's `model` + `model_loaded`):
@@ -171,7 +171,7 @@ Retaining `Gltf.Model` (or at least its materials/`TextureRef`s) is new: the cur
 texture URIs. Keeping the parsed model also makes the CPU data available before the
 first GPU load.
 
-### 3. `world/assets/Assets.fs` — split parse from upload, own textures per asset
+### 3. `world/Assets.fs` — split parse from upload, own textures per asset
 
 - **Scan (`scan`, `Assets.fs:277`)** parses glTF into CPU `EnvironmentAsset`s
   (`Gltf.load`, `Parts`, `Bounds`, material factors) and **does not upload**. Startup
@@ -196,7 +196,7 @@ first GPU load.
   props + textures. Guard `releaseAsset` on `GpuLoaded` so a double-release can't free
   an already-freed handle.
 
-### 4. `world/assets/Assets.fs` — the cache and the two calls
+### 4. `world/Assets.fs` — the cache and the two calls
 
 ```fsharp
 // Assets.ensureEnvironmentResident: make the asset's GPU data resident, evicting LRU
