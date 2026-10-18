@@ -21,6 +21,10 @@ primitives.
 Important assumption:
 The flattened primitive order in the source glTF must match the mesh order in the
 runtime IQM export you plan to pair this with.
+
+Pass `--z-up` when the IQM was converted from the same glTF by
+`tools/gltf_to_iqm.py`: that tool maps glTF's Y-up axes to IQM's Z-up axes, so
+the deltas must be mapped too.
 """
 
 from __future__ import annotations
@@ -79,6 +83,11 @@ def parse_args() -> argparse.Namespace:
         "--positions-only",
         action="store_true",
         help="Export only position deltas, ignoring normal deltas",
+    )
+    parser.add_argument(
+        "--z-up",
+        action="store_true",
+        help="Map deltas from glTF's Y-up axes to IQM's Z-up axes (x, -z, y)",
     )
     return parser.parse_args()
 
@@ -244,8 +253,22 @@ def get_target_names(mesh: dict[str, Any], target_count: int) -> list[str]:
     return result
 
 
+def to_z_up(values: list[float]) -> list[float]:
+    """Map a flat vec3 list from glTF's Y-up axes to IQM/Blender's Z-up axes."""
+    result = [0.0] * len(values)
+    for i in range(0, len(values), 3):
+        x, y, z = values[i], values[i + 1], values[i + 2]
+        result[i] = x
+        result[i + 1] = -z
+        result[i + 2] = y
+    return result
+
+
 def collect_morphs(
-    doc: dict[str, Any], buffers: list[bytes], positions_only: bool
+    doc: dict[str, Any],
+    buffers: list[bytes],
+    positions_only: bool,
+    z_up: bool,
 ) -> tuple[list[dict[str, Any]], bytes]:
     morphs_by_name: dict[str, dict[str, Any]] = {}
     packed_f32: list[float] = []
@@ -289,6 +312,8 @@ def collect_morphs(
                     raise MorphExtractError(
                         f"Morph target '{name}' vertex count mismatch on {mesh_name}[{primitive_index}]"
                     )
+                if z_up:
+                    position_deltas = to_z_up(position_deltas)
 
                 position_offset_f32 = len(packed_f32)
                 packed_f32.extend(position_deltas)
@@ -304,6 +329,8 @@ def collect_morphs(
                         raise MorphExtractError(
                             f"Morph target '{name}' normal count mismatch on {mesh_name}[{primitive_index}]"
                         )
+                    if z_up:
+                        normal_deltas = to_z_up(normal_deltas)
                     has_normal_deltas = True
                     normal_offset_f32 = len(packed_f32)
                     packed_f32.extend(normal_deltas)
@@ -368,7 +395,9 @@ def main() -> int:
 
     doc = load_gltf_json(gltf_path)
     buffers = load_buffers(doc, gltf_path)
-    morphs, binary = collect_morphs(doc, buffers, positions_only=args.positions_only)
+    morphs, binary = collect_morphs(
+        doc, buffers, positions_only=args.positions_only, z_up=args.z_up
+    )
     write_outputs(json_path, bin_path, gltf_path, morphs, binary)
 
     target_count = sum(len(morph["targets"]) for morph in morphs)

@@ -54,19 +54,35 @@ Sugoi loads IQM v2 models. The authoring tooling lives in `tools/`:
 
 - `tools/iqm_export_with_morphs.py` — a Blender 4.1+ add-on that exports an IQM
   and, when the model has shape keys, `morphs.json` + `morphs.bin` sidecars.
+- `tools/gltf_to_iqm.py` — converts a skinned `.gltf` to an IQM without Blender
+  (geometry, joints and animations).
 - `tools/extract_gltf_morphs.py` — extracts shape-key deltas from a `.gltf` when
   the morph data already exists in glTF form.
 - `tools/morphs_to_sugoi.py` — converts the exporter's JSON/BIN sidecars into
   Sugoi's s-expression `*.morphs` manifest and packed `*.morphs.bin`.
 
-The actor manifest names the model and, optionally, its converted morph manifest:
+A glTF can be converted directly, without Blender:
 
-```text
-[[Id "akane"] [Name "Akane"] [Model "actors/Akane/Akane.iqm"]
- [Morphs "actors/Akane/akane.morphs"]]
+```sh
+python3 tools/gltf_to_iqm.py assets/actors/Shinji/Shinji.gltf \
+    -o assets/actors/Shinji/Shinji.iqm
 ```
 
-Convert and choose up to eight morphs, in the order they should appear:
+The converter maps glTF's Y-up axes to IQM's Z-up axes, so extract the morph
+deltas from the same glTF with `--z-up`:
+
+```sh
+python3 tools/extract_gltf_morphs.py assets/actors/Shinji/Shinji.gltf --z-up \
+    --json-out assets/actors/Shinji/morphs.json \
+    --bin-out assets/actors/Shinji/morphs.bin
+python3 tools/morphs_to_sugoi.py assets/actors/Shinji/morphs.json \
+    assets/actors/Shinji/Shinji.iqm \
+    --morphs Fcl_ALL_Neutral,Fcl_ALL_Joy,Fcl_ALL_Angry,Fcl_ALL_Sorrow,Fcl_ALL_Surprised,Fcl_ALL_Fun,Fcl_EYE_Close,Fcl_MTH_A \
+    -o assets/actors/Shinji/shinji.morphs
+```
+
+With the Blender exporter, convert and choose up to eight morphs, in the order
+they should appear:
 
 ```sh
 python3 tools/morphs_to_sugoi.py \
@@ -74,6 +90,13 @@ python3 tools/morphs_to_sugoi.py \
     assets/actors/Akane/Akane.iqm \
     --morphs Fcl_ALL_Neutral,Fcl_ALL_Joy,Fcl_ALL_Angry,Fcl_ALL_Sorrow,Fcl_ALL_Surprised,Fcl_ALL_Fun,Fcl_EYE_Close,Fcl_MTH_A \
     -o assets/actors/Akane/akane.morphs
+```
+
+The actor manifest names the model and, optionally, its converted morph manifest:
+
+```text
+[[Id "akane"] [Name "Akane"] [Model "actors/Akane/Akane.iqm"]
+ [Morphs "actors/Akane/akane.morphs"]]
 ```
 
 `--list-morphs` lists what the exporter produced. Without `--morphs`, every
