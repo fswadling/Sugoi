@@ -154,11 +154,28 @@ manifests under `assets/`. The manifest formats are documented in `assets/README
 
 ### Building actor models
 
-Actors are IQM v2 models. `tools/iqm_export_with_morphs.py` is a Blender 4.1+ add-on
-that exports an IQM and, when the model has shape keys, `morphs.json` + `morphs.bin`.
-Convert those sidecars to Sugoi's format with `tools/morphs_to_sugoi.py`; a model
-without morphs needs only the `.iqm`. See `tools/README.md` for the export and
-conversion steps.
+Actors are IQM v2 models. The authoring tooling lives in `tools/`; only the Blender
+exporter needs installing:
+
+1. Install `tools/iqm_export_with_morphs.py` in Blender 4.1+:
+   **Edit → Preferences → Add-ons → Install…**, select the file, then enable
+   **Export Inter-Quake Model + Morph Sidecars**.
+2. Export with **File → Export → Inter-Quake Model + Morphs**. This writes the
+   `.iqm`, and `morphs.json` + `morphs.bin` when the model has shape keys.
+3. Convert the morph sidecars to Sugoi's format, choosing up to eight morphs in
+   the order they should appear:
+
+   ```sh
+   python3 tools/morphs_to_sugoi.py \
+       assets/actors/Akane/morphs.json \
+       assets/actors/Akane/Akane.iqm \
+       --morphs Fcl_ALL_Neutral,Fcl_ALL_Joy,Fcl_ALL_Angry,Fcl_ALL_Sorrow,Fcl_ALL_Surprised,Fcl_ALL_Fun,Fcl_EYE_Close,Fcl_MTH_A \
+       -o assets/actors/Akane/akane.morphs
+   ```
+
+`--list-morphs` shows the names the exporter produced. A model without morphs
+needs only the `.iqm`. See `tools/README.md` for the full conversion reference
+and `assets/README.md` for the actor manifest fields.
 
 ## Persistence and live reload
 
