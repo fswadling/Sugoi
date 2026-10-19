@@ -8,6 +8,12 @@ The game is authored entirely inside the application: place zones, environments,
 waypoints, and triggers; wire triggers to cue scripts; assemble scenarios from the current scene;
 and toggle between editing and playing with one key.
 
+## Screenshots
+
+| Play mode | In-engine editor |
+|:---------:|:----------------:|
+| ![Shinji in play mode with a dialogue line](docs/screenshots/gameplay.png) | ![The in-engine editor with its outliner, inspector and viewport](docs/screenshots/editor.png) |
+
 ## What is in the box
 
 - **Playable 3D world** — zones with a glTF environment, props, IQM actors with animation,
